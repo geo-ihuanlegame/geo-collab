@@ -151,8 +151,6 @@ def _create_asset_from_path(
 
 
 async def store_upload(db: Session, user_id: int, upload: UploadFile) -> StoredAsset:
-    import tempfile
-
     from fastapi import HTTPException
 
     from server.app.core.config import ALLOWED_MAGIC, MAX_ASSET_BYTES
@@ -160,15 +158,19 @@ async def store_upload(db: Session, user_id: int, upload: UploadFile) -> StoredA
     filename = upload.filename or f"{uuid.uuid4().hex}.bin"
     content_type = upload.content_type or "application/octet-stream"
 
-    tmp = tempfile.NamedTemporaryFile(delete=False)
-    tmp_path = Path(tmp.name)
+    # Create temp file in data_dir so move() is a rename (same filesystem)
+    data_dir = get_data_dir()
+    data_dir.mkdir(parents=True, exist_ok=True)
+    tmp_path = data_dir / f".upload_tmp_{uuid.uuid4().hex}"
+    tmp = tmp_path.open("wb")
+
     sha256 = hashlib.sha256()
     total = 0
     first_chunk = True
 
     try:
         while True:
-            chunk = await upload.read(65536)
+            chunk = await upload.read(262144)  # 256 KB chunks for better network efficiency
             if not chunk:
                 break
             total += len(chunk)
