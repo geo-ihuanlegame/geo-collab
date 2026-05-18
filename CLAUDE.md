@@ -48,7 +48,7 @@ docker-compose up --build
 
 ### Backend (`server/app/`)
 
-FastAPI app，SQLite via SQLAlchemy + Alembic migrations。
+FastAPI app，SQLAlchemy + Alembic migrations。**测试用 SQLite 内存库；生产用 MySQL**（`GEO_DB_*` 或 `GEO_DATABASE_URL`）。必填环境变量：`GEO_DATA_DIR`、`GEO_JWT_SECRET`。参考 `.env.example`。
 
 **Core models** (`server/app/models/`):
 - `Platform` — 发布目标平台（如 toutiao）
@@ -120,13 +120,26 @@ register(MyPlatformDriver())
 
 ## Task Execution Model
 
-任务**同步在请求线程中执行** — `POST /api/tasks/{id}/execute` 阻塞直到所有 `PublishRecord` 完成。每个任务一把 `threading.Lock`（按 task ID）防止并发执行。无异步队列。
+`POST /api/tasks/{id}/execute` 立即返回 202 — 任务**异步执行**。
+
+**生产环境（Worker 进程）：** 独立 worker 轮询 DB 认领并执行任务，API 仅清理过期认领后返回。启动命令：
+```bash
+python -m server.worker.executor
+```
+
+**测试环境：** `bg_session_factory` 被 monkeypatch 为 `TestingSessionLocal` 时，execute 端点在后台线程本地执行任务（无需 worker 进程）。
+
+**并发控制：** 每个任务一把 `threading.Lock` 防止重复执行；每个账号一把 Lock 串行处理；全局上限 `MAX_CONCURRENT_RECORDS = 5`（`ThreadPoolExecutor`）。
 
 **发布流程：** `build_publish_runner_for_record(record)` → `run_publish(article, account, ...)` → `managed_remote_browser_session` 启 Xvfb → `driver.publish(...)`
 
 **`stop_before_publish=true` 流程：** driver 点"预览并发布"但跳过"确认发布"，record 留在 `waiting_manual_publish` 状态。调 `POST /api/publish-records/{id}/manual-confirm` 带 `{"outcome": "succeeded"|"failed", ...}` 解决。
 
-**Error convention：** 任何 service 中 raise `ValueError` 都由 `create_app()` 全局 handler 捕获并返回 HTTP 400。这是预期模式 — 所有客户端可见的校验错误都 raise `ValueError`。
+**Error convention：** 使用 `server/app/services/errors.py` 中的具名异常，不要 raise 裸 `ValueError`：
+- `ValidationError` → HTTP 400（用户输入校验失败）
+- `AccountError` → HTTP 400（账号不存在/过期/平台不匹配）
+- `ClientError` → HTTP 400（其他客户端可见错误的基类）
+- `ConflictError(ClientError)` → HTTP 409（乐观锁/幂等冲突）
 
 ## Testing
 
