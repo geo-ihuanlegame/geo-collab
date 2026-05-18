@@ -96,7 +96,7 @@ class TestErrorTypeClassification:
             task_id = task_data["id"]
 
             monkeypatch.setattr(
-                "server.app.services.tasks.build_publish_runner_for_record",
+                "server.app.modules.tasks.task_Executor.build_publish_runner_for_record",
                 lambda _r: (lambda article, account, *, stop_before_publish=False: (_ for _ in ()).throw(
                     ToutiaoUserInputRequired("需要扫码", error_type="qr_scan_required")
                 )),
@@ -199,7 +199,7 @@ class TestManualInterventionEndpoints:
         test_app, record_id, task_id = self._setup_waiting_record(monkeypatch, "waiting_user_input")
         try:
             monkeypatch.setattr(
-                "server.app.services.tasks.build_publish_runner_for_record",
+                "server.app.modules.tasks.task_Executor.build_publish_runner_for_record",
                 lambda _r: (lambda article, account, *, stop_before_publish=False: (_ for _ in ()).throw(
                     Exception("stop immediately")
                 )),

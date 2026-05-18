@@ -264,7 +264,7 @@ class TestNotifyTriggeredOnTaskCompletion:
                 "failed": failed,
             })
 
-        monkeypatch.setattr("server.app.services.tasks.notify_task_finished", fake_notify)
+        monkeypatch.setattr("server.app.services.feishu.notify_task_finished", fake_notify)
 
         try:
             article_id = _create_article(test_app.client)
@@ -277,7 +277,7 @@ class TestNotifyTriggeredOnTaskCompletion:
                 message = "Published"
 
             monkeypatch.setattr(
-                "server.app.services.tasks.build_publish_runner_for_record",
+                "server.app.modules.tasks.task_Executor.build_publish_runner_for_record",
                 lambda _r: (lambda article, account, *, stop_before_publish=False: FakeResult()),
             )
 
@@ -318,7 +318,7 @@ class TestNotifyTriggeredOnTaskCompletion:
                 "failed": failed,
             })
 
-        monkeypatch.setattr("server.app.services.tasks.notify_task_finished", fake_notify)
+        monkeypatch.setattr("server.app.services.feishu.notify_task_finished", fake_notify)
 
         try:
             article_id = _create_article(test_app.client)
@@ -329,7 +329,7 @@ class TestNotifyTriggeredOnTaskCompletion:
             from server.app.services.drivers.toutiao import ToutiaoPublishError
 
             monkeypatch.setattr(
-                "server.app.services.tasks.build_publish_runner_for_record",
+                "server.app.modules.tasks.task_Executor.build_publish_runner_for_record",
                 lambda _r: (lambda article, account, *, stop_before_publish=False: (_ for _ in ()).throw(
                     ToutiaoPublishError("publish failed", screenshot=None)
                 )),
@@ -380,7 +380,7 @@ class TestNotifyTriggeredOnTaskCompletion:
                 message = "Published"
 
             monkeypatch.setattr(
-                "server.app.services.tasks.build_publish_runner_for_record",
+                "server.app.modules.tasks.task_Executor.build_publish_runner_for_record",
                 lambda _r: (lambda article, account, *, stop_before_publish=False: FakeResult()),
             )
 

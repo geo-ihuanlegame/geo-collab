@@ -90,7 +90,7 @@ def test_stop_before_publish_enters_waiting_state(monkeypatch):
 
     try:
         monkeypatch.setattr(
-            "server.app.services.tasks.build_publish_runner_for_record",
+            "server.app.modules.tasks.task_Executor.build_publish_runner_for_record",
             lambda record: FakePublisher(),
         )
         cover_id = _upload_cover_image(client)
@@ -143,7 +143,7 @@ def test_user_input_required_pauses_record(monkeypatch):
     try:
         publisher = NeedsUserInputPublisher()
         monkeypatch.setattr(
-            "server.app.services.tasks.build_publish_runner_for_record",
+            "server.app.modules.tasks.task_Executor.build_publish_runner_for_record",
             lambda record: publisher,
         )
         cover_id = _upload_cover_image(client)
@@ -201,7 +201,7 @@ def test_resolve_user_input_requeues_and_continues(monkeypatch):
 
     try:
         monkeypatch.setattr(
-            "server.app.services.tasks.build_publish_runner_for_record",
+            "server.app.modules.tasks.task_Executor.build_publish_runner_for_record",
             lambda record: LoginThenSuccessPublisher(),
         )
         cover_id = _upload_cover_image(client)
@@ -261,7 +261,7 @@ def test_manual_confirm_succeeded(monkeypatch):
 
     try:
         monkeypatch.setattr(
-            "server.app.services.tasks.build_publish_runner_for_record",
+            "server.app.modules.tasks.task_Executor.build_publish_runner_for_record",
             lambda record: FakePublisher(),
         )
         cover_id = _upload_cover_image(client)
@@ -315,7 +315,7 @@ def test_manual_confirm_failed(monkeypatch):
 
     try:
         monkeypatch.setattr(
-            "server.app.services.tasks.build_publish_runner_for_record",
+            "server.app.modules.tasks.task_Executor.build_publish_runner_for_record",
             lambda record: FakePublisher(),
         )
         cover_id = _upload_cover_image(client)
@@ -369,7 +369,7 @@ def test_manual_confirm_does_not_block_with_next_record(monkeypatch):
 
     try:
         monkeypatch.setattr(
-            "server.app.services.tasks.build_publish_runner_for_record",
+            "server.app.modules.tasks.task_Executor.build_publish_runner_for_record",
             lambda record: FakePublisher(),
         )
         cover_id = _upload_cover_image(client)
@@ -441,7 +441,7 @@ def test_unexpected_exception_marks_record_failed(monkeypatch):
 
     try:
         monkeypatch.setattr(
-            "server.app.services.tasks.build_publish_runner_for_record",
+            "server.app.modules.tasks.task_Executor.build_publish_runner_for_record",
             lambda record: FakePublisher(error=ValueError("Something unexpected broke")),
         )
         cover_id = _upload_cover_image(client)
@@ -485,7 +485,7 @@ def test_execute_terminal_task_returns_409(monkeypatch):
 
     try:
         monkeypatch.setattr(
-            "server.app.services.tasks.build_publish_runner_for_record",
+            "server.app.modules.tasks.task_Executor.build_publish_runner_for_record",
             lambda record: FakePublisher(),
         )
         cover_id = _upload_cover_image(client)
@@ -524,7 +524,7 @@ def test_execute_terminal_task_returns_409(monkeypatch):
             },
         ).json()
         monkeypatch.setattr(
-            "server.app.services.tasks.build_publish_runner_for_record",
+            "server.app.modules.tasks.task_Executor.build_publish_runner_for_record",
             lambda record: FakePublisher(error=ToutiaoPublishError("fail")),
         )
         _execute_and_wait(client, task2["id"])
@@ -596,7 +596,7 @@ def test_concurrent_execute_only_one_succeeds(monkeypatch):
         # Release the lock and execute again — should succeed
         fake_lock.release()
         monkeypatch.setattr(
-            "server.app.services.tasks.build_publish_runner_for_record",
+            "server.app.modules.tasks.task_Executor.build_publish_runner_for_record",
             lambda record: FakePublisher(),
         )
 
@@ -657,7 +657,7 @@ def test_group_task_runs_different_accounts_concurrently_with_cap(monkeypatch):
             )
 
     try:
-        monkeypatch.setattr("server.app.services.tasks.build_publish_runner_for_record", lambda record: SlowPublisher())
+        monkeypatch.setattr("server.app.modules.tasks.task_Executor.build_publish_runner_for_record", lambda record: SlowPublisher())
         cover_id = _upload_cover_image(client)
         article_ids = [
             _create_article(client, f"Article {index}", plain_text=f"Body {index}", cover_asset_id=cover_id)
@@ -700,7 +700,7 @@ def test_group_task_serializes_records_for_same_account(monkeypatch):
             )
 
     try:
-        monkeypatch.setattr("server.app.services.tasks.build_publish_runner_for_record", lambda record: SlowPublisher())
+        monkeypatch.setattr("server.app.modules.tasks.task_Executor.build_publish_runner_for_record", lambda record: SlowPublisher())
         cover_id = _upload_cover_image(client)
         article_ids = [
             _create_article(client, f"Serial Article {index}", plain_text=f"Body {index}", cover_asset_id=cover_id)
@@ -732,7 +732,7 @@ def test_failed_record_does_not_block_next_record(monkeypatch):
             )
 
     try:
-        monkeypatch.setattr("server.app.services.tasks.build_publish_runner_for_record", lambda record: MixedPublisher())
+        monkeypatch.setattr("server.app.modules.tasks.task_Executor.build_publish_runner_for_record", lambda record: MixedPublisher())
         cover_id = _upload_cover_image(client)
         first = _create_article(client, "fail first", plain_text="Body 1", cover_asset_id=cover_id)
         second = _create_article(client, "publish second", plain_text="Body 2", cover_asset_id=cover_id)
@@ -768,7 +768,7 @@ def test_execute_and_cancel_race_does_not_leave_corrupt_state(monkeypatch):
     client = test_app.client
     try:
         monkeypatch.setattr(
-            "server.app.services.tasks.build_publish_runner_for_record",
+            "server.app.modules.tasks.task_Executor.build_publish_runner_for_record",
             lambda record: SlowFakePublisher(),
         )
         cover_id = _upload_cover_image(client)

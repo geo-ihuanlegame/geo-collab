@@ -13,7 +13,7 @@ from io import BytesIO
 
 import pytest
 
-from server.app.services.tasks import MAX_CONCURRENT_RECORDS, _global_publish_sem
+from server.app.modules.tasks.task_Executor import MAX_CONCURRENT_RECORDS, _global_publish_sem
 from server.tests.utils import build_test_app
 
 _PNG = (
@@ -67,7 +67,7 @@ class TestSemaphoreIntegrity:
 
     def test_semaphore_released_after_exception(self, monkeypatch):
         """发布过程抛异常时 semaphore 槽必须被释放"""
-        from server.app.services import tasks as tasks_mod
+        from server.app.modules.tasks import task_Executor as tasks_mod
 
         call_count = 0
         barrier = threading.Barrier(2)
@@ -116,7 +116,7 @@ class TestSemaphoreIntegrity:
 
     def test_semaphore_released_after_success(self, monkeypatch):
         """发布成功后 semaphore 槽被归还"""
-        from server.app.services import tasks as tasks_mod
+        from server.app.modules.tasks import task_Executor as tasks_mod
 
         class FakeResult:
             url = "https://toutiao.com/article/123"
@@ -174,7 +174,7 @@ def _wait_task_terminal(client, task_id: int, timeout: float = 15.0) -> dict:
 
 def test_same_account_across_tasks_is_serialized(monkeypatch):
     """Two tasks targeting the same account never run their publish runner concurrently."""
-    from server.app.services import tasks as tasks_mod
+    from server.app.modules.tasks import task_Executor as tasks_mod
 
     active = 0
     max_active = 0
@@ -230,7 +230,7 @@ class TestConcurrentTaskIsolation:
 
     def test_two_tasks_records_independent(self, monkeypatch):
         """两个任务并发执行，每个任务的 records 状态独立，互不污染"""
-        from server.app.services import tasks as tasks_mod
+        from server.app.modules.tasks import task_Executor as tasks_mod
 
         class FakeResult:
             url = "https://toutiao.com/article/ok"
@@ -286,7 +286,7 @@ class TestConcurrentTaskIsolation:
 
     def test_semaphore_blocks_excess_concurrent_records(self, monkeypatch):
         """semaphore 跨任务限制：N+2 个任务并发，观察到最大并发 ≤ MAX_CONCURRENT_RECORDS"""
-        from server.app.services import tasks as tasks_mod
+        from server.app.modules.tasks import task_Executor as tasks_mod
 
         max_concurrent = [0]
         current_concurrent = [0]
