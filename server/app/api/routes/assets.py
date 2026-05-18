@@ -8,11 +8,18 @@ from PIL import Image
 from sqlalchemy.orm import Session
 
 from server.app.core.paths import get_data_dir
-from server.app.core.security import get_current_user
+from server.app.core.security import get_current_user, require_admin
 from server.app.db.session import get_db
 from server.app.models import Asset, User
 from server.app.schemas.asset import AssetRead
-from server.app.modules.articles import asset_url, resolve_asset_path, store_upload
+from server.app.modules.articles import (
+    asset_url,
+    find_orphan_asset_ids,
+    get_asset_stats,
+    resolve_asset_path,
+    soft_delete_assets,
+    store_upload,
+)
 from server.app.shared.errors import ClientError
 
 router = APIRouter()
@@ -78,6 +85,26 @@ async def upload_asset(
     )
 
 
+@router.get("/stats")
+def asset_stats(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+) -> dict:
+    """磁盘资产统计（总量、孤儿数、已删除数、缩略图缓存大小）。"""
+    return get_asset_stats(db)
+
+
+@router.post("/cleanup-orphans")
+def cleanup_orphan_assets(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+) -> dict:
+    """将所有孤儿资产（未被任何文章引用）标记为逻辑删除。不删除磁盘文件。"""
+    orphan_ids = find_orphan_asset_ids(db)
+    marked = soft_delete_assets(db, orphan_ids)
+    return {"orphan_count": len(orphan_ids), "marked_deleted": marked}
+
+
 @router.get("/{asset_id}/meta", response_model=AssetRead)
 def read_asset_meta(asset_id: str, db: Session = Depends(get_db)) -> AssetRead:
     asset = db.get(Asset, asset_id)
@@ -89,7 +116,7 @@ def read_asset_meta(asset_id: str, db: Session = Depends(get_db)) -> AssetRead:
 @router.get("/{asset_id}")
 async def read_asset_file(asset_id: str, width: int | None = None, db: Session = Depends(get_db)) -> Response:
     asset = db.get(Asset, asset_id)
-    if asset is None:
+    if asset is None or asset.is_deleted:
         raise HTTPException(status_code=404, detail="Asset not found")
 
     try:

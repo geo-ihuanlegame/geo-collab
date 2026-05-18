@@ -7,11 +7,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from fastapi import UploadFile
+from sqlalchemy import exists, func, select, update as sa_update
 from sqlalchemy.orm import Session
 
 from server.app.core.paths import get_data_dir
 from server.app.core.time import utcnow
-from server.app.models import Asset
+from server.app.models import Article, ArticleBodyAsset, Asset, TaskLog
 from server.app.shared.errors import ClientError
 
 
@@ -226,3 +227,57 @@ async def store_upload(db: Session, user_id: int, upload: UploadFile) -> StoredA
         except Exception:
             pass
         raise
+
+
+# ── 孤儿资产管理 ──────────────────────────────────────────────────────────────
+
+def find_orphan_asset_ids(db: Session) -> list[str]:
+    """返回未被任何文章（封面/正文）或任务日志截图引用的 asset id 列表。"""
+    stmt = (
+        select(Asset.id)
+        .where(
+            Asset.is_deleted == False,  # noqa: E712
+            ~exists(select(Article.id).where(Article.cover_asset_id == Asset.id)),
+            ~exists(select(ArticleBodyAsset.id).where(ArticleBodyAsset.asset_id == Asset.id)),
+            ~exists(select(TaskLog.id).where(TaskLog.screenshot_asset_id == Asset.id)),
+        )
+    )
+    return list(db.execute(stmt).scalars().all())
+
+
+def soft_delete_assets(db: Session, asset_ids: list[str]) -> int:
+    """将指定 asset 标记为逻辑删除，返回实际标记的数量。不删除磁盘文件。"""
+    if not asset_ids:
+        return 0
+    now = utcnow()
+    result = db.execute(
+        sa_update(Asset)
+        .where(Asset.id.in_(asset_ids), Asset.is_deleted == False)  # noqa: E712
+        .values(is_deleted=True, deleted_at=now)
+    )
+    db.flush()
+    return result.rowcount
+
+
+def get_asset_stats(db: Session) -> dict:
+    """返回资产统计：总数、总大小、孤儿数、已删除数、缩略图缓存大小。"""
+    row = db.execute(
+        select(
+            func.count().label("total_count"),
+            func.coalesce(func.sum(Asset.size), 0).label("total_size_bytes"),
+            func.sum(func.cast(Asset.is_deleted == True, Asset.size.type)).label("deleted_count"),  # noqa: E712
+        )
+    ).one()
+
+    orphan_ids = find_orphan_asset_ids(db)
+
+    cache_dir = get_data_dir() / "thumbnail_cache"
+    cache_size = sum(f.stat().st_size for f in cache_dir.rglob("*") if f.is_file()) if cache_dir.exists() else 0
+
+    return {
+        "total_count": row.total_count,
+        "total_size_bytes": row.total_size_bytes,
+        "deleted_count": int(row.deleted_count or 0),
+        "orphan_count": len(orphan_ids),
+        "thumbnail_cache_size_bytes": cache_size,
+    }

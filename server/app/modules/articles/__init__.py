@@ -6,6 +6,9 @@ from server.app.modules.articles.asset_Store import (  # noqa: F401
     store_upload,
     guess_image_size,
     normalize_ext,
+    find_orphan_asset_ids,
+    soft_delete_assets,
+    get_asset_stats,
 )
 from server.app.modules.articles.tiptap_Parser import (  # noqa: F401
     BodySegment,

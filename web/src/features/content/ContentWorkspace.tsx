@@ -211,7 +211,7 @@ function ImageResizeView({ node, updateAttributes, selected }: NodeViewProps) {
     <NodeViewWrapper style={{ display: "block", position: "relative", width: attrs.width ?? "100%" }}>
       <img
         ref={imgRef}
-        src={`${attrs.src}?width=600`}
+        src={attrs.src.startsWith("blob:") ? attrs.src : `${attrs.src}?width=600`}
         alt={attrs.alt ?? ""}
         title={attrs.title ?? ""}
         data-asset-id={attrs.assetId ?? undefined}
