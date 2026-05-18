@@ -118,14 +118,10 @@ def store_bytes(db: Session, user_id: int, data: bytes, filename: str, content_t
 
 def _create_asset_from_path(
     db: Session, user_id: int, filepath: Path, filename: str, content_type: str,
-    sha256_hash: str, size: int,
+    sha256_hash: str, size: int, ext: str, width: int | None, height: int | None,
 ) -> StoredAsset:
     now = utcnow()
     asset_id = uuid.uuid4().hex
-    with open(filepath, "rb") as f:
-        header = f.read(32)
-    ext = normalize_ext(filename, content_type, header)
-    width, height = guess_image_size(header)
     storage_key = Path("assets") / f"{now:%Y}" / f"{now:%m}" / f"{asset_id}{ext}"
     dest = get_data_dir() / storage_key
 
@@ -158,51 +154,39 @@ async def store_upload(db: Session, user_id: int, upload: UploadFile) -> StoredA
 
     filename = upload.filename or f"{uuid.uuid4().hex}.bin"
     content_type = upload.content_type or "application/octet-stream"
-
-    # Create temp file in data_dir so move() is a rename (same filesystem)
     data_dir = get_data_dir()
     data_dir.mkdir(parents=True, exist_ok=True)
-    tmp_path = data_dir / f".upload_tmp_{uuid.uuid4().hex}"
+    tmp_path = data_dir / f".upload_{uuid.uuid4().hex}"
 
     sha256 = hashlib.sha256()
     total = 0
-    first_chunk = True
+    first_chunk: bytes | None = None
 
     try:
         async with aiofiles.open(str(tmp_path), "wb") as tmp:
             while True:
-                chunk = await upload.read(262144)  # 256 KB chunks for better network efficiency
+                chunk = await upload.read(262144)
                 if not chunk:
                     break
                 total += len(chunk)
                 if total > MAX_ASSET_BYTES:
-                    tmp_path.unlink(missing_ok=True)
                     raise HTTPException(
                         status_code=413,
                         detail=f"File exceeds {MAX_ASSET_BYTES // (1024 * 1024)}MB limit",
                     )
 
-                if first_chunk:
-                    valid_magic = False
-                    for magic in ALLOWED_MAGIC:
-                        if chunk.startswith(magic):
-                            if magic == b"RIFF":
-                                if len(chunk) >= 12 and chunk[8:12] == b"WEBP":
-                                    valid_magic = True
-                                    break
-                            else:
-                                valid_magic = True
-                                break
-                    if not valid_magic:
-                        tmp_path.unlink(missing_ok=True)
+                if first_chunk is None:
+                    first_chunk = chunk
+                    ok = any(chunk.startswith(m) for m in ALLOWED_MAGIC)
+                    if ok and chunk.startswith(b"RIFF") and (len(chunk) < 12 or chunk[8:12] != b"WEBP"):
+                        ok = False
+                    if not ok:
                         raise HTTPException(status_code=415, detail="Unsupported file type")
-                    first_chunk = False
 
                 await tmp.write(chunk)
                 sha256.update(chunk)
 
         if total == 0:
-            tmp_path.unlink(missing_ok=True)
             raise ClientError("Uploaded file is empty")
 
         digest = sha256.hexdigest()
@@ -210,15 +194,17 @@ async def store_upload(db: Session, user_id: int, upload: UploadFile) -> StoredA
         if existing:
             existing_path = resolve_asset_path(existing)
             if existing_path.exists():
-                tmp_path.unlink(missing_ok=True)
-                db.flush()
-                db.refresh(existing)
                 return StoredAsset(asset=existing, path=existing_path)
+
+        ext = normalize_ext(filename, content_type, first_chunk)
+        width, height = guess_image_size(first_chunk)
 
         import asyncio
         loop = asyncio.get_event_loop()
         stored = await loop.run_in_executor(
-            None, _create_asset_from_path, db, user_id, tmp_path, filename, content_type, digest, total
+            None, _create_asset_from_path,
+            db, user_id, tmp_path, filename, content_type, digest, total,
+            ext, width, height,
         )
         db.flush()
         db.refresh(stored.asset)

@@ -581,10 +581,9 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
     }
   }
 
-  async function handleBodyImageUpload(file: File | null) {
-    if (!file || !editor) return;
+  async function handleBodyImageUploadSingle(file: File) {
+    if (!editor) return;
 
-    // Optimistic: insert immediately with a blob URL so the image appears at once
     const blobUrl = URL.createObjectURL(file);
     const tempAssetId = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     pendingBlobsRef.current.add(blobUrl);
@@ -622,9 +621,7 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
 
       pendingBlobsRef.current.delete(blobUrl);
       URL.revokeObjectURL(blobUrl);
-      toast("正文图片已插入，请保存文章", "success");
     } catch (error) {
-      // Remove the placeholder on failure
       const { state, view } = editor;
       let posFound = -1, sizeFound = 0;
       state.doc.descendants((node, pos) => {
@@ -640,7 +637,13 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
       setImageUploading((n) => n - 1);
     }
   }
-  pasteImageRef.current = (file: File) => void handleBodyImageUpload(file);
+
+  async function handleBodyImageUpload(files: File[]) {
+    if (!files.length || !editor) return;
+    await Promise.all(files.map((f) => handleBodyImageUploadSingle(f).catch(() => {})));
+    toast("正文图片已插入，请保存文章", "success");
+  }
+  pasteImageRef.current = (file: File) => void handleBodyImageUploadSingle(file);
 
   async function saveArticle() {
     await persistArticle();

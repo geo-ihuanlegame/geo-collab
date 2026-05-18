@@ -11,7 +11,7 @@ export function EditorToolbar({
   onImageUpload,
 }: {
   editor: ReturnType<typeof useEditor>;
-  onImageUpload: (file: File | null) => Promise<void>;
+  onImageUpload: (files: File[]) => Promise<void>;
 }) {
   if (!editor) return null;
 
@@ -71,7 +71,7 @@ export function EditorToolbar({
       <button title="链接" type="button" onClick={() => { const url = window.prompt("链接地址"); if (url) editor.chain().focus().setLink({ href: url }).run(); }}><LinkIcon size={16} /></button>
       <label className="toolbarFile" title="插入图片">
         <ImagePlus size={16} />
-        <input accept="image/*" type="file" onChange={(event) => { void onImageUpload(event.target.files?.[0] ?? null); event.currentTarget.value = ""; }} />
+        <input accept="image/*" type="file" multiple onChange={(event) => { const files = Array.from(event.target.files ?? []); if (files.length) void onImageUpload(files); event.currentTarget.value = ""; }} />
       </label>
     </div>
   );
