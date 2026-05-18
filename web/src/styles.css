@@ -230,6 +230,8 @@ h2 {
 
 .bottomActions { justify-content: flex-end; margin-top: 20px; }
 
+.statusHint { font-size: 12px; color: var(--muted, #888); }
+
 /* ═══════════════════════════════ BUTTONS ═══════════════════════════════ */
 .primaryButton,
 .secondaryButton,
