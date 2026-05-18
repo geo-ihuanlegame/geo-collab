@@ -542,7 +542,7 @@ def _finish_login_browser_local(platform_code: str, account_key: str, session_id
 
 
 def _finish_login_browser_impl(platform_code: str, account_key: str, session_id: str) -> BrowserCheckResult:
-    from server.app.services.browser_sessions import get_session, stop_remote_browser_session
+    from server.app.modules.accounts.browser_Session import get_session, stop_remote_browser_session
 
     session = get_session(session_id)
     if session is None:
@@ -567,7 +567,7 @@ def _stop_login_browser_local(account_key: str, session_id: str) -> None:
 
 
 def _stop_login_browser_impl(account_key: str, session_id: str) -> None:
-    from server.app.services.browser_sessions import get_session, stop_remote_browser_session
+    from server.app.modules.accounts.browser_Session import get_session, stop_remote_browser_session
 
     session = get_session(session_id)
     if session is None:
@@ -584,7 +584,7 @@ def _start_login_browser(platform_code: str, account_key: str, channel: str, exe
 def _start_login_browser_impl(platform_code: str, account_key: str, channel: str, executable_path: str | None):
     from playwright.sync_api import sync_playwright
 
-    from server.app.services.browser_sessions import (
+    from server.app.modules.accounts.browser_Session import (
         attach_browser_handles,
         keep_session_alive,
         start_remote_browser_session,
@@ -659,7 +659,7 @@ def _load_login_page(page, platform_code: str, account_key: str, home_url: str) 
 
 def _start_login_page_loader(session_id: str, platform_code: str, account_key: str, home_url: str) -> None:
     def _load() -> None:
-        from server.app.services.browser_sessions import get_session
+        from server.app.modules.accounts.browser_Session import get_session
 
         session = get_session(session_id)
         if session is None or session.page is None:

@@ -415,7 +415,7 @@ def test_manual_confirm_does_not_block_with_next_record(monkeypatch):
         assert records[1]["status"] == "pending"
 
         # Direct unit test: manual_confirm_record service function
-        from server.app.services.tasks import manual_confirm_record
+        from server.app.modules.tasks import manual_confirm_record
         db2 = test_app.session_factory()
         try:
             rec1 = db2.get(PublishRecord, records[0]["id"])

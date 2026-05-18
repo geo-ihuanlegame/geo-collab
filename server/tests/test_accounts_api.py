@@ -4,7 +4,7 @@ import zipfile
 from io import BytesIO
 
 from server.app.models import Account
-from server.app.services.browser_sessions import RemoteBrowserSession
+from server.app.modules.accounts import RemoteBrowserSession
 from server.tests.utils import build_test_app
 
 

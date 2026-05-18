@@ -1,6 +1,6 @@
 """ORM → Pydantic 序列化转换函数。"""
-from server.app.services.articles import loads_content_json
-from server.app.services.browser_sessions import get_session_for_record
+from server.app.modules.articles import loads_content_json
+from server.app.modules.accounts import get_session_for_record
 from server.app.models import (
     Account,
     Article,

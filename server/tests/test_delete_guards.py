@@ -1,5 +1,5 @@
 from server.app.models import PublishRecord, PublishTask
-from server.app.services.accounts import get_or_create_platform
+from server.app.modules.accounts import get_or_create_platform
 from server.tests.utils import build_test_app
 
 ACTIVE_STATUSES = ["pending", "running", "waiting_manual_publish", "waiting_user_input"]

@@ -1,4 +1,4 @@
-"""Tests for server.app.services.publish_runner."""
+"""Tests for server.app.modules.tasks.publish_Runner."""
 from __future__ import annotations
 
 import types
@@ -92,55 +92,55 @@ def _patch_common(monkeypatch, tmp_path: Path, stub_session, pw_cm, context, pag
 
     # get_data_dir → tmp_path
     monkeypatch.setattr(
-        "server.app.services.publish_runner.get_data_dir",
+        "server.app.modules.tasks.publish_Runner.get_data_dir",
         lambda: tmp_path,
     )
 
     # account_key_from_state_path → ("testplat", "k1")
     monkeypatch.setattr(
-        "server.app.services.publish_runner.account_key_from_state_path",
+        "server.app.modules.tasks.publish_Runner.account_key_from_state_path",
         lambda state_path: ("testplat", "k1"),
     )
 
     # _build_payload → returns a stub PublishPayload without touching ORM
     monkeypatch.setattr(
-        "server.app.services.publish_runner._build_payload",
+        "server.app.modules.tasks.publish_Runner._build_payload",
         lambda article, account, account_key, platform_code, state_path: stub_payload,
     )
 
     # profile_dir_for_key → a path that doesn't need to exist
     monkeypatch.setattr(
-        "server.app.services.publish_runner.profile_dir_for_key",
+        "server.app.modules.tasks.publish_Runner.profile_dir_for_key",
         lambda platform_code, account_key: tmp_path / "profile",
     )
 
     # get_or_create_account_session → returns stub_session directly
     monkeypatch.setattr(
-        "server.app.services.publish_runner.get_or_create_account_session",
+        "server.app.modules.tasks.publish_Runner.get_or_create_account_session",
         lambda platform_code, account_key: stub_session,
     )
 
     # stop_remote_browser_session → no-op (called on launch failure path)
     monkeypatch.setattr(
-        "server.app.services.publish_runner.stop_remote_browser_session",
+        "server.app.modules.tasks.publish_Runner.stop_remote_browser_session",
         lambda session_id: None,
     )
 
     # sync_playwright → pw_cm
     monkeypatch.setattr(
-        "server.app.services.publish_runner.sync_playwright",
+        "server.app.modules.tasks.publish_Runner.sync_playwright",
         lambda: pw_cm,
     )
 
     # launch_options → minimal dict so options["env"] assignment works
     monkeypatch.setattr(
-        "server.app.services.publish_runner.launch_options",
+        "server.app.modules.tasks.publish_Runner.launch_options",
         lambda channel, executable_path: {},
     )
 
     # attach_browser_handles → no-op
     monkeypatch.setattr(
-        "server.app.services.publish_runner.attach_browser_handles",
+        "server.app.modules.tasks.publish_Runner.attach_browser_handles",
         lambda *args, **kwargs: None,
     )
 
@@ -181,7 +181,7 @@ def test_run_publish_routes_by_platform_code(monkeypatch, tmp_path):
     stub_driver = _StubDriver()
 
     monkeypatch.setattr(
-        "server.app.services.publish_runner.get_driver",
+        "server.app.modules.tasks.publish_Runner.get_driver",
         lambda platform_code: stub_driver,
     )
 
@@ -222,14 +222,14 @@ def test_run_publish_keeps_session_on_user_input_required(monkeypatch, tmp_path)
     stub_driver = _StubDriver()
 
     monkeypatch.setattr(
-        "server.app.services.publish_runner.get_driver",
+        "server.app.modules.tasks.publish_Runner.get_driver",
         lambda platform_code: stub_driver,
     )
 
     kept_alive = []
 
     monkeypatch.setattr(
-        "server.app.services.publish_runner.keep_session_alive",
+        "server.app.modules.tasks.publish_Runner.keep_session_alive",
         lambda session_id: kept_alive.append(session_id),
     )
 

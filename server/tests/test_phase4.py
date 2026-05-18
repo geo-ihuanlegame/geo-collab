@@ -12,7 +12,7 @@ import pytest
 
 from server.app.core.time import utcnow
 from server.app.models import PublishRecord, PublishTask, TaskLog
-from server.app.services.tasks import recover_stuck_records
+from server.app.modules.tasks import recover_stuck_records
 from server.app.services.drivers.toutiao import (
     ToutiaoPublishError,
     ToutiaoUserInputRequired,
@@ -252,7 +252,7 @@ class TestManualInterventionEndpoints:
 class TestZombieSessionDetection:
     def test_cleanup_zombie_sessions_is_callable(self):
         """_cleanup_zombie_sessions 函数存在且在没有活动 session 时不抛出。"""
-        from server.app.services.browser_sessions import _cleanup_zombie_sessions
+        from server.app.modules.accounts.browser_Session import _cleanup_zombie_sessions
         _cleanup_zombie_sessions()  # should not raise
 
     def test_cleanup_zombie_sessions_skips_healthy_sessions(self, monkeypatch):

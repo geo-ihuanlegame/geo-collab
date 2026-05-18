@@ -208,7 +208,7 @@ def manual_confirm_record(
 
 
 def resolve_user_input_record(db: Session, record: PublishRecord) -> PublishRecord:
-    from server.app.services.browser_sessions import (
+    from server.app.modules.accounts import (
         disassociate_record,
         get_session_for_record,
         stop_remote_browser_session,

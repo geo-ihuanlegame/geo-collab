@@ -11,8 +11,8 @@ from server.app.models import Account, Article
 from server.app.modules.articles.asset_Store import resolve_asset_path
 from server.app.modules.articles.tiptap_Parser import BodySegment, parse_body_segments
 from server.app.modules.tasks.drivers.driver_Base import PublishPayload
-from server.app.services.accounts import account_key_from_state_path, launch_options, profile_dir_for_key
-from server.app.services.browser_sessions import (
+from server.app.modules.accounts import account_key_from_state_path, launch_options, profile_dir_for_key
+from server.app.modules.accounts import (
     attach_browser_handles,
     get_or_create_account_session,
     keep_session_alive,

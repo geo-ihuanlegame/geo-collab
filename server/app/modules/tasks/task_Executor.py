@@ -23,13 +23,13 @@ from server.app.modules.tasks.task_Crud import (
     get_task,
     list_task_records,
 )
-from server.app.services.browser_sessions import (
+from server.app.modules.accounts import (
     associate_record_with_session,
     disassociate_record,
     get_session_for_record,
     stop_remote_browser_session,
 )
-from server.app.services.assets import store_bytes
+from server.app.modules.articles import store_bytes
 from server.app.services.drivers.base import PublishError, UserInputRequired
 from server.app.services.publish_diagnostics import PublishDiagnosticEvent, capture_publish_diagnostics
 from server.app.services.errors import ConflictError
@@ -520,7 +520,7 @@ def _store_failure_screenshot(
 
 
 def build_publish_runner_for_record(record: PublishRecord):
-    from server.app.services.publish_runner import run_publish
+    from server.app.modules.tasks.publish_Runner import run_publish
     settings = get_settings()
     channel = settings.publish_browser_channel
     executable_path = settings.publish_browser_executable_path
