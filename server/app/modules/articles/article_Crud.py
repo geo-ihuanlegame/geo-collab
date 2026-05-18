@@ -1,0 +1,287 @@
+from __future__ import annotations
+
+import logging
+import re
+
+from sqlalchemy import delete as sa_delete, func, select
+from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.sql import text as sa_text
+
+from server.app.core.time import utcnow
+from server.app.models import Article, ArticleBodyAsset, ArticleGroup, ArticleGroupItem, Asset, PublishRecord, TaskLog
+from server.app.schemas.article import ArticleCreate, ArticleUpdate
+from server.app.schemas.article_group import ArticleGroupCreate, ArticleGroupItemsUpdate, ArticleGroupUpdate
+from server.app.shared.errors import ClientError, ConflictError
+from server.app.modules.articles.tiptap_Parser import (
+    extract_body_image_nodes,
+    loads_content_json,
+    dumps_content_json,
+)
+
+_logger = logging.getLogger(__name__)
+
+VALID_ARTICLE_STATUSES = {"draft", "ready", "archived"}
+
+
+def validate_article_status(status: str) -> None:
+    if status not in VALID_ARTICLE_STATUSES:
+        raise ClientError(f"Invalid article status: {status}")
+
+
+def ensure_asset_exists(db: Session, asset_id: str | None) -> None:
+    if asset_id is None:
+        return
+    if db.get(Asset, asset_id) is None:
+        raise ClientError(f"Asset not found: {asset_id}")
+
+
+def sync_article_body_assets(db: Session, article: Article, content_json: dict) -> None:
+    image_nodes = extract_body_image_nodes(content_json)
+    for asset_id, _ in image_nodes:
+        ensure_asset_exists(db, asset_id)
+
+    article.body_assets.clear()
+    for position, (asset_id, editor_node_id) in enumerate(image_nodes):
+        article.body_assets.append(
+            ArticleBodyAsset(
+                asset_id=asset_id,
+                position=position,
+                editor_node_id=editor_node_id,
+            )
+        )
+
+
+def get_article(db: Session, article_id: int) -> Article | None:
+    stmt = (
+        select(Article)
+        .where(Article.id == article_id)
+        .options(selectinload(Article.body_assets).selectinload(ArticleBodyAsset.asset))
+    )
+    return db.execute(stmt).scalar_one_or_none()
+
+
+def _search_articles(db: Session, query: str, user_id: int | None = None) -> list[Article]:
+    dialect_name = db.bind.dialect.name if db.bind else "sqlite"
+
+    if dialect_name == "mysql":
+        stmt = (
+            select(Article)
+            .where(func.match(Article.title, Article.author, Article.plain_text).against(query, "boolean") > 0)
+        )
+    else:
+        stmt = select(Article).where(
+            sa_text("articles_fts MATCH :q").bindparams(q=query)
+        )
+
+    if user_id is not None:
+        stmt = stmt.where(Article.user_id == user_id)
+
+    return list(db.execute(stmt).scalars().all())
+
+
+def list_articles(
+    db: Session,
+    query: str | None = None,
+    skip: int = 0,
+    limit: int = 50,
+    user_id: int | None = None,
+) -> list[Article]:
+    if query and len(query) >= 3:
+        try:
+            matching = _search_articles(db, query, user_id=user_id)
+            if not matching:
+                return []
+            matching.sort(key=lambda a: a.updated_at, reverse=True)
+            ids = [a.id for a in matching[skip:skip + limit]]
+            if not ids:
+                return []
+            stmt = (
+                select(Article)
+                .options(selectinload(Article.body_assets))
+                .where(Article.id.in_(ids))
+                .order_by(Article.updated_at.desc())
+            )
+            articles = list(db.execute(stmt).scalars().all())
+            articles.sort(key=lambda a: ids.index(a.id))
+            return articles
+        except Exception:
+            _logger.debug("FTS search unavailable, falling back to LIKE query", exc_info=True)
+
+    stmt = select(Article).options(selectinload(Article.body_assets)).order_by(Article.updated_at.desc())
+
+    if user_id is not None:
+        stmt = stmt.where(Article.user_id == user_id)
+
+    if query:
+        like = f"%{query}%"
+        stmt = stmt.where(
+            (Article.title.like(like)) | (Article.author.like(like)) | (Article.plain_text.like(like))
+        )
+
+    stmt = stmt.offset(skip).limit(limit)
+    return list(db.execute(stmt).scalars().all())
+
+
+def create_article(db: Session, user_id: int, payload: ArticleCreate) -> Article:
+    if payload.client_request_id:
+        existing = db.execute(
+            select(Article).where(Article.client_request_id == payload.client_request_id)
+        ).scalar_one_or_none()
+        if existing is not None:
+            return get_article(db, existing.id) or existing
+
+    validate_article_status(payload.status)
+    ensure_asset_exists(db, payload.cover_asset_id)
+    article = Article(
+        user_id=user_id,
+        title=payload.title,
+        author=payload.author,
+        cover_asset_id=payload.cover_asset_id,
+        content_json=dumps_content_json(payload.content_json),
+        content_html=payload.content_html,
+        plain_text=payload.plain_text,
+        word_count=payload.word_count,
+        status=payload.status,
+        client_request_id=payload.client_request_id,
+    )
+    sync_article_body_assets(db, article, payload.content_json)
+    db.add(article)
+    db.flush()
+    return get_article(db, article.id) or article
+
+
+def update_article(db: Session, article: Article, payload: ArticleUpdate) -> Article:
+    update_data = payload.model_dump(exclude_unset=True)
+    expected_version = update_data.pop("version", None)
+    if expected_version is not None and article.version != expected_version:
+        raise ConflictError("Article has been modified; refresh before saving")
+
+    if "status" in update_data and update_data["status"] is not None:
+        validate_article_status(update_data["status"])
+    if "cover_asset_id" in update_data:
+        ensure_asset_exists(db, update_data["cover_asset_id"])
+
+    content_json = loads_content_json(article.content_json)
+    if "content_json" in update_data and update_data["content_json"] is not None:
+        content_json = update_data["content_json"]
+
+    for field in ("title", "author", "cover_asset_id", "content_html", "plain_text", "word_count", "status"):
+        if field in update_data:
+            setattr(article, field, update_data[field])
+
+    if "content_json" in update_data:
+        article.content_json = dumps_content_json(content_json)
+        sync_article_body_assets(db, article, content_json)
+
+    article.version += 1
+    article.updated_at = utcnow()
+    db.flush()
+    return get_article(db, article.id) or article
+
+
+def set_article_cover(db: Session, article: Article, cover_asset_id: str | None) -> Article:
+    ensure_asset_exists(db, cover_asset_id)
+    article.cover_asset_id = cover_asset_id
+    article.version += 1
+    article.updated_at = utcnow()
+    db.flush()
+    return get_article(db, article.id) or article
+
+
+def delete_article(db: Session, article: Article) -> None:
+    article_id = article.id
+
+    active = db.execute(
+        select(PublishRecord.id).where(
+            PublishRecord.article_id == article_id,
+            PublishRecord.status.in_(["pending", "running", "waiting_manual_publish", "waiting_user_input"]),
+        )
+    ).scalars().all()
+    if active:
+        raise ClientError("存在未完成发布记录，无法删除文章")
+
+    db.execute(sa_delete(ArticleGroupItem).where(ArticleGroupItem.article_id == article_id))
+    record_ids = list(
+        db.execute(select(PublishRecord.id).where(PublishRecord.article_id == article_id)).scalars()
+    )
+    if record_ids:
+        db.execute(sa_delete(TaskLog).where(TaskLog.record_id.in_(record_ids)))
+        db.execute(sa_delete(PublishRecord).where(PublishRecord.id.in_(record_ids)))
+    db.delete(article)
+    db.flush()
+
+
+# --- Article Group CRUD ---
+
+def get_group(db: Session, group_id: int) -> ArticleGroup | None:
+    stmt = (
+        select(ArticleGroup)
+        .where(ArticleGroup.id == group_id)
+        .options(selectinload(ArticleGroup.items).selectinload(ArticleGroupItem.article))
+    )
+    return db.execute(stmt).scalar_one_or_none()
+
+
+def list_groups(db: Session) -> list[ArticleGroup]:
+    stmt = select(ArticleGroup).options(selectinload(ArticleGroup.items)).order_by(ArticleGroup.updated_at.desc())
+    return list(db.execute(stmt).scalars().all())
+
+
+def create_group(db: Session, user_id: int, payload: ArticleGroupCreate) -> ArticleGroup:
+    group = ArticleGroup(user_id=user_id, name=payload.name, description=payload.description)
+    db.add(group)
+    db.flush()
+    return get_group(db, group.id) or group
+
+
+def update_group(db: Session, group: ArticleGroup, payload: ArticleGroupUpdate) -> ArticleGroup:
+    update_data = payload.model_dump(exclude_unset=True)
+    expected_version = update_data.pop("version", None)
+    if expected_version is not None and group.version != expected_version:
+        raise ConflictError("Article group has been modified; refresh before saving")
+
+    for field in ("name", "description"):
+        if field in update_data:
+            setattr(group, field, update_data[field])
+    group.version += 1
+    group.updated_at = utcnow()
+    db.flush()
+    return get_group(db, group.id) or group
+
+
+def replace_group_items(db: Session, group: ArticleGroup, payload: ArticleGroupItemsUpdate) -> ArticleGroup:
+    if payload.version is not None and group.version != payload.version:
+        raise ConflictError("Article group has been modified; refresh before saving")
+
+    seen: set[int] = set()
+    article_ids: list[int] = []
+    for item in payload.items:
+        if item.article_id in seen:
+            raise ClientError(f"Duplicate article_id: {item.article_id}")
+        seen.add(item.article_id)
+        article_ids.append(item.article_id)
+
+    if article_ids:
+        existing_ids = set(db.execute(select(Article.id).where(Article.id.in_(article_ids))).scalars().all())
+        missing_ids = [aid for aid in article_ids if aid not in existing_ids]
+        if missing_ids:
+            raise ClientError(f"Article not found: {missing_ids[0]}")
+
+    group.items.clear()
+    db.flush()
+    for index, item in enumerate(payload.items):
+        group.items.append(
+            ArticleGroupItem(
+                article_id=item.article_id,
+                sort_order=item.sort_order if item.sort_order is not None else index,
+            )
+        )
+    group.updated_at = utcnow()
+    group.version += 1
+    db.flush()
+    return get_group(db, group.id) or group
+
+
+def delete_group(db: Session, group: ArticleGroup) -> None:
+    db.delete(group)
+    db.flush()
