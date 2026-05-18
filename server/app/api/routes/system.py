@@ -12,7 +12,7 @@ from server.app.db.session import get_db
 from server.app.models import Account, Article, BrowserSession, PublishRecord, PublishTask, User, WorkerHeartbeat
 from server.app.schemas.system import SystemStatus
 from server.app.modules.accounts import remote_browser_runtime_status
-from server.app.services.system_status import get_system_status
+from server.app.shared.system_status import get_system_status
 
 router = APIRouter()
 

@@ -1,5 +1,5 @@
 from server.app.models import Account
-from server.app.services.drivers.toutiao import PublishFillResult, ToutiaoPublishError
+from server.app.modules.tasks.drivers.toutiao import PublishFillResult, ToutiaoPublishError
 from server.tests.utils import build_test_app
 
 
@@ -337,7 +337,7 @@ def test_execute_task_records_publish_diagnostics(monkeypatch):
     client = test_app.client
 
     def runner(article, account, *, stop_before_publish=False):
-        from server.app.services.publish_diagnostics import record_publish_diagnostic
+        from server.app.shared.diagnostics import record_publish_diagnostic
 
         record_publish_diagnostic("probe step elapsed_ms=12", level="warn")
         return PublishFillResult(

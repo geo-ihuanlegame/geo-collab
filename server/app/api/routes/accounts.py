@@ -29,8 +29,8 @@ from server.app.modules.accounts import (
     start_login_session,
     stop_account_login_session,
 )
-from server.app.services.drivers import all_driver_codes, get_driver
-from server.app.services.serializers import to_account_read
+from server.app.api.serializers import to_account_read
+from server.app.modules.tasks.drivers import all_driver_codes, get_driver
 
 router = APIRouter()
 

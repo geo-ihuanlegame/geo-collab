@@ -11,7 +11,21 @@ import Underline from "@tiptap/extension-underline";
 import TextAlign from "@tiptap/extension-text-align";
 import { Plus, Save, Search, Trash2, Upload, ChevronRight } from "lucide-react";
 import { useToast } from "../../components/Toast";
-import { api, assetSrc, countWords, emptyDoc, newClientRequestId, singleFlight, withAssetToken } from "../../api/client";
+import {
+  createArticle,
+  createArticleGroup,
+  deleteArticle,
+  deleteArticleGroup,
+  getArticle,
+  listArticleGroups,
+  listArticles,
+  updateArticle,
+  updateArticleCover,
+  updateArticleGroup,
+  updateArticleGroupItems,
+} from "../../api/articles";
+import { uploadAsset as uploadAssetRequest } from "../../api/assets";
+import { assetSrc, countWords, emptyDoc, newClientRequestId, singleFlight, withAssetToken } from "../../api/core";
 import type { Article, ArticleCreatePayload, ArticleGroup, ArticleGroupUpdateItemsPayload, ArticleSummary, ArticleUpdatePayload, Asset, Draft } from "../../types";
 import { EditorToolbar } from "../../components/editor/EditorToolbar";
 import { compressImage } from "../../lib/compress-image";
@@ -358,7 +372,7 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
     for (let skip = 0; ; skip += ARTICLE_FETCH_LIMIT) {
       const params = new URLSearchParams({ skip: String(skip), limit: String(ARTICLE_FETCH_LIMIT) });
       if (nextQuery) params.set("q", nextQuery);
-      const batch = await api<ArticleSummary[]>(`/api/articles?${params.toString()}`);
+      const batch = await listArticles(params);
       allArticles.push(...batch);
       if (batch.length < ARTICLE_FETCH_LIMIT) break;
     }
@@ -367,7 +381,7 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
   }
 
   async function refreshGroups() {
-    const data = await api<ArticleGroup[]>("/api/article-groups");
+    const data = await listArticleGroups();
     setGroups(data);
   }
 
@@ -387,7 +401,7 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
   async function loadArticle(article: ArticleSummary) {
     setLoading(true);
     try {
-      const detail = await api<Article>(`/api/articles/${article.id}`);
+      const detail = await getArticle(article.id);
       setSelectedArticle(detail);
       setDraft({
         id: detail.id,
@@ -416,9 +430,7 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
   }
 
   async function uploadAsset(file: File): Promise<Asset> {
-    const form = new FormData();
-    form.append("file", await compressImage(file));
-    return api<Asset>("/api/assets", { method: "POST", body: form });
+    return uploadAssetRequest(await compressImage(file));
   }
 
   function applySavedArticle(saved: Article, contentJson?: Record<string, unknown>) {
@@ -460,14 +472,15 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
         status: draft.status,
         version: draft.version,
       };
-      const saved = draft.id
-        ? await singleFlight(`article-save-${draft.id}`, () => {
+      const articleId = draft.id;
+      const saved = articleId
+        ? await singleFlight(`article-save-${articleId}`, () => {
             const payload: ArticleUpdatePayload = { ...base };
-            return api<Article>(`/api/articles/${draft.id}`, { method: "PUT", body: JSON.stringify(payload) });
+            return updateArticle(articleId, payload);
           })
         : await singleFlight("article-create", () => {
             const payload: ArticleCreatePayload = { ...base, client_request_id: newClientRequestId("article") };
-            return api<Article>("/api/articles", { method: "POST", body: JSON.stringify(payload) });
+            return createArticle(payload);
           });
       if (!saved) return null;
       applySavedArticle(saved, contentJson);
@@ -493,10 +506,7 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
       const asset = await uploadAsset(file);
       setDraft((current) => ({ ...current, cover_asset_id: asset.id }));
       if (draft.id) {
-        const saved = await api<Article>(`/api/articles/${draft.id}/cover`, {
-          method: "POST",
-          body: JSON.stringify({ cover_asset_id: asset.id, version: draft.version }),
-        });
+        const saved = await updateArticleCover(draft.id, { cover_asset_id: asset.id, version: draft.version });
         setSelectedArticle(saved);
         setDraft((current) => ({ ...current, cover_asset_id: saved.cover_asset_id, version: saved.version }));
         if (savedStateRef.current) {
@@ -561,7 +571,7 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
     setLoading(true);
     try {
       const deletedId = draft.id;
-      await api<void>(`/api/articles/${deletedId}`, { method: "DELETE" });
+      await deleteArticle(deletedId);
       resetDraft();
       setArticles((prev) => prev.filter((a) => a.id !== deletedId));
       toast("文章已删除", "success");
@@ -581,22 +591,13 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
     setLoading(true);
     try {
       let group = editingGroupId
-        ? await api<ArticleGroup>(`/api/article-groups/${editingGroupId}`, {
-            method: "PUT",
-            body: JSON.stringify({ name, version: groups.find((item) => item.id === editingGroupId)?.version }),
-          })
-        : await api<ArticleGroup>("/api/article-groups", {
-            method: "POST",
-            body: JSON.stringify({ name }),
-          });
+        ? await updateArticleGroup(editingGroupId, { name, version: groups.find((item) => item.id === editingGroupId)?.version })
+        : await createArticleGroup({ name });
       if (!editingGroupId && selectedArticleIds.length > 0) {
         const payload: ArticleGroupUpdateItemsPayload = {
           items: selectedArticleIds.map((articleId, index) => ({ article_id: articleId, sort_order: index })),
         };
-        group = await api<ArticleGroup>(`/api/article-groups/${group.id}/items`, {
-          method: "PUT",
-          body: JSON.stringify({ ...payload, version: group.version }),
-        });
+        group = await updateArticleGroupItems(group.id, { ...payload, version: group.version });
       }
       const isEditing = Boolean(editingGroupId);
       setGroupName("");
@@ -616,7 +617,7 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
     setLoading(true);
     try {
       const deletedGroupId = editingGroupId;
-      await api<void>(`/api/article-groups/${deletedGroupId}`, { method: "DELETE" });
+      await deleteArticleGroup(deletedGroupId);
       setEditingGroupId(null);
       setGroupName("");
       setSelectedArticleIds([]);
@@ -658,10 +659,7 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
           { article_id: groupPickerArticle.id, sort_order: group.items.length },
         ],
       };
-      const updated = await api<ArticleGroup>(`/api/article-groups/${group.id}/items`, {
-        method: "PUT",
-        body: JSON.stringify({ ...payload, version: group.version }),
-      });
+      const updated = await updateArticleGroupItems(group.id, { ...payload, version: group.version });
       setGroupPickerArticle(null);
       setGroupPickerSelectedId(null);
       setGroups((prev) => prev.map((g) => (g.id === updated.id ? updated : g)));
@@ -681,10 +679,7 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
           .filter((item) => item.article_id !== articleId)
           .map((item, index) => ({ article_id: item.article_id, sort_order: index })),
       };
-      const updated = await api<ArticleGroup>(`/api/article-groups/${group.id}/items`, {
-        method: "PUT",
-        body: JSON.stringify({ ...payload, version: group.version }),
-      });
+      const updated = await updateArticleGroupItems(group.id, { ...payload, version: group.version });
       setGroups((prev) => prev.map((g) => (g.id === updated.id ? updated : g)));
       toast("文章已移出分组", "success");
     } catch (error) {

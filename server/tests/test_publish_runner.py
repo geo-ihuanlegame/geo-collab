@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from server.app.modules.tasks.drivers.driver_Base import PublishPayload, PublishResult
-from server.app.services.drivers.toutiao import (
+from server.app.modules.tasks.drivers.toutiao import (
     PublishFillResult,
     ToutiaoUserInputRequired,
 )

@@ -18,7 +18,7 @@ from server.app.models import (
     PublishTaskAccount,
     TaskLog,
 )
-from server.app.services.errors import AccountError, ClientError, ConflictError, ValidationError
+from server.app.shared.errors import AccountError, ClientError, ConflictError, ValidationError
 from server.app.schemas.task import (
     TaskAccountInput,
     TaskAssignmentPreviewItemRead,
@@ -330,7 +330,7 @@ def recover_stuck_task_claims(db: Session) -> None:
 
 
 def aggregate_task_status(db: Session, task: PublishTask, records: list[PublishRecord]) -> None:
-    from server.app.services.feishu import notify_task_finished
+    from server.app.shared.feishu import notify_task_finished
 
     now = utcnow()
     if not records:

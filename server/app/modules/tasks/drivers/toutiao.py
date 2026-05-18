@@ -10,9 +10,8 @@ from typing import Any, Iterator
 logger = logging.getLogger(__name__)
 
 from server.app.modules.articles.tiptap_Parser import BodySegment
-from server.app.modules.tasks.drivers.driver_Base import PublishPayload
-from server.app.services.drivers.base import PublishError, PublishResult, UserInputRequired
-from server.app.services.publish_diagnostics import publish_step, record_publish_diagnostic
+from server.app.modules.tasks.drivers.driver_Base import PublishError, PublishPayload, PublishResult, UserInputRequired
+from server.app.shared.diagnostics import publish_step, record_publish_diagnostic
 
 TOUTIAO_PUBLISH_URL = "https://mp.toutiao.com/profile_v4/graphic/publish"
 _MAX_UPLOAD_WIDTH = 1920
@@ -742,5 +741,5 @@ class ToutiaoDriver:
         return _do_publish(page, context, payload, stop_before_publish)
 
 
-from server.app.services.drivers import register
+from server.app.modules.tasks.drivers import register
 register(ToutiaoDriver())

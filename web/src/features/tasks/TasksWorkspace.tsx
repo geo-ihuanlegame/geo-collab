@@ -1,5 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, newClientRequestId, singleFlight } from "../../api/client";
+import { listAccounts } from "../../api/accounts";
+import { listArticleGroups, listArticles } from "../../api/articles";
+import { newClientRequestId, singleFlight } from "../../api/core";
+import {
+  cancelTask as cancelTaskRequest,
+  createTask as createTaskRequest,
+  executeTask as executeTaskRequest,
+  listTaskLogs,
+  listTaskRecords,
+  listTasks,
+  manualConfirmRecord,
+  previewTaskAssignment,
+  resolveRecordUserInput,
+  retryRecord as retryRecordRequest,
+} from "../../api/tasks";
 import type { Task, TaskCreatePayload, Account, ArticleGroup, ArticleSummary, PublishRecord, TaskLog, AssignmentPreview } from "../../types";
 import { TERMINAL_STATUSES, statusLabel } from "../../types";
 import { Plus, RefreshCw, Send } from "lucide-react";
@@ -110,10 +124,10 @@ export function TasksWorkspace() {
 
   async function loadInitial() {
     const [ts, accs, arts, gs] = await Promise.all([
-      api<Task[]>("/api/tasks"),
-      api<Account[]>("/api/accounts"),
-      api<ArticleSummary[]>("/api/articles"),
-      api<ArticleGroup[]>("/api/article-groups"),
+      listTasks(),
+      listAccounts(),
+      listArticles(),
+      listArticleGroups(),
     ]);
     setTasks(ts);
     setAccounts(accs);
@@ -123,9 +137,9 @@ export function TasksWorkspace() {
 
   async function refreshDetail(taskId: number) {
     const [rs, ls, ts] = await Promise.all([
-      api<PublishRecord[]>(`/api/tasks/${taskId}/records`),
-      api<TaskLog[]>(`/api/tasks/${taskId}/logs?after_id=${lastLogIdRef.current}`),
-      api<Task[]>("/api/tasks"),
+      listTaskRecords(taskId),
+      listTaskLogs(taskId, lastLogIdRef.current),
+      listTasks(),
     ]);
     const rsJson = JSON.stringify(rs);
     if (rsJson !== prevRecordsJsonRef.current) {
@@ -185,10 +199,7 @@ export function TasksWorkspace() {
         stop_before_publish: false,
       };
       const task = await singleFlight("task-create", () =>
-        api<Task>("/api/tasks", {
-          method: "POST",
-          body: JSON.stringify(payload),
-        }),
+        createTaskRequest(payload),
       );
       if (!task) return;
       setShowCreateForm(false);
@@ -214,15 +225,12 @@ export function TasksWorkspace() {
     if (!formGroupId || formAccountIds.length === 0) return;
     setLoading(true);
     try {
-      const result = await api<AssignmentPreview>("/api/tasks/preview", {
-        method: "POST",
-        body: JSON.stringify({
+      const result = await previewTaskAssignment({
           name: formName || "预览",
-          task_type: "group_round_robin",
-          group_id: formGroupId,
-          accounts: formAccountIds.map((id, index) => ({ account_id: id, sort_order: index })),
-          stop_before_publish: false,
-        }),
+        task_type: "group_round_robin",
+        group_id: formGroupId,
+        accounts: formAccountIds.map((id, index) => ({ account_id: id, sort_order: index })),
+        stop_before_publish: false,
       });
       setPreview(result);
     } catch (error) {
@@ -238,7 +246,7 @@ export function TasksWorkspace() {
     try {
       setAutoRefreshTaskIds((prev) => new Set(prev).add(selectedTaskId));
       await singleFlight(`task-execute-${selectedTaskId}`, () =>
-        api<Task>(`/api/tasks/${selectedTaskId}/execute`, { method: "POST" }),
+        executeTaskRequest(selectedTaskId),
       );
       await refreshDetail(selectedTaskId);
       toast("已启动", "success");
@@ -254,7 +262,7 @@ export function TasksWorkspace() {
     setLoading(true);
     try {
       await singleFlight(`task-cancel-${selectedTaskId}`, () =>
-        api<Task>(`/api/tasks/${selectedTaskId}/cancel`, { method: "POST" }),
+        cancelTaskRequest(selectedTaskId),
       );
       setAutoRefreshTaskIds((prev) => {
         if (!prev.has(selectedTaskId)) return prev;
@@ -275,7 +283,7 @@ export function TasksWorkspace() {
     setLoading(true);
     try {
       await singleFlight(`record-resolve-${recordId}`, () =>
-        api<PublishRecord>(`/api/publish-records/${recordId}/resolve-user-input`, { method: "POST" }),
+        resolveRecordUserInput(recordId),
       );
       if (selectedTaskId) {
         setAutoRefreshTaskIds((prev) => new Set(prev).add(selectedTaskId));
@@ -293,10 +301,7 @@ export function TasksWorkspace() {
     setLoading(true);
     try {
       await singleFlight(`record-confirm-${recordId}-${outcome}`, () =>
-        api<PublishRecord>(`/api/publish-records/${recordId}/manual-confirm`, {
-          method: "POST",
-          body: JSON.stringify({ outcome }),
-        }),
+        manualConfirmRecord(recordId, { outcome }),
       );
       if (selectedTaskId) {
         setAutoRefreshTaskIds((prev) => new Set(prev).add(selectedTaskId));
@@ -314,12 +319,12 @@ export function TasksWorkspace() {
     setLoading(true);
     try {
       await singleFlight(`record-retry-${recordId}`, () =>
-        api<PublishRecord>(`/api/publish-records/${recordId}/retry`, { method: "POST" }),
+        retryRecordRequest(recordId),
       );
       if (selectedTaskId) {
         setAutoRefreshTaskIds((prev) => new Set(prev).add(selectedTaskId));
         await singleFlight(`task-execute-${selectedTaskId}`, () =>
-          api<Task>(`/api/tasks/${selectedTaskId}/execute`, { method: "POST" }),
+          executeTaskRequest(selectedTaskId),
         );
         await refreshDetail(selectedTaskId);
       }

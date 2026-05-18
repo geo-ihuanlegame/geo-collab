@@ -1,6 +1,6 @@
 from io import BytesIO
 
-from server.app.services.drivers.toutiao import PublishFillResult
+from server.app.modules.tasks.drivers.toutiao import PublishFillResult
 from server.tests.utils import build_test_app
 
 

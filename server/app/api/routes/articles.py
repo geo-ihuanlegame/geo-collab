@@ -7,7 +7,7 @@ from server.app.core.security import get_current_user, require_admin
 from server.app.db.session import get_db
 from server.app.models import Article, PublishRecord, User
 from server.app.schemas.article import ArticleCoverUpdate, ArticleCreate, ArticleListRead, ArticleRead, ArticleUpdate
-from server.app.services.errors import ConflictError
+from server.app.shared.errors import ConflictError
 from server.app.modules.articles import (
     create_article,
     delete_article,
@@ -16,7 +16,7 @@ from server.app.modules.articles import (
     set_article_cover,
     update_article,
 )
-from server.app.services.serializers import to_article_read
+from server.app.api.serializers import to_article_read
 
 router = APIRouter()
 

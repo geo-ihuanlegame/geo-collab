@@ -61,7 +61,7 @@ from server.app.core.config import get_settings
 from server.app.core.paths import ensure_data_dirs
 from server.app.core.security import get_current_user
 from server.app.models.user import User
-from server.app.services.errors import AccountError, ClientError, ConflictError, ValidationError
+from server.app.shared.errors import AccountError, ClientError, ConflictError, ValidationError
 
 # PyInstaller 打包后 sys._MEIPASS 指向解压目录
 # 开发模式下从当前文件路径（server/app/main.py）上溯到项目根目录
@@ -80,7 +80,7 @@ def create_app() -> FastAPI:
     ensure_data_dirs()
 
     # 注册所有平台驱动（import 触发 register() 副作用）
-    import server.app.services.drivers.toutiao  # noqa: F401
+    import server.app.modules.tasks.drivers.toutiao  # noqa: F401
 
     app = FastAPI(
         title="Geo Collab API",

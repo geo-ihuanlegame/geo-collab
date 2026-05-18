@@ -142,7 +142,7 @@ def main() -> None:
     os.environ["GEO_WORKER_ID"] = WORKER_ID
 
     # Import all drivers to trigger registration
-    import server.app.services.drivers.toutiao  # noqa: F401
+    import server.app.modules.tasks.drivers.toutiao  # noqa: F401
 
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT, _handle_signal)

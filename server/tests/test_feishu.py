@@ -18,7 +18,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from server.app.core.config import get_settings
-from server.app.services.feishu import _send, notify_task_finished
+from server.app.shared.feishu import _send, notify_task_finished
 from server.tests.utils import build_test_app
 
 
@@ -236,7 +236,7 @@ class TestSendFailureSilent:
             raise OSError("timeout")
 
         with patch("urllib.request.urlopen", fake_urlopen):
-            with caplog.at_level(logging.WARNING, logger="server.app.services.feishu"):
+            with caplog.at_level(logging.WARNING, logger="server.app.shared.feishu"):
                 _send("http://example.com", "mytask", 3, "failed", 1, 0, 1)
 
         assert any("3" in r.message or "Feishu" in r.message for r in caplog.records), \
@@ -264,7 +264,7 @@ class TestNotifyTriggeredOnTaskCompletion:
                 "failed": failed,
             })
 
-        monkeypatch.setattr("server.app.services.feishu.notify_task_finished", fake_notify)
+        monkeypatch.setattr("server.app.shared.feishu.notify_task_finished", fake_notify)
 
         try:
             article_id = _create_article(test_app.client)
@@ -318,7 +318,7 @@ class TestNotifyTriggeredOnTaskCompletion:
                 "failed": failed,
             })
 
-        monkeypatch.setattr("server.app.services.feishu.notify_task_finished", fake_notify)
+        monkeypatch.setattr("server.app.shared.feishu.notify_task_finished", fake_notify)
 
         try:
             article_id = _create_article(test_app.client)
@@ -326,7 +326,7 @@ class TestNotifyTriggeredOnTaskCompletion:
             task_data = _create_task(test_app.client, article_id, account_id, name="Fail task")
             task_id = task_data["id"]
 
-            from server.app.services.drivers.toutiao import ToutiaoPublishError
+            from server.app.modules.tasks.drivers.toutiao import ToutiaoPublishError
 
             monkeypatch.setattr(
                 "server.app.modules.tasks.task_Executor.build_publish_runner_for_record",

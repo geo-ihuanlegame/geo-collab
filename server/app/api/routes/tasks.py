@@ -32,7 +32,7 @@ from server.app.schemas.task import (
     TaskLogRead,
     TaskRead,
 )
-from server.app.services.serializers import to_log_read, to_record_read, to_task_read
+from server.app.api.serializers import to_log_read, to_record_read, to_task_read
 from server.app.modules.tasks import (
     TERMINAL_TASK_STATUSES,
     cancel_task,

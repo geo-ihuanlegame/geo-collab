@@ -116,5 +116,5 @@ def delete_account(db: Session, account: Account) -> None:
 
 
 def _get_driver(platform_code: str):
-    from server.app.services.drivers import get_driver
+    from server.app.modules.tasks.drivers import get_driver
     return get_driver(platform_code)

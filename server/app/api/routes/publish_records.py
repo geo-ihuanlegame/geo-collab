@@ -8,7 +8,7 @@ from server.app.core.security import get_current_user
 from server.app.db.session import get_db
 from server.app.models import PublishRecord, PublishTask, User
 from server.app.schemas.task import ManualConfirmInput, PublishRecordRead
-from server.app.services.serializers import to_record_read
+from server.app.api.serializers import to_record_read
 from server.app.modules.tasks import (
     TERMINAL_TASK_STATUSES,
     execute_task,

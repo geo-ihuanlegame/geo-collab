@@ -44,7 +44,7 @@ def import_app_helpers(data_dir: str | None):
     get_settings.cache_clear()
 
     from server.app.core.paths import ensure_data_dirs, get_data_dir
-    from server.app.services.accounts import launch_options, profile_dir_for_key, state_path_for_key
+    from server.app.modules.accounts import launch_options, profile_dir_for_key, state_path_for_key
 
     return ensure_data_dirs, get_data_dir, launch_options, profile_dir_for_key, state_path_for_key
 

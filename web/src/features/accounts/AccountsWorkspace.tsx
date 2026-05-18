@@ -1,6 +1,18 @@
 import { useEffect, useState } from "react";
-import { api } from "../../api/client";
-import type { Account, AccountBrowserSession, AccountBrowserSessionFinish, PlatformLoginPayload, PlatformOption } from "../../types";
+import {
+  deleteAccount,
+  exportAccountPackage,
+  finishAccountLoginSession,
+  importAccountPackage,
+  listAccounts,
+  listPlatforms,
+  loginPlatformAccount,
+  startAccountLoginSession,
+  startPlatformLoginSession,
+  stopAccountLoginSession,
+  updateAccountDisplayName,
+} from "../../api/accounts";
+import type { Account, AccountBrowserSession, PlatformLoginPayload, PlatformOption } from "../../types";
 import { CheckCircle2, Download, ExternalLink, Plus, RefreshCw, Trash2, Upload, UserPlus, X } from "lucide-react";
 import { useToast } from "../../components/Toast";
 
@@ -26,15 +38,15 @@ export function AccountsWorkspace() {
   const selectedPlatformName = platforms[0]?.name ?? "头条号";
 
   async function refreshAccounts() {
-    const data = await api<Account[]>("/api/accounts");
+    const data = await listAccounts();
     setAccounts(data);
   }
 
   useEffect(() => {
     void (async () => {
       const [platformData, accountData] = await Promise.all([
-        api<PlatformOption[]>("/api/accounts/platforms"),
-        api<Account[]>("/api/accounts"),
+        listPlatforms(),
+        listAccounts(),
       ]);
       setPlatforms(platformData);
       setAccounts(accountData);
@@ -54,10 +66,7 @@ export function AccountsWorkspace() {
         account_key: accountKey,
         use_browser: useBrowser,
       };
-      await api<Account>(`/api/accounts/${selectedPlatformCode}/login`, {
-        method: "POST",
-        body: JSON.stringify({ ...payload, channel: "chromium", wait_seconds: 180 }),
-      });
+      await loginPlatformAccount(selectedPlatformCode, { ...payload, channel: "chromium", wait_seconds: 180 });
       await refreshAccounts();
       setDisplayName("头条号账号");
       setAccountKey("");
@@ -85,10 +94,7 @@ export function AccountsWorkspace() {
         account_key: accountKey,
         use_browser: true,
       };
-      const result = await api<AccountBrowserSession>(`/api/accounts/${selectedPlatformCode}/login-session`, {
-        method: "POST",
-        body: JSON.stringify({ ...payload, channel: "chromium", wait_seconds: 180 }),
-      });
+      const result = await startPlatformLoginSession(selectedPlatformCode, { ...payload, channel: "chromium", wait_seconds: 180 });
       rememberLoginSession(result);
       openRemoteBrowser(result.novnc_url);
       await refreshAccounts();
@@ -103,10 +109,7 @@ export function AccountsWorkspace() {
   async function startExistingRemoteLogin(account: Account, actionLabel: string) {
     setLoading(true);
     try {
-      const result = await api<AccountBrowserSession>(`/api/accounts/${account.id}/login-session`, {
-        method: "POST",
-        body: JSON.stringify({ channel: "chromium", use_browser: true }),
-      });
+      const result = await startAccountLoginSession(account.id, { channel: "chromium", use_browser: true });
       rememberLoginSession(result);
       openRemoteBrowser(result.novnc_url);
       await refreshAccounts();
@@ -123,9 +126,7 @@ export function AccountsWorkspace() {
     if (!active) return;
     setLoading(true);
     try {
-      const result = await api<AccountBrowserSessionFinish>(`/api/accounts/${account.id}/login-session/${active.sessionId}/finish`, {
-        method: "POST",
-      });
+      const result = await finishAccountLoginSession(account.id, active.sessionId);
       setActiveLoginSessions((prev) => {
         const next = { ...prev };
         delete next[account.id];
@@ -145,7 +146,7 @@ export function AccountsWorkspace() {
     if (!active) return;
     setLoading(true);
     try {
-      await api<void>(`/api/accounts/${account.id}/login-session/${active.sessionId}`, { method: "DELETE" });
+      await stopAccountLoginSession(account.id, active.sessionId);
       setActiveLoginSessions((prev) => {
         const next = { ...prev };
         delete next[account.id];
@@ -194,7 +195,7 @@ export function AccountsWorkspace() {
   async function remove(account: Account) {
     setLoading(true);
     try {
-      await api<void>(`/api/accounts/${account.id}`, { method: "DELETE" });
+      await deleteAccount(account.id);
       await refreshAccounts();
       toast("账号已删除", "success");
     } catch (error) {
@@ -209,7 +210,7 @@ export function AccountsWorkspace() {
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const result = await api<{ imported: string[]; skipped: string[] }>("/api/accounts/import", { method: "POST", body: formData });
+      const result = await importAccountPackage(formData);
       await refreshAccounts();
       const msg = `导入完成：${result.imported.length} 个新增${result.skipped.length ? `，${result.skipped.length} 个已存在跳过` : ""}`;
       toast(msg, "success");
@@ -224,10 +225,7 @@ export function AccountsWorkspace() {
     if (!renameValue.trim()) return;
     setLoading(true);
     try {
-      await api<Account>(`/api/accounts/${accountId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ display_name: renameValue.trim() }),
-      });
+      await updateAccountDisplayName(accountId, renameValue.trim());
       await refreshAccounts();
       setRenamingId(null);
       toast("已重命名", "success");
@@ -241,17 +239,7 @@ export function AccountsWorkspace() {
   async function exportAuthPackage() {
     setLoading(true);
     try {
-      const headers = { "Content-Type": "application/json" };
-      const response = await fetch("/api/accounts/export", {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ account_ids: accounts.map((account) => account.id) }),
-      });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({}));
-        throw new Error(payload.detail || `${response.status} ${response.statusText}`);
-      }
-
+      const response = await exportAccountPackage(accounts.map((account) => account.id));
       const exportPath = response.headers.get("x-export-path") ?? "";
       const blob = await response.blob();
       const disposition = response.headers.get("content-disposition") ?? "";

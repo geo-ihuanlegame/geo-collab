@@ -70,7 +70,7 @@ def test_login_page_loader_runs_in_background(monkeypatch):
             return None
 
     try:
-        from server.app.services import accounts, browser_sessions
+        from server.app.modules.accounts import account_Auth as accounts, browser_Session as browser_sessions
 
         session = RemoteBrowserSession(
             id="loader-session",
@@ -356,7 +356,7 @@ def test_finish_remote_login_session_saves_state_and_stops_session(monkeypatch):
             json={"display_name": "finish-demo", "account_key": "demo", "use_browser": False},
         ).json()
 
-        from server.app.services import browser_sessions
+        from server.app.modules.accounts import browser_Session as browser_sessions
 
         page = FakePage()
         context = FakeContext(page)

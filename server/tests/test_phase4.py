@@ -13,7 +13,7 @@ import pytest
 from server.app.core.time import utcnow
 from server.app.models import PublishRecord, PublishTask, TaskLog
 from server.app.modules.tasks import recover_stuck_records
-from server.app.services.drivers.toutiao import (
+from server.app.modules.tasks.drivers.toutiao import (
     ToutiaoPublishError,
     ToutiaoUserInputRequired,
     QR_HINTS,
@@ -257,7 +257,7 @@ class TestZombieSessionDetection:
 
     def test_cleanup_zombie_sessions_skips_healthy_sessions(self, monkeypatch):
         """有活跃但进程健康的 session 时不应误清理。"""
-        from server.app.services import browser_sessions as bs
+        from server.app.modules.accounts import browser_Session as bs
         import subprocess
         from dataclasses import dataclass, field
         from pathlib import Path

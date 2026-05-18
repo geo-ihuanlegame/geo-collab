@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 
 from server.app.models import PublishRecord
-from server.app.services.drivers.toutiao import PublishFillResult, ToutiaoPublishError, ToutiaoUserInputRequired
+from server.app.modules.tasks.drivers.toutiao import PublishFillResult, ToutiaoPublishError, ToutiaoUserInputRequired
 from server.tests.utils import build_test_app
 
 
@@ -562,7 +562,7 @@ def test_concurrent_execute_only_one_succeeds(monkeypatch):
     client = test_app.client
 
     try:
-        import server.app.services.tasks as tasks_mod
+        from server.app.modules.tasks import task_Executor as tasks_mod
 
         cover_id = _upload_cover_image(client)
         article_id = _create_article(client, "Concurrent Article", plain_text="Body", cover_asset_id=cover_id)

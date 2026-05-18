@@ -19,7 +19,7 @@ from server.app.modules.articles import (
     replace_group_items,
     update_group,
 )
-from server.app.services.serializers import to_group_read
+from server.app.api.serializers import to_group_read
 
 router = APIRouter()
 

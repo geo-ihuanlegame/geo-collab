@@ -13,7 +13,7 @@ from server.app.db.session import get_db
 from server.app.models import Asset, User
 from server.app.schemas.asset import AssetRead
 from server.app.modules.articles import asset_url, resolve_asset_path, store_upload
-from server.app.services.errors import ClientError
+from server.app.shared.errors import ClientError
 
 router = APIRouter()
 
