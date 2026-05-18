@@ -46,39 +46,28 @@ pnpm install
   - 多用户模型：`User` 表有 `role`（admin / operator）和 `is_active`。admin 可创建子账号 (`POST /api/auth/users`)，operator 只能看到自己的任务。
   - 登录引导：前端通过 `/api/bootstrap` 检查是否存在 admin → 无则显示首次设置页面。
   - `GEO_SEED_USERS` 环境变量（JSON 数组格式）在 Docker 启动时通过 `seed_users.py` 预建用户。
-  - `require_local_token()` 函数仍在 `security.py` 中但**未被任何路由使用**，是遗留死代码。
+  - `require_local_token()` 在 `security.py` 中但**未被任何路由使用**，是遗留死代码。
 - **Entry point**: Docker CMD 执行 `alembic upgrade head && uvicorn server.app.main:app --host 0.0.0.0 --port 8000`，开发时用 `uvicorn server.app.main:app --reload`。
-- **Backend**: FastAPI, SQLAlchemy, Alembic, 8 route modules under `/api/`（auth、accounts、articles、article-groups、assets、publish-records、system、tasks）。
-- **Database**: 开发/测试用 **SQLite** (`check_same_thread=False`, WAL mode)，Docker 用 **MySQL** (`mysql+pymysql`)。`alembic.ini` 的 `sqlalchemy.url` 是占位符，运行时由 `get_database_url()` 通过环境变量覆盖。
+- **Backend**: FastAPI, SQLAlchemy, Alembic. 8 route modules under `/api/`（auth、accounts、articles、article-groups、assets、publish-records、system、tasks）。
+- **Database**: 开发/测试用 **SQLite** (`check_same_thread=False`, WAL mode, busy_timeout=5000, foreign_keys=ON)，Docker 用 **MySQL** (`mysql+pymysql`)。`alembic.ini` 的 `sqlalchemy.url` 是占位符，运行时由 `get_database_url()` 覆盖。
 - **Frontend**: React 19 + Vite + TypeScript (`web/`), feature-split (`features/content/`, `features/accounts/`, `features/tasks/`, `features/system/`), Tiptap rich-text editor, Lucide icons.
-- **Models** (16 ORM): Platform, Account, AccountLoginSession, Article, ArticleGroup+ArticleGroupItem, Asset, ArticleBodyAsset, PublishTask, PublishTaskAccount, PublishRecord, TaskLog, User, BrowserSession, RecordBrowserSession, WorkerHeartbeat.
-- **Services**:
-  - `drivers/__init__.py` — PlatformDriver Protocol + 注册表（`register` / `get_driver` / `all_driver_codes`）
-  - `drivers/toutiao.py` — ToutiaoDriver：头条号全部 Playwright 发布逻辑，import 时自动注册
-  - `drivers/base.py` — `PublishResult`, `PublishError`, `UserInputRequired`
-  - `publish_runner.py` — `run_publish()`：通用发布编排，按 platform_code 取 driver，启 Xvfb 会话
-  - `browser_sessions.py` — Xvfb + x11vnc + websockify → noVNC 流水线（Linux only）
-  - `tasks.py` — 任务执行引擎，`build_publish_runner_for_record(record)` → `run_publish()`
-  - `accounts.py` — 账号登录/检测/导入导出，路径按 `platform_code` 区分
-  - `assets.py` — 文件存储（`store_bytes` / `resolve_asset_path`）
-  - `feishu.py` — 飞书机器人 Webhook 通知（任务完成时 fire-and-forget）
-  - `publish_diagnostics.py` — 发布过程诊断事件采集（`publish_step` context manager）
-- **Publisher**: ByteDance design system selectors, two-step publish ("预览并发布" + "确认发布"), `stop_before_publish` flag, cover is mandatory (raises if `None`).
-- **Data dir**: `GEO_DATA_DIR`（Docker 内默认 `/app/data`）。Subdirs: `assets/`, `browser_states/<platform_code>/<account_key>/`, `logs/`, `exports/`.
+- **Modules** (under `server/app/modules/`):
+  - `tasks/` — 任务引擎 + 驱动注册表 + Playwright 发布管线（`task_Executor.py`, `task_Crud.py`, `publish_Runner.py`, `drivers/toutiao.py` 等）
+  - `accounts/` — 账号 CRUD、登录 session 状态机、Xvfb + x11vnc + websockify → noVNC 远程浏览器（`account_Auth.py`, `account_Crud.py`, `browser_Session.py`）
+  - `articles/` — 文章/分组 CRUD、Tiptap JSON 解析（`article_Crud.py`, `tiptap_Parser.py`, `asset_Store.py`）
+- **Shared** (under `server/app/shared/`): `errors.py`（异常类）、`feishu.py`（飞书 Webhook）、`diagnostics.py`（发布诊断）、`system_status.py`
 - **Config**: pydantic-settings with `GEO_` prefix, `get_settings()` is `@lru_cache`'d — call `.cache_clear()` after env changes.
+- **Data dir**: `GEO_DATA_DIR`（Docker 内默认 `/app/data`）。Subdirs: `assets/`, `browser_states/<platform_code>/<account_key>/`, `logs/`, `exports/`.
 - **Task execution — two modes**:
-  - **Test/dev**: `POST /api/tasks/{id}/execute` starts a background thread (`threading.Thread(daemon=True)`) via `bg_session_factory` (monkeypatched to `TestingSessionLocal` in tests). Returns 202 immediately.
-  - **Production**: A separate `worker` Docker service (`server/worker/executor.py`) polls the DB, claims tasks via optimistic locking on `worker_id`/`worker_lease_until` columns, and calls `execute_task()` synchronously. The API only releases stale worker claims and returns 202.
-  - Internal execution: `threading.Lock` per task_id prevents concurrent execution. Up to 5 PublishRecord concurrently via `ThreadPoolExecutor`, with per-account locks for serialization. Records have `lease_until` for crash recovery.
-- **Worker executor** (`server/worker/executor.py`): polls for pending tasks, claims with optimistic lock, runs `execute_task()`, also processes account login session requests in a background thread. Writes `WorkerHeartbeat` rows.
+  - **Test/dev**: `POST /api/tasks/{id}/execute` starts a background thread via `bg_session_factory` (monkeypatched to `TestingSessionLocal` in tests). Returns 202 immediately.
+  - **Production**: `worker` Docker service (`server/worker/executor.py`) polls the DB, claims tasks via optimistic locking on `worker_id`/`worker_lease_until`, calls `execute_task()` synchronously. API only releases stale claims and returns 202.
+  - Internal: `threading.Lock` per task_id, up to `MAX_CONCURRENT_RECORDS=5` records via `Semaphore`, per-account locks for serialization. Records have `lease_until` for crash recovery.
 - **Startup order** (`create_app()`): `ensure_data_dirs` → import driver modules (registers drivers) → `recover_stuck_records` → uvicorn serve.
 - **`TaskCreate.platform_code`** 默认值是 `"toutiao"`——前端不传时后端自动填入。
 - **Docker Compose services**: mysql (8.0), app (FastAPI + static files), worker (publish executor + account login processor), nginx (80 → app, noVNC proxy).
-- **Exception hierarchy** (`server/app/services/errors.py`): `ClientError(Exception)` → 400 global handler, `ConflictError(ClientError)` → 409, `AccountError(ClientError)` → 400, `ValidationError(ClientError)` → 400. Service code should raise these classes, NOT raw `ValueError`. `ValueError` used in low-level code (browser_sessions, drivers/__init__) has NO global handler → results in 500.
+- **Exception hierarchy** (`server/app/shared/errors.py`): `ClientError(Exception)` → 400, `ConflictError(ClientError)` → 409, `AccountError(ClientError)` → 400, `ValidationError(ClientError)` → 400. Service code should raise these, NOT raw `ValueError`. `ValueError` in low-level code has NO global handler → 500.
 
 ## Playwright automation details
-
-以下是关键发布管线信息：
 
 - **Selectors**: 头条使用 ByteDance 自有设计系统 (`byte-btn`, `byte-btn-primary`, `syl-toolbar-tool`)，**不是** Ant Design。不要猜测选择器——用 `playwright-cli` 检查真实页面 DOM（ByteDance DOM 经常变动）。
 - **Cover upload**: 点击 `.add-icon` → 对话框 → "本地上传" → `expect_file_chooser()` + `set_files()` → 等待 "已上传 1 张图片" 文本（最多 60s）→ 确定。
@@ -87,24 +76,23 @@ pnpm install
 - **Post-publish popups**: "作品同步授权" 对话框和 "加入创作者计划" 弹窗需要关闭。
 - **AI drawer**: 操作前先关闭 AI 助手抽屉 (`.close-btn`)。
 - **Browser context**: 发布使用 `managed_remote_browser_session`（Xvfb + noVNC），账号浏览器状态存储在 `browser_states/<platform_code>/<account_key>/` 下。
+- Cover image is **mandatory**: `ToutiaoDriver._handle_cover()` raises if `article.cover_asset is None`。
 
 ## Testing quirks
 
-- `build_test_app(monkeypatch)` creates temp data dir + SQLite DB, sets `GEO_DATA_DIR`, `GEO_JWT_SECRET`, clears `get_settings.cache_clear()`, and clears global `_task_locks`/`_account_locks`/`_task_cancel`. Every test **must** call `test_app.cleanup()` in `finally`.
-- FTS5 tables are created manually in `build_test_app` (not via Alembic) — any test using full-text search needs those triggers.
+- `build_test_app(monkeypatch)` in `server/tests/utils.py` creates temp data dir + SQLite DB + FTS5 tables + admin user + JWT cookie. Every test **must** call `test_app.cleanup()` in `finally` (deletes temp dir, clears settings cache).
+- FTS5 tables created manually (not via Alembic) — any test using full-text search needs those triggers.
 - Tests that execute tasks **must** pass `"stop_before_publish": False` or the task stays in `waiting_manual_publish`.
-- Mock the publish runner: `monkeypatch.setattr("server.app.services.tasks.build_publish_runner_for_record", lambda r: stub_runner)`.
-- Background task execution uses `bg_session_factory` — patched in `build_test_app` to use `TestingSessionLocal` for cross-thread DB access.
-- `build_test_app` also calls `browser_sessions._reset_globals()` to reset browser sessions (prevents cross-test leaks).
+- Mock the publish runner: `monkeypatch.setattr("server.app.modules.tasks.task_Executor.build_publish_runner_for_record", lambda r: stub_runner)`.
+- Background task execution uses `bg_session_factory` — patched in `build_test_app` to `TestingSessionLocal` for cross-thread DB access.
+- `build_test_app` also calls `browser_Session._reset_globals()` to reset browser sessions (prevents cross-test leaks).
 
 ## Gotchas
 
-- `ensure_data_dirs()` runs at **module import** of `server/app/db/session.py`. All DB sessions: `check_same_thread=False`, WAL + busy_timeout=5000 + foreign_keys=ON.
-- Alembic `alembic.ini`: `sqlalchemy.url` is a placeholder — runtime override via `get_database_url()`. `alembic upgrade head` runs automatically at Docker startup.
+- `ensure_data_dirs()` runs at **module import** of `server/app/db/session.py`.
+- Alembic `alembic.ini`: `sqlalchemy.url` is a placeholder — runtime override via `get_database_url()`.
 - `ToutiaoDriver.publish(...)` — `stop_before_publish` stops after "预览并发布", user must call `POST /api/publish-records/{id}/manual-confirm`.
-- Cover image is **mandatory**: `_handle_cover()` raises if `article.cover_asset is None`.
-- Exception hierarchy (`server/app/services/errors.py`): `ClientError(Exception)` → 400, `ConflictError(ClientError)` → 409, `AccountError(ClientError)` → 400, `ValidationError(ClientError)` → 400. Service code should raise these classes, NOT raw `ValueError`.
 - Retry only on original records (not retry records).
-- `build_publish_runner_for_record(record)` in `tasks.py` routes by `platform_code` extracted from `account.state_path` — multi-platform ready via driver registry.
+- `build_publish_runner_for_record(record)` in `task_Executor.py` routes by `platform_code` extracted from `account.state_path` — multi-platform ready via driver registry.
 - `bg_session_factory` (module-level var in `server/app/api/routes/tasks.py`) is imported lazily inside functions in both `tasks.py` and `publish_records.py` to avoid circular imports. Do **NOT** toplevel-import it.
-- **Route ordering**: `POST /api/accounts/{account_id:int}/login-session` MUST be registered before `POST /api/accounts/{platform_code}/login-session`. Both match `/{str}/login-session`; the `:int` converter restricts matching to numeric segments, preventing platform_code routes from swallowing numeric account IDs.
+- **Route ordering**: `POST /api/accounts/{account_id:int}/login-session` MUST be registered before `POST /api/accounts/{platform_code}/login-session`. The `:int` converter prevents platform_code routes from swallowing numeric account IDs.
