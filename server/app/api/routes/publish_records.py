@@ -9,7 +9,7 @@ from server.app.db.session import get_db
 from server.app.models import PublishRecord, PublishTask, User
 from server.app.schemas.task import ManualConfirmInput, PublishRecordRead
 from server.app.services.serializers import to_record_read
-from server.app.services.tasks import (
+from server.app.modules.tasks import (
     TERMINAL_TASK_STATUSES,
     execute_task,
     get_record,

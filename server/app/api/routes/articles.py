@@ -8,7 +8,7 @@ from server.app.db.session import get_db
 from server.app.models import Article, PublishRecord, User
 from server.app.schemas.article import ArticleCoverUpdate, ArticleCreate, ArticleListRead, ArticleRead, ArticleUpdate
 from server.app.services.errors import ConflictError
-from server.app.services.articles import (
+from server.app.modules.articles import (
     create_article,
     delete_article,
     get_article,

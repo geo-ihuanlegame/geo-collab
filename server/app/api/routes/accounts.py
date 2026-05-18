@@ -14,7 +14,7 @@ from server.app.schemas.account import (
     AccountRenameRequest,
     PlatformLoginRequest,
 )
-from server.app.services.accounts import (
+from server.app.modules.accounts import (
     check_account,
     delete_account,
     export_accounts_auth_package,

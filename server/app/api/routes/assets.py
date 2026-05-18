@@ -12,7 +12,7 @@ from server.app.core.security import get_current_user
 from server.app.db.session import get_db
 from server.app.models import Asset, User
 from server.app.schemas.asset import AssetRead
-from server.app.services.assets import asset_url, resolve_asset_path, store_upload
+from server.app.modules.articles import asset_url, resolve_asset_path, store_upload
 from server.app.services.errors import ClientError
 
 router = APIRouter()

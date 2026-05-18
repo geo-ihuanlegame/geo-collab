@@ -21,8 +21,8 @@ from sqlalchemy import select, update as sa_update
 from server.app.core.time import utcnow
 from server.app.db.session import SessionLocal
 from server.app.models import PublishTask, WorkerHeartbeat
-from server.app.services.accounts import process_account_login_session_requests
-from server.app.services.tasks import (
+from server.app.modules.accounts import process_account_login_session_requests
+from server.app.modules.tasks import (
     TERMINAL_TASK_STATUSES,
     execute_task,
     get_task,

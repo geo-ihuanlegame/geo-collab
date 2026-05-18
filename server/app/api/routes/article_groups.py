@@ -11,7 +11,7 @@ from server.app.schemas.article_group import (
     ArticleGroupRead,
     ArticleGroupUpdate,
 )
-from server.app.services.article_groups import (
+from server.app.modules.articles import (
     create_group,
     delete_group,
     get_group,

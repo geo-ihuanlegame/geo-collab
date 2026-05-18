@@ -99,7 +99,7 @@ def create_app() -> FastAPI:
     )
     # 启动时恢复卡住的记录（上次运行时 crash 导致 status='running' 的记录）
     from server.app.db.session import SessionLocal
-    from server.app.services.tasks import recover_stuck_records
+    from server.app.modules.tasks import recover_stuck_records
     try:
         recover_db = SessionLocal()
         recover_stuck_records(recover_db)
