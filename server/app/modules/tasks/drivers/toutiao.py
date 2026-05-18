@@ -179,26 +179,40 @@ def _focus_body_editor(page: Any) -> None:
 
 
 def _fill_body(page: Any, segments: list[BodySegment]) -> None:
-    """按 segment 顺序填充正文文本和正文图片。segments 中的图片路径已由 publish_runner 预先解析。"""
+    """按 segment 顺序填充正文文本和正文图片。segments 中的图片路径已由 publish_runner 预先解析。
+    
+    单个 segment 失败不截断全文：记录日志后继续处理后续 segment，
+    所有 segment 处理完后再统一报错。
+    """
     if not segments:
         raise ToutiaoPublishError("文章正文为空")
 
     _focus_body_editor(page)
+    failures: list[BodySegment] = []
     for segment in segments:
-        if segment.kind == "text":
-            _insert_body_text(page, segment.text)
-        elif segment.kind == "image":
+        try:
+            if segment.kind == "text":
+                _insert_body_text(page, segment.text)
+            elif segment.kind == "image":
+                _dismiss_blocking_popups(page)
+                if segment.image_path is None:
+                    raise ToutiaoPublishError(f"正文图片路径未解析: {segment.image_asset_id}")
+                _paste_body_image_path(page, segment.image_path, segment.image_asset_id)
+                # 图片插入走 React drawer，不走 ProseMirror transaction，
+                # 所以 focus() 恢复的 selection 可能停在旧位置（开头/上一段）。
+                # 用 Control+End 强制移到文档末尾，避免后续内容插入到图片前面。
+                _focus_body_editor(page)
+                page.keyboard.press("Control+End")
+                page.keyboard.press("Enter")
+                page.wait_for_timeout(300)
+        except Exception:
+            logger.error("正文填充失败: segment=%s", segment, exc_info=True)
+            failures.append(segment)
             _dismiss_blocking_popups(page)
-            if segment.image_path is None:
-                raise ToutiaoPublishError(f"正文图片路径未解析: {segment.image_asset_id}")
-            _paste_body_image_path(page, segment.image_path, segment.image_asset_id)
-            # 图片插入走 React drawer，不走 ProseMirror transaction，
-            # 所以 focus() 恢复的 selection 可能停在旧位置（开头/上一段）。
-            # 用 Control+End 强制移到文档末尾，避免后续内容插入到图片前面。
-            _focus_body_editor(page)
-            page.keyboard.press("Control+End")
-            page.keyboard.press("Enter")
-            page.wait_for_timeout(300)
+    if failures:
+        raise ToutiaoPublishError(
+            f"正文填充失败: {len(failures)}/{len(segments)} segments 失败"
+        )
 
 
 def _insert_body_text(page: Any, text: str) -> None:
@@ -208,9 +222,8 @@ def _insert_body_text(page: Any, text: str) -> None:
         page.keyboard.press("Enter")
         page.wait_for_timeout(80)
         return
-    page.evaluate("async (t) => { await navigator.clipboard.writeText(t); }", text)
-    page.keyboard.press("Control+v")
-    page.wait_for_timeout(120)
+    page.keyboard.insertText(text)
+    page.wait_for_timeout(50)
 
 
 def _body_image_count(page: Any) -> int:
