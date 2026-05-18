@@ -8,6 +8,9 @@ from playwright.sync_api import sync_playwright
 
 from server.app.core.paths import get_data_dir
 from server.app.models import Account, Article
+from server.app.modules.articles.asset_Store import resolve_asset_path
+from server.app.modules.articles.tiptap_Parser import BodySegment, parse_body_segments
+from server.app.modules.tasks.drivers.driver_Base import PublishPayload
 from server.app.services.accounts import account_key_from_state_path, launch_options, profile_dir_for_key
 from server.app.services.browser_sessions import (
     attach_browser_handles,
@@ -72,6 +75,57 @@ def _clear_profile_locks(profile_dir: Path) -> None:
             pass
 
 
+def _build_payload(
+    article: Article,
+    account: Account,
+    account_key: str,
+    platform_code: str,
+    state_path: Path,
+) -> PublishPayload:
+    """Resolve all asset paths from ORM objects and build PublishPayload.
+
+    Must be called before entering the Playwright session so ORM relationships
+    are still accessible and drivers never need DB access during automation.
+    """
+    if article.cover_asset is None:
+        raise PublishError("封面图片是必填项")
+    cover_path = resolve_asset_path(article.cover_asset)
+
+    raw_segments = parse_body_segments(article)
+    resolved: list[BodySegment] = []
+    for seg in raw_segments:
+        if seg.kind == "image" and seg.image_asset_id:
+            asset_link = next(
+                (
+                    link
+                    for link in article.body_assets
+                    if link.asset_id == seg.image_asset_id and link.asset is not None
+                ),
+                None,
+            )
+            if asset_link is None:
+                raise PublishError(f"正文图片资源不存在或未加载: {seg.image_asset_id}")
+            resolved.append(
+                BodySegment(
+                    kind="image",
+                    image_asset_id=seg.image_asset_id,
+                    image_path=resolve_asset_path(asset_link.asset),
+                )
+            )
+        else:
+            resolved.append(seg)
+
+    return PublishPayload(
+        title=article.title,
+        cover_asset_path=cover_path,
+        body_segments=resolved,
+        account_key=account_key,
+        state_path=state_path,
+        display_name=account.display_name,
+        platform_code=platform_code,
+    )
+
+
 def run_publish(
     *,
     article: Article,
@@ -93,10 +147,13 @@ def run_publish(
 
     driver = get_driver(platform_code)
 
+    # Resolve all asset paths before entering the browser session — ORM objects
+    # may become detached once we hand control to Playwright threads.
+    payload = _build_payload(article, account, account_key, platform_code, state_path)
+
     with publish_step("remote browser session"):
         session = get_or_create_account_session(platform_code, account_key)
 
-    # 第一次发布该账号：启动 Playwright + Chromium，挂到 session 上供后续复用
     if session.browser_context is None:
         pw = None
         try:
@@ -135,9 +192,7 @@ def run_publish(
             return driver.publish(
                 page=page,
                 context=context,
-                article=article,
-                account=account,
-                state_path=state_path,
+                payload=payload,
                 stop_before_publish=stop_before_publish,
             )
     except UserInputRequired as exc:

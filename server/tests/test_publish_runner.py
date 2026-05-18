@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from server.app.modules.tasks.drivers.driver_Base import PublishPayload, PublishResult
 from server.app.services.drivers.toutiao import (
     PublishFillResult,
     ToutiaoUserInputRequired,
@@ -20,12 +21,17 @@ def _make_stub_article(tmp_path: Path) -> types.SimpleNamespace:
     return types.SimpleNamespace(
         title="Test Article",
         cover_asset=object(),  # non-None → passes the cover check
+        content_json="",
+        plain_text="body text",
+        content_html="",
+        body_assets=[],
     )
 
 
 def _make_stub_account() -> types.SimpleNamespace:
     return types.SimpleNamespace(
-        state_path="browser_states/testplat/k1/storage_state.json"
+        state_path="browser_states/testplat/k1/storage_state.json",
+        display_name="Test Account",
     )
 
 
@@ -35,6 +41,18 @@ def _make_stub_session() -> types.SimpleNamespace:
         display=":99",
         novnc_url="http://localhost:6080",
         browser_context=None,  # None → triggers first-launch path in run_publish
+    )
+
+
+def _make_stub_payload(tmp_path: Path) -> PublishPayload:
+    return PublishPayload(
+        title="Test Article",
+        cover_asset_path=tmp_path / "cover.jpg",
+        body_segments=[],
+        account_key="k1",
+        state_path=tmp_path / "browser_states/testplat/k1/storage_state.json",
+        display_name="Test Account",
+        platform_code="testplat",
     )
 
 
@@ -70,6 +88,8 @@ def _patch_common(monkeypatch, tmp_path: Path, stub_session, pw_cm, context, pag
     state_file.parent.mkdir(parents=True, exist_ok=True)
     state_file.write_text("{}")
 
+    stub_payload = _make_stub_payload(tmp_path)
+
     # get_data_dir → tmp_path
     monkeypatch.setattr(
         "server.app.services.publish_runner.get_data_dir",
@@ -80,6 +100,12 @@ def _patch_common(monkeypatch, tmp_path: Path, stub_session, pw_cm, context, pag
     monkeypatch.setattr(
         "server.app.services.publish_runner.account_key_from_state_path",
         lambda state_path: ("testplat", "k1"),
+    )
+
+    # _build_payload → returns a stub PublishPayload without touching ORM
+    monkeypatch.setattr(
+        "server.app.services.publish_runner._build_payload",
+        lambda article, account, account_key, platform_code, state_path: stub_payload,
     )
 
     # profile_dir_for_key → a path that doesn't need to exist
@@ -132,7 +158,6 @@ def test_run_publish_routes_by_platform_code(monkeypatch, tmp_path):
 
     _patch_common(monkeypatch, tmp_path, stub_session, pw_cm, context, page)
 
-    # Build a stub driver that records calls
     publish_called = []
     expected_result = PublishFillResult(
         url="https://example.com/article/1",
@@ -149,13 +174,12 @@ def test_run_publish_routes_by_platform_code(monkeypatch, tmp_path):
         def detect_logged_in(self, *, url, title, body):
             return True
 
-        def publish(self, *, page, context, article, account, state_path, stop_before_publish):
+        def publish(self, *, page, context, payload, stop_before_publish):
             publish_called.append(True)
             return expected_result
 
     stub_driver = _StubDriver()
 
-    # Patch get_driver to return our stub
     monkeypatch.setattr(
         "server.app.services.publish_runner.get_driver",
         lambda platform_code: stub_driver,
@@ -183,7 +207,6 @@ def test_run_publish_keeps_session_on_user_input_required(monkeypatch, tmp_path)
 
     _patch_common(monkeypatch, tmp_path, stub_session, pw_cm, context, page)
 
-    # Driver raises ToutiaoUserInputRequired
     class _StubDriver:
         code = "testplat"
         name = "Test Platform"
@@ -193,7 +216,7 @@ def test_run_publish_keeps_session_on_user_input_required(monkeypatch, tmp_path)
         def detect_logged_in(self, *, url, title, body):
             return True
 
-        def publish(self, *, page, context, article, account, state_path, stop_before_publish):
+        def publish(self, *, page, context, payload, stop_before_publish):
             raise ToutiaoUserInputRequired("needs login")
 
     stub_driver = _StubDriver()
@@ -203,7 +226,6 @@ def test_run_publish_keeps_session_on_user_input_required(monkeypatch, tmp_path)
         lambda platform_code: stub_driver,
     )
 
-    # Track keep_session_alive calls
     kept_alive = []
 
     monkeypatch.setattr(

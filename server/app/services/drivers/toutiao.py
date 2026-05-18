@@ -9,9 +9,8 @@ from typing import Any, Iterator
 
 logger = logging.getLogger(__name__)
 
-from server.app.models import Account, Article, Asset
-from server.app.services.articles import article_has_publishable_body, loads_content_json
-from server.app.services.assets import resolve_asset_path
+from server.app.modules.articles.tiptap_Parser import BodySegment
+from server.app.modules.tasks.drivers.driver_Base import PublishPayload
 from server.app.services.drivers.base import PublishError, PublishResult, UserInputRequired
 from server.app.services.publish_diagnostics import publish_step, record_publish_diagnostic
 
@@ -26,16 +25,6 @@ PUBLISH_HINTS = ("发布", "标题", "正文", "图文", "文章")
 
 
 PublishFillResult = PublishResult
-
-
-from dataclasses import dataclass
-
-
-@dataclass(frozen=True)
-class BodySegment:
-    kind: str
-    text: str = ""
-    asset_id: str | None = None
 
 
 # 头条号发布异常，可附带失败截图
@@ -58,7 +47,6 @@ class ToutiaoUserInputRequired(UserInputRequired, ToutiaoPublishError):
 def _close_ai_drawer(page: Any) -> None:
     """关闭头条号 AI 创作助手抽屉，避免遮挡正文编辑区。"""
     try:
-        # 必须先用父 locator 的 count() 判断元素是否存在，.first 后再 count() 不可靠
         close_btns = page.locator(".close-btn")
         if close_btns.count() > 0 and close_btns.first.is_visible():
             close_btns.first.click()
@@ -154,8 +142,6 @@ def _dismiss_blocking_popups(page: Any) -> None:
 
 def _fill_title(page: Any, title: str) -> None:
     """填充文章标题（最多 50 字）。"""
-    # 使用 fill() 直接写入 DOM value，绕过键盘事件和 IME，避免中文+特殊字符丢失
-    # 主选择器：aria role（慢机器给足 20 秒）
     try:
         field = page.get_by_role("textbox", name="请输入文章标题")
         field.wait_for(state="visible", timeout=20000)
@@ -163,7 +149,6 @@ def _fill_title(page: Any, title: str) -> None:
         return
     except Exception:
         logger.warning("Title field not found via textbox role, trying CSS fallback", exc_info=True)
-    # 兜底：placeholder 包含"标题"的 input
     try:
         field = page.locator("input[placeholder*='标题']").first
         field.wait_for(state="visible", timeout=5000)
@@ -194,9 +179,8 @@ def _focus_body_editor(page: Any) -> None:
         raise ToutiaoPublishError("Toutiao body editor not found")
 
 
-def _fill_body(page: Any, article: Article) -> None:
-    """按 Tiptap JSON 顺序填充正文文本和正文图片。"""
-    segments = _body_segments(article)
+def _fill_body(page: Any, segments: list[BodySegment]) -> None:
+    """按 segment 顺序填充正文文本和正文图片。segments 中的图片路径已由 publish_runner 预先解析。"""
     if not segments:
         raise ToutiaoPublishError("文章正文为空")
 
@@ -205,10 +189,11 @@ def _fill_body(page: Any, article: Article) -> None:
         if segment.kind == "text":
             _insert_body_text(page, segment.text)
         elif segment.kind == "image":
-            _dismiss_blocking_popups(page)  # 插图前先清掉可能出现的弹窗，防止劫持键盘焦点
-            asset = _body_asset_for_segment(article, segment)
-            _paste_body_image(page, asset)
-            _focus_body_editor(page)  # 恢复焦点，防止后续 End/Enter 键盘事件打到错位置
+            _dismiss_blocking_popups(page)
+            if segment.image_path is None:
+                raise ToutiaoPublishError(f"正文图片路径未解析: {segment.image_asset_id}")
+            _paste_body_image_path(page, segment.image_path, segment.image_asset_id)
+            _focus_body_editor(page)
             page.keyboard.press("End")
             page.keyboard.press("Enter")
 
@@ -219,100 +204,8 @@ def _insert_body_text(page: Any, text: str) -> None:
     if text == "\n":
         page.keyboard.press("Enter")
         return
-    # navigator.clipboard.writeText() is reliable in Playwright automation contexts
-    # (clipboard-read/write permissions must be granted on the context).
-    # document.execCommand('copy') is deprecated and silently fails in Chromium 90+
-    # when called without a genuine user gesture, causing text to disappear.
     page.evaluate("async (t) => { await navigator.clipboard.writeText(t); }", text)
     page.keyboard.press("Control+v")
-
-
-def _body_segments(article: Article) -> list[BodySegment]:
-    content_json = loads_content_json(article.content_json)
-    segments: list[BodySegment] = []
-    _append_tiptap_segments(content_json, segments)
-    segments = _compact_segments(segments)
-    if segments:
-        return segments
-
-    body = (article.plain_text or re.sub(r"<[^>]+>", "", article.content_html or "")).strip()
-    return [BodySegment(kind="text", text=body)] if body else []
-
-
-def _append_tiptap_segments(node: Any, segments: list[BodySegment], depth: int = 0) -> None:
-    if isinstance(node, list):
-        for child in node:
-            _append_tiptap_segments(child, segments, depth)
-        return
-    if not isinstance(node, dict):
-        return
-
-    node_type = node.get("type")
-    if node_type == "text":
-        text = node.get("text")
-        if isinstance(text, str) and text:
-            segments.append(BodySegment(kind="text", text=text))
-        return
-    if node_type == "hardBreak":
-        segments.append(BodySegment(kind="text", text="\n"))
-        return
-    if node_type == "image":
-        asset_id = _asset_id_from_tiptap_image(node)
-        if asset_id:
-            segments.append(BodySegment(kind="image", asset_id=asset_id))
-        return
-
-    content = node.get("content")
-    if isinstance(content, list):
-        for index, child in enumerate(content):
-            _append_tiptap_segments(child, segments, depth + (1 if node_type in ("orderedList", "bulletList") else 0))
-
-    if node_type in {"paragraph", "heading"}:
-        segments.append(BodySegment(kind="text", text="\n"))
-
-
-def _compact_segments(segments: list[BodySegment]) -> list[BodySegment]:
-    compacted: list[BodySegment] = []
-    for segment in segments:
-        if segment.kind == "text":
-            if not segment.text:
-                continue
-            # Keep standalone newline segments unmerged (they separate images/paragraphs)
-            if segment.text == "\n":
-                compacted.append(segment)
-                continue
-            if compacted and compacted[-1].kind == "text" and compacted[-1].text != "\n":
-                previous = compacted.pop()
-                compacted.append(BodySegment(kind="text", text=previous.text + segment.text))
-            else:
-                compacted.append(segment)
-        else:
-            compacted.append(segment)
-    while compacted and compacted[-1].kind == "text" and not compacted[-1].text.strip():
-        compacted.pop()
-    return compacted
-
-
-def _asset_id_from_tiptap_image(node: dict[str, Any]) -> str | None:
-    attrs = node.get("attrs")
-    if not isinstance(attrs, dict):
-        return None
-    for key in ("assetId", "asset_id", "dataAssetId"):
-        value = attrs.get(key)
-        if isinstance(value, str) and value:
-            return value
-    src = attrs.get("src")
-    if isinstance(src, str) and "/api/assets/" in src:
-        return src.rstrip("/").split("/api/assets/")[-1].split("?")[0]
-    return None
-
-
-def _body_asset_for_segment(article: Article, segment: BodySegment) -> Asset:
-    asset_id = segment.asset_id
-    for link in sorted(article.body_assets, key=lambda item: item.position):
-        if link.asset_id == asset_id and link.asset is not None:
-            return link.asset
-    raise ToutiaoPublishError(f"正文图片资源不存在或未加载: {asset_id}")
 
 
 def _body_image_count(page: Any) -> int:
@@ -368,13 +261,12 @@ def _maybe_resize_for_upload(image_path: Path) -> Iterator[Path]:
             tmp_path.unlink(missing_ok=True)
 
 
-def _paste_body_image(page: Any, asset: Asset) -> None:
-    image_path = resolve_asset_path(asset)
+def _paste_body_image_path(page: Any, image_path: Path, asset_id: str | None) -> None:
     if not image_path.exists():
-        raise ToutiaoPublishError(f"正文图片文件不存在: {asset.id}")
+        raise ToutiaoPublishError(f"正文图片文件不存在: {asset_id or image_path}")
 
     before_count = _body_image_count(page)
-    record_publish_diagnostic(f"body image upload start: asset_id={asset.id}; before_count={before_count}")
+    record_publish_diagnostic(f"body image upload start: asset_id={asset_id}; before_count={before_count}")
 
     try:
         with _maybe_resize_for_upload(image_path) as upload_path:
@@ -382,14 +274,14 @@ def _paste_body_image(page: Any, asset: Asset) -> None:
             _upload_body_image_in_drawer(page, upload_path)
             _confirm_body_image_drawer(page)
             _wait_body_image_inserted(page, before_count)
-        record_publish_diagnostic(f"body image inserted: asset_id={asset.id}; after_count={_body_image_count(page)}")
+        record_publish_diagnostic(f"body image inserted: asset_id={asset_id}; after_count={_body_image_count(page)}")
     except Exception as exc:
         after_count = _body_image_count(page)
         page_closed = _page_is_closed(page)
         screenshot = _screenshot(page)
         raise ToutiaoPublishError(
             (
-                f"正文图片未能插入编辑器: {asset.id}; "
+                f"正文图片未能插入编辑器: {asset_id or image_path}; "
                 f"before={before_count}; after={after_count}; "
                 f"page_closed={page_closed}; error={type(exc).__name__}: {exc}"
             ),
@@ -503,7 +395,6 @@ def _wait_publish_images_ready(page: Any, timeout_ms: int = 60000) -> None:
                 return
         else:
             stable_rounds = 0
-            # 上传仍在进行时，状态抖动属正常；每轮间隔 500ms，最多等 60s
         page.wait_for_timeout(500)
 
     screenshot = _screenshot(page)
@@ -585,15 +476,11 @@ def _publish_image_state(page: Any) -> dict[str, Any]:
         }
 
 
-def _handle_cover(page: Any, article: Article) -> None:
-    """上传封面图片。封面图是必填项。"""
-    if article.cover_asset is None:
-        raise ToutiaoPublishError("封面图片是必填项，article 没有关联 cover_asset")
-
-    cover_path = resolve_asset_path(article.cover_asset)
+def _handle_cover(page: Any, cover_path: Path, cover_asset_id: str | None) -> None:
+    """上传封面图片。封面图是必填项，路径已由 publish_runner 预先解析。"""
     if not cover_path.exists():
-        raise ToutiaoPublishError(f"Cover asset file not found: {article.cover_asset_id}")
-    record_publish_diagnostic(f"cover upload start: asset_id={article.cover_asset_id}; path={cover_path.name}")
+        raise ToutiaoPublishError(f"Cover asset file not found: {cover_asset_id or cover_path}")
+    record_publish_diagnostic(f"cover upload start: asset_id={cover_asset_id}; path={cover_path.name}")
 
     try:
         _click_cover_upload_entry(page)
@@ -692,7 +579,6 @@ def _click_publish_and_wait(page: Any, stop_before_publish: bool = False) -> str
     """两步发布：先点"预览并发布"，再点"确认发布"。"""
     before_url = page.url
 
-    # 第一步：点击"预览并发布"
     try:
         _dismiss_blocking_popups(page)
         page.get_by_role("button", name="预览并发布").click()
@@ -702,13 +588,11 @@ def _click_publish_and_wait(page: Any, stop_before_publish: bool = False) -> str
     page.wait_for_timeout(300)
     _dismiss_blocking_popups(page)
 
-    # stop_before_publish=True 时停在预览状态，等待手动确认
     if stop_before_publish:
         raise UserInputRequired(
             "已到达预览状态，请在远程浏览器中手动点击「确认发布」按钮完成发布。"
         )
 
-    # 第二步：等待"确认发布"按钮出现并点击
     try:
         confirm_btn = page.get_by_role("button", name="确认发布")
         confirm_btn.wait_for(state="visible", timeout=30000)
@@ -720,7 +604,6 @@ def _click_publish_and_wait(page: Any, stop_before_publish: bool = False) -> str
 
     page.wait_for_timeout(300)
 
-    # 第三步：处理可能弹出的"作品同步授权"对话框
     try:
         ok_btn = page.get_by_role("button", name="确定")
         if ok_btn.count() and ok_btn.is_visible(timeout=3000):
@@ -729,14 +612,12 @@ def _click_publish_and_wait(page: Any, stop_before_publish: bool = False) -> str
     except Exception:
         logger.warning("Failed to dismiss post-publish popup", exc_info=True)
 
-    # 等待页面跳转（最长 30 秒）
     try:
         page.wait_for_url(lambda url: url != before_url, timeout=30000)
         return page.url
     except Exception:
         logger.warning("URL change wait failed after publish", exc_info=True)
 
-    # 跳转失败时根据页面文字判断发布结果
     try:
         body_text = page.locator("body").inner_text(timeout=3000)
         if any(h in body_text for h in ("发布失败", "提交失败", "操作失败", "网络错误")):
@@ -795,13 +676,12 @@ def _page_is_closed(page: Any) -> bool | str:
         return f"unknown: {type(exc).__name__}: {exc}"
 
 
-def _do_publish(page, context, article, account, state_path, stop_before_publish):
+def _do_publish(page: Any, context: Any, payload: PublishPayload, stop_before_publish: bool) -> PublishResult:
     """
-    核心发布逻辑（两个路径共用）。
+    核心发布逻辑。
 
     步骤：
       1. 打开头条发布页 → 2. 填标题 → 3. 上传封面 → 4. 填正文 → 5. 等待图片就绪 → 6. 点击发布
-    每步之间尝试关闭阻塞弹窗（营销/引导弹窗会遮挡操作区域）。
     """
     with publish_step("open Toutiao publish page", page=page):
         page.goto(TOUTIAO_PUBLISH_URL, wait_until="domcontentloaded", timeout=60000)
@@ -815,24 +695,24 @@ def _do_publish(page, context, article, account, state_path, stop_before_publish
         _close_ai_drawer(page)
         _dismiss_blocking_popups(page)
     with publish_step("fill title", page=page):
-        _fill_title(page, article.title)
+        _fill_title(page, payload.title)
         _dismiss_blocking_popups(page)
     with publish_step("upload cover", page=page):
-        _handle_cover(page, article)
+        _handle_cover(page, payload.cover_asset_path, None)
         _dismiss_blocking_popups(page)
     with publish_step("fill body", page=page):
-        _fill_body(page, article)
+        _fill_body(page, payload.body_segments)
         _dismiss_blocking_popups(page)
     with publish_step("wait body images ready", page=page):
         _wait_publish_images_ready(page)
     with publish_step("click publish", page=page):
         publish_url = _click_publish_and_wait(page, stop_before_publish)
     with publish_step("save storage state"):
-        context.storage_state(path=str(state_path))
+        context.storage_state(path=str(payload.state_path))
     message = "已进入发布预览，等待手动确认" if stop_before_publish else f"发布成功: {publish_url}"
-    return PublishFillResult(
+    return PublishResult(
         url=publish_url,
-        title=article.title,
+        title=payload.title,
         message=message,
     )
 
@@ -844,17 +724,22 @@ class ToutiaoDriver:
     publish_url = TOUTIAO_PUBLISH_URL
 
     def detect_logged_in(self, *, url: str, title: str, body: str) -> bool:
-        # URL-based redirect hints only checked in URL — body contains "退出登录" on any logged-in page
         if any(hint in url for hint in ("login", "passport", "sso")):
             return False
-        # QR/captcha hints only appear on login pages, not on authenticated dashboard pages
         page_text = f"{title}\n{body}"
         if any(hint in page_text for hint in (*QR_HINTS, *CAPTCHA_HINTS)):
             return False
         return "mp.toutiao.com" in url and ("profile_v4" in url or "头条号" in title)
 
-    def publish(self, *, page, context, article, account, state_path, stop_before_publish):
-        return _do_publish(page, context, article, account, state_path, stop_before_publish)
+    def publish(
+        self,
+        *,
+        page: Any,
+        context: Any,
+        payload: PublishPayload,
+        stop_before_publish: bool,
+    ) -> PublishResult:
+        return _do_publish(page, context, payload, stop_before_publish)
 
 
 from server.app.services.drivers import register

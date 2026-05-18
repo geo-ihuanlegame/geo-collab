@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 from playwright.sync_api import BrowserContext, Page
 
-from server.app.models import Account, Article
-from server.app.services.drivers.base import PublishResult
+from server.app.modules.tasks.drivers.driver_Base import PublishPayload, PublishResult
 
 
 @runtime_checkable
@@ -24,9 +22,7 @@ class PlatformDriver(Protocol):
         *,
         page: Page,
         context: BrowserContext,
-        article: Article,
-        account: Account,
-        state_path: Path,
+        payload: PublishPayload,
         stop_before_publish: bool,
     ) -> PublishResult:
         """Fill form, upload assets, click publish. Does not manage browser lifecycle.
