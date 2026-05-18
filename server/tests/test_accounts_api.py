@@ -23,7 +23,8 @@ class FakeDriver:
 
 def install_fake_driver(monkeypatch) -> None:
     monkeypatch.setattr("server.app.api.routes.accounts.all_driver_codes", lambda: ["toutiao"])
-    monkeypatch.setattr("server.app.services.accounts._get_driver", lambda platform_code: FakeDriver())
+    monkeypatch.setattr("server.app.modules.accounts.account_Auth._get_driver", lambda platform_code: FakeDriver())
+    monkeypatch.setattr("server.app.modules.accounts.account_Crud._get_driver", lambda platform_code: FakeDriver())
 
 
 def write_storage_state(data_dir, account_key: str = "demo") -> None:
@@ -33,7 +34,7 @@ def write_storage_state(data_dir, account_key: str = "demo") -> None:
 
 
 def test_start_login_browser_runs_impl_in_plain_thread(monkeypatch):
-    from server.app.services import accounts
+    from server.app.modules.accounts import account_Auth
 
     caller_thread = threading.get_ident()
     seen: dict[str, int] = {}
@@ -46,9 +47,9 @@ def test_start_login_browser_runs_impl_in_plain_thread(monkeypatch):
         seen["thread"] = threading.get_ident()
         return FakeSession()
 
-    monkeypatch.setattr(accounts, "_start_login_browser_impl", fake_impl)
+    monkeypatch.setattr(account_Auth, "_start_login_browser_impl", fake_impl)
 
-    session = accounts._start_login_browser("toutiao", "thread-test", "chromium", None)
+    session = account_Auth._start_login_browser("toutiao", "thread-test", "chromium", None)
 
     assert session.id == "thread-session"
     assert seen["thread"] != caller_thread
@@ -287,7 +288,7 @@ def test_toutiao_remote_login_session_creates_unknown_account(monkeypatch):
         id = "login-session-1"
         novnc_url = "http://127.0.0.1:6080/vnc.html"
 
-    monkeypatch.setattr("server.app.services.accounts._start_login_browser_via_worker", lambda *_args: FakeSession())
+    monkeypatch.setattr("server.app.modules.accounts.account_Auth._start_login_browser_via_worker", lambda *_args: FakeSession())
 
     try:
         response = client.post(
