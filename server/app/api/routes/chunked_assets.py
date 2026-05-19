@@ -192,17 +192,17 @@ async def complete_chunked_upload(
 
         # 合并分块（在线程池中执行以避免阻塞）
         loop = asyncio.get_event_loop()
-        merged_path, sha256_hash = await loop.run_in_executor(
+        merged_path, sha256_hash, is_valid_format, format_error = await loop.run_in_executor(
             None, manager.merge_chunks, upload_id
         )
 
-        # 读取文件内容用于格式验证
-        file_data = merged_path.read_bytes()
-
-        # 验证文件格式
-        if not any(file_data.startswith(m) for m in ALLOWED_MAGIC):
+        # 验证文件格式（已在merge_chunks中执行，但检查结果）
+        if not is_valid_format:
             merged_path.unlink()
             raise HTTPException(status_code=415, detail="Unsupported file type")
+
+        # 读取文件内容用于获取图像尺寸
+        file_data = merged_path.read_bytes()
 
         # 创建资源
         ext = normalize_ext(filename, content_type, file_data)

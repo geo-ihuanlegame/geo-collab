@@ -7,9 +7,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from server.app.core.paths import get_data_dir
+from server.app.core.config import ALLOWED_MAGIC
 
 
 CHUNK_SIZE = 3 * 1024 * 1024  # 3MB
+STREAM_BUFFER_SIZE = 64 * 1024  # 64KB buffer for streaming I/O
+MAGIC_BYTES_CHECK_SIZE = 512  # bytes to check for format validation
 
 
 @dataclass
@@ -87,8 +90,16 @@ class ChunkedUploadManager:
         uploaded = self.get_uploaded_chunks(upload_id)
         return len(uploaded) == session.chunk_count
 
-    def merge_chunks(self, upload_id: str) -> tuple[Path, str]:
-        """合并所有分块到单个临时文件，并返回服务端计算的 SHA256。"""
+    def merge_chunks(self, upload_id: str) -> tuple[Path, str, bool, str | None]:
+        """合并所有分块到单个临时文件，使用流式处理并执行早期格式验证。
+
+        Returns:
+            Tuple of (merged_path, sha256_hash, is_valid_format, format_error)
+            - merged_path: Path to merged file
+            - sha256_hash: Server-computed SHA256 hex digest
+            - is_valid_format: True if file magic bytes match ALLOWED_MAGIC
+            - format_error: Error message if format validation failed, None otherwise
+        """
         session = self.sessions.get(upload_id)
         if not session:
             raise ValueError(f"Upload session {upload_id} not found")
@@ -96,16 +107,48 @@ class ChunkedUploadManager:
         merged_path = session.temp_dir / "merged_file"
         sha256 = hashlib.sha256()
         total = 0
+        magic_bytes_buffer = bytearray()
+        is_valid_format = False
+        format_error = None
+        format_checked = False
 
         with open(merged_path, "wb") as out:
             for i in range(session.chunk_count):
                 chunk_path = session.get_chunk_path(i)
                 if not chunk_path.exists():
                     raise ValueError(f"Missing chunk {i} in upload {upload_id}")
-                data = chunk_path.read_bytes()
-                out.write(data)
-                sha256.update(data)
-                total += len(data)
+
+                # Stream-read each chunk file in small buffers
+                with open(chunk_path, "rb") as chunk_file:
+                    while True:
+                        buffer = chunk_file.read(STREAM_BUFFER_SIZE)
+                        if not buffer:
+                            break
+
+                        # Collect magic bytes for format validation (first 512 bytes)
+                        if not format_checked:
+                            bytes_needed = MAGIC_BYTES_CHECK_SIZE - len(magic_bytes_buffer)
+                            if bytes_needed > 0:
+                                magic_bytes_buffer.extend(buffer[:bytes_needed])
+
+                            # Check if we have enough data or reached end of file
+                            will_have_checked = (
+                                len(magic_bytes_buffer) >= MAGIC_BYTES_CHECK_SIZE
+                                or total + len(buffer) >= session.total_size
+                            )
+                            if will_have_checked:
+                                is_valid_format = any(
+                                    bytes(magic_bytes_buffer).startswith(m)
+                                    for m in ALLOWED_MAGIC
+                                )
+                                if not is_valid_format:
+                                    format_error = "Unsupported file type"
+                                format_checked = True
+
+                        # Write to output and update hash
+                        out.write(buffer)
+                        sha256.update(buffer)
+                        total += len(buffer)
 
         if total != session.total_size:
             merged_path.unlink()
@@ -115,7 +158,7 @@ class ChunkedUploadManager:
         for i in range(session.chunk_count):
             session.get_chunk_path(i).unlink()
 
-        return merged_path, sha256.hexdigest()
+        return merged_path, sha256.hexdigest(), is_valid_format, format_error
 
     def cleanup_session(self, upload_id: str) -> None:
         """清理上传会话（删除临时文件）。"""
