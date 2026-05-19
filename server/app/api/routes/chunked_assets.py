@@ -17,7 +17,6 @@ from server.app.modules.articles.chunked_upload import (
     CHUNK_SIZE,
     get_upload_manager,
 )
-from server.app.core.config import ALLOWED_MAGIC
 
 router = APIRouter()
 
@@ -196,17 +195,18 @@ async def complete_chunked_upload(
             None, manager.merge_chunks, upload_id
         )
 
-        # 验证文件格式（已在merge_chunks中执行，但检查结果）
+        # 验证文件格式（已在merge_chunks中执行）
         if not is_valid_format:
             merged_path.unlink()
-            raise HTTPException(status_code=415, detail="Unsupported file type")
+            raise HTTPException(status_code=415, detail=format_error or "Unsupported file type")
 
-        # 读取文件内容用于获取图像尺寸
-        file_data = merged_path.read_bytes()
+        # 读取文件头用于检测图像尺寸和扩展名（只需前512字节）
+        from server.app.modules.articles.chunked_upload import MAGIC_BYTES_CHECK_SIZE
+        file_header = merged_path.read_bytes()[:MAGIC_BYTES_CHECK_SIZE]
 
         # 创建资源
-        ext = normalize_ext(filename, content_type, file_data)
-        width, height = guess_image_size(file_data)
+        ext = normalize_ext(filename, content_type, file_header)
+        width, height = guess_image_size(file_header)
 
         stored = await loop.run_in_executor(
             None,
