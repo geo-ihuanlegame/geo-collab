@@ -37,13 +37,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libasound2 \
     && rm -rf /var/lib/apt/lists/*
 
-# TCP 上传优化：增大初始拥塞窗口，加快大文件上传首块速度
-RUN echo "net.ipv4.tcp_init_cwnd = 16" >> /etc/sysctl.conf && \
-    echo "net.ipv4.tcp_initrwnd = 16" >> /etc/sysctl.conf && \
-    echo "net.ipv4.tcp_wmem = 4096 65536 16777216" >> /etc/sysctl.conf && \
-    echo "net.ipv4.tcp_rmem = 4096 87380 16777216" >> /etc/sysctl.conf && \
-    sysctl -p
-
 WORKDIR /app
 
 # 安装 Python 依赖（清华镜像加速）
