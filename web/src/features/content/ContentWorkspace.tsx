@@ -25,7 +25,7 @@ import {
   updateArticleGroupItems,
 } from "../../api/articles";
 import { uploadAsset as uploadAssetRequest } from "../../api/assets";
-import { assetSrc, countWords, emptyDoc, newClientRequestId, singleFlight, withAssetToken } from "../../api/core";
+import { assetSrc, assetThumbSrc, countWords, emptyDoc, newClientRequestId, singleFlight, withAssetToken } from "../../api/core";
 import type { Article, ArticleCreatePayload, ArticleGroup, ArticleGroupUpdateItemsPayload, ArticleSummary, ArticleUpdatePayload, Asset, Draft } from "../../types";
 import { EditorToolbar } from "../../components/editor/EditorToolbar";
 import { ArticleListItem } from "../../components/ArticleListItem";
@@ -965,7 +965,7 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
 
           <section className="coverRow">
             <div className="coverPreview">
-              {(pendingCoverUrl ?? assetSrc(draft.cover_asset_id)) ? <img alt="封面" src={pendingCoverUrl ?? assetSrc(draft.cover_asset_id)!} /> : <span>封面</span>}
+              {(pendingCoverUrl ?? assetSrc(draft.cover_asset_id)) ? <img alt="封面" src={pendingCoverUrl ?? assetThumbSrc(draft.cover_asset_id) ?? assetSrc(draft.cover_asset_id)!} /> : <span>封面</span>}
             </div>
             <label className="fileButton">
               <Upload size={16} />

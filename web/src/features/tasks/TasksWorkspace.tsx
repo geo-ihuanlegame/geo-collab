@@ -660,6 +660,7 @@ export function TasksWorkspace() {
                     <img
                       src={`/api/assets/${log.screenshot_asset_id}`}
                       alt="失败截图"
+                      loading="lazy"
                       style={{ maxWidth: "100%", marginTop: 4, marginBottom: 4, borderRadius: 4, border: "1px solid #e2e8f0", display: "block" }}
                     />
                   ) : null}

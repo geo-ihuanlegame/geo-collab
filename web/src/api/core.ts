@@ -52,6 +52,11 @@ export function assetSrc(assetId: string | null): string | null {
   return `/api/assets/${assetId}`;
 }
 
+export function assetThumbSrc(assetId: string | null): string | null {
+  if (!assetId) return null;
+  return `/api/assets/${assetId}/thumbnail`;
+}
+
 export function withAssetToken(url: string): string {
   return url;
 }

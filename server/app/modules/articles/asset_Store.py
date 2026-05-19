@@ -49,6 +49,31 @@ def guess_image_size(data: bytes) -> tuple[int | None, int | None]:
     return None, None
 
 
+def _generate_derivatives(asset: Asset, src_path: Path) -> None:
+    """生成 WebP 和缩略图派生文件，仅对图片类型执行"""
+    if not (asset.mime_type or "").startswith("image/"):
+        return
+    try:
+        from PIL import Image
+        img = Image.open(src_path)
+        # WebP 全尺寸
+        webp_path = src_path.with_suffix(".webp")
+        img.save(webp_path, "WEBP", quality=80, optimize=True)
+        asset.webp_storage_key = Path(asset.storage_key).with_suffix(".webp").as_posix()
+        asset.webp_size = webp_path.stat().st_size
+        # 缩略图 400x400 WebP
+        thumb = img.copy()
+        thumb.thumbnail((400, 400))
+        stem = Path(asset.storage_key).stem
+        thumb_rel = Path(asset.storage_key).parent / f"{stem}_thumb.webp"
+        thumb_path = src_path.parent / f"{src_path.stem}_thumb.webp"
+        thumb.save(thumb_path, "WEBP", quality=75)
+        asset.thumb_storage_key = thumb_rel.as_posix()
+        asset.thumb_size = thumb_path.stat().st_size
+    except Exception:
+        pass  # 派生图失败不阻断主流程，前端回退原图
+
+
 def normalize_ext(filename: str, content_type: str | None, data: bytes) -> str:
     suffix = Path(filename).suffix.lower()
     if suffix:
@@ -107,6 +132,7 @@ def _create_asset(db: Session, user_id: int, data: bytes, filename: str, content
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(data)
     db.flush()
+    _generate_derivatives(asset, path)
     return StoredAsset(asset=asset, path=path)
 
 
@@ -143,6 +169,7 @@ def _create_asset_from_path(
     dest.parent.mkdir(parents=True, exist_ok=True)
     import shutil
     shutil.move(str(filepath), str(dest))
+    _generate_derivatives(asset, dest)
     return StoredAsset(asset=asset, path=dest)
 
 

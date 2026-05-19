@@ -1,8 +1,8 @@
 import os
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from server.app.core.paths import get_data_dir
@@ -21,6 +21,18 @@ from server.app.modules.articles import (
 from server.app.shared.errors import ClientError
 
 router = APIRouter()
+
+
+def resolve_asset_path_from_storage_key(storage_key: str) -> Path | None:
+    """根据 storage_key 解析磁盘路径，返回 None 如果路径逃逸"""
+    try:
+        data_dir = get_data_dir().resolve()
+        path = (data_dir / storage_key).resolve()
+        if data_dir != path and data_dir not in path.parents:
+            return None
+        return path
+    except Exception:
+        return None
 
 
 def to_asset_read(asset: Asset) -> AssetRead:
@@ -81,8 +93,43 @@ def read_asset_meta(asset_id: str, db: Session = Depends(get_db)) -> AssetRead:
     return to_asset_read(asset)
 
 
+@router.get("/{asset_id}/thumbnail")
+async def read_asset_thumbnail(
+    asset_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> Response:
+    """获取资产缩略图，如果缩略图不存在则 302 重定向到原图"""
+    asset = db.get(Asset, asset_id)
+    if asset is None or asset.is_deleted:
+        raise HTTPException(status_code=404)
+
+    # 优先返回缩略图
+    if asset.thumb_storage_key:
+        thumb_path = resolve_asset_path_from_storage_key(asset.thumb_storage_key)
+        if thumb_path and thumb_path.exists():
+            if os.environ.get("GEO_NGINX_ACCEL"):
+                rel = thumb_path.relative_to(get_data_dir())
+                return Response(
+                    status_code=200,
+                    headers={
+                        "X-Accel-Redirect": f"/internal_data/{rel}",
+                        "Content-Type": "image/webp",
+                        "Cache-Control": "public, max-age=31536000, immutable",
+                    },
+                )
+            return FileResponse(str(thumb_path), media_type="image/webp")
+
+    # fallback：缩略图不存在则 302 重定向到原图
+    return RedirectResponse(url=f"/api/assets/{asset_id}", status_code=302)
+
+
 @router.get("/{asset_id}")
-def read_asset_file(asset_id: str, db: Session = Depends(get_db)) -> Response:
+def read_asset_file(
+    asset_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> Response:
     asset = db.get(Asset, asset_id)
     if asset is None or asset.is_deleted:
         raise HTTPException(status_code=404, detail="Asset not found")
@@ -95,13 +142,22 @@ def read_asset_file(asset_id: str, db: Session = Depends(get_db)) -> Response:
     if not path.exists():
         raise HTTPException(status_code=404, detail="Asset file not found")
 
+    # WebP content negotiation
+    accept = request.headers.get("accept", "")
+    mime_type = asset.mime_type
+    if "image/webp" in accept and asset.webp_storage_key:
+        webp_path = resolve_asset_path_from_storage_key(asset.webp_storage_key)
+        if webp_path and webp_path.exists():
+            path = webp_path
+            mime_type = "image/webp"
+
     if os.environ.get("GEO_NGINX_ACCEL"):
         rel = path.relative_to(get_data_dir())
         return Response(
             status_code=200,
             headers={
                 "X-Accel-Redirect": f"/internal_data/{rel}",
-                "Content-Type": asset.mime_type,
+                "Content-Type": mime_type,
                 "Content-Disposition": f'inline; filename="{asset.filename}"',
                 "Cache-Control": "public, max-age=31536000, immutable",
             },
@@ -109,7 +165,7 @@ def read_asset_file(asset_id: str, db: Session = Depends(get_db)) -> Response:
 
     return FileResponse(
         path,
-        media_type=asset.mime_type,
+        media_type=mime_type,
         filename=asset.filename,
         headers={"Cache-Control": "public, max-age=31536000, immutable"},
     )

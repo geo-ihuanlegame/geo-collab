@@ -21,6 +21,10 @@ class Asset(Base):
     storage_key: Mapped[str] = mapped_column(String(500), unique=True)  # 相对 data_dir 的存储路径
     width: Mapped[int | None] = mapped_column(Integer, nullable=True)
     height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    webp_storage_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    webp_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    thumb_storage_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    thumb_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0", index=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
