@@ -1,6 +1,27 @@
 import type { Asset } from "../types";
+import { uploadLargeFile } from "./chunked-upload";
 
-export function uploadAsset(file: Blob, onProgress?: (percent: number) => void): Promise<Asset> {
+const CHUNKED_UPLOAD_THRESHOLD = 3 * 1024 * 1024; // 3MB
+
+export async function uploadAsset(file: Blob, onProgress?: (percent: number) => void): Promise<Asset> {
+  // 大文件（>3MB）使用分块上传
+  if (file.size > CHUNKED_UPLOAD_THRESHOLD && file instanceof File) {
+    try {
+      const result = await uploadLargeFile(file, (progress) => {
+        if (onProgress) {
+          onProgress(progress.percent);
+        }
+      });
+      return result as Asset;
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("401")) {
+        window.dispatchEvent(new CustomEvent("auth:unauthorized"));
+      }
+      throw err;
+    }
+  }
+
+  // 小文件使用传统 API
   return new Promise((resolve, reject) => {
     const form = new FormData();
     form.append("file", file);

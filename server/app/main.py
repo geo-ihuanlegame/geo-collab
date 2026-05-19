@@ -54,6 +54,7 @@ from server.app.api.routes.article_groups import router as article_groups_router
 from server.app.api.routes.articles import router as articles_router
 from server.app.api.routes.assets import router as assets_router
 from server.app.api.routes.auth import router as auth_router
+from server.app.api.routes.chunked_assets import router as chunked_assets_router
 from server.app.api.routes.publish_records import router as publish_records_router
 from server.app.api.routes.system import router as system_router
 from server.app.api.routes.tasks import router as tasks_router
@@ -141,11 +142,12 @@ def create_app() -> FastAPI:
     # 注册 auth 路由（不加鉴权依赖）
     app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 
-    # 注册 7 个 API 路由模块（全部需要 JWT cookie 鉴权）
+    # 注册 API 路由模块（全部需要 JWT cookie 鉴权）
     app.include_router(accounts_router, prefix="/api/accounts", tags=["accounts"], dependencies=[Depends(get_current_user)])
     app.include_router(article_groups_router, prefix="/api/article-groups", tags=["article-groups"], dependencies=[Depends(get_current_user)])
     app.include_router(articles_router, prefix="/api/articles", tags=["articles"], dependencies=[Depends(get_current_user)])
     app.include_router(assets_router, prefix="/api/assets", tags=["assets"], dependencies=[Depends(get_current_user)])
+    app.include_router(chunked_assets_router, prefix="/api/chunked-assets", tags=["chunked-assets"], dependencies=[Depends(get_current_user)])
     app.include_router(publish_records_router, prefix="/api/publish-records", tags=["publish-records"], dependencies=[Depends(get_current_user)])
     app.include_router(system_router, prefix="/api/system", tags=["system"], dependencies=[Depends(get_current_user)])
     app.include_router(tasks_router, prefix="/api/tasks", tags=["tasks"], dependencies=[Depends(get_current_user)])

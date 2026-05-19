@@ -165,7 +165,7 @@ async def store_upload(db: Session, user_id: int, upload: UploadFile) -> StoredA
     try:
         async with aiofiles.open(str(tmp_path), "wb") as tmp:
             while True:
-                chunk = await upload.read(262144)
+                chunk = await upload.read(8388608)  # 8MB chunks
                 if not chunk:
                     break
                 total += len(chunk)
