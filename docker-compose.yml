@@ -35,11 +35,6 @@ services:
       GEO_NGINX_ACCEL: "1"
     volumes:
       - app_data:/app/data
-    sysctls:
-      - net.ipv4.tcp_init_cwnd=16
-      - net.ipv4.tcp_initrwnd=16
-      - net.ipv4.tcp_wmem=4096 65536 16777216
-      - net.ipv4.tcp_rmem=4096 87380 16777216
 
   worker:
     build: .
@@ -66,11 +61,6 @@ services:
       GEO_PUBLISH_WEBSOCKIFY_PATH: websockify
     volumes:
       - app_data:/app/data
-    sysctls:
-      - net.ipv4.tcp_init_cwnd=16
-      - net.ipv4.tcp_initrwnd=16
-      - net.ipv4.tcp_wmem=4096 65536 16777216
-      - net.ipv4.tcp_rmem=4096 87380 16777216
 
   nginx:
     build:
