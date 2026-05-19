@@ -565,6 +565,7 @@ def _stop_session_processes(session: RemoteBrowserSession) -> None:
                     process.wait(timeout=3)
                 except subprocess.TimeoutExpired:
                     process.kill()
+                    time.sleep(0.1)
                 try:
                     process.wait(timeout=3)
                 except subprocess.TimeoutExpired:

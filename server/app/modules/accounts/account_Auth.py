@@ -611,10 +611,25 @@ def _start_login_browser_impl(platform_code: str, account_key: str, channel: str
         pw = sync_playwright().start()
         options = launch_options(channel, executable_path)
         options["env"] = {**os.environ, "DISPLAY": session.display}
-        context = pw.chromium.launch_persistent_context(
-            user_data_dir=str(profile_dir_for_key(platform_code, account_key)),
-            **options,
-        )
+
+        state_file = state_path_for_key(platform_code, account_key)
+        if state_file.exists():
+            options["storage_state"] = str(state_file)
+
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                context = pw.chromium.launch_persistent_context(
+                    user_data_dir=str(profile_dir_for_key(platform_code, account_key)),
+                    **options,
+                )
+                break
+            except Exception as e:
+                if attempt < max_retries - 1 and "profile appears to be in use" in str(e).lower():
+                    import time
+                    time.sleep(0.5 * (attempt + 1))
+                    continue
+                raise
         context.set_default_navigation_timeout(30000)
         page = _primary_page_for_context(context)
         attach_browser_handles(session.id, pw, context, page)

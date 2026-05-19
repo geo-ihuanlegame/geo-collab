@@ -369,7 +369,7 @@ export function TasksWorkspace() {
     setPreview(null);
   }
 
-  const validAccounts = accounts.filter((a) => a.status === "valid");
+  const validAccounts = accounts.filter((a) => a.status !== "deleted");
   const canExecute = selectedTask && selectedTask.status === "pending";
   const canCancel = selectedTask && !selectedTask.cancel_requested && (selectedTask.status === "running" || selectedTask.status === "pending");
 
@@ -442,13 +442,16 @@ export function TasksWorkspace() {
               <div>
                 <p style={{ margin: "0 0 6px", fontSize: 13, color: "#475569" }}>发布账号</p>
                 {formType === "single" ? <p style={{ margin: "0 0 6px", fontSize: 12, color: "#e67e22" }}>单篇发布只能选一个账号</p> : null}
-                {validAccounts.map((a) => (
-                  <label key={a.id} className="checkLine">
-                    <input type={formType === "single" ? "radio" : "checkbox"} name="formAccount" checked={formAccountIds.includes(a.id)} onChange={() => toggleAccount(a.id)} />
-                    <span>{a.display_name}</span>
-                  </label>
-                ))}
-                {validAccounts.length === 0 ? <p className="emptyText">暂无有效账号</p> : null}
+                <div style={{ maxHeight: "200px", overflowY: "auto", border: "1px solid #e2e8f0", borderRadius: "4px", padding: "8px" }}>
+                  {validAccounts.map((a) => (
+                    <label key={a.id} className="checkLine">
+                      <input type={formType === "single" ? "radio" : "checkbox"} name="formAccount" checked={formAccountIds.includes(a.id)} onChange={() => toggleAccount(a.id)} />
+                      <span>{a.display_name}</span>
+                      {a.status !== "valid" && <span style={{ fontSize: 11, color: "#94a3b8", marginLeft: "4px" }}>({a.status})</span>}
+                    </label>
+                  ))}
+                </div>
+                {validAccounts.length === 0 ? <p className="emptyText">暂无账号</p> : null}
               </div>
               {formType === "group_round_robin" && formGroupId && formAccountIds.length > 0 ? (
                 <button className="secondaryButton" style={{ width: "100%" }} type="button" disabled={loading} onClick={() => void loadPreview()}>

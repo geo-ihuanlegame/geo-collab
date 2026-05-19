@@ -246,6 +246,15 @@ def delete_existing_account(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ) -> Response:
+    from server.app.shared.errors import ClientError
     account = _verify_account_ownership(get_account(db, account_id), current_user)
-    delete_account(db, account)
+    try:
+        delete_account(db, account)
+        db.commit()
+    except ClientError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="删除账号失败: " + str(exc)) from exc
     return Response(status_code=status.HTTP_204_NO_CONTENT)

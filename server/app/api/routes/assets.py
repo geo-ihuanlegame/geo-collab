@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse
@@ -153,19 +154,21 @@ def read_asset_file(
 
     if os.environ.get("GEO_NGINX_ACCEL"):
         rel = path.relative_to(get_data_dir())
+        filename_rfc5987 = quote(asset.filename.encode('utf-8'), safe='')
         return Response(
             status_code=200,
             headers={
                 "X-Accel-Redirect": f"/internal_data/{rel}",
                 "Content-Type": mime_type,
-                "Content-Disposition": f'inline; filename="{asset.filename}"',
+                "Content-Disposition": f"inline; filename*=UTF-8''{filename_rfc5987}",
                 "Cache-Control": "public, max-age=31536000, immutable",
             },
         )
 
+    filename_rfc5987 = quote(asset.filename.encode('utf-8'), safe='')
     return FileResponse(
         path,
         media_type=mime_type,
-        filename=asset.filename,
+        filename=filename_rfc5987,
         headers={"Cache-Control": "public, max-age=31536000, immutable"},
     )
