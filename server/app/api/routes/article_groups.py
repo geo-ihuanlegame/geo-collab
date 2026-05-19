@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from server.app.core.security import get_current_user, require_admin
 from server.app.db.session import get_db
 from server.app.models import ArticleGroup, User
+from server.app.shared.errors import ClientError
 from server.app.schemas.article_group import (
     ArticleGroupCreate,
     ArticleGroupItemsUpdate,
@@ -95,7 +96,10 @@ def delete_group_endpoint(
     current_user: User = Depends(require_admin),
 ) -> Response:
     group = _verify_group_ownership(get_group(db, group_id), current_user)
-    delete_group(db, group)
+    try:
+        delete_group(db, group)
+    except ClientError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

@@ -204,7 +204,7 @@ async def import_accounts(
 
 
 # 校验指定账号的登录状态
-@router.post("/{account_id}/check", response_model=AccountRead)
+@router.post("/{account_id:int}/check", response_model=AccountRead)
 def check_existing_account(
     account_id: int,
     payload: AccountCheckRequest | None = None,
@@ -216,7 +216,7 @@ def check_existing_account(
 
 
 # 重新从已保存 storage_state 注册账号
-@router.post("/{account_id}/relogin", response_model=AccountRead)
+@router.post("/{account_id:int}/relogin", response_model=AccountRead)
 def relogin_existing_account(
     account_id: int,
     payload: AccountCheckRequest | None = None,
@@ -228,7 +228,7 @@ def relogin_existing_account(
 
 
 # 重命名账号显示名称
-@router.patch("/{account_id}", response_model=AccountRead)
+@router.patch("/{account_id:int}", response_model=AccountRead)
 def rename_existing_account(
     account_id: int,
     payload: AccountRenameRequest,
@@ -240,7 +240,7 @@ def rename_existing_account(
 
 
 # 删除指定账号
-@router.delete("/{account_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{account_id:int}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_existing_account(
     account_id: int,
     db: Session = Depends(get_db),

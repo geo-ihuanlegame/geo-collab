@@ -109,7 +109,7 @@ export async function uploadLargeFile(
   });
 
   if (!initResponse.ok) {
-    throw new Error(`Upload initialization failed: ${initResponse.statusText}`);
+    throw new Error(`Upload initialization failed: ${initResponse.status} ${initResponse.statusText}`);
   }
 
   const { upload_id } = (await initResponse.json()) as { upload_id: string };
@@ -143,7 +143,7 @@ export async function uploadLargeFile(
       );
 
       if (!response.ok) {
-        throw new Error(`Chunk ${index} upload failed: ${response.statusText}`);
+        throw new Error(`Chunk ${index} upload failed: ${response.status} ${response.statusText}`);
       }
 
       uploadedChunks.add(index);
@@ -200,7 +200,7 @@ export async function uploadLargeFile(
   );
 
   if (!completeResponse.ok) {
-    throw new Error(`Upload completion failed: ${completeResponse.statusText}`);
+    throw new Error(`Upload completion failed: ${completeResponse.status} ${completeResponse.statusText}`);
   }
 
   const result = (await completeResponse.json()) as ChunkedUploadResult;
@@ -220,7 +220,7 @@ async function uploadSmallFile(file: File): Promise<ChunkedUploadResult> {
   });
 
   if (!response.ok) {
-    throw new Error(`Upload failed: ${response.statusText}`);
+    throw new Error(`Upload failed: ${response.status} ${response.statusText}`);
   }
 
   const result = (await response.json()) as ChunkedUploadResult;

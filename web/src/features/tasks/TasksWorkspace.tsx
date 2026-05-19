@@ -227,7 +227,7 @@ export function TasksWorkspace() {
     try {
       const result = await previewTaskAssignment({
           name: formName || "预览",
-        task_type: "group_round_robin",
+        task_type: formType,
         group_id: formGroupId,
         accounts: formAccountIds.map((id, index) => ({ account_id: id, sort_order: index })),
         stop_before_publish: false,

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import struct
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+
+_logger = logging.getLogger(__name__)
 
 from fastapi import UploadFile
 from sqlalchemy import exists, func, select, update as sa_update
@@ -71,7 +74,7 @@ def _generate_derivatives(asset: Asset, src_path: Path) -> None:
         asset.thumb_storage_key = thumb_rel.as_posix()
         asset.thumb_size = thumb_path.stat().st_size
     except Exception:
-        pass  # 派生图失败不阻断主流程，前端回退原图
+        _logger.warning("Failed to generate image derivatives for asset %s", asset.id, exc_info=True)
 
 
 def normalize_ext(filename: str, content_type: str | None, data: bytes) -> str:

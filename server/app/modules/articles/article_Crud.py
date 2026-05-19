@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.sql import text as sa_text
 
 from server.app.core.time import utcnow
-from server.app.models import Article, ArticleBodyAsset, ArticleGroup, ArticleGroupItem, Asset, PublishRecord, TaskLog
+from server.app.models import Article, ArticleBodyAsset, ArticleGroup, ArticleGroupItem, Asset, PublishRecord, PublishTask, TaskLog
 from server.app.schemas.article import ArticleCreate, ArticleUpdate
 from server.app.schemas.article_group import ArticleGroupCreate, ArticleGroupItemsUpdate, ArticleGroupUpdate
 from server.app.shared.errors import ClientError, ConflictError
@@ -283,5 +283,14 @@ def replace_group_items(db: Session, group: ArticleGroup, payload: ArticleGroupI
 
 
 def delete_group(db: Session, group: ArticleGroup) -> None:
+    active_task = db.execute(
+        select(PublishTask.id).where(
+            PublishTask.group_id == group.id,
+            PublishTask.status.in_(["pending", "running"]),
+        )
+    ).scalar_one_or_none()
+    if active_task:
+        raise ClientError("存在未完成发布任务，无法删除分组")
+
     db.delete(group)
     db.flush()

@@ -73,6 +73,10 @@ export async function exportAccountPackage(accountIds: number[]): Promise<Respon
     body: JSON.stringify({ account_ids: accountIds }),
   });
   if (!response.ok) {
+    if (response.status === 401) {
+      window.dispatchEvent(new CustomEvent("auth:unauthorized"));
+      throw new Error("登录已过期，请重新登录");
+    }
     const payload = await response.json().catch(() => ({}));
     throw new Error(payload.detail || `${response.status} ${response.statusText}`);
   }

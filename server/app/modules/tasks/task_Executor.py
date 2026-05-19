@@ -124,6 +124,16 @@ def _heartbeat_task_worker(db: Session, task_id: int) -> None:
     db.execute(sa_update(PublishTask).where(PublishTask.id == task_id).values(**values))
 
 
+def _heartbeat_running_records(db: Session, task_id: int) -> None:
+    now = utcnow()
+    new_lease = now + timedelta(seconds=get_settings().publish_record_timeout_seconds + 60)
+    db.execute(
+        sa_update(PublishRecord)
+        .where(PublishRecord.task_id == task_id, PublishRecord.status == "running")
+        .values(lease_until=new_lease)
+    )
+
+
 def _task_cancel_requested(db: Session, task_id: int) -> bool:
     value = db.execute(select(PublishTask.cancel_requested).where(PublishTask.id == task_id)).scalar_one_or_none()
     return bool(value)
@@ -160,6 +170,7 @@ def _run_pending_records(db: Session, task: PublishTask) -> None:
     try:
         while True:
             _heartbeat_task_worker(db, task.id)
+            _heartbeat_running_records(db, task.id)
             cancel_requested = _task_cancel_requested(db, task.id)
             if cancel_evt and cancel_evt.is_set():
                 if not cancel_requested:

@@ -852,8 +852,11 @@ def _do_publish(page: Any, context: Any, payload: PublishPayload, stop_before_pu
         _wait_publish_images_ready(page)
     with publish_step("click publish", page=page):
         publish_url = _click_publish_and_wait(page, stop_before_publish)
-    with publish_step("save storage state"):
-        context.storage_state(path=str(payload.state_path))
+    try:
+        with publish_step("save storage state"):
+            context.storage_state(path=str(payload.state_path))
+    except Exception:
+        logger.warning("Failed to save storage state after publish", exc_info=True)
     message = "已进入发布预览，等待手动确认" if stop_before_publish else f"发布成功: {publish_url}"
     return PublishResult(
         url=publish_url,

@@ -233,8 +233,6 @@ async def complete_chunked_upload(
     except HTTPException:
         raise
     except Exception as e:
-        manager.cleanup_session(upload_id)
         raise HTTPException(status_code=500, detail=str(e)) from e
     finally:
-        # 清理会话
         manager.cleanup_session(upload_id)

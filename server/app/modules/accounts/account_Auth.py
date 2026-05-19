@@ -865,9 +865,9 @@ def import_accounts_auth_package(db: Session, user_id: int, zip_bytes: bytes) ->
                 continue
 
             dest = state_path_for_key(platform_code, account_key)
-            dest.parent.mkdir(parents=True, exist_ok=True)
             if not dest.resolve().is_relative_to(get_data_dir().resolve()):
                 raise ClientError(f"ZIP entry path escapes data directory: {state_path_rel}")
+            dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(archive.read(archive_state_path))
 
             platform = get_or_create_platform(
@@ -878,15 +878,24 @@ def import_accounts_auth_package(db: Session, user_id: int, zip_bytes: bytes) ->
             )
             now = utcnow()
             last_login_raw = entry.get("last_login_at")
+            try:
+                last_login_at = datetime.fromisoformat(last_login_raw) if last_login_raw else None
+            except ValueError:
+                skipped.append(f"{display_name}（last_login_at 格式无效）")
+                continue
+            _valid_statuses = {"valid", "expired", "unknown"}
+            imported_status = entry.get("status", "unknown")
+            if imported_status not in _valid_statuses:
+                imported_status = "unknown"
             account = Account(
                 user_id=user_id,
                 platform=platform,
                 display_name=display_name,
                 platform_user_id=entry.get("platform_user_id"),
-                status=entry.get("status", "unknown"),
+                status=imported_status,
                 state_path=state_path_rel,
                 note=entry.get("note"),
-                last_login_at=datetime.fromisoformat(last_login_raw) if last_login_raw else None,
+                last_login_at=last_login_at,
                 last_checked_at=now,
             )
             db.add(account)

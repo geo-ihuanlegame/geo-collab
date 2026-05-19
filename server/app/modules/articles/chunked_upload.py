@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+
+_logger = logging.getLogger(__name__)
 
 import aiofiles
 
@@ -38,6 +41,7 @@ class ChunkedUploadManager:
     def __init__(self):
         self.sessions: dict[str, UploadSession] = {}
         self.sessions_dir = get_data_dir() / ".uploads"
+        self._cleanup_orphaned_uploads()
 
     def init_session(self, total_size: int) -> UploadSession:
         """初始化一个新的分块上传会话。"""
@@ -57,6 +61,15 @@ class ChunkedUploadManager:
 
         self.sessions[upload_id] = session
         return session
+
+    def _cleanup_orphaned_uploads(self) -> None:
+        if not self.sessions_dir.exists():
+            return
+        import shutil
+        for entry in self.sessions_dir.iterdir():
+            if entry.is_dir() and entry.name not in self.sessions:
+                shutil.rmtree(entry, ignore_errors=True)
+                _logger.info("Cleaned up orphaned upload dir: %s", entry.name)
 
     def get_session(self, upload_id: str) -> UploadSession | None:
         """获取上传会话。"""
