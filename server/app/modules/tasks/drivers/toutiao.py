@@ -4,6 +4,7 @@ import logging
 import re
 import time
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -24,6 +25,21 @@ PUBLISH_HINTS = ("发布", "标题", "正文", "图文", "文章")
 
 
 PublishFillResult = PublishResult
+
+
+@dataclass(frozen=True)
+class BodyImageSlot:
+    index: int
+    marker: str
+    image_path: Path
+    image_asset_id: str | None
+
+
+@dataclass(frozen=True)
+class BodyFillPlan:
+    full_text: str
+    image_slots: list[BodyImageSlot]
+    text_chars: int
 
 
 # 头条号发布异常，可附带失败截图
@@ -179,50 +195,148 @@ def _focus_body_editor(page: Any) -> None:
 
 
 def _fill_body(page: Any, segments: list[BodySegment]) -> None:
-    """按 segment 顺序填充正文文本和正文图片。segments 中的图片路径已由 publish_runner 预先解析。
-    
-    单个 segment 失败不截断全文：记录日志后继续处理后续 segment，
-    所有 segment 处理完后再统一报错。
-    """
+    """Fill body in document order using text markers for image slots."""
     if not segments:
         raise ToutiaoPublishError("文章正文为空")
 
-    failures: list[BodySegment] = []
-    i = 0
-    while i < len(segments):
-        _dismiss_blocking_popups(page)
-        _focus_body_editor(page)
+    plan = _build_body_fill_plan(segments)
+    if not plan.full_text.strip() and not plan.image_slots:
+        raise ToutiaoPublishError("Article body is empty")
 
-        segment = segments[i]
-        start = i
-        try:
-            if segment.kind == "image":
-                if segment.image_path is None:
-                    raise ToutiaoPublishError(f"正文图片路径未解析: {segment.image_asset_id}")
-                _paste_body_image_path(page, segment.image_path, segment.image_asset_id)
-                _focus_body_editor(page)
-                page.keyboard.press("Control+End")
-                page.keyboard.press("Enter")
-                page.wait_for_timeout(300)
-                i += 1
-            elif segment.kind == "text":
-                text_parts: list[str] = []
-                while i < len(segments) and segments[i].kind == "text":
-                    if segments[i].text:
-                        text_parts.append(segments[i].text)
-                    i += 1
-                if text_parts:
-                    combined = "".join(text_parts)
-                    _insert_body_text(page, combined)
-        except Exception:
-            logger.error("正文填充失败: segment=%s", segment, exc_info=True)
-            failures.append(segment)
-            _dismiss_blocking_popups(page)
-            i = start + 1
-    if failures:
-        raise ToutiaoPublishError(
-            f"正文填充失败: {len(failures)}/{len(segments)} segments 失败"
+    record_publish_diagnostic(
+        f"body fill plan: segments={len(segments)}; text_chars={plan.text_chars}; image_slots={len(plan.image_slots)}"
+    )
+    _dismiss_blocking_popups(page)
+    _clear_body_editor(page)
+    if plan.full_text:
+        _insert_body_text(page, plan.full_text)
+        page.wait_for_timeout(300)
+
+    for slot in plan.image_slots:
+        _dismiss_blocking_popups(page)
+        record_publish_diagnostic(
+            f"body image slot upload start: index={slot.index}; asset_id={slot.image_asset_id}"
         )
+        _replace_body_marker_with_image(page, slot)
+
+    _assert_no_body_markers(page)
+
+
+def _build_body_fill_plan(segments: list[BodySegment]) -> BodyFillPlan:
+    parts: list[str] = []
+    image_slots: list[BodyImageSlot] = []
+    text_chars = 0
+    for segment in segments:
+        if segment.kind == "text":
+            if segment.text:
+                parts.append(segment.text)
+                text_chars += len(segment.text)
+            continue
+        if segment.kind != "image":
+            continue
+        if segment.image_path is None:
+            raise ToutiaoPublishError(f"Body image path is not resolved: {segment.image_asset_id}")
+        index = len(image_slots) + 1
+        marker = f"__GEO_IMAGE_SLOT_{index:04d}__"
+        parts.append(marker)
+        image_slots.append(
+            BodyImageSlot(
+                index=index,
+                marker=marker,
+                image_path=segment.image_path,
+                image_asset_id=segment.image_asset_id,
+            )
+        )
+    return BodyFillPlan(full_text="".join(parts), image_slots=image_slots, text_chars=text_chars)
+
+
+def _clear_body_editor(page: Any) -> None:
+    if not _select_body_editor_contents(page):
+        raise ToutiaoPublishError("Toutiao body editor not found")
+    page.keyboard.press("Backspace")
+    page.wait_for_timeout(200)
+
+
+def _select_body_editor_contents(page: Any) -> bool:
+    return bool(
+        page.evaluate(
+            """() => {
+                const editor = Array.from(document.querySelectorAll("[contenteditable='true']"))
+                    .find(el => el.getBoundingClientRect().height >= 80);
+                if (!editor) return false;
+                editor.focus();
+                const range = document.createRange();
+                range.selectNodeContents(editor);
+                const selection = window.getSelection();
+                selection.removeAllRanges();
+                selection.addRange(range);
+                return true;
+            }"""
+        )
+    )
+
+
+def _replace_body_marker_with_image(page: Any, slot: BodyImageSlot) -> None:
+    if not _select_body_marker(page, slot.marker):
+        raise ToutiaoPublishError(f"Body image marker not found: {slot.marker}")
+    _paste_body_image_path(page, slot.image_path, slot.image_asset_id)
+    page.wait_for_timeout(300)
+    if _body_marker_exists(page, slot.marker):
+        raise ToutiaoPublishError(f"Body image marker was not replaced: {slot.marker}")
+
+
+def _select_body_marker(page: Any, marker: str) -> bool:
+    return bool(
+        page.evaluate(
+            """marker => {
+                const editor = Array.from(document.querySelectorAll("[contenteditable='true']"))
+                    .find(el => el.getBoundingClientRect().height >= 80);
+                if (!editor) return false;
+                const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+                let node;
+                while ((node = walker.nextNode())) {
+                    const index = node.nodeValue.indexOf(marker);
+                    if (index < 0) continue;
+                    editor.focus();
+                    const range = document.createRange();
+                    range.setStart(node, index);
+                    range.setEnd(node, index + marker.length);
+                    const selection = window.getSelection();
+                    selection.removeAllRanges();
+                    selection.addRange(range);
+                    return true;
+                }
+                return false;
+            }""",
+            marker,
+        )
+    )
+
+
+def _body_marker_exists(page: Any, marker: str) -> bool:
+    return bool(
+        page.evaluate(
+            """marker => {
+                const editor = Array.from(document.querySelectorAll("[contenteditable='true']"))
+                    .find(el => el.getBoundingClientRect().height >= 80);
+                return Boolean(editor && editor.textContent && editor.textContent.includes(marker));
+            }""",
+            marker,
+        )
+    )
+
+
+def _assert_no_body_markers(page: Any) -> None:
+    remaining = page.evaluate(
+        """() => {
+            const editor = Array.from(document.querySelectorAll("[contenteditable='true']"))
+                .find(el => el.getBoundingClientRect().height >= 80);
+            if (!editor || !editor.textContent) return [];
+            return editor.textContent.match(/__GEO_IMAGE_SLOT_\\d{4}__/g) || [];
+        }"""
+    )
+    if remaining:
+        raise ToutiaoPublishError(f"Body image markers remain: {remaining}")
 
 
 def _insert_body_text(page: Any, text: str) -> None:

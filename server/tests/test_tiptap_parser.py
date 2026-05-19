@@ -28,6 +28,31 @@ def test_image_segment_has_asset_id():
     assert img_segs[0].image_path is None
 
 
+def test_body_segments_preserve_text_image_order_and_duplicate_images():
+    content = (
+        '{"type":"doc","content":['
+        '{"type":"paragraph","content":[{"type":"text","text":"before"}]},'
+        '{"type":"image","attrs":{"assetId":"repeat-asset"}},'
+        '{"type":"paragraph","content":[{"type":"text","text":"after"}]},'
+        '{"type":"image","attrs":{"assetId":"repeat-asset"}}'
+        ']}'
+    )
+
+    segs = parse_body_segments(_article(content_json=content))
+    meaningful = [s for s in segs if not (s.kind == "text" and not s.text.strip())]
+
+    assert [(s.kind, s.text, s.image_asset_id) for s in meaningful] == [
+        ("text", "before", None),
+        ("image", "", "repeat-asset"),
+        ("text", "after", None),
+        ("image", "", "repeat-asset"),
+    ]
+    assert [s.image_asset_id for s in meaningful if s.kind == "image"] == [
+        "repeat-asset",
+        "repeat-asset",
+    ]
+
+
 def test_fallback_to_plain_text():
     segs = parse_body_segments(_article(plain_text="fallback"))
     assert len(segs) == 1

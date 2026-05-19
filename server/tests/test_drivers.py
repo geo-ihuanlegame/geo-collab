@@ -101,3 +101,70 @@ def test_insert_body_text_uses_clipboard_not_keyboard_type():
     page.evaluate.assert_called_once()
     page.keyboard.press.assert_called_once_with("Control+v")
     assert not page.keyboard.type.called, "keyboard.type should not be called — it triggers IME bugs"
+
+
+def _slot_marker(slot):
+    if isinstance(slot, dict):
+        return slot["marker"]
+    return slot.marker
+
+
+def _slot_asset_id(slot):
+    if isinstance(slot, dict):
+        if "asset_id" in slot:
+            return slot["asset_id"]
+        if "image_asset_id" in slot:
+            return slot["image_asset_id"]
+        return slot["segment"].image_asset_id
+    if hasattr(slot, "asset_id"):
+        return slot.asset_id
+    if hasattr(slot, "image_asset_id"):
+        return slot.image_asset_id
+    return slot.segment.image_asset_id
+
+
+def test_build_body_fill_plan_preserves_interleaved_text_image_order():
+    from pathlib import Path
+
+    from server.app.modules.articles.tiptap_Parser import BodySegment
+    from server.app.modules.tasks.drivers.toutiao import _build_body_fill_plan
+
+    plan = _build_body_fill_plan(
+        [
+            BodySegment(kind="text", text="before image"),
+            BodySegment(kind="image", image_path=Path("first.png"), image_asset_id="asset-1"),
+            BodySegment(kind="text", text="between images"),
+            BodySegment(kind="image", image_path=Path("second.png"), image_asset_id="asset-2"),
+        ]
+    )
+
+    markers = [_slot_marker(slot) for slot in plan.image_slots]
+
+    assert [text in plan.full_text for text in ("before image", "between images")] == [True, True]
+    assert len(markers) == 2
+    assert markers[0] != markers[1]
+    assert plan.full_text.index("before image") < plan.full_text.index(markers[0])
+    assert plan.full_text.index(markers[0]) < plan.full_text.index("between images")
+    assert plan.full_text.index("between images") < plan.full_text.index(markers[1])
+
+
+def test_build_body_fill_plan_keeps_duplicate_asset_ids_as_distinct_slots():
+    from pathlib import Path
+
+    from server.app.modules.articles.tiptap_Parser import BodySegment
+    from server.app.modules.tasks.drivers.toutiao import _build_body_fill_plan
+
+    plan = _build_body_fill_plan(
+        [
+            BodySegment(kind="image", image_path=Path("first.png"), image_asset_id="repeat-asset"),
+            BodySegment(kind="image", image_path=Path("second.png"), image_asset_id="repeat-asset"),
+        ]
+    )
+
+    markers = [_slot_marker(slot) for slot in plan.image_slots]
+
+    assert [_slot_asset_id(slot) for slot in plan.image_slots] == ["repeat-asset", "repeat-asset"]
+    assert len(markers) == 2
+    assert len(set(markers)) == 2
+    assert [plan.full_text.count(marker) for marker in markers] == [1, 1]
+    assert plan.full_text.index(markers[0]) < plan.full_text.index(markers[1])
