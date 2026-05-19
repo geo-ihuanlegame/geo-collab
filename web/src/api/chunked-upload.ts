@@ -22,31 +22,14 @@ export interface ChunkedUploadResult {
 }
 
 /**
- * 计算文件的 SHA256 哈希
- */
-export async function computeFileHash(file: File): Promise<string> {
-  const buffer = await file.arrayBuffer();
-  const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-/**
  * TCP 预热 — 在上传前建立连接，触发 TCP 慢启动
  * 通过发送一个空的初始化请求来"热身"连接
  */
 async function warmupConnection(): Promise<void> {
   try {
-    // 发送一个小的 HEAD 请求来建立 TCP 连接和完成 TLS 握手
-    await fetch("/api/chunked-assets/upload-start", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        total_size: 0,
-        file_hash: "",
-      }),
+    await fetch("/api/bootstrap", {
+      method: "GET",
+      cache: "no-store",
     }).catch(() => {
       // 忽略错误，这只是为了建立连接
     });
@@ -73,8 +56,6 @@ export async function uploadLargeFile(
   // 这样真正的数据传输时，拥塞窗口已经打开，初速更快
   await warmupConnection();
 
-  // 计算文件哈希
-  const fileHash = await computeFileHash(file);
   const chunkCount = Math.ceil(totalSize / CHUNK_SIZE);
 
   // 初始化上传
@@ -85,7 +66,6 @@ export async function uploadLargeFile(
     },
     body: JSON.stringify({
       total_size: totalSize,
-      file_hash: fileHash,
     }),
   });
 

@@ -1,4 +1,5 @@
 import base64
+import hashlib
 
 from server.app.models import Asset  # noqa: F401
 from server.tests.utils import build_test_app
@@ -102,5 +103,66 @@ def test_thumbnail_request_falls_back_to_original_when_generation_fails(monkeypa
         assert response.status_code == 200
         assert response.content == PNG_1X1
         assert response.headers["content-type"].startswith("image/png")
+    finally:
+        test_app.cleanup()
+
+
+def test_chunked_upload_accepts_json_body(monkeypatch):
+    test_app = build_test_app(monkeypatch)
+    client = test_app.client
+
+    try:
+        response = client.post(
+            "/api/chunked-assets/upload-start",
+            json={"total_size": len(PNG_1X1)},
+        )
+        assert response.status_code == 200
+        upload_id = response.json()["upload_id"]
+
+        chunk_response = client.post(
+            f"/api/chunked-assets/upload-chunk/{upload_id}",
+            params={"chunk_index": 0},
+            files={"file": ("chunk_0", PNG_1X1, "application/octet-stream")},
+        )
+        assert chunk_response.status_code == 200
+
+        complete_response = client.post(
+            f"/api/chunked-assets/upload-complete/{upload_id}",
+            json={"filename": "cover.png", "content_type": "image/png"},
+        )
+        assert complete_response.status_code == 200
+        payload = complete_response.json()
+        assert payload["filename"] == "cover.png"
+        assert payload["sha256"] == hashlib.sha256(PNG_1X1).hexdigest()
+    finally:
+        test_app.cleanup()
+
+
+def test_chunked_upload_preserves_unsupported_type_status(monkeypatch):
+    test_app = build_test_app(monkeypatch)
+    client = test_app.client
+    data = b"not an image"
+
+    try:
+        response = client.post(
+            "/api/chunked-assets/upload-start",
+            json={"total_size": len(data)},
+        )
+        assert response.status_code == 200
+        upload_id = response.json()["upload_id"]
+
+        chunk_response = client.post(
+            f"/api/chunked-assets/upload-chunk/{upload_id}",
+            params={"chunk_index": 0},
+            files={"file": ("chunk_0", data, "application/octet-stream")},
+        )
+        assert chunk_response.status_code == 200
+
+        complete_response = client.post(
+            f"/api/chunked-assets/upload-complete/{upload_id}",
+            json={"filename": "bad.txt", "content_type": "text/plain"},
+        )
+        assert complete_response.status_code == 415
+        assert complete_response.json()["detail"] == "Unsupported file type"
     finally:
         test_app.cleanup()

@@ -5,7 +5,6 @@
 """
 import time
 import asyncio
-import hashlib
 from pathlib import Path
 import os
 
@@ -72,8 +71,6 @@ async def test_chunked_upload(file_size_mb: int = 10):
     png_data = create_test_png(file_size_mb)
     print(f" Done ({len(png_data)} bytes)")
 
-    # Calculate hash
-    file_hash = hashlib.sha256(png_data).hexdigest()
     total_size = len(png_data)
     chunk_size = 3 * 1024 * 1024  # 3MB
 
@@ -89,7 +86,6 @@ async def test_chunked_upload(file_size_mb: int = 10):
             print("  [1/3] Initializing upload...", end="", flush=True)
             init_data = {
                 "total_size": total_size,
-                "file_hash": file_hash,
             }
             async with session.post(
                 f"{url_base}/upload-start",

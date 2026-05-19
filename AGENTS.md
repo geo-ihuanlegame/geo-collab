@@ -15,6 +15,9 @@ pnpm --filter @geo/web dev
 # typecheck
 pnpm --filter @geo/web typecheck
 
+# build
+pnpm --filter @geo/web build
+
 # tests (SQLite, 不依赖 Docker)
 pytest server/tests/ -v
 pytest server/tests/test_tasks_api.py -v --tb=short
@@ -48,7 +51,7 @@ pnpm install
   - `GEO_SEED_USERS` 环境变量（JSON 数组格式）在 Docker 启动时通过 `seed_users.py` 预建用户。
   - `require_local_token()` 在 `security.py` 中但**未被任何路由使用**，是遗留死代码。
 - **Entry point**: Docker CMD 执行 `alembic upgrade head && uvicorn server.app.main:app --host 0.0.0.0 --port 8000`，开发时用 `uvicorn server.app.main:app --reload`。
-- **Backend**: FastAPI, SQLAlchemy, Alembic. 8 route modules under `/api/`（auth、accounts、articles、article-groups、assets、publish-records、system、tasks）。
+- **Backend**: FastAPI, SQLAlchemy, Alembic. 9 route modules under `/api/`（auth、accounts、articles、article-groups、assets、chunked-assets、publish-records、system、tasks）。任务状态变更通过 `GET /api/tasks/{id}/stream`（SSE）推送。
 - **Database**: 开发/测试用 **SQLite** (`check_same_thread=False`, WAL mode, busy_timeout=5000, foreign_keys=ON)，Docker 用 **MySQL** (`mysql+pymysql`)。`alembic.ini` 的 `sqlalchemy.url` 是占位符，运行时由 `get_database_url()` 覆盖。
 - **Frontend**: React 19 + Vite + TypeScript (`web/`), feature-split (`features/content/`, `features/accounts/`, `features/tasks/`, `features/system/`), Tiptap rich-text editor, Lucide icons.
 - **Modules** (under `server/app/modules/`):
@@ -78,6 +81,42 @@ pnpm install
 - **Browser context**: 发布使用 `managed_remote_browser_session`（Xvfb + noVNC），账号浏览器状态存储在 `browser_states/<platform_code>/<account_key>/` 下。
 - Cover image is **mandatory**: `ToutiaoDriver._handle_cover()` raises if `article.cover_asset is None`。
 
+## PlatformDriver — 扩展新发布平台
+
+实现 `server/app/modules/tasks/drivers/__init__.py` 的 `PlatformDriver` Protocol：
+
+```python
+class MyDriver:
+    code = "myplatform"
+    name = "我的平台"
+    home_url = "https://..."
+    publish_url = "https://..."
+
+    def detect_logged_in(self, *, url, title, body) -> bool: ...
+
+    def publish(
+        self, *, page, context, payload: PublishPayload, stop_before_publish: bool
+    ) -> PublishResult: ...
+```
+
+文件底部注册：
+```python
+from server.app.modules.tasks.drivers import register
+register(MyDriver())
+```
+
+然后在 `server/app/main.py:create_app()` 顶部 import 触发注册：
+```python
+import server.app.modules.tasks.drivers.myplatform  # noqa: F401
+```
+
+**数据类**（`driver_Base.py`）:
+- `PublishPayload(title, cover_asset_path, body_segments, account_key, state_path, display_name, platform_code)` — 预解析的文章数据，driver **不应访问 ORM**。
+- `PublishResult(url, title, message)` — 发布结果。
+- `PublishError(message, screenshot)` / `UserInputRequired(...)` — 驱动异常，框架统一处理。
+
+**扩展已有驱动**：修改选择器前用 `playwright-cli` 检查实时页面 DOM，不要猜测类名（ByteDance DOM 经常变动）。
+
 ## Testing quirks
 
 - `build_test_app(monkeypatch)` in `server/tests/utils.py` creates temp data dir + SQLite DB + FTS5 tables + admin user + JWT cookie. Every test **must** call `test_app.cleanup()` in `finally` (deletes temp dir, clears settings cache).
@@ -96,3 +135,4 @@ pnpm install
 - `build_publish_runner_for_record(record)` in `task_Executor.py` routes by `platform_code` extracted from `account.state_path` — multi-platform ready via driver registry.
 - `bg_session_factory` (module-level var in `server/app/api/routes/tasks.py`) is imported lazily inside functions in both `tasks.py` and `publish_records.py` to avoid circular imports. Do **NOT** toplevel-import it.
 - **Route ordering**: `POST /api/accounts/{account_id:int}/login-session` MUST be registered before `POST /api/accounts/{platform_code}/login-session`. The `:int` converter prevents platform_code routes from swallowing numeric account IDs.
+- **`docs/` 目录**：包含 `CHUNKED_UPLOAD.md`（分片上传实现）和 `UPLOAD_OPTIMIZATION.md`。`scripts/deploy_check.py` 可做部署前检查。

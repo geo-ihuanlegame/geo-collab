@@ -1,9 +1,8 @@
 """分块上传资源的 API 路由。"""
-import hashlib
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from server.app.core.security import get_current_user
@@ -23,10 +22,21 @@ from server.app.core.config import ALLOWED_MAGIC
 router = APIRouter()
 
 
+class ChunkedUploadStartRequest(BaseModel):
+    total_size: int
+    file_hash: str | None = None  # Deprecated: kept only for old clients.
+
+
+class ChunkedUploadCompleteRequest(BaseModel):
+    filename: str
+    content_type: str = "application/octet-stream"
+
+
 @router.post("/upload-start")
 async def start_chunked_upload(
-    total_size: int,
-    file_hash: str,
+    payload: ChunkedUploadStartRequest | None = Body(default=None),
+    total_size: int | None = Query(default=None),
+    file_hash: str | None = Query(default=None),  # noqa: ARG001
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
@@ -34,7 +44,6 @@ async def start_chunked_upload(
 
     Args:
         total_size: 文件总大小（字节）
-        file_hash: 文件的 SHA256 哈希（客户端计算）
 
     Returns:
         {
@@ -45,6 +54,12 @@ async def start_chunked_upload(
     """
     from server.app.core.config import MAX_ASSET_BYTES
 
+    if payload is not None:
+        total_size = payload.total_size
+    if total_size is None:
+        raise HTTPException(status_code=422, detail="total_size is required")
+    if total_size <= 0:
+        raise HTTPException(status_code=400, detail="File is empty")
     if total_size > MAX_ASSET_BYTES:
         raise HTTPException(
             status_code=413,
@@ -52,7 +67,7 @@ async def start_chunked_upload(
         )
 
     manager = get_upload_manager()
-    session = manager.init_session(total_size, file_hash)
+    session = manager.init_session(total_size)
 
     return {
         "upload_id": session.upload_id,
@@ -140,8 +155,9 @@ async def get_upload_status(
 @router.post("/upload-complete/{upload_id}")
 async def complete_chunked_upload(
     upload_id: str,
-    filename: str,
-    content_type: str = "application/octet-stream",
+    payload: ChunkedUploadCompleteRequest | None = Body(default=None),
+    filename: str | None = Query(default=None),
+    content_type: str | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
@@ -155,6 +171,13 @@ async def complete_chunked_upload(
     Returns:
         资源信息 (Asset)
     """
+    if payload is not None:
+        filename = payload.filename
+        content_type = payload.content_type
+    if filename is None:
+        raise HTTPException(status_code=422, detail="filename is required")
+    content_type = content_type or "application/octet-stream"
+
     manager = get_upload_manager()
     session = manager.get_session(upload_id)
 
@@ -169,7 +192,7 @@ async def complete_chunked_upload(
 
         # 合并分块（在线程池中执行以避免阻塞）
         loop = asyncio.get_event_loop()
-        merged_path = await loop.run_in_executor(
+        merged_path, sha256_hash = await loop.run_in_executor(
             None, manager.merge_chunks, upload_id
         )
 
@@ -193,7 +216,7 @@ async def complete_chunked_upload(
             merged_path,
             filename,
             content_type,
-            session.file_hash,
+            sha256_hash,
             session.total_size,
             ext,
             width,
@@ -207,6 +230,8 @@ async def complete_chunked_upload(
 
         return to_asset_read(stored.asset).model_dump()
 
+    except HTTPException:
+        raise
     except Exception as e:
         manager.cleanup_session(upload_id)
         raise HTTPException(status_code=500, detail=str(e)) from e

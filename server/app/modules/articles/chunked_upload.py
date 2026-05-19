@@ -5,10 +5,8 @@ import hashlib
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import AsyncIterator
 
 from server.app.core.paths import get_data_dir
-from server.app.core.time import utcnow
 
 
 CHUNK_SIZE = 3 * 1024 * 1024  # 3MB
@@ -19,7 +17,6 @@ class UploadSession:
     """分块上传会话信息。"""
     upload_id: str
     total_size: int
-    file_hash: str
     chunk_count: int
     temp_dir: Path
 
@@ -37,7 +34,7 @@ class ChunkedUploadManager:
         self.sessions: dict[str, UploadSession] = {}
         self.sessions_dir = get_data_dir() / ".uploads"
 
-    def init_session(self, total_size: int, file_hash: str) -> UploadSession:
+    def init_session(self, total_size: int) -> UploadSession:
         """初始化一个新的分块上传会话。"""
         self.sessions_dir.mkdir(parents=True, exist_ok=True)
 
@@ -49,7 +46,6 @@ class ChunkedUploadManager:
         session = UploadSession(
             upload_id=upload_id,
             total_size=total_size,
-            file_hash=file_hash,
             chunk_count=chunk_count,
             temp_dir=temp_dir,
         )
@@ -91,37 +87,35 @@ class ChunkedUploadManager:
         uploaded = self.get_uploaded_chunks(upload_id)
         return len(uploaded) == session.chunk_count
 
-    def merge_chunks(self, upload_id: str) -> Path:
-        """合并所有分块到单个临时文件。"""
+    def merge_chunks(self, upload_id: str) -> tuple[Path, str]:
+        """合并所有分块到单个临时文件，并返回服务端计算的 SHA256。"""
         session = self.sessions.get(upload_id)
         if not session:
             raise ValueError(f"Upload session {upload_id} not found")
 
         merged_path = session.temp_dir / "merged_file"
+        sha256 = hashlib.sha256()
+        total = 0
 
-        # 合并所有分块
         with open(merged_path, "wb") as out:
             for i in range(session.chunk_count):
                 chunk_path = session.get_chunk_path(i)
                 if not chunk_path.exists():
                     raise ValueError(f"Missing chunk {i} in upload {upload_id}")
-                out.write(chunk_path.read_bytes())
+                data = chunk_path.read_bytes()
+                out.write(data)
+                sha256.update(data)
+                total += len(data)
 
-        # 验证文件哈希
-        sha256 = hashlib.sha256()
-        for i in range(session.chunk_count):
-            chunk_path = session.get_chunk_path(i)
-            sha256.update(chunk_path.read_bytes())
-
-        if sha256.hexdigest() != session.file_hash:
+        if total != session.total_size:
             merged_path.unlink()
-            raise ValueError("File hash mismatch after merge")
+            raise ValueError("Merged file size mismatch")
 
         # 删除分块文件
         for i in range(session.chunk_count):
             session.get_chunk_path(i).unlink()
 
-        return merged_path
+        return merged_path, sha256.hexdigest()
 
     def cleanup_session(self, upload_id: str) -> None:
         """清理上传会话（删除临时文件）。"""
