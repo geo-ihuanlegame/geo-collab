@@ -91,6 +91,16 @@ def _run_in_plain_thread(fn: Callable[[], Any]) -> Any:
     error: list[tuple[type[BaseException], BaseException, Any]] = []
 
     def _target() -> None:
+        # Python 3.10+ copies the parent's contextvars Context into new threads
+        # via threading.Thread. On Python 3.13+ asyncio stores _running_loop as
+        # a ContextVar, so the spawned thread inherits the main event loop and
+        # Playwright's sync-API guard fires. Reset it before any Playwright call.
+        try:
+            import asyncio.events as _ae
+            if hasattr(_ae, "_set_running_loop"):
+                _ae._set_running_loop(None)
+        except Exception:
+            pass
         try:
             result.append(fn())
         except BaseException:
