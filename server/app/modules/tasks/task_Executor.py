@@ -349,7 +349,7 @@ def _validate_record_inputs(article: Article | None, account: Account | None) ->
     if article.cover_asset_id is None:
         return "文章封面不能为空"
     if account.status != "valid":
-        return f"Account is not valid: {account.id}"
+        return f"Account {account.id} is {account.status}: please re-verify the account authorization"
     return None
 
 

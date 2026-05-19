@@ -438,7 +438,7 @@ def _validated_accounts(
     account_ids = [account_id for _, account_id in ordered_inputs]
     accounts = {
         account.id: account
-        for account in db.execute(select(Account).where(Account.id.in_(account_ids))).scalars().all()
+        for account in db.execute(select(Account).where(Account.id.in_(account_ids), Account.is_deleted == False)).scalars().all()
     }
     ordered_accounts: list[tuple[int, Account]] = []
     for sort_order, account_id in ordered_inputs:
@@ -448,7 +448,7 @@ def _validated_accounts(
         if account.platform_id != platform_id:
             raise AccountError(f"Account platform mismatch: {account_id}")
         if account.status != "valid":
-            raise AccountError(f"Account is not valid: {account_id}")
+            raise AccountError(f"Account {account_id} is {account.status}: please re-verify the account authorization")
         ordered_accounts.append((sort_order, account))
     return ordered_accounts
 

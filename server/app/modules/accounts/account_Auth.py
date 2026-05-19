@@ -612,10 +612,6 @@ def _start_login_browser_impl(platform_code: str, account_key: str, channel: str
         options = launch_options(channel, executable_path)
         options["env"] = {**os.environ, "DISPLAY": session.display}
 
-        state_file = state_path_for_key(platform_code, account_key)
-        if state_file.exists():
-            options["storage_state"] = str(state_file)
-
         max_retries = 3
         for attempt in range(max_retries):
             try:

@@ -76,12 +76,12 @@ def launch_options(channel: str, executable_path: str | None) -> dict[str, Any]:
 
 
 def list_accounts(db: Session) -> list[Account]:
-    stmt = select(Account).options(selectinload(Account.platform)).order_by(Account.updated_at.desc())
+    stmt = select(Account).where(Account.is_deleted == False).options(selectinload(Account.platform)).order_by(Account.updated_at.desc())
     return list(db.execute(stmt).scalars().all())
 
 
 def get_account(db: Session, account_id: int) -> Account | None:
-    stmt = select(Account).where(Account.id == account_id).options(selectinload(Account.platform))
+    stmt = select(Account).where(Account.id == account_id, Account.is_deleted == False).options(selectinload(Account.platform))
     return db.execute(stmt).scalar_one_or_none()
 
 
@@ -105,13 +105,9 @@ def delete_account(db: Session, account: Account) -> None:
         raise ClientError("存在未完成发布记录，无法删除账号")
 
     db.execute(sa_delete(PublishTaskAccount).where(PublishTaskAccount.account_id == account_id))
-    record_ids = list(
-        db.execute(select(PublishRecord.id).where(PublishRecord.account_id == account_id)).scalars()
-    )
-    if record_ids:
-        db.execute(sa_delete(TaskLog).where(TaskLog.record_id.in_(record_ids)))
-        db.execute(sa_delete(PublishRecord).where(PublishRecord.id.in_(record_ids)))
-    db.delete(account)
+    account.is_deleted = True
+    account.deleted_at = utcnow()
+    account.updated_at = utcnow()
     db.flush()
 
 
