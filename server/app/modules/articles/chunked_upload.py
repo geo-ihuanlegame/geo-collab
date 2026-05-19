@@ -6,6 +6,8 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
+import aiofiles
+
 from server.app.core.paths import get_data_dir
 from server.app.core.config import ALLOWED_MAGIC
 
@@ -67,7 +69,8 @@ class ChunkedUploadManager:
             raise ValueError(f"Upload session {upload_id} not found")
 
         chunk_path = session.get_chunk_path(chunk_index)
-        chunk_path.write_bytes(data)
+        async with aiofiles.open(str(chunk_path), "wb") as f:
+            await f.write(data)
 
     def get_uploaded_chunks(self, upload_id: str) -> set[int]:
         """获取已上传的分块索引。"""
