@@ -829,10 +829,16 @@ def export_accounts_auth_package(db: Session, payload: AccountExportRequest) -> 
             )
             exported_files.append(f"{account_dir}/account.json")
 
-            state_file = _resolve_data_file(account.state_path)
-            state_archive_path = f"{account_dir}/storage_state.json"
-            archive.write(state_file, state_archive_path)
-            exported_files.append(state_archive_path)
+            try:
+                state_file = _resolve_data_file(account.state_path)
+                state_archive_path = f"{account_dir}/storage_state.json"
+                archive.write(state_file, state_archive_path)
+                exported_files.append(state_archive_path)
+            except ClientError:
+                _logger.warning(
+                    "Skipping storage_state.json for account %s - file not found",
+                    account.display_name,
+                )
 
             manifest["accounts"].append({**account_payload, "exported_files": exported_files})
 
@@ -966,6 +972,7 @@ def _account_export_payload(account: Account) -> dict[str, Any]:
         "id": account.id,
         "platform_code": account.platform.code,
         "platform_name": account.platform.name,
+        "platform_base_url": account.platform.base_url,
         "display_name": account.display_name,
         "platform_user_id": account.platform_user_id,
         "status": account.status,
