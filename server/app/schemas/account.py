@@ -60,3 +60,10 @@ class AccountRenameRequest(BaseModel):
 # 导出账号授权包请求
 class AccountExportRequest(BaseModel):
     account_ids: list[int] | None = None  # 为空则导出所有
+
+
+class LoginSessionStatusRead(BaseModel):
+    status: str
+    novnc_url: str | None = None
+    error_message: str | None = None
+    browser_session_id: str | None = None

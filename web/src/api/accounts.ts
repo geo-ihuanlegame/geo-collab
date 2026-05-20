@@ -1,6 +1,14 @@
 import { api } from "./core";
 import type { Account, AccountBrowserSession, AccountBrowserSessionFinish, PlatformLoginPayload, PlatformOption } from "../types";
 
+// Sentinel to distinguish terminal session errors from transient network errors.
+class LoginSessionTerminalError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "LoginSessionTerminalError";
+  }
+}
+
 export async function pollLoginSessionUntilActive(
   accountId: number,
   sessionId: string,
@@ -8,25 +16,41 @@ export async function pollLoginSessionUntilActive(
 ): Promise<{ novnc_url: string; session_id: string }> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const status = await api<{
-      status: string;
-      novnc_url: string | null;
-      error_message: string | null;
-      browser_session_id: string | null;
-    }>(`/api/accounts/${accountId}/login-session/${sessionId}/status`);
+    try {
+      const status = await api<{
+        status: string;
+        novnc_url: string | null;
+        error_message: string | null;
+        browser_session_id: string | null;
+      }>(`/api/accounts/${accountId}/login-session/${sessionId}/status`);
 
-    if (status.status === "active") {
-      return {
-        session_id: status.browser_session_id ?? sessionId,
-        novnc_url: status.novnc_url ?? "",
-      };
-    }
-    if (status.status === "failed" || status.status === "cancelled") {
-      throw new Error(status.error_message || "Login session failed to start");
+      if (status.status === "active") {
+        return {
+          session_id: status.browser_session_id ?? sessionId,
+          novnc_url: status.novnc_url ?? "",
+        };
+      }
+      if (status.status === "failed" || status.status === "cancelled") {
+        // Terminal status from the session — do not retry.
+        throw new LoginSessionTerminalError(status.error_message || "Login session failed to start");
+      }
+      // pending / starting — keep polling
+    } catch (err) {
+      if (err instanceof LoginSessionTerminalError) {
+        // Re-throw terminal session errors; these are not transient.
+        throw err;
+      }
+      // api() throws a plain Error for HTTP errors. Treat 404 (session not
+      // found) as terminal; treat all other errors (network failures, 5xx,
+      // etc.) as transient and keep polling.
+      if (err instanceof Error && err.message.startsWith("404 ")) {
+        throw err;
+      }
+      // Transient error — continue loop and retry after delay.
     }
     await new Promise((r) => setTimeout(r, 1000));
   }
-  throw new Error("Login session did not become active within 90s");
+  throw new Error("Login session did not become active in time");
 }
 
 export type AccountLoginPayload = PlatformLoginPayload & {

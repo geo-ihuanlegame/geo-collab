@@ -12,6 +12,7 @@ from server.app.schemas.account import (
     AccountExportRequest,
     AccountRead,
     AccountRenameRequest,
+    LoginSessionStatusRead,
     PlatformLoginRequest,
 )
 from server.app.modules.accounts import (
@@ -108,23 +109,23 @@ def start_existing_account_login_session_endpoint(
     return _to_browser_session_read(start_account_login_session(db, account, payload or AccountCheckRequest()))
 
 
-@router.get("/{account_id:int}/login-session/{session_id}/status")
+@router.get("/{account_id:int}/login-session/{session_id}/status", response_model=LoginSessionStatusRead)
 def get_login_session_status_endpoint(
     account_id: int,
     session_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> dict:
+) -> LoginSessionStatusRead:
     account = _verify_account_ownership(get_account(db, account_id), current_user)
     request = get_login_session_status(db, account, session_id)
     if request is None:
         raise HTTPException(status_code=404, detail="Login session not found")
-    return {
-        "status": request.status,
-        "novnc_url": request.novnc_url,
-        "error_message": getattr(request, "error_message", None),
-        "browser_session_id": request.browser_session_id,
-    }
+    return LoginSessionStatusRead(
+        status=request.status,
+        novnc_url=request.novnc_url,
+        error_message=request.error_message,
+        browser_session_id=request.browser_session_id,
+    )
 
 
 @router.post("/{account_id:int}/login-session/{session_id}/finish", response_model=AccountBrowserSessionFinishRead)
