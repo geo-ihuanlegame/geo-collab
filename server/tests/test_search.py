@@ -1,13 +1,12 @@
 """
 Phase 5 search tests: plain_text included in article search.
 
-Tests use the LIKE fallback path because in-memory SQLite may or may not support
-the trigram tokenizer needed for FTS5 MATCH queries. The fallback is exercised
-when the query length is < 3 characters OR when the FTS query raises an exception.
+Tests cover both the MySQL FULLTEXT path and the LIKE fallback path. The fallback
+is exercised when the query length is < 3 characters or when FULLTEXT raises.
 
 We cover both paths:
 - Short query (< 3 chars): always uses LIKE
-- Long query (>= 3 chars): attempts FTS5 first; if FTS5 is unavailable it falls
+- Long query (>= 3 chars): attempts MySQL FULLTEXT first; if it is unavailable it falls
   through to LIKE. We create articles with distinctive keywords so both paths
   produce the same result.
 """

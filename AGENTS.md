@@ -18,10 +18,9 @@ pnpm --filter @geo/web typecheck
 # build
 pnpm --filter @geo/web build
 
-# tests (SQLite, 不依赖 Docker)
+# tests (MySQL, requires GEO_TEST_DATABASE_URL pointing to a disposable test database)
 pytest server/tests/ -v
 pytest server/tests/test_tasks_api.py -v --tb=short
-pytest server/tests/ -m "not mysql" -q          # skip MySQL integration tests
 
 # migrations
 alembic upgrade head
@@ -52,7 +51,7 @@ pnpm install
   - `require_local_token()` 在 `security.py` 中但**未被任何路由使用**，是遗留死代码。
 - **Entry point**: Docker CMD 执行 `alembic upgrade head && uvicorn server.app.main:app --host 0.0.0.0 --port 8000`，开发时用 `uvicorn server.app.main:app --reload`。
 - **Backend**: FastAPI, SQLAlchemy, Alembic. 9 route modules under `/api/`（auth、accounts、articles、article-groups、assets、chunked-assets、publish-records、system、tasks）。任务状态变更通过 `GET /api/tasks/{id}/stream`（SSE）推送。
-- **Database**: 开发/测试用 **SQLite** (`check_same_thread=False`, WAL mode, busy_timeout=5000, foreign_keys=ON)，Docker 用 **MySQL** (`mysql+pymysql`)。`alembic.ini` 的 `sqlalchemy.url` 是占位符，运行时由 `get_database_url()` 覆盖。
+- **Database**: 只支持 **MySQL** (`mysql+pymysql`)。运行时必须设置 `GEO_DATABASE_URL` 或 `GEO_DB_HOST/GEO_DB_USER/GEO_DB_NAME`；`alembic.ini` 的 `sqlalchemy.url` 只是 MySQL 占位符，运行时由 `get_database_url()` 覆盖。
 - **Frontend**: React 19 + Vite + TypeScript (`web/`), feature-split (`features/content/`, `features/accounts/`, `features/tasks/`, `features/system/`), Tiptap rich-text editor, Lucide icons.
 - **Asset upload**: `web/src/api/assets.ts` 小文件走 `POST /api/assets`；大于 3MB 的 `File` 走 `web/src/api/chunked-upload.ts` 和 `/api/chunked-assets/*`。分片大小 3MB，前端并发 4。
 - **Chunked upload hash rule**: 前端不计算 SHA256，不要在上传链路调用 `crypto.subtle.digest()`。`POST /api/chunked-assets/upload-start` 只需要 JSON `{ "total_size": <bytes> }`；`file_hash` 仅为兼容旧客户端保留且被忽略。后端在 `ChunkedUploadManager.merge_chunks()` 合并分片时计算 SHA256，并写入 `Asset.sha256`。
@@ -121,8 +120,7 @@ import server.app.modules.tasks.drivers.myplatform  # noqa: F401
 
 ## Testing quirks
 
-- `build_test_app(monkeypatch)` in `server/tests/utils.py` creates temp data dir + SQLite DB + FTS5 tables + admin user + JWT cookie. Every test **must** call `test_app.cleanup()` in `finally` (deletes temp dir, clears settings cache).
-- FTS5 tables created manually (not via Alembic) — any test using full-text search needs those triggers.
+- `build_test_app(monkeypatch)` in `server/tests/utils.py` requires `GEO_TEST_DATABASE_URL`, rebuilds the disposable MySQL schema, creates temp data dir + admin user + JWT cookie. Every test **must** call `test_app.cleanup()` in `finally`.
 - Tests that execute tasks **must** pass `"stop_before_publish": False` or the task stays in `waiting_manual_publish`.
 - Mock the publish runner: `monkeypatch.setattr("server.app.modules.tasks.task_Executor.build_publish_runner_for_record", lambda r: stub_runner)`.
 - Background task execution uses `bg_session_factory` — patched in `build_test_app` to `TestingSessionLocal` for cross-thread DB access.

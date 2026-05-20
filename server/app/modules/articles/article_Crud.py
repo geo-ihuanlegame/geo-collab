@@ -5,7 +5,6 @@ import re
 
 from sqlalchemy import delete as sa_delete, func, select
 from sqlalchemy.orm import Session, selectinload
-from sqlalchemy.sql import text as sa_text
 
 from server.app.core.time import utcnow
 from server.app.models import Article, ArticleBodyAsset, ArticleGroup, ArticleGroupItem, Asset, PublishRecord, PublishTask
@@ -61,21 +60,13 @@ def get_article(db: Session, article_id: int) -> Article | None:
 
 
 def _search_articles(db: Session, query: str, user_id: int | None = None) -> list[Article]:
-    dialect_name = db.bind.dialect.name if db.bind else "sqlite"
-
-    if dialect_name == "mysql":
-        stmt = (
-            select(Article)
-            .where(
-                Article.is_deleted == False,  # noqa: E712
-                func.match(Article.title, Article.author, Article.plain_text).against(query, "boolean") > 0,
-            )
-        )
-    else:
-        stmt = select(Article).where(
+    stmt = (
+        select(Article)
+        .where(
             Article.is_deleted == False,  # noqa: E712
-            sa_text("articles_fts MATCH :q").bindparams(q=query),
+            func.match(Article.title, Article.author, Article.plain_text).against(query, "boolean") > 0,
         )
+    )
 
     if user_id is not None:
         stmt = stmt.where(Article.user_id == user_id)

@@ -1,40 +1,89 @@
+import os
 import shutil
 import tempfile
 import threading
 import uuid
 from pathlib import Path
+from urllib.parse import urlparse
 
+import pytest
 import sqlalchemy as sa
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
 
 from server.app.core.config import get_settings
 from server.app.db.base import Base
-from server.app.db.session import get_db
-from server.app.main import create_app
 
 
 class TestApp:
-    def __init__(self, client: TestClient, data_dir: Path, session_factory: sessionmaker[Session]):
+    def __init__(self, client: TestClient, data_dir: Path, session_factory: sessionmaker[Session], engine: Engine):
         self.client = client
         self.data_dir = data_dir
         self.session_factory = session_factory
+        self.engine = engine
 
     def cleanup(self) -> None:
+        reset_test_database(self.engine)
+        self.engine.dispose()
         shutil.rmtree(self.data_dir, ignore_errors=True)
         get_settings.cache_clear()
 
 
+def get_test_database_url() -> str:
+    url = os.environ.get("GEO_TEST_DATABASE_URL")
+    if not url:
+        pytest.skip("Set GEO_TEST_DATABASE_URL to a disposable MySQL database before running DB tests")
+    parsed = urlparse(url)
+    if parsed.scheme != "mysql+pymysql":
+        raise RuntimeError("GEO_TEST_DATABASE_URL must use mysql+pymysql://")
+    database_name = parsed.path.lstrip("/")
+    if "test" not in database_name.lower() and os.environ.get("GEO_ALLOW_NON_TEST_DATABASE_FOR_TESTS") != "1":
+        raise RuntimeError("Refusing to run tests unless the MySQL database name contains 'test'")
+    return url
+
+
+def build_test_engine() -> Engine:
+    engine = create_engine(
+        get_test_database_url(),
+        pool_pre_ping=True,
+        connect_args={"init_command": "SET SESSION time_zone='+00:00'"},
+    )
+    reset_test_database(engine)
+    return engine
+
+
+def reset_test_database(engine: Engine, *, create_schema: bool = True) -> None:
+    import server.app.models  # noqa: F401
+
+    with engine.connect() as conn:
+        conn.execute(sa.text("SET FOREIGN_KEY_CHECKS=0"))
+        try:
+            Base.metadata.drop_all(bind=conn)
+            conn.execute(sa.text("DROP TABLE IF EXISTS alembic_version"))
+            if create_schema:
+                Base.metadata.create_all(bind=conn)
+                conn.execute(
+                    sa.text(
+                        "ALTER TABLE articles ADD FULLTEXT INDEX ft_articles "
+                        "(title, author, plain_text) WITH PARSER ngram"
+                    )
+                )
+        finally:
+            conn.execute(sa.text("SET FOREIGN_KEY_CHECKS=1"))
+        conn.commit()
+
+
 def build_test_app(monkeypatch) -> TestApp:
+    test_database_url = get_test_database_url()
     data_dir = Path(tempfile.gettempdir()) / "geo-test-data" / uuid.uuid4().hex
     data_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("GEO_DATA_DIR", str(data_dir))
+    monkeypatch.setenv("GEO_DATABASE_URL", test_database_url)
     monkeypatch.setenv("GEO_JWT_SECRET", "test-secret")
     get_settings.cache_clear()
 
-    # 清理全局任务锁和取消标志（避免跨测试污染）
     from server.app.modules.tasks import task_Executor as _tasks_mod
     _tasks_mod._task_locks.clear()
     _tasks_mod._account_locks.clear()
@@ -47,48 +96,7 @@ def build_test_app(monkeypatch) -> TestApp:
     from server.app.core import security as _security_mod
     _security_mod._reset_user_cache()
 
-    db_path = data_dir / "test.db"
-    engine = create_engine(
-        f"sqlite:///{db_path.as_posix()}",
-        connect_args={"check_same_thread": False},
-    )
-    Base.metadata.create_all(engine)
-    with engine.connect() as conn:
-        conn.execute(
-            sa.text(
-                "CREATE VIRTUAL TABLE IF NOT EXISTS articles_fts USING fts5("
-                "title, author, plain_text, content='articles', content_rowid='id', tokenize='trigram')"
-            )
-        )
-        conn.execute(sa.text("INSERT OR IGNORE INTO articles_fts(rowid, title, author, plain_text) SELECT id, title, author, plain_text FROM articles"))
-        conn.execute(
-            sa.text(
-                "CREATE TRIGGER IF NOT EXISTS after_articles_insert "
-                "AFTER INSERT ON articles BEGIN "
-                "INSERT INTO articles_fts(rowid, title, author, plain_text) VALUES (new.id, new.title, new.author, new.plain_text); "
-                "END"
-            )
-        )
-        conn.execute(
-            sa.text(
-                "CREATE TRIGGER IF NOT EXISTS after_articles_delete "
-                "AFTER DELETE ON articles BEGIN "
-                "INSERT INTO articles_fts(articles_fts, rowid, title, author, plain_text) "
-                "VALUES('delete', old.id, old.title, old.author, old.plain_text); "
-                "END"
-            )
-        )
-        conn.execute(
-            sa.text(
-                "CREATE TRIGGER IF NOT EXISTS after_articles_update "
-                "AFTER UPDATE ON articles BEGIN "
-                "INSERT INTO articles_fts(articles_fts, rowid, title, author, plain_text) "
-                "VALUES('delete', old.id, old.title, old.author, old.plain_text); "
-                "INSERT INTO articles_fts(rowid, title, author, plain_text) VALUES (new.id, new.title, new.author, new.plain_text); "
-                "END"
-            )
-        )
-        conn.commit()
+    engine = build_test_engine()
     TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
     def override_get_db():
@@ -102,10 +110,10 @@ def build_test_app(monkeypatch) -> TestApp:
         finally:
             db.close()
 
-    # 让后台任务线程也使用测试数据库
-    monkeypatch.setattr("server.app.api.routes.tasks.bg_session_factory", TestingSessionLocal)
+    from server.app.db.session import get_db
+    from server.app.main import create_app
 
-    # 让 get_current_user 使用测试数据库（它内部直接调用 SessionLocal）
+    monkeypatch.setattr("server.app.api.routes.tasks.bg_session_factory", TestingSessionLocal)
     monkeypatch.setattr("server.app.db.session.SessionLocal", TestingSessionLocal)
 
     app = create_app()
@@ -113,11 +121,11 @@ def build_test_app(monkeypatch) -> TestApp:
 
     client = TestClient(app)
 
-    # 创建测试 admin 用户并设置 JWT cookie
     from server.app.core.security import create_access_token
 
     with TestingSessionLocal() as db:
         from server.app.models.user import User
+
         user = User(
             username="testadmin",
             role="admin",
@@ -131,4 +139,4 @@ def build_test_app(monkeypatch) -> TestApp:
         token = create_access_token(user.id, user.role)
         client.cookies["access_token"] = token
 
-    return TestApp(client=client, data_dir=data_dir, session_factory=TestingSessionLocal)
+    return TestApp(client=client, data_dir=data_dir, session_factory=TestingSessionLocal, engine=engine)

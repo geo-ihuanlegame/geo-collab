@@ -156,7 +156,7 @@ Replace all three `pass` blocks:
 - [ ] **Step 6: Run backend tests to ensure no regressions**
 
 ```bash
-conda activate geo_xzpt && pytest server/tests/ -m "not mysql" -q
+conda activate geo_xzpt && $env:GEO_TEST_DATABASE_URL="mysql+pymysql://geo_user:password@127.0.0.1:3306/geo_test"; pytest server/tests/ -q
 ```
 
 Expected: all tests pass.
@@ -203,7 +203,7 @@ The `RuntimeError: release unlocked lock` path is now reached only if the lock w
 - [ ] **Step 2: Run tests**
 
 ```bash
-conda activate geo_xzpt && pytest server/tests/ -m "not mysql" -q
+conda activate geo_xzpt && $env:GEO_TEST_DATABASE_URL="mysql+pymysql://geo_user:password@127.0.0.1:3306/geo_test"; pytest server/tests/ -q
 ```
 
 Expected: all tests pass.
@@ -291,7 +291,7 @@ Note: `stop_remote_browser_session` is already imported at the top of `publish_R
 - [ ] **Step 2: Run tests**
 
 ```bash
-conda activate geo_xzpt && pytest server/tests/ -m "not mysql" -q
+conda activate geo_xzpt && $env:GEO_TEST_DATABASE_URL="mysql+pymysql://geo_user:password@127.0.0.1:3306/geo_test"; pytest server/tests/ -q
 ```
 
 Expected: all tests pass.
@@ -354,7 +354,7 @@ Replace with:
 - [ ] **Step 2: Run tests**
 
 ```bash
-conda activate geo_xzpt && pytest server/tests/ -m "not mysql" -q
+conda activate geo_xzpt && $env:GEO_TEST_DATABASE_URL="mysql+pymysql://geo_user:password@127.0.0.1:3306/geo_test"; pytest server/tests/ -q
 ```
 
 Expected: all tests pass.
@@ -516,7 +516,7 @@ Replace with:
 - [ ] **Step 4: Run tests**
 
 ```bash
-conda activate geo_xzpt && pytest server/tests/ -m "not mysql" -q
+conda activate geo_xzpt && $env:GEO_TEST_DATABASE_URL="mysql+pymysql://geo_user:password@127.0.0.1:3306/geo_test"; pytest server/tests/ -q
 ```
 
 Expected: all tests pass.
@@ -586,7 +586,7 @@ Replace with:
 - [ ] **Step 2: Run tests**
 
 ```bash
-conda activate geo_xzpt && pytest server/tests/ -m "not mysql" -q
+conda activate geo_xzpt && $env:GEO_TEST_DATABASE_URL="mysql+pymysql://geo_user:password@127.0.0.1:3306/geo_test"; pytest server/tests/ -q
 ```
 
 Expected: all tests pass.
@@ -849,7 +849,7 @@ Check `server/app/modules/accounts/__init__.py`. If `get_login_session_status` i
 - [ ] **Step 8: Run tests**
 
 ```bash
-conda activate geo_xzpt && pytest server/tests/ -m "not mysql" -q
+conda activate geo_xzpt && $env:GEO_TEST_DATABASE_URL="mysql+pymysql://geo_user:password@127.0.0.1:3306/geo_test"; pytest server/tests/ -q
 ```
 
 Expected: all tests pass. If any tests call `start_login_session` or check `novnc_url` on the immediate response, update them to expect `None` and to poll separately.

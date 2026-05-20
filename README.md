@@ -47,6 +47,7 @@ Docker 启动时自动执行 `alembic upgrade head`，无需手动迁移。
 ```bash
 conda activate geo_xzpt
 pip install -r requirements.txt
+# 需要 MySQL；设置 GEO_DATABASE_URL，或设置 GEO_DB_HOST/GEO_DB_USER/GEO_DB_NAME
 alembic upgrade head
 uvicorn server.app.main:app --reload --host 127.0.0.1 --port 8000
 ```
@@ -70,7 +71,6 @@ pnpm --filter @geo/web dev
 
 ```
 data/
-├── geo.db              # SQLite（开发/测试）
 ├── assets/             # 上传图片
 ├── browser_states/     # Playwright persistent profiles
 │   └── <platform_code>/

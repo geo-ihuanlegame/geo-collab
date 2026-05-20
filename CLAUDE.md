@@ -37,7 +37,7 @@ Backend tests:
 
 ```bash
 pytest server/tests/ -v
-pytest server/tests/ -m "not mysql" -q
+GEO_TEST_DATABASE_URL=mysql+pymysql://geo_user:password@127.0.0.1:3306/geo_test pytest server/tests/ -q
 pytest server/tests/test_assets_api.py -q
 ```
 
@@ -60,7 +60,7 @@ docker-compose exec app python -m server.scripts.seed_users
 
 - Entry point: `server/app/main.py:create_app()`.
 - API routes: `auth`, `accounts`, `articles`, `article-groups`, `assets`, `chunked-assets`, `publish-records`, `system`, `tasks`.
-- Database: SQLite for local/test, MySQL in Docker. Runtime DB URL comes from `get_database_url()`; `alembic.ini` contains only a placeholder.
+- Database: MySQL only. Runtime DB URL comes from `get_database_url()`; set `GEO_DATABASE_URL` or `GEO_DB_HOST/GEO_DB_USER/GEO_DB_NAME`.
 - Auth: `/api/auth/login` sets `access_token` as an httpOnly JWT cookie. Admin bootstrap is checked through `/api/bootstrap`.
 - Config: pydantic-settings with the `GEO_` prefix. `get_settings()` is cached; call `.cache_clear()` after env changes in tests.
 
@@ -141,7 +141,7 @@ Drivers receive a prebuilt `PublishPayload`; they should not import ORM article/
 
 ## Testing Notes
 
-- `build_test_app(monkeypatch)` creates temp data dir, SQLite DB, FTS5 tables, admin user, and JWT cookie.
+- `build_test_app(monkeypatch)` requires `GEO_TEST_DATABASE_URL`, rebuilds a disposable MySQL schema, creates temp data dir, admin user, and JWT cookie.
 - Tests using `build_test_app` must call `test_app.cleanup()` in `finally`.
 - Tests that execute tasks must pass `"stop_before_publish": false`, or records stay in `waiting_manual_publish`.
 - Mock publish runners with `monkeypatch.setattr("server.app.modules.tasks.task_Executor.build_publish_runner_for_record", lambda r: stub_runner)`.
