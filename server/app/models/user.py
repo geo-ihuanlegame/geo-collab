@@ -24,6 +24,8 @@ class User(Base):
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     def set_password(self, raw: str) -> None:
+        if len(raw) < 8:
+            raise ValueError("Password must be at least 8 characters")
         self.password_hash = bcrypt.hashpw(raw.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
     def check_password(self, raw: str) -> bool:

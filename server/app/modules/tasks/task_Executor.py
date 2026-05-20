@@ -444,7 +444,7 @@ def _publish_record(record: PublishRecord, article: Article, account: Account, s
             runner = build_publish_runner_for_record(record)
             result = runner(article, account, stop_before_publish=stop_before_publish)
             return RecordPublishOutcome(result=result, diagnostics=list(diagnostics))
-    except BaseException as exc:
+    except Exception as exc:
         setattr(exc, "publish_diagnostics", list(diagnostics))
         raise
     finally:

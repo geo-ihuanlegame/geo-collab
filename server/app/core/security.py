@@ -35,7 +35,8 @@ def _reset_user_cache() -> None:
 
 
 def _get_jwt_secret() -> str:
-    return os.environ["GEO_JWT_SECRET"]
+    from server.app.core.config import get_settings
+    return get_settings().jwt_secret
 
 
 def _get_jwt_expire_hours() -> int:

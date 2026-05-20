@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
+import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -60,16 +62,43 @@ class ChunkedUploadManager:
         )
 
         self.sessions[upload_id] = session
+
+        metadata = {
+            "upload_id": session.upload_id,
+            "total_size": session.total_size,
+            "chunk_count": session.chunk_count,
+        }
+        (temp_dir / "session.json").write_text(json.dumps(metadata))
+
         return session
 
     def _cleanup_orphaned_uploads(self) -> None:
         if not self.sessions_dir.exists():
             return
         import shutil
+        now = time.time()
+        max_age = 86400  # 24 hours
         for entry in self.sessions_dir.iterdir():
-            if entry.is_dir() and entry.name not in self.sessions:
-                shutil.rmtree(entry, ignore_errors=True)
-                _logger.info("Cleaned up orphaned upload dir: %s", entry.name)
+            if not entry.is_dir():
+                continue
+            session_file = entry / "session.json"
+            if session_file.exists():
+                mtime = session_file.stat().st_mtime
+                if now - mtime < max_age:
+                    try:
+                        metadata = json.loads(session_file.read_text())
+                        session = UploadSession(
+                            upload_id=metadata["upload_id"],
+                            total_size=metadata["total_size"],
+                            chunk_count=metadata["chunk_count"],
+                            temp_dir=entry,
+                        )
+                        self.sessions[metadata["upload_id"]] = session
+                        continue
+                    except Exception:
+                        pass
+            shutil.rmtree(entry, ignore_errors=True)
+            _logger.info("Cleaned up orphaned upload dir: %s", entry.name)
 
     def get_session(self, upload_id: str) -> UploadSession | None:
         """获取上传会话。"""

@@ -62,6 +62,7 @@ from server.app.core.config import get_settings
 from server.app.core.paths import ensure_data_dirs
 from server.app.core.security import get_current_user
 from server.app.models.user import User
+from server.app.core.limiter import limiter
 from server.app.shared.errors import AccountError, ClientError, ConflictError, ValidationError
 
 # PyInstaller 打包后 sys._MEIPASS 指向解压目录
@@ -98,6 +99,11 @@ def create_app() -> FastAPI:
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
         allow_headers=["Content-Type", "X-Geo-Token"],
     )
+    # 速率限制
+    from slowapi import _rate_limit_exceeded_handler
+    from slowapi.errors import RateLimitExceeded
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
     # 启动时恢复卡住的记录（上次运行时 crash 导致 status='running' 的记录）
     from server.app.db.session import SessionLocal
     from server.app.modules.tasks import recover_stuck_records

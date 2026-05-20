@@ -4,9 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from server.app.core.config import get_settings
 from server.app.core.time import utcnow
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from server.app.core.limiter import limiter
 from server.app.core.security import create_access_token, get_current_user, invalidate_user_cache, require_admin, verify_token
 from server.app.db.session import get_db
 from server.app.models.user import User
@@ -20,13 +21,13 @@ class LoginRequest(BaseModel):
 
 
 class ChangePasswordRequest(BaseModel):
-    old_password: str
-    new_password: str
+    old_password: str = Field(min_length=1)
+    new_password: str = Field(min_length=8)
 
 
 class CreateUserRequest(BaseModel):
     username: str
-    password: str
+    password: str = Field(min_length=8)
     role: str = "operator"
     display_name: str | None = None
 
@@ -39,7 +40,7 @@ class UpdateUserRequest(BaseModel):
 
 
 class ResetPasswordRequest(BaseModel):
-    new_password: str
+    new_password: str = Field(min_length=8)
 
 
 def _user_dict(u: User) -> dict:
@@ -57,7 +58,8 @@ def _user_dict(u: User) -> dict:
 
 
 @router.post("/login")
-def login(payload: LoginRequest, response: Response, db: Session = Depends(get_db)) -> dict:
+@limiter.limit("5/minute")
+def login(request: Request, payload: LoginRequest, response: Response, db: Session = Depends(get_db)) -> dict:
     user = db.query(User).filter(User.username == payload.username).first()
     if not user or not user.check_password(payload.password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
