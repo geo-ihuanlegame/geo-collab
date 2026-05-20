@@ -189,16 +189,22 @@ def _run_pending_records(db: Session, task: PublishTask) -> None:
                     db.commit()
                     return
             else:
-                if task.stop_before_publish:
-                    if any(record.status == "waiting_manual_publish" for record in records):
+                _paused_for_user = any(
+                    record.status == "waiting_user_input" for record in records
+                )
+                _paused_for_manual = task.stop_before_publish and any(
+                    record.status == "waiting_manual_publish" for record in records
+                )
+
+                if _paused_for_user or _paused_for_manual:
+                    if not running:
+                        # All in-flight futures have completed — safe to exit.
                         db.commit()
                         return
-
-                if any(record.status == "waiting_user_input" for record in records):
-                    db.commit()
-                    return
-
-                _start_runnable_records(db, task, executor, running, records)
+                    # Running futures still exist. Fall through to the wait loop
+                    # so they complete and their results get written to DB.
+                else:
+                    _start_runnable_records(db, task, executor, running, records)
 
             if not running:
                 if not any(record.status == "pending" for record in records):
