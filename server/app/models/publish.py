@@ -67,8 +67,8 @@ class PublishTask(Base):
     article = relationship("Article")
     group = relationship("ArticleGroup", back_populates="publish_tasks")
     accounts = relationship("PublishTaskAccount", back_populates="task", cascade="all, delete-orphan")
-    records = relationship("PublishRecord", back_populates="task", cascade="all, delete-orphan")
-    logs = relationship("TaskLog", back_populates="task", cascade="all, delete-orphan")
+    records = relationship("PublishRecord", back_populates="task")
+    logs = relationship("TaskLog", back_populates="task")
 
 
 # 任务-账号关联表，带排序（轮询顺序）
