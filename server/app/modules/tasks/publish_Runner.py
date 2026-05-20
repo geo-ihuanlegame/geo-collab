@@ -193,6 +193,11 @@ def run_publish(
         exc.session_id = session.id
         exc.novnc_url = session.novnc_url
         raise
+    except Exception:
+        # Destroy the session so the broken context is not reused on the
+        # next publish attempt for this account.
+        stop_remote_browser_session(session.id)
+        raise
     finally:
         if page is not None and not _keep_browser:
             try:
