@@ -463,12 +463,12 @@ def process_account_login_session_requests(db: Session, worker_id: str) -> bool:
 
 def _worker_start_login_session(db: Session, request: AccountLoginSession) -> None:
     try:
-        session = _start_login_browser_impl(
+        session = _run_in_plain_thread(lambda: _start_login_browser_impl(
             request.platform_code,
             request.account_key,
             request.channel,
             request.executable_path,
-        )
+        ))
         request.browser_session_id = session.id
         request.novnc_url = session.novnc_url
         request.status = LOGIN_STATUS_ACTIVE
@@ -494,11 +494,11 @@ def _worker_finish_login_session(db: Session, request: AccountLoginSession) -> N
     try:
         if not request.browser_session_id:
             raise ClientError("Remote browser session not found")
-        result = _finish_login_browser_impl(
+        result = _run_in_plain_thread(lambda: _finish_login_browser_impl(
             request.platform_code,
             request.account_key,
             request.browser_session_id,
-        )
+        ))
         _apply_login_result(account, result)
         request.logged_in = result.logged_in
         request.result_url = result.url
@@ -517,7 +517,7 @@ def _worker_finish_login_session(db: Session, request: AccountLoginSession) -> N
 def _worker_cancel_login_session(db: Session, request: AccountLoginSession) -> None:
     try:
         if request.browser_session_id:
-            _stop_login_browser_impl(request.account_key, request.browser_session_id)
+            _run_in_plain_thread(lambda: _stop_login_browser_impl(request.account_key, request.browser_session_id))
         request.status = LOGIN_STATUS_CANCELLED
         request.error_message = None
         if request.previous_status is not None:
