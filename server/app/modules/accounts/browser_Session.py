@@ -254,7 +254,13 @@ def get_session(session_id: str) -> RemoteBrowserSession | None:
         return _active_sessions.get(session_id)
 
 
-def attach_browser_handles(session_id: str, playwright: Any | None, context: Any | None, page: Any | None = None) -> None:
+def attach_browser_handles(
+    session_id: str,
+    playwright: Any | None,
+    context: Any | None,
+    page: Any | None = None,
+    context_thread_id: int | None = None,
+) -> None:
     with _sessions_lock:
         session = _active_sessions.get(session_id)
         if session is None:
@@ -262,6 +268,7 @@ def attach_browser_handles(session_id: str, playwright: Any | None, context: Any
         session.playwright = playwright
         session.browser_context = context
         session.page = page
+        session.context_thread_id = context_thread_id
 
 
 def disassociate_record(record_id: int) -> None:

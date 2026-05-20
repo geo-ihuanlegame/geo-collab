@@ -190,8 +190,7 @@ def run_publish(
                 grant_permissions = getattr(context, "grant_permissions", None)
                 if callable(grant_permissions):
                     grant_permissions(["clipboard-read", "clipboard-write"])
-                attach_browser_handles(session.id, pw, context, None)
-                session.context_thread_id = current_thread_id
+                attach_browser_handles(session.id, pw, context, None, context_thread_id=current_thread_id)
         except Exception:
             if pw is not None:
                 try:
