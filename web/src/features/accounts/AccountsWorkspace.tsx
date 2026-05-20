@@ -7,6 +7,7 @@ import {
   listAccounts,
   listPlatforms,
   loginPlatformAccount,
+  pollLoginSessionUntilActive,
   startAccountLoginSession,
   startPlatformLoginSession,
   stopAccountLoginSession,
@@ -96,9 +97,18 @@ export function AccountsWorkspace() {
       };
       const result = await startPlatformLoginSession(selectedPlatformCode, { ...payload, channel: "chromium", wait_seconds: 180 });
       rememberLoginSession(result);
-      openRemoteBrowser(result.novnc_url);
       await refreshAccounts();
-      toast("远程浏览器已打开，登录完成后点击“完成登录”", "info");
+      toast("正在启动远程浏览器…", "info");
+      const active = await pollLoginSessionUntilActive(result.account.id, result.session_id);
+      setActiveLoginSessions((prev) => ({
+        ...prev,
+        [result.account.id]: {
+          sessionId: active.session_id,
+          novncUrl: active.novnc_url,
+        },
+      }));
+      openRemoteBrowser(active.novnc_url);
+      toast("远程浏览器已打开，登录完成后点击\"完成登录\"", "info");
     } catch (error) {
       toast(error instanceof Error ? error.message : "打开远程浏览器失败", "error");
     } finally {
@@ -111,9 +121,18 @@ export function AccountsWorkspace() {
     try {
       const result = await startAccountLoginSession(account.id, { channel: "chromium", use_browser: true });
       rememberLoginSession(result);
-      openRemoteBrowser(result.novnc_url);
       await refreshAccounts();
-      toast(`远程浏览器已打开，请完成${actionLabel}后点击“完成登录”`, "info");
+      toast(`正在启动远程浏览器…`, "info");
+      const active = await pollLoginSessionUntilActive(account.id, result.session_id);
+      setActiveLoginSessions((prev) => ({
+        ...prev,
+        [account.id]: {
+          sessionId: active.session_id,
+          novncUrl: active.novnc_url,
+        },
+      }));
+      openRemoteBrowser(active.novnc_url);
+      toast(`远程浏览器已打开，请完成${actionLabel}后点击"完成登录"`, "info");
     } catch (error) {
       toast(error instanceof Error ? error.message : `${actionLabel}失败`, "error");
     } finally {
@@ -165,7 +184,7 @@ export function AccountsWorkspace() {
       ...prev,
       [result.account.id]: {
         sessionId: result.session_id,
-        novncUrl: result.novnc_url,
+        novncUrl: result.novnc_url ?? "",
       },
     }));
   }

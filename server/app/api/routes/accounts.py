@@ -20,6 +20,7 @@ from server.app.modules.accounts import (
     export_accounts_auth_package,
     finish_account_login_session,
     get_account,
+    get_login_session_status,
     import_accounts_auth_package,
     list_accounts,
     rename_account,
@@ -105,6 +106,25 @@ def start_existing_account_login_session_endpoint(
 ) -> AccountBrowserSessionRead:
     account = _verify_account_ownership(get_account(db, account_id), current_user)
     return _to_browser_session_read(start_account_login_session(db, account, payload or AccountCheckRequest()))
+
+
+@router.get("/{account_id:int}/login-session/{session_id}/status")
+def get_login_session_status_endpoint(
+    account_id: int,
+    session_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    account = _verify_account_ownership(get_account(db, account_id), current_user)
+    request = get_login_session_status(db, account, session_id)
+    if request is None:
+        raise HTTPException(status_code=404, detail="Login session not found")
+    return {
+        "status": request.status,
+        "novnc_url": request.novnc_url,
+        "error_message": getattr(request, "error_message", None),
+        "browser_session_id": request.browser_session_id,
+    }
 
 
 @router.post("/{account_id:int}/login-session/{session_id}/finish", response_model=AccountBrowserSessionFinishRead)

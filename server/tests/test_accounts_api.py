@@ -284,11 +284,10 @@ def test_toutiao_remote_login_session_creates_unknown_account(monkeypatch):
     client = test_app.client
     install_fake_driver(monkeypatch)
 
-    class FakeSession:
-        id = "login-session-1"
-        novnc_url = "http://127.0.0.1:6080/vnc.html"
-
-    monkeypatch.setattr("server.app.modules.accounts.account_Auth._start_login_browser_via_worker", lambda *_args: FakeSession())
+    monkeypatch.setattr(
+        "server.app.modules.accounts.account_Auth._start_login_browser_via_worker",
+        lambda *_args, **_kwargs: "login-session-1",
+    )
 
     try:
         response = client.post(
@@ -301,7 +300,7 @@ def test_toutiao_remote_login_session_creates_unknown_account(monkeypatch):
         assert payload["account_key"] == "remote-demo"
         assert payload["platform_code"] == "toutiao"
         assert payload["session_id"] == "login-session-1"
-        assert payload["novnc_url"] == "http://127.0.0.1:6080/vnc.html"
+        assert payload["novnc_url"] is None
         assert payload["account"]["display_name"] == "remote-demo"
         assert payload["account"]["status"] == "unknown"
         assert payload["account"]["state_path"] == "browser_states/toutiao/remote-demo/storage_state.json"

@@ -65,7 +65,7 @@ export type AccountBrowserSession = {
   platform_code: string;
   account_key: string;
   session_id: string;
-  novnc_url: string;
+  novnc_url: string | null;
 };
 
 export type AccountBrowserSessionFinish = {

@@ -1,6 +1,34 @@
 import { api } from "./core";
 import type { Account, AccountBrowserSession, AccountBrowserSessionFinish, PlatformLoginPayload, PlatformOption } from "../types";
 
+export async function pollLoginSessionUntilActive(
+  accountId: number,
+  sessionId: string,
+  timeoutMs = 90_000,
+): Promise<{ novnc_url: string; session_id: string }> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const status = await api<{
+      status: string;
+      novnc_url: string | null;
+      error_message: string | null;
+      browser_session_id: string | null;
+    }>(`/api/accounts/${accountId}/login-session/${sessionId}/status`);
+
+    if (status.status === "active") {
+      return {
+        session_id: status.browser_session_id ?? sessionId,
+        novnc_url: status.novnc_url ?? "",
+      };
+    }
+    if (status.status === "failed" || status.status === "cancelled") {
+      throw new Error(status.error_message || "Login session failed to start");
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  throw new Error("Login session did not become active within 90s");
+}
+
 export type AccountLoginPayload = PlatformLoginPayload & {
   channel?: string;
   wait_seconds?: number;

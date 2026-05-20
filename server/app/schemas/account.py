@@ -24,7 +24,7 @@ class AccountBrowserSessionRead(BaseModel):
     platform_code: str
     account_key: str
     session_id: str
-    novnc_url: str
+    novnc_url: str | None = None
 
 
 class AccountBrowserSessionFinishRead(BaseModel):

@@ -54,7 +54,7 @@ class AccountBrowserSessionResult:
     platform_code: str
     account_key: str
     session_id: str
-    novnc_url: str
+    novnc_url: str | None
 
 
 @dataclass(frozen=True)
@@ -205,7 +205,7 @@ def start_login_session(
         account.updated_at = now
     db.flush()
 
-    session = _start_login_browser_via_worker(
+    request_id = _start_login_browser_via_worker(
         db,
         account.id,
         platform_code,
@@ -218,8 +218,8 @@ def start_login_session(
         account=get_account(db, account.id) or account,
         platform_code=platform_code,
         account_key=account_key,
-        session_id=session.id,
-        novnc_url=session.novnc_url,
+        session_id=request_id,
+        novnc_url=None,
     )
 
 
@@ -231,7 +231,7 @@ def start_account_login_session(db: Session, account: Account, payload: AccountC
     account.updated_at = account.last_checked_at
     db.flush()
 
-    session = _start_login_browser_via_worker(
+    request_id = _start_login_browser_via_worker(
         db,
         account.id,
         platform_code,
@@ -244,8 +244,8 @@ def start_account_login_session(db: Session, account: Account, payload: AccountC
         account=get_account(db, account.id) or account,
         platform_code=platform_code,
         account_key=account_key,
-        session_id=session.id,
-        novnc_url=session.novnc_url,
+        session_id=request_id,
+        novnc_url=None,
     )
 
 
@@ -294,6 +294,11 @@ def _find_account_login_request(db: Session, account_id: int, session_id: str) -
     ).scalar_one_or_none()
 
 
+def get_login_session_status(db: Session, account: Account, session_id: str) -> "AccountLoginSession | None":
+    """Return the AccountLoginSession row for status polling."""
+    return _find_account_login_request(db, account.id, session_id)
+
+
 def _wait_for_account_login_request(
     db: Session,
     request_id: str,
@@ -327,7 +332,8 @@ def _start_login_browser_via_worker(
     channel: str,
     executable_path: str | None,
     previous_status: str | None = None,
-) -> LoginBrowserSessionHandle:
+) -> str:
+    """Create a login-session request row and return the request ID immediately."""
     request = AccountLoginSession(
         id=_new_login_session_request_id(),
         account_id=account_id,
@@ -342,28 +348,7 @@ def _start_login_browser_via_worker(
     )
     db.add(request)
     db.commit()
-
-    try:
-        request = _wait_for_account_login_request(
-            db,
-            request.id,
-            {LOGIN_STATUS_ACTIVE},
-            LOGIN_SESSION_START_TIMEOUT_SECONDS,
-            "Worker did not start the account login browser in time",
-        )
-    except ClientError:
-        db.expire_all()
-        pending = db.get(AccountLoginSession, request.id)
-        if pending is not None and pending.status == LOGIN_STATUS_PENDING:
-            pending.status = LOGIN_STATUS_FAILED
-            pending.error_message = "Worker did not start the account login browser in time"
-            _touch_login_request(pending)
-            db.commit()
-        raise
-
-    if not request.browser_session_id or not request.novnc_url:
-        raise ClientError("Worker started login session without browser connection info")
-    return LoginBrowserSessionHandle(id=request.browser_session_id, novnc_url=request.novnc_url)
+    return request.id
 
 
 def _finish_login_browser_via_worker(
