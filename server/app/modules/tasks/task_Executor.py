@@ -583,9 +583,18 @@ def cancel_task(db: Session, task: PublishTask) -> PublishTask:
 
     refreshed_records = list_task_records(db, task.id)
     if not any(record.status == "running" for record in refreshed_records):
-        task.status = "cancelled"
-        task.finished_at = now
-        add_log(db, task.id, None, "warn", "Task cancelled")
+        rows = db.execute(
+            sa_update(PublishTask)
+            .where(
+                PublishTask.id == task.id,
+                PublishTask.status.not_in(TERMINAL_TASK_STATUSES),
+            )
+            .values(status="cancelled", finished_at=now)
+        ).rowcount
+        if rows > 0:
+            task.status = "cancelled"
+            task.finished_at = now
+            add_log(db, task.id, None, "warn", "Task cancelled")
     else:
         task.status = "running"
         add_log(db, task.id, None, "warn", "Cancellation requested; running record will finish at its next safe point")
