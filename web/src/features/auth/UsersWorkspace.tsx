@@ -4,6 +4,7 @@ import { api } from "../../api/client";
 import { useToast } from "../../components/Toast";
 import { Modal } from "../../components/Modal";
 import { useAuth } from "./AuthContext";
+import { formatDateTime } from "../../utils/dateFormat";
 import type { UserRecord } from "../../types";
 
 export function UsersWorkspace() {
@@ -100,7 +101,7 @@ export function UsersWorkspace() {
                       </span>
                     </td>
                     <td style={tdStyle}>
-                      {u.last_login_at ? new Date(u.last_login_at).toLocaleString("zh-CN") : "—"}
+                      {formatDateTime(u.last_login_at)}
                     </td>
                     <td style={tdStyle}>
                       {isSelf ? (

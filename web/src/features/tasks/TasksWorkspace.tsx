@@ -18,6 +18,7 @@ import type { Task, TaskCreatePayload, Account, ArticleGroup, ArticleSummary, Pu
 import { TERMINAL_STATUSES, statusLabel } from "../../types";
 import { Plus, RefreshCw, Send } from "lucide-react";
 import { useToast } from "../../components/Toast";
+import { formatDate, formatDateTime, formatTime } from "../../utils/dateFormat";
 import { Pagination } from "../../components/Pagination";
 
 const TASK_PAGE_SIZE = 10;
@@ -515,7 +516,7 @@ export function TasksWorkspace() {
                   <span className={`badge ${task.status}`}>{statusLabel(task.status)}</span>
                 </div>
                 <small style={{ color: "#64748b", fontSize: 12 }}>
-                  {task.task_type === "single" ? "单篇" : "分组轮询"} · {task.record_count} 条 · {new Date(task.created_at).toLocaleDateString()}
+                  {task.task_type === "single" ? "单篇" : "分组轮询"} · {task.record_count} 条 · {formatDate(task.created_at)}
                 </small>
               </button>
             ))}
@@ -537,7 +538,7 @@ export function TasksWorkspace() {
                 <h2 style={{ margin: "0 0 4px" }}>{selectedTask.name}</h2>
                 <small style={{ color: "#64748b", fontSize: 13 }}>
                   {selectedTask.task_type === "single" ? "单篇发布" : "分组轮询"} · {selectedTask.platform_code}
-                  {selectedTask.started_at ? ` · 开始于 ${new Date(selectedTask.started_at).toLocaleString()}` : ""}
+                  {selectedTask.started_at ? ` · 开始于 ${formatDateTime(selectedTask.started_at)}` : ""}
                   {selectedTask.cancel_requested ? " · 已请求取消" : ""}
                 </small>
               </div>
@@ -670,7 +671,7 @@ export function TasksWorkspace() {
                     <span className={`logLevel ${log.level}`}>{log.level.toUpperCase()}</span>
                     <span style={{ flex: 1 }}>{log.message}</span>
                     <small style={{ color: "#94a3b8", flexShrink: 0 }}>
-                      {new Date(log.created_at).toLocaleTimeString()}
+                      {formatTime(log.created_at)}
                     </small>
                   </div>
                   {log.screenshot_asset_id ? (

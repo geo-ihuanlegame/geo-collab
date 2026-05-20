@@ -27,6 +27,7 @@ import {
 import { uploadAsset as uploadAssetRequest } from "../../api/assets";
 import { assetSrc, assetThumbSrc, countWords, emptyDoc, newClientRequestId, singleFlight, withAssetToken } from "../../api/core";
 import type { Article, ArticleCreatePayload, ArticleGroup, ArticleGroupUpdateItemsPayload, ArticleSummary, ArticleUpdatePayload, Asset, Draft } from "../../types";
+import { formatDateTime } from "../../utils/dateFormat";
 import { EditorToolbar } from "../../components/editor/EditorToolbar";
 import { ArticleListItem } from "../../components/ArticleListItem";
 import { Modal } from "../../components/Modal";
@@ -897,7 +898,7 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
                             <strong>{article.title}</strong>
                             <span>{article.author || "未填写作者"}</span>
                             <small>
-                              {new Date(article.updated_at).toLocaleString()}
+                              {formatDateTime(article.updated_at)}
                               {article.published_count > 0 ? <span style={{ color: "#16a34a", marginLeft: 6 }}>· 已发布 {article.published_count} 次</span> : null}
                             </small>
                           </button>
