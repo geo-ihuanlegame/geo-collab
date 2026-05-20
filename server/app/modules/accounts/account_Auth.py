@@ -57,12 +57,6 @@ class AccountBrowserSessionResult:
     novnc_url: str | None
 
 
-@dataclass(frozen=True)
-class LoginBrowserSessionHandle:
-    id: str
-    novnc_url: str
-
-
 LOGIN_STATUS_PENDING = "pending"
 LOGIN_STATUS_STARTING = "starting"
 LOGIN_STATUS_ACTIVE = "active"

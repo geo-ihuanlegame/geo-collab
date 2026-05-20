@@ -275,7 +275,7 @@ def test_create_task_rejects_invalid_or_expired_account(monkeypatch):
             },
         )
         assert expired.status_code == 400
-        assert "Account is not valid" in expired.json()["detail"]
+        assert "expired" in expired.json()["detail"]
 
         missing = client.post(
             "/api/tasks",

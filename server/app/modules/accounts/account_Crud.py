@@ -114,6 +114,7 @@ def delete_account(db: Session, account: Account) -> None:
         raise ClientError("存在未完成发布记录，无法删除账号")
 
     db.execute(sa_delete(PublishTaskAccount).where(PublishTaskAccount.account_id == account_id))
+    db.execute(sa_delete(PublishRecord).where(PublishRecord.account_id == account_id))
     account.is_deleted = True
     account.deleted_at = utcnow()
     account.updated_at = utcnow()

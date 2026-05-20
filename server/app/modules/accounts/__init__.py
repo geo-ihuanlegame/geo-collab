@@ -32,7 +32,6 @@ from server.app.modules.accounts.account_Crud import (  # noqa: F401
 from server.app.modules.accounts.account_Auth import (  # noqa: F401
     BrowserCheckResult,
     AccountBrowserSessionResult,
-    LoginBrowserSessionHandle,
     LOGIN_STATUS_PENDING,
     LOGIN_STATUS_STARTING,
     LOGIN_STATUS_ACTIVE,

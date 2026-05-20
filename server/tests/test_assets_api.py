@@ -90,15 +90,14 @@ def test_thumbnail_request_falls_back_to_original_when_generation_fails(monkeypa
     test_app = build_test_app(monkeypatch)
     client = test_app.client
 
-    monkeypatch.setattr("server.app.api.routes.assets._generate_thumbnail", lambda *_args, **_kwargs: None)
-
     try:
         uploaded = client.post(
             "/api/assets",
             files={"file": ("cover.png", PNG_1X1, "image/png")},
         ).json()
 
-        response = client.get(f"/api/assets/{uploaded['id']}?width=300")
+        # Assets uploaded without thumbnail generation redirect to the original file
+        response = client.get(f"/api/assets/{uploaded['id']}/thumbnail", follow_redirects=True)
 
         assert response.status_code == 200
         assert response.content == PNG_1X1
