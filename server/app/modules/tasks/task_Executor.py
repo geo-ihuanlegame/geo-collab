@@ -303,11 +303,11 @@ def _try_acquire_account_lock(account_id: int) -> bool:
 
 def _release_account_lock(account_id: int) -> None:
     lock = _account_locks.get(account_id)
-    if lock is not None and lock.locked():
+    if lock is not None:
         try:
             lock.release()
         except RuntimeError:
-            pass
+            pass  # already released — harmless
 
 
 def _claim_record(db: Session, task_id: int, record: PublishRecord) -> bool:
