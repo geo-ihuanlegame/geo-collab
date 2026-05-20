@@ -75,25 +75,31 @@ export function TasksWorkspace() {
     let errorCount = 0;
 
     es.addEventListener("task", (e) => {
-      const updated = JSON.parse(e.data) as Task;
-      setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
-      errorCount = 0;
+      try {
+        const updated = JSON.parse(e.data) as Task;
+        setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+        errorCount = 0;
+      } catch { errorCount = 0; }
     });
 
     es.addEventListener("log", (e) => {
-      const log = JSON.parse(e.data) as TaskLog;
-      setLogs((prev) => {
-        if (prev.some((l) => l.id === log.id)) return prev;
-        return [...prev, log];
-      });
-      lastLogIdRef.current = Math.max(lastLogIdRef.current, log.id);
-      errorCount = 0;
+      try {
+        const log = JSON.parse(e.data) as TaskLog;
+        setLogs((prev) => {
+          if (prev.some((l) => l.id === log.id)) return prev;
+          return [...prev, log];
+        });
+        lastLogIdRef.current = Math.max(lastLogIdRef.current, log.id);
+        errorCount = 0;
+      } catch { errorCount = 0; }
     });
 
     es.addEventListener("records", (e) => {
-      const rs = JSON.parse(e.data) as PublishRecord[];
-      setRecords(rs);
-      errorCount = 0;
+      try {
+        const rs = JSON.parse(e.data) as PublishRecord[];
+        setRecords(rs);
+        errorCount = 0;
+      } catch { errorCount = 0; }
     });
 
     es.addEventListener("done", () => {
@@ -109,7 +115,7 @@ export function TasksWorkspace() {
       errorCount++;
       if (errorCount > 5) {
         es.close();
-        void refreshDetail(taskId);
+        void refreshDetail(taskId).catch(() => {});
       }
     };
 
@@ -123,16 +129,24 @@ export function TasksWorkspace() {
   }, [taskPage, totalTaskPages]);
 
   async function loadInitial() {
-    const [ts, accs, arts, gs] = await Promise.all([
-      listTasks(),
-      listAccounts(),
-      listArticles(),
-      listArticleGroups(),
-    ]);
-    setTasks(ts);
-    setAccounts(accs);
-    setArticles(arts);
-    setGroups(gs);
+    try {
+      const [tsRes, accsRes, artsRes, gsRes] = await Promise.allSettled([
+        listTasks(),
+        listAccounts(),
+        listArticles(),
+        listArticleGroups(),
+      ]);
+      if (tsRes.status === "fulfilled") setTasks(tsRes.value);
+      else console.warn("Failed to load tasks", tsRes.reason);
+      if (accsRes.status === "fulfilled") setAccounts(accsRes.value);
+      else console.warn("Failed to load accounts", accsRes.reason);
+      if (artsRes.status === "fulfilled") setArticles(artsRes.value);
+      else console.warn("Failed to load articles", artsRes.reason);
+      if (gsRes.status === "fulfilled") setGroups(gsRes.value);
+      else console.warn("Failed to load groups", gsRes.reason);
+    } catch (err) {
+      console.error("loadInitial failed", err);
+    }
   }
 
   async function refreshDetail(taskId: number) {

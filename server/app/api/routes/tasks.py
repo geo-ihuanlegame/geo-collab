@@ -94,7 +94,7 @@ def create_task_endpoint(
             if existing is not None:
                 refreshed = get_task(db, existing.id)
                 return to_task_read(refreshed or existing)
-        raise exc
+            raise HTTPException(status_code=409, detail="请求冲突：client_request_id 已存在或数据异常")
 
 
 # 预览任务分配（分组轮询时的文章-账号映射）

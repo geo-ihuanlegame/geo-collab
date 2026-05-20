@@ -402,21 +402,29 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
   }, [articlePage, totalArticlePages]);
 
   async function refreshArticles(nextQuery = query, nextPage = articlePage) {
-    const allArticles: ArticleSummary[] = [];
-    for (let skip = 0; ; skip += ARTICLE_FETCH_LIMIT) {
-      const params = new URLSearchParams({ skip: String(skip), limit: String(ARTICLE_FETCH_LIMIT) });
-      if (nextQuery) params.set("q", nextQuery);
-      const batch = await listArticles(params);
-      allArticles.push(...batch);
-      if (batch.length < ARTICLE_FETCH_LIMIT) break;
+    try {
+      const allArticles: ArticleSummary[] = [];
+      for (let skip = 0; ; skip += ARTICLE_FETCH_LIMIT) {
+        const params = new URLSearchParams({ skip: String(skip), limit: String(ARTICLE_FETCH_LIMIT) });
+        if (nextQuery) params.set("q", nextQuery);
+        const batch = await listArticles(params);
+        allArticles.push(...batch);
+        if (batch.length < ARTICLE_FETCH_LIMIT) break;
+      }
+      setArticles(allArticles);
+      setArticlePage(nextPage);
+    } catch (err) {
+      toast("加载文章列表失败", "error");
     }
-    setArticles(allArticles);
-    setArticlePage(nextPage);
   }
 
   async function refreshGroups() {
-    const data = await listArticleGroups();
-    setGroups(data);
+    try {
+      const data = await listArticleGroups();
+      setGroups(data);
+    } catch (err) {
+      toast("加载分组列表失败", "error");
+    }
   }
 
   useEffect(() => {

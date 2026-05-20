@@ -90,7 +90,7 @@ def create_article_endpoint(
             ).scalar_one_or_none()
             if existing is not None:
                 return to_article_read(get_article(db, existing.id) or existing)
-        raise exc
+            raise HTTPException(status_code=409, detail="请求冲突：client_request_id 已存在或数据异常")
 
 
 # 获取单篇文章详情

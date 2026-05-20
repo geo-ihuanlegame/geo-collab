@@ -268,9 +268,11 @@ def _run_pending_records(db: Session, task: PublishTask) -> None:
                     _release_account_lock(running_record.account_id)
                     db.commit()
                     continue
-                _finish_record_future(db, task, running_record.record_id, future)
-                _release_account_lock(running_record.account_id)
-                db.commit()
+                try:
+                    _finish_record_future(db, task, running_record.record_id, future)
+                finally:
+                    _release_account_lock(running_record.account_id)
+                    db.commit()
     finally:
         for running_record in running.values():
             _release_account_lock(running_record.account_id)
@@ -461,27 +463,43 @@ def _finish_record_future(db: Session, task: PublishTask, record_id: int, future
         _mark_record_failed(db, task.id, record_id, "Timeout: record execution exceeded 300s")
         _logger.warning("Record %d timed out", record_id)
     except UserInputRequired as exc:
-        _add_publish_diagnostics(db, task.id, record_id, _diagnostics_from_exception(exc), task.user_id)
-        screenshot_asset_id = _store_failure_screenshot(db, task.id, record_id, exc.screenshot, task.user_id)
-        error_type = getattr(exc, "error_type", "login_required")
-        type_label = {"login_required": "需要登录", "captcha_required": "需要验证码", "qr_scan_required": "需要扫码"}.get(error_type, "需要人工操作")
-        _mark_record_waiting_user_input(db, task.id, record_id, f"[{type_label}] {exc}\n{traceback.format_exc()}", screenshot_asset_id=screenshot_asset_id)
-        if exc.session_id:
-            associate_record_with_session(record_id, exc.session_id)
-        _logger.info("Record %d waiting user input (type=%s)", record_id, error_type)
+        try:
+            _add_publish_diagnostics(db, task.id, record_id, _diagnostics_from_exception(exc), task.user_id)
+            screenshot_asset_id = _store_failure_screenshot(db, task.id, record_id, exc.screenshot, task.user_id)
+            error_type = getattr(exc, "error_type", "login_required")
+            type_label = {"login_required": "需要登录", "captcha_required": "需要验证码", "qr_scan_required": "需要扫码"}.get(error_type, "需要人工操作")
+            _mark_record_waiting_user_input(db, task.id, record_id, f"[{type_label}] {exc}\n{traceback.format_exc()}", screenshot_asset_id=screenshot_asset_id)
+            if exc.session_id:
+                associate_record_with_session(record_id, exc.session_id)
+            _logger.info("Record %d waiting user input (type=%s)", record_id, error_type)
+        except Exception as _inner:
+            _logger.error("Record %d: error handling UserInputRequired: %s", record_id, _inner, exc_info=True)
+            _mark_record_failed(db, task.id, record_id, f"Error handling user input: {_inner}")
     except PublishError as exc:
-        _add_publish_diagnostics(db, task.id, record_id, _diagnostics_from_exception(exc), task.user_id)
-        screenshot_asset_id = _store_failure_screenshot(db, task.id, record_id, exc.screenshot, task.user_id)
-        _mark_record_failed(db, task.id, record_id, f"{exc}\n{traceback.format_exc()}", screenshot_asset_id=screenshot_asset_id)
-        _logger.error("Record %d publish error: %s", record_id, exc)
+        try:
+            _add_publish_diagnostics(db, task.id, record_id, _diagnostics_from_exception(exc), task.user_id)
+            screenshot_asset_id = _store_failure_screenshot(db, task.id, record_id, exc.screenshot, task.user_id)
+            _mark_record_failed(db, task.id, record_id, f"{exc}\n{traceback.format_exc()}", screenshot_asset_id=screenshot_asset_id)
+            _logger.error("Record %d publish error: %s", record_id, exc)
+        except Exception as _inner:
+            _logger.error("Record %d: error handling PublishError: %s", record_id, _inner, exc_info=True)
+            _mark_record_failed(db, task.id, record_id, f"Error handling publish error: {_inner}")
     except ValueError as exc:
-        _add_publish_diagnostics(db, task.id, record_id, _diagnostics_from_exception(exc), task.user_id)
-        _mark_record_failed(db, task.id, record_id, f"{exc}\n{traceback.format_exc()}")
-        _logger.error("Record %d value error: %s", record_id, exc)
+        try:
+            _add_publish_diagnostics(db, task.id, record_id, _diagnostics_from_exception(exc), task.user_id)
+            _mark_record_failed(db, task.id, record_id, f"{exc}\n{traceback.format_exc()}")
+            _logger.error("Record %d value error: %s", record_id, exc)
+        except Exception as _inner:
+            _logger.error("Record %d: error handling ValueError: %s", record_id, _inner, exc_info=True)
+            _mark_record_failed(db, task.id, record_id, f"Error handling value error: {_inner}")
     except Exception as exc:
-        _add_publish_diagnostics(db, task.id, record_id, _diagnostics_from_exception(exc), task.user_id)
-        _mark_record_failed(db, task.id, record_id, f"Unexpected error: {exc}\n{traceback.format_exc()}")
-        _logger.error("Record %d unexpected error", record_id, exc_info=True)
+        try:
+            _add_publish_diagnostics(db, task.id, record_id, _diagnostics_from_exception(exc), task.user_id)
+            _mark_record_failed(db, task.id, record_id, f"Unexpected error: {exc}\n{traceback.format_exc()}")
+            _logger.error("Record %d unexpected error", record_id, exc_info=True)
+        except Exception as _inner:
+            _logger.error("Record %d: error handling unexpected error: %s", record_id, _inner, exc_info=True)
+            _mark_record_failed(db, task.id, record_id, f"Error handling unexpected error: {_inner}")
     else:
         if task.stop_before_publish:
             stmt = (

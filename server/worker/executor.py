@@ -147,6 +147,34 @@ def _startup(db) -> None:
     _logger.info("Worker %s started", WORKER_ID)
 
 
+def _check_stuck_tasks(db) -> None:
+    from server.app.modules.tasks.task_Crud import (
+        TERMINAL_TASK_STATUSES,
+        aggregate_task_status,
+        list_task_records,
+    )
+
+    stuck_tasks = db.execute(
+        select(PublishTask).where(
+            PublishTask.status == "running",
+            PublishTask.worker_id.is_(None),
+            PublishTask.is_deleted == False,
+        )
+    ).scalars().all()
+
+    for t in stuck_tasks:
+        records = list_task_records(db, t.id)
+        all_terminal = all(
+            r.status in TERMINAL_TASK_STATUSES
+            for r in records
+        ) if records else True
+        if all_terminal:
+            _logger.warning("Recovering stuck task %d (running but all records terminal)", t.id)
+            aggregate_task_status(db, t, records)
+    if stuck_tasks:
+        db.commit()
+
+
 def main() -> None:
     # Register as GEO_WORKER_ID so browser_sessions.py can tag DB rows
     os.environ["GEO_WORKER_ID"] = WORKER_ID
@@ -172,11 +200,20 @@ def main() -> None:
     login_thread = threading.Thread(target=_account_login_loop, daemon=True, name="account-login-worker")
     login_thread.start()
 
+    _recovery_cycle = 0
+
     while not _shutdown:
         db = SessionLocal()
         task_id: int | None = None
         try:
             _write_worker_heartbeat(db)
+            # Periodic recovery: detect tasks stuck in "running" with all records terminal
+            if _recovery_cycle % 60 == 0:
+                try:
+                    _check_stuck_tasks(db)
+                except Exception:
+                    _logger.exception("Worker %s: stuck task recovery check failed", WORKER_ID)
+            _recovery_cycle += 1
             task = _claim_next_task(db)
             if task is None:
                 db.close()

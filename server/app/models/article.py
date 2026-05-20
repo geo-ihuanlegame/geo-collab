@@ -12,7 +12,7 @@ class Article(Base):
     __tablename__ = "articles"
     __table_args__ = (
         CheckConstraint("status in ('draft', 'ready', 'archived')", name="ck_articles_status"),
-        UniqueConstraint("client_request_id", name="uq_articles_client_request_id"),
+        UniqueConstraint("user_id", "client_request_id", name="uq_articles_user_client_request_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)

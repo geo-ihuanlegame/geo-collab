@@ -221,10 +221,8 @@ async def complete_chunked_upload(
             ext,
             width,
             height,
+            True,
         )
-
-        db.refresh(stored.asset)
-        db.commit()
 
         from server.app.api.routes.assets import to_asset_read
 

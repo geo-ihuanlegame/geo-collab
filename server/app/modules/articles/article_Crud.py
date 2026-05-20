@@ -169,7 +169,7 @@ def update_article(db: Session, article: Article, payload: ArticleUpdate) -> Art
         content_json = update_data["content_json"]
 
     for field in ("title", "author", "cover_asset_id", "content_html", "plain_text", "word_count", "status"):
-        if field in update_data:
+        if field in update_data and update_data[field] is not None:
             setattr(article, field, update_data[field])
 
     if "content_json" in update_data:

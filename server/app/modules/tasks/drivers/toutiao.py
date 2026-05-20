@@ -720,7 +720,7 @@ def _dismiss_cover_candidate_side_effect(page: Any) -> None:
         logger.debug("Failed to dismiss failed cover entry side effect", exc_info=True)
 
 
-def _click_publish_and_wait(page: Any, stop_before_publish: bool = False) -> str:
+def _click_publish_and_wait(page: Any, stop_before_publish: bool = False) -> str | None:
     """两步发布：先点"预览并发布"，再点"确认发布"。"""
     before_url = page.url
 
@@ -734,9 +734,7 @@ def _click_publish_and_wait(page: Any, stop_before_publish: bool = False) -> str
     _dismiss_blocking_popups(page)
 
     if stop_before_publish:
-        raise UserInputRequired(
-            "已到达预览状态，请在远程浏览器中手动点击「确认发布」按钮完成发布。"
-        )
+        return None
 
     try:
         confirm_btn = page.get_by_role("button", name="确认发布")

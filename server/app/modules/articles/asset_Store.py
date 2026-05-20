@@ -148,6 +148,7 @@ def store_bytes(db: Session, user_id: int, data: bytes, filename: str, content_t
 def _create_asset_from_path(
     db: Session, user_id: int, filepath: Path, filename: str, content_type: str,
     sha256_hash: str, size: int, ext: str, width: int | None, height: int | None,
+    do_commit: bool = False,
 ) -> StoredAsset:
     now = utcnow()
     asset_id = uuid.uuid4().hex
@@ -173,6 +174,9 @@ def _create_asset_from_path(
     import shutil
     shutil.move(str(filepath), str(dest))
     _generate_derivatives(asset, dest)
+    if do_commit:
+        db.commit()
+        db.refresh(asset)
     return StoredAsset(asset=asset, path=dest)
 
 
@@ -235,9 +239,8 @@ async def store_upload(db: Session, user_id: int, upload: UploadFile) -> StoredA
             None, _create_asset_from_path,
             db, user_id, tmp_path, filename, content_type, digest, total,
             ext, width, height,
+            True,
         )
-        db.flush()
-        db.refresh(stored.asset)
         return stored
 
     except Exception:

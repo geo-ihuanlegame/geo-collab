@@ -39,7 +39,7 @@ class PublishTask(Base):
             "status in ('pending', 'running', 'succeeded', 'partial_failed', 'failed', 'cancelled')",
             name="ck_publish_tasks_status",
         ),
-        UniqueConstraint("client_request_id", name="uq_publish_tasks_client_request_id"),
+        UniqueConstraint("user_id", "client_request_id", name="uq_publish_tasks_user_client_request_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
