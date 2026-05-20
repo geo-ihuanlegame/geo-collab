@@ -162,6 +162,20 @@ def run_publish(
     )
 
     if context_needs_creation:
+        # Close old context/playwright if it exists and is from a different thread
+        if session.browser_context is not None and session.context_thread_id != current_thread_id:
+            try:
+                session.browser_context.close()
+            except Exception:
+                pass
+            try:
+                if session.playwright is not None:
+                    session.playwright.stop()
+            except Exception:
+                pass
+            session.browser_context = None
+            session.playwright = None
+
         pw = None
         try:
             with publish_step("start Playwright"):
