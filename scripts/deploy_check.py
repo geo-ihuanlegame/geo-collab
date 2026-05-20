@@ -1,8 +1,15 @@
-import paramiko, sys, time, socket
+import os
+import socket
+import sys
 
-HOST = '47.115.134.13'
-USER = 'root'
-PASS = '5DfCG)J#3n<1g$h2'
+import paramiko
+
+HOST = os.environ.get("GEO_DEPLOY_HOST")
+USER = os.environ.get("GEO_DEPLOY_USER", "root")
+PASS = os.environ.get("GEO_DEPLOY_PASS")
+
+if not HOST or not PASS:
+    sys.exit("Set GEO_DEPLOY_HOST and GEO_DEPLOY_PASS before running deploy_check.py")
 
 def run(client, cmd, timeout=60):
     stdin, stdout, stderr = client.exec_command(cmd, timeout=timeout)
