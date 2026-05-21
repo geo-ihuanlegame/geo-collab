@@ -137,6 +137,14 @@ def create_app() -> FastAPI:
     async def _account_error_handler(request: Request, exc: AccountError) -> JSONResponse:
         return JSONResponse(status_code=400, content={"detail": str(exc)})
 
+    @app.exception_handler(Exception)
+    async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+        import logging as _logging
+        _logging.getLogger(__name__).exception(
+            "Unhandled exception at %s %s", request.method, request.url.path
+        )
+        return JSONResponse(status_code=500, content={"detail": "服务器内部错误"})
+
     # 无鉴权端点：前端启动时判断是否需要初始化管理员
     @app.get("/api/bootstrap", include_in_schema=False)
     async def bootstrap() -> dict:
