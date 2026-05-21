@@ -147,6 +147,63 @@ Drivers receive a prebuilt `PublishPayload`; they should not import ORM article/
 - Mock publish runners with `monkeypatch.setattr("server.app.modules.tasks.task_Executor.build_publish_runner_for_record", lambda r: stub_runner)`.
 - Chunked asset tests live in `server/tests/test_assets_api.py`; the focused command is `pytest server/tests/test_assets_api.py -q -k chunked`.
 
+## AI 生文模块
+
+### 设计概览
+
+AI 生文是独立的新功能模块，计划路径：P1 平台搭配 skill 生文 → P1 标题拆分 → P1.5 飞书采集 → P2 自动配图 → P3 每日问题库生文。
+
+**交互 Demo**：`ai-generation-demo.html`（根目录），直接浏览器打开，覆盖一键生成、技能库、提示词库三个模块。
+
+### 技术栈
+
+- **模型抽象**：LiteLLM（100+ 模型统一接口，换模型只改配置，不改业务代码）
+- **流程编排**：LangGraph（多步 Agent 状态管理、fan-out/fan-in 并发、节点重试）
+- **任务调度**：复用现有 `server/worker/executor.py`（P3 每日定时生文）
+
+不要直接使用 `anthropic` SDK 或 `openai` SDK；所有模型调用走 LiteLLM。
+
+### LangGraph 流程
+
+```
+规划 Agent（1次顺序调用）
+    ↓ 输出 N 份写作任务规格（已分配主题/陪衬/体例，避免并发共享文件冲突）
+fan-out → 写作 Agent × N（并发，max_workers=4）
+    ↓ 每个 Agent 调用 save_article tool 直接写库
+fan-in → 格式化标题 → 自动配图（P2）→ 完成
+```
+
+规划阶段顺序执行，负责读写 skill 的共享状态文件（`article-plan.md`、`companion-pool.md`）；写作阶段并行执行，不读写任何共享文件。
+
+### Skill 结构
+
+Skill 是文件夹形式（如 `geo-article-v2/`），包含：
+- `SKILL.md` — frontmatter（`name`、`description`）+ 指令
+- `references/` — 知识库文件（产品知识、写作规范等）
+- `skeletons/` — 文章骨架模板
+- `assets/` — 工作文件（`article-plan.md` 等）
+
+Skill 上传到服务器存储，通过 `/api/skills` 管理；提示词（Prompt）是独立资产，通过 `/api/prompt-templates` 管理，与 Skill 并列组合使用，不存在从属关系。
+
+### 数据库
+
+- 生成的文章直接 `INSERT` 进现有 `articles` 表，零 schema 改动
+- `create_article` 有 `client_request_id` 幂等保护，并发重试安全
+- 新增独立 `generation_sessions` 表记录批次元数据（`article_ids` JSON 数组），不影响现有数据
+- 无"占位文章"模式，不存在并发覆盖同一 slot 的问题
+
+### 格式转换
+
+现有代码有 Tiptap 序列化工具（`tiptap_Parser.py`）但无 Markdown → Tiptap 转换。需新增：
+
+```python
+# server/app/modules/ai_generation/md_converter.py
+def markdown_to_tiptap(md: str) -> dict: ...   # 段落 + 标题节点
+def markdown_to_html(md: str) -> str: ...       # 用 python-markdown
+```
+
+`save_article` LangGraph tool 调用这两个函数后再调 `create_article()`。
+
 ## Gotchas
 
 - `ensure_data_dirs()` runs at import time in `server/app/db/session.py`.

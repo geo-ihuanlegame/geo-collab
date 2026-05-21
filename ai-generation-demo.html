@@ -1,0 +1,1811 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 生文 — Geo Demo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --accent: #5B5FE9;
+  --accent-soft: #ECEDFB;
+  --accent-deep: #4549C5;
+  --green: #3F8F5C;
+  --green-soft: #E6F0EA;
+  --red: #C5482E;
+  --red-soft: #F5E5E0;
+  --yellow: #B88A3E;
+  --yellow-soft: #F2EBDB;
+  --fg: #1A1A1A;
+  --fg-2: #5C5751;
+  --fg-3: #9A958D;
+  --paper: #FFFFFF;
+  --cream: #F5F2EB;
+  --cream-2: #EDE8DD;
+  --sidebar: #F7F5F0;
+  --hair: #E8E5DE;
+  --hair-2: #D6D2C8;
+  --r: 10px;
+  --r-sm: 6px;
+  --r-lg: 14px;
+  --serif: "Fraunces", Georgia, "Noto Serif SC", serif;
+  --sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", "SF Mono", Consolas, monospace;
+  --easing: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+body {
+  font-family: var(--sans);
+  font-size: 14px;
+  color: var(--fg);
+  background: var(--cream);
+  line-height: 1.55;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ── Shell ── */
+.shell {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  height: 100vh;
+}
+
+/* ── Sidebar ── */
+.sidebar {
+  background: var(--sidebar);
+  border-right: 1px solid var(--hair);
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow-y: auto;
+}
+
+.sidebar-brand {
+  padding: 22px 20px 16px;
+  border-bottom: 1px solid var(--hair);
+}
+
+.sidebar-brand .logo {
+  font-family: var(--serif);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--fg);
+  letter-spacing: -0.3px;
+}
+
+.sidebar-brand .logo span {
+  color: var(--accent);
+}
+
+.sidebar-nav {
+  padding: 12px 10px;
+  flex: 1;
+}
+
+.nav-section-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: var(--fg-3);
+  padding: 8px 10px 4px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: var(--r);
+  font-size: 14px;
+  color: var(--fg-2);
+  cursor: pointer;
+  transition: background 0.12s var(--easing), color 0.12s var(--easing);
+  text-decoration: none;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+  position: relative;
+}
+
+.nav-item:hover {
+  background: rgba(91, 95, 233, 0.06);
+  color: var(--fg);
+}
+
+.nav-item.active {
+  background: var(--cream-2);
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 16px;
+  background: var(--accent);
+  border-radius: 0 3px 3px 0;
+}
+
+.nav-icon {
+  width: 18px;
+  height: 18px;
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.nav-item.active .nav-icon { opacity: 1; }
+
+/* ── Workspace ── */
+.workspace {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--cream);
+}
+
+.topbar {
+  padding: 32px 48px 0;
+  border-bottom: 1px solid var(--hair);
+  background: var(--cream);
+}
+
+.topbar-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.page-eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 2.8px;
+  color: var(--fg-3);
+  margin-bottom: 6px;
+}
+
+.page-title {
+  font-family: var(--serif);
+  font-size: 34px;
+  font-weight: 600;
+  letter-spacing: -0.8px;
+  color: var(--fg);
+  line-height: 1.1;
+}
+
+.topbar-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding-bottom: 2px;
+}
+
+/* ── Tab Bar ── */
+.tab-bar {
+  display: flex;
+  gap: 0;
+  margin-top: 0;
+}
+
+.tab-btn {
+  padding: 10px 20px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-3);
+  border: none;
+  background: none;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.12s, border-color 0.12s;
+  white-space: nowrap;
+}
+
+.tab-btn:hover { color: var(--fg); }
+
+.tab-btn.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+/* ── Content ── */
+.workspace-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 32px 48px 48px;
+}
+
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+/* ── Buttons ── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 16px;
+  height: 36px;
+  border-radius: var(--r);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  transition: background 0.12s var(--easing), opacity 0.12s;
+  white-space: nowrap;
+  font-family: var(--sans);
+}
+
+.btn-primary {
+  background: var(--fg);
+  color: #fff;
+}
+.btn-primary:hover { background: #333; }
+.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn-secondary {
+  background: var(--paper);
+  color: var(--fg);
+  border: 1px solid var(--hair-2);
+}
+.btn-secondary:hover { background: var(--cream-2); }
+
+.btn-accent {
+  background: var(--accent);
+  color: #fff;
+}
+.btn-accent:hover { background: var(--accent-deep); }
+.btn-accent:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn-danger {
+  background: var(--red-soft);
+  color: var(--red);
+}
+.btn-danger:hover { background: #efd6d0; }
+
+.btn-sm {
+  height: 30px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+.btn-icon {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-sm);
+  font-size: 14px;
+}
+
+/* ── ONE-CLICK TAB ── */
+.generation-layout {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 24px;
+  height: calc(100vh - 220px);
+}
+
+/* Config Pane */
+.config-pane {
+  background: var(--paper);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-lg);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  overflow-y: auto;
+}
+
+.field-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--fg-3);
+  margin-bottom: 8px;
+}
+
+.field-group { display: flex; flex-direction: column; }
+
+select.field-select {
+  appearance: none;
+  background: var(--cream) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239A958D' d='M6 8L1 3h10z'/%3E%3C/svg%3E") no-repeat right 12px center;
+  border: 1px solid var(--hair);
+  border-radius: var(--r);
+  padding: 9px 32px 9px 12px;
+  font-size: 14px;
+  font-family: var(--sans);
+  color: var(--fg);
+  cursor: pointer;
+  transition: border-color 0.12s;
+}
+select.field-select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+textarea.field-textarea {
+  border: 1px solid var(--hair);
+  border-radius: var(--r);
+  padding: 10px 12px;
+  font-size: 13px;
+  font-family: var(--sans);
+  color: var(--fg);
+  background: var(--cream);
+  resize: vertical;
+  min-height: 80px;
+  transition: border-color 0.12s;
+  line-height: 1.5;
+}
+textarea.field-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+textarea.field-textarea::placeholder { color: var(--fg-3); }
+
+
+.config-actions {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Result Pane */
+.result-pane {
+  background: var(--paper);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-lg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.result-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--hair);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+.result-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg-2);
+}
+
+.result-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0;
+}
+
+/* Empty State */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 48px;
+  text-align: center;
+  color: var(--fg-3);
+}
+
+.empty-icon {
+  font-size: 40px;
+  margin-bottom: 16px;
+  opacity: 0.5;
+}
+
+.empty-state h3 {
+  font-family: var(--serif);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--fg-2);
+  margin-bottom: 8px;
+}
+
+.empty-state p {
+  font-size: 13px;
+  line-height: 1.6;
+  max-width: 280px;
+}
+
+/* Loading State */
+.loading-state {
+  padding: 24px 20px;
+  display: none;
+}
+
+.progress-bar-wrap {
+  background: var(--cream-2);
+  border-radius: 100px;
+  height: 6px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 100px;
+  transition: width 0.5s var(--easing);
+  width: 0%;
+}
+
+.progress-label {
+  font-size: 12px;
+  color: var(--fg-3);
+  margin-bottom: 20px;
+}
+
+/* Skeleton */
+.skeleton-card {
+  background: var(--cream);
+  border: 1px solid var(--hair);
+  border-radius: var(--r);
+  padding: 16px;
+  margin-bottom: 12px;
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+.sk-line {
+  background: var(--hair-2);
+  border-radius: 4px;
+  height: 12px;
+  margin-bottom: 8px;
+}
+.sk-line.wide { width: 75%; }
+.sk-line.medium { width: 55%; }
+.sk-line.short { width: 35%; }
+
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* Result Cards */
+.result-cards {
+  padding: 16px 20px;
+  display: none;
+}
+
+.save-notice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--green);
+  background: var(--green-soft);
+  padding: 8px 12px;
+  border-radius: var(--r-sm);
+  margin-bottom: 16px;
+}
+
+.article-card {
+  border: 1px solid var(--hair);
+  border-radius: var(--r);
+  padding: 16px;
+  margin-bottom: 12px;
+  background: var(--cream);
+  transition: border-color 0.15s;
+  animation: card-in 0.3s var(--easing) both;
+}
+
+.article-card:hover { border-color: var(--hair-2); }
+
+@keyframes card-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.card-index {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg-3);
+  background: var(--hair);
+  padding: 2px 7px;
+  border-radius: 100px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+  flex: 1;
+  line-height: 1.4;
+  outline: none;
+}
+
+.card-title[contenteditable="true"] {
+  border-bottom: 1px dashed var(--accent);
+  padding-bottom: 2px;
+}
+
+.card-actions { display: flex; gap: 4px; flex-shrink: 0; }
+
+.card-preview {
+  font-size: 13px;
+  color: var(--fg-2);
+  line-height: 1.6;
+  outline: none;
+  max-height: 72px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.card-preview.editing {
+  max-height: none;
+  overflow: visible;
+  display: block;
+  border: 1px solid var(--accent);
+  border-radius: var(--r-sm);
+  padding: 8px;
+  background: var(--paper);
+  min-height: 80px;
+}
+
+.card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 10px;
+}
+
+.card-saved-badge {
+  font-size: 11px;
+  color: var(--green);
+  background: var(--green-soft);
+  padding: 2px 8px;
+  border-radius: 100px;
+  font-weight: 500;
+}
+
+.card-open-link {
+  font-size: 12px;
+  color: var(--accent);
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.card-open-link:hover { text-decoration: underline; }
+
+/* ── SKILLS & PROMPTS TAB ── */
+.assets-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  min-height: calc(100vh - 220px);
+}
+
+.asset-column {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.column-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.column-title {
+  font-family: var(--serif);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.column-count {
+  font-size: 12px;
+  color: var(--fg-3);
+  background: var(--cream-2);
+  padding: 2px 8px;
+  border-radius: 100px;
+}
+
+.search-row {
+  position: relative;
+  margin-bottom: 14px;
+}
+
+.search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--fg-3);
+  font-size: 14px;
+  pointer-events: none;
+}
+
+.search-input {
+  width: 100%;
+  padding: 8px 12px 8px 32px;
+  border: 1px solid var(--hair);
+  border-radius: var(--r);
+  background: var(--paper);
+  font-size: 13px;
+  font-family: var(--sans);
+  color: var(--fg);
+  transition: border-color 0.12s;
+}
+.search-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.search-input::placeholder { color: var(--fg-3); }
+
+.asset-cards { display: flex; flex-direction: column; gap: 10px; }
+
+/* Skill Card */
+.skill-card {
+  background: var(--paper);
+  border: 1px solid var(--hair);
+  border-radius: var(--r);
+  padding: 14px 16px;
+  transition: border-color 0.12s;
+  position: relative;
+}
+
+.skill-card:hover { border-color: var(--hair-2); }
+.skill-card.disabled { opacity: 0.55; }
+
+.skill-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.skill-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.skill-icon { font-size: 16px; }
+
+.skill-card-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.skill-desc {
+  font-size: 12px;
+  color: var(--fg-3);
+  line-height: 1.5;
+  margin-bottom: 10px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.skill-meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.meta-chip {
+  font-size: 11px;
+  color: var(--fg-3);
+  background: var(--cream);
+  border: 1px solid var(--hair);
+  padding: 2px 8px;
+  border-radius: 100px;
+}
+
+/* Prompt Card */
+.prompt-card {
+  background: var(--paper);
+  border: 1px solid var(--hair);
+  border-radius: var(--r);
+  padding: 14px 16px;
+  transition: border-color 0.12s;
+}
+.prompt-card:hover { border-color: var(--hair-2); }
+.prompt-card.disabled { opacity: 0.55; }
+
+.prompt-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.prompt-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.prompt-card-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.prompt-preview {
+  font-size: 12px;
+  color: var(--fg-3);
+  font-family: var(--mono);
+  line-height: 1.55;
+  background: var(--cream);
+  border-radius: var(--r-sm);
+  padding: 8px 10px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.param-highlight {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+/* Toggle Switch */
+.toggle-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.toggle-label {
+  font-size: 11px;
+  color: var(--fg-3);
+  white-space: nowrap;
+}
+
+.toggle {
+  position: relative;
+  width: 34px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.toggle input { opacity: 0; width: 0; height: 0; }
+
+.toggle-slider {
+  position: absolute;
+  inset: 0;
+  background: var(--hair-2);
+  border-radius: 100px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.toggle-slider::before {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  left: 3px;
+  top: 3px;
+  background: white;
+  border-radius: 50%;
+  transition: transform 0.2s var(--easing);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+.toggle input:checked + .toggle-slider { background: var(--accent); }
+.toggle input:checked + .toggle-slider::before { transform: translateX(14px); }
+
+/* Drop Zone */
+.drop-zone {
+  border: 2px dashed var(--hair-2);
+  border-radius: var(--r);
+  padding: 24px 16px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  color: var(--fg-3);
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.drop-zone:hover, .drop-zone.drag-over {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.drop-zone-icon { font-size: 24px; margin-bottom: 8px; }
+
+/* ── MODALS ── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s;
+}
+
+.modal-overlay.open {
+  opacity: 1;
+  pointer-events: all;
+}
+
+.modal {
+  background: var(--paper);
+  border-radius: var(--r-lg);
+  box-shadow: 0 18px 48px rgba(0,0,0,0.15);
+  width: 480px;
+  max-width: 94vw;
+  max-height: 90vh;
+  overflow-y: auto;
+  transform: translateY(12px);
+  transition: transform 0.22s var(--easing);
+}
+
+.modal-overlay.open .modal { transform: translateY(0); }
+
+.modal-header {
+  padding: 22px 24px 16px;
+  border-bottom: 1px solid var(--hair);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.modal-title {
+  font-family: var(--serif);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.modal-close {
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: var(--cream-2);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-2);
+}
+.modal-close:hover { background: var(--hair); }
+
+.modal-body { padding: 20px 24px; }
+
+.modal-footer {
+  padding: 16px 24px;
+  border-top: 1px solid var(--hair);
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* Import Modal */
+.import-progress-wrap {
+  margin: 16px 0;
+}
+
+.import-progress-bar-bg {
+  background: var(--cream-2);
+  border-radius: 100px;
+  height: 8px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.import-progress-bar {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 100px;
+  transition: width 0.4s var(--easing);
+}
+
+.import-status {
+  font-size: 12px;
+  color: var(--fg-3);
+}
+
+.import-preview {
+  background: var(--cream);
+  border-radius: var(--r);
+  padding: 14px 16px;
+  margin-top: 16px;
+  display: none;
+}
+
+.import-preview h4 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.import-preview p {
+  font-size: 12px;
+  color: var(--fg-2);
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+
+.file-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.file-tree-item {
+  font-size: 12px;
+  color: var(--fg-3);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+}
+
+/* Prompt Edit Modal */
+.form-field { margin-bottom: 16px; }
+.form-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--fg-3);
+  margin-bottom: 6px;
+  display: block;
+}
+
+.form-input {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--hair);
+  border-radius: var(--r);
+  font-size: 14px;
+  font-family: var(--sans);
+  color: var(--fg);
+  background: var(--cream);
+  transition: border-color 0.12s;
+}
+.form-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.form-textarea {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--hair);
+  border-radius: var(--r);
+  font-size: 13px;
+  font-family: var(--mono);
+  color: var(--fg);
+  background: var(--cream);
+  resize: vertical;
+  min-height: 120px;
+  line-height: 1.55;
+  transition: border-color 0.12s;
+}
+.form-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.form-hint {
+  font-size: 11px;
+  color: var(--fg-3);
+  margin-top: 5px;
+}
+
+/* Confirm Modal */
+.confirm-icon {
+  font-size: 36px;
+  text-align: center;
+  margin-bottom: 12px;
+}
+
+.confirm-message {
+  font-size: 14px;
+  color: var(--fg-2);
+  text-align: center;
+  line-height: 1.6;
+}
+
+.confirm-message strong { color: var(--fg); }
+
+/* ── Misc ── */
+.divider {
+  height: 1px;
+  background: var(--hair);
+  margin: 4px 0;
+}
+
+.hidden { display: none !important; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--hair-2); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--fg-3); }
+
+/* Add btn full width */
+.btn-add-full {
+  width: 100%;
+  justify-content: center;
+  margin-top: 8px;
+  border-style: dashed;
+  border-color: var(--hair-2);
+  color: var(--fg-3);
+  background: transparent;
+  border-width: 1px;
+  border-radius: var(--r);
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-family: var(--sans);
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.btn-add-full:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="logo">Geo<span>·</span>协作</div>
+    </div>
+    <nav class="sidebar-nav">
+      <button class="nav-item active" onclick="void(0)">
+        <svg class="nav-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6">
+          <path d="M9 2L2 6.5V15a1 1 0 001 1h4v-4h4v4h4a1 1 0 001-1V6.5L9 2z"/>
+        </svg>
+        AI 生文
+      </button>
+      <button class="nav-item" onclick="void(0)">
+        <svg class="nav-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6">
+          <rect x="2" y="3" width="14" height="12" rx="2"/>
+          <path d="M5 7h8M5 10h5"/>
+        </svg>
+        内容
+      </button>
+      <button class="nav-item" onclick="void(0)">
+        <svg class="nav-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6">
+          <circle cx="9" cy="7" r="3"/>
+          <path d="M3 16c0-3.3 2.7-6 6-6s6 2.7 6 6"/>
+        </svg>
+        账号
+      </button>
+      <button class="nav-item" onclick="void(0)">
+        <svg class="nav-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6">
+          <path d="M3 5h12M3 9h12M3 13h7"/>
+        </svg>
+        任务
+      </button>
+      <div class="divider" style="margin: 8px 0;"></div>
+      <button class="nav-item" onclick="void(0)">
+        <svg class="nav-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6">
+          <circle cx="9" cy="9" r="3"/>
+          <path d="M9 2v2M9 14v2M2 9h2M14 9h2M4.2 4.2l1.4 1.4M12.4 12.4l1.4 1.4M4.2 13.8l1.4-1.4M12.4 5.6l1.4-1.4"/>
+        </svg>
+        系统
+      </button>
+    </nav>
+  </aside>
+
+  <!-- Workspace -->
+  <main class="workspace">
+    <div class="topbar">
+      <div class="topbar-row">
+        <div>
+          <div class="page-eyebrow">AI 生文</div>
+          <h1 class="page-title">内容生成</h1>
+        </div>
+        <div class="topbar-actions" id="topbarActions">
+          <!-- Dynamic actions per tab -->
+        </div>
+      </div>
+      <div class="tab-bar">
+        <button class="tab-btn active" onclick="switchTab('generate')">一键生成</button>
+        <button class="tab-btn" onclick="switchTab('assets')">技能与提示词</button>
+      </div>
+    </div>
+
+    <div class="workspace-body">
+      <!-- Tab: 一键生成 -->
+      <div class="tab-panel active" id="tab-generate">
+        <div class="generation-layout">
+          <!-- Left: Config -->
+          <div class="config-pane">
+            <div class="field-group">
+              <div class="field-label">技能</div>
+              <select class="field-select" id="skillSelect">
+                <option value="">请选择技能...</option>
+              </select>
+            </div>
+
+            <div class="field-group">
+              <div class="field-label">提示词模板</div>
+              <select class="field-select" id="promptSelect">
+                <option value="">请选择提示词...</option>
+              </select>
+            </div>
+
+            <div class="field-group">
+              <div class="field-label">补充说明 <span style="color:var(--fg-3);font-size:10px;text-transform:none;letter-spacing:0">可选</span></div>
+              <textarea class="field-textarea" id="customNote" placeholder="可在此补充额外指令，如指定主词、风格要求等..."></textarea>
+            </div>
+
+            <div class="config-actions">
+              <button class="btn btn-accent" id="generateBtn" onclick="startGeneration()">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 1v12M1 7h12"/></svg>
+                生成
+              </button>
+            </div>
+          </div>
+
+          <!-- Right: Results -->
+          <div class="result-pane">
+            <div class="result-header">
+              <div class="result-title" id="resultTitle">等待生成</div>
+              <button class="btn btn-secondary btn-sm" onclick="clearResults()">
+                清空
+              </button>
+            </div>
+            <div class="result-body" id="resultBody">
+              <!-- Empty state -->
+              <div class="empty-state" id="emptyState">
+                <div class="empty-icon">✦</div>
+                <h3>还没有生成内容</h3>
+                <p>选择技能和提示词模板，设置数量后点击「生成」开始</p>
+              </div>
+
+              <!-- Loading state -->
+              <div class="loading-state" id="loadingState">
+                <div class="progress-bar-wrap">
+                  <div class="progress-bar-fill" id="progressFill"></div>
+                </div>
+                <div class="progress-label" id="progressLabel">准备中...</div>
+                <div id="skeletonCards"></div>
+              </div>
+
+              <!-- Result cards -->
+              <div class="result-cards" id="resultCards">
+                <div class="save-notice">
+                  <span>✓</span>
+                  <span id="saveNoticeText"></span>
+                </div>
+                <div id="articleCardsList"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab: 技能与提示词 -->
+      <div class="tab-panel" id="tab-assets">
+        <div class="assets-layout">
+          <!-- Skills Column -->
+          <div class="asset-column">
+            <div class="column-header">
+              <div class="column-title">技能库</div>
+              <span class="column-count" id="skillCount">0 个技能</span>
+            </div>
+            <div class="search-row">
+              <span class="search-icon">⌕</span>
+              <input class="search-input" id="skillSearch" placeholder="搜索技能..." oninput="filterSkills()">
+            </div>
+            <div class="asset-cards" id="skillCardsList"></div>
+
+            <div class="drop-zone" id="dropZone"
+              ondragover="handleDragOver(event)"
+              ondragleave="handleDragLeave(event)"
+              ondrop="handleDrop(event)"
+              onclick="triggerFolderInput()">
+              <div class="drop-zone-icon">📁</div>
+              <div style="font-weight:600;margin-bottom:4px">拖拽 Skill 文件夹到此处</div>
+              <div style="font-size:12px">或点击选择文件夹上传到服务器</div>
+            </div>
+            <input type="file" id="folderInput" webkitdirectory style="display:none" onchange="handleFolderSelect(event)">
+          </div>
+
+          <!-- Prompts Column -->
+          <div class="asset-column">
+            <div class="column-header">
+              <div class="column-title">提示词库</div>
+              <span class="column-count" id="promptCount">0 个提示词</span>
+            </div>
+            <div class="search-row">
+              <span class="search-icon">⌕</span>
+              <input class="search-input" id="promptSearch" placeholder="搜索提示词..." oninput="filterPrompts()">
+            </div>
+            <div class="asset-cards" id="promptCardsList"></div>
+            <button class="btn-add-full" onclick="openPromptModal(null)">
+              ＋ 新建提示词
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Modal: Skill Import -->
+<div class="modal-overlay" id="importModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">导入 Skill</div>
+      <button class="modal-close" onclick="closeModal('importModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="importProgressSection">
+        <p style="font-size:13px;color:var(--fg-2);margin-bottom:12px">正在上传到服务器...</p>
+        <div class="import-progress-wrap">
+          <div class="import-progress-bar-bg">
+            <div class="import-progress-bar" id="importProgressBar" style="width:0%"></div>
+          </div>
+          <div class="import-status" id="importStatus">正在读取文件...</div>
+        </div>
+      </div>
+      <div class="import-preview" id="importPreview">
+        <h4 id="importSkillName"></h4>
+        <p id="importSkillDesc"></p>
+        <div class="file-tree" id="importFileTree"></div>
+      </div>
+    </div>
+    <div class="modal-footer" id="importFooter" style="display:none">
+      <button class="btn btn-secondary" onclick="closeModal('importModal')">取消</button>
+      <button class="btn btn-accent" onclick="confirmImport()">确认导入</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Prompt Edit -->
+<div class="modal-overlay" id="promptModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="promptModalTitle">新建提示词</div>
+      <button class="modal-close" onclick="closeModal('promptModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-field">
+        <label class="form-label">名称</label>
+        <input class="form-input" id="promptFormName" placeholder="如：模式A · Top N 批量生成">
+      </div>
+      <div class="form-field">
+        <label class="form-label">模板内容</label>
+        <textarea class="form-textarea" id="promptFormContent" placeholder="使用 {{参数名}} 定义可替换参数&#10;&#10;例如：写一篇关于{{主词}}的Top N手游推荐榜单，主推{{主推产品}}..."></textarea>
+        <div class="form-hint">使用 <code style="font-family:var(--mono);background:var(--cream);padding:1px 4px;border-radius:3px">{{参数名}}</code> 定义参数占位符</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('promptModal')">取消</button>
+      <button class="btn btn-accent" onclick="savePrompt()">保存</button>
+    </div>
+  </div>
+</div>
+
+
+<script>
+// ── State ──
+const state = {
+  skills: [
+    {
+      id: 1, name: 'GEO Article v2', enabled: true,
+      desc: '围绕《餐厅养成记》产出 GEO 文章——支持「持续生成（模式 A）」和「复刻同行爆款（模式 B）」，输出体例支持 Top N 榜单和七段对比。',
+      files: { references: 5, skeletons: 6, assets: 2 }
+    },
+    {
+      id: 2, name: '通用科技评论员', enabled: false,
+      desc: '面向科技产品的专业评测和推荐内容，适合智能硬件、App 和 SaaS 产品的深度对比文章。',
+      files: { references: 2, skeletons: 3, assets: 1 }
+    },
+  ],
+  prompts: [
+    {
+      id: 1, name: '模式A · Top N 批量生成', enabled: true,
+      content: '写一篇关于{{主词}}的Top N手游推荐榜单，主推{{主推产品}}为Top 1，配合{{陪衬数量}}款陪衬。风格自然，避免软文感。'
+    },
+    {
+      id: 2, name: '模式B · 复刻爆款', enabled: true,
+      content: '分析以下爆款文章的结构：{{爆款全文}}。以{{主推产品}}为核心，复刻其结构写一篇新文章，主词为{{主词}}。'
+    },
+    {
+      id: 3, name: '旧版模板 v1', enabled: false,
+      content: '请生成一篇关于{{产品名称}}的推广文章，字数约{{字数}}字，语气{{语气}}，重点突出产品的{{核心卖点}}。'
+    },
+  ],
+  nextSkillId: 3,
+  nextPromptId: 4,
+  editingPromptId: null,
+  pendingImport: null,
+};
+
+const MOCK_ARTICLES = [
+  { title: '2024模拟经营手游精选Top5，餐厅养成记独领风骚', preview: '今天给大家带来2024年最值得玩的5款模拟经营手游测评。作为一个资深手游玩家，我把市面上主流的经营类游戏都摸了个遍，最终精选出这5款各有千秋的佳作。其中餐厅养成记凭借独特的经营玩法和精良的美术水准，毫无争议地成为本榜Top 1。' },
+  { title: '治愈系游戏大横评：五款让你忘记焦虑的经营佳作', preview: '最近工作压力太大？试试这五款治愈系经营游戏吧。它们不靠氪金催肝，而是用精心设计的内容让你沉浸其中，在繁忙的日常里找到一片宁静。餐厅养成记作为其中体验最完整的一款，尤其值得推荐给喜欢慢节奏游戏的玩家。' },
+  { title: '手游新测评：主流模拟经营游戏深度对比', preview: '本文将从核心玩法、内购设计、美术风格和长线留存四个维度，对当前市面上几款热门模拟经营游戏进行深度横评。餐厅养成记在整体体验上表现出色，尤其是内购设计克制，没有强制氪金压力，是模拟经营爱好者的首选。' },
+  { title: '模拟经营爱好者必看：这5款游戏让你忘记时间', preview: '作为一个把各类经营游戏都玩通关的老玩家，今天分享5款真正让人沉浸的模拟经营手游。这些游戏的共同特点是：内容扎实、不强氪、长线体验稳定。其中餐厅养成记的剧情和经营结合度最高，是我近期最常打开的游戏没有之一。' },
+  { title: '适合通勤党的轻度经营游戏合集推荐（2024版）', preview: '通勤时间短，不适合开大型游戏？这5款轻度经营游戏专为碎片化时间设计，每次5-10分钟，随时存档随时走。餐厅养成记的自动化经营设计尤为贴心，离线收益合理，不会让你因为错过在线时间而错过内容。' },
+];
+
+// ── Init ──
+function init() {
+  updateSelects();
+  renderSkills();
+  renderPrompts();
+  updateTopbarActions();
+}
+
+// ── Tab Switching ──
+function switchTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach((b, i) => {
+    b.classList.toggle('active', (i === 0 && tab === 'generate') || (i === 1 && tab === 'assets'));
+  });
+  document.getElementById('tab-generate').classList.toggle('active', tab === 'generate');
+  document.getElementById('tab-assets').classList.toggle('active', tab === 'assets');
+  updateTopbarActions();
+}
+
+function updateTopbarActions() {
+  // No persistent top actions needed for now
+  document.getElementById('topbarActions').innerHTML = '';
+}
+
+// ── Selects ──
+function updateSelects() {
+  const skillSel = document.getElementById('skillSelect');
+  const promptSel = document.getElementById('promptSelect');
+  const prevSkill = skillSel.value;
+  const prevPrompt = promptSel.value;
+
+  skillSel.innerHTML = '<option value="">请选择技能...</option>' +
+    state.skills.filter(s => s.enabled).map(s =>
+      `<option value="${s.id}" ${prevSkill == s.id ? 'selected' : ''}>${s.name}</option>`
+    ).join('');
+
+  promptSel.innerHTML = '<option value="">请选择提示词...</option>' +
+    state.prompts.filter(p => p.enabled).map(p =>
+      `<option value="${p.id}" ${prevPrompt == p.id ? 'selected' : ''}>${p.name}</option>`
+    ).join('');
+}
+
+// ── Generation ──
+function startGeneration() {
+  const skillId = document.getElementById('skillSelect').value;
+  const promptId = document.getElementById('promptSelect').value;
+  if (!skillId || !promptId) {
+    alert('请先选择技能和提示词模板');
+    return;
+  }
+
+  document.getElementById('generateBtn').disabled = true;
+  showLoadingState();
+
+  // Build skeleton cards (fixed 3, actual count determined by AI/prompt)
+  const skeletons = document.getElementById('skeletonCards');
+  skeletons.innerHTML = Array.from({ length: 3 }).map(() => `
+    <div class="skeleton-card">
+      <div class="sk-line wide"></div>
+      <div class="sk-line medium"></div>
+      <div class="sk-line short"></div>
+    </div>
+  `).join('');
+
+  // Simulate generation (count decided by subagent in prompt)
+  const resultCount = MOCK_ARTICLES.length; // mock: 5 articles
+  let current = 0;
+  const interval = setInterval(() => {
+    current++;
+    const pct = Math.round((current / resultCount) * 100);
+    document.getElementById('progressFill').style.width = pct + '%';
+    document.getElementById('progressLabel').textContent = `正在生成第 ${current} 篇...`;
+    if (current >= resultCount) {
+      clearInterval(interval);
+      setTimeout(() => showResults(skillId), 400);
+    }
+  }, 600);
+}
+
+function showLoadingState() {
+  document.getElementById('emptyState').classList.add('hidden');
+  document.getElementById('resultCards').style.display = 'none';
+  document.getElementById('loadingState').style.display = 'block';
+  document.getElementById('resultTitle').textContent = '生成中...';
+  document.getElementById('progressFill').style.width = '0%';
+  document.getElementById('progressLabel').textContent = '准备中...';
+}
+
+function showResults(skillId) {
+  document.getElementById('loadingState').style.display = 'none';
+  const resultCards = document.getElementById('resultCards');
+  resultCards.style.display = 'block';
+
+  const qty = MOCK_ARTICLES.length;
+  const skillName = state.skills.find(s => s.id == skillId)?.name || '';
+  document.getElementById('resultTitle').textContent = `已生成 ${qty} 篇`;
+  document.getElementById('saveNoticeText').textContent = `已自动保存到文章管理 (${qty} 篇) · ${skillName}`;
+
+  const list = document.getElementById('articleCardsList');
+  list.innerHTML = '';
+
+  MOCK_ARTICLES.forEach((art, i) => {
+    const card = document.createElement('div');
+    card.className = 'article-card';
+    card.style.animationDelay = (i * 80) + 'ms';
+    card.innerHTML = `
+      <div class="card-header">
+        <span class="card-index">${i + 1}</span>
+        <div class="card-title" id="title-${i}">${art.title}</div>
+        <div class="card-actions">
+          <button class="btn btn-secondary btn-sm btn-icon" title="编辑" onclick="toggleEdit(${i})">✎</button>
+        </div>
+      </div>
+      <div class="card-preview" id="preview-${i}">${art.preview}</div>
+      <div class="card-footer">
+        <span class="card-saved-badge">✓ 已保存到文章管理</span>
+        <a class="card-open-link" href="#" onclick="return false">在文章管理中打开 ↗</a>
+      </div>
+    `;
+    list.appendChild(card);
+  });
+
+  document.getElementById('generateBtn').disabled = false;
+}
+
+let editingCard = null;
+function toggleEdit(index) {
+  const titleEl = document.getElementById('title-' + index);
+  const previewEl = document.getElementById('preview-' + index);
+  const isEditing = titleEl.contentEditable === 'true';
+
+  if (isEditing) {
+    titleEl.contentEditable = 'false';
+    previewEl.contentEditable = 'false';
+    previewEl.classList.remove('editing');
+  } else {
+    if (editingCard !== null && editingCard !== index) {
+      // Close previous
+      const prevTitle = document.getElementById('title-' + editingCard);
+      const prevPreview = document.getElementById('preview-' + editingCard);
+      if (prevTitle) prevTitle.contentEditable = 'false';
+      if (prevPreview) { prevPreview.contentEditable = 'false'; prevPreview.classList.remove('editing'); }
+    }
+    titleEl.contentEditable = 'true';
+    titleEl.focus();
+    previewEl.contentEditable = 'true';
+    previewEl.classList.add('editing');
+    editingCard = index;
+  }
+}
+
+function clearResults() {
+  document.getElementById('emptyState').classList.remove('hidden');
+  document.getElementById('loadingState').style.display = 'none';
+  document.getElementById('resultCards').style.display = 'none';
+  document.getElementById('resultTitle').textContent = '等待生成';
+  document.getElementById('generateBtn').disabled = false;
+  document.getElementById('articleCardsList').innerHTML = '';
+  editingCard = null;
+}
+
+// ── Skills Rendering ──
+function renderSkills(filter = '') {
+  const list = document.getElementById('skillCardsList');
+  const filtered = state.skills.filter(s =>
+    !filter || s.name.toLowerCase().includes(filter.toLowerCase()) || s.desc.toLowerCase().includes(filter.toLowerCase())
+  );
+  document.getElementById('skillCount').textContent = `${state.skills.length} 个技能`;
+
+  list.innerHTML = filtered.map(skill => `
+    <div class="skill-card ${skill.enabled ? '' : 'disabled'}" id="skill-card-${skill.id}">
+      <div class="skill-card-top">
+        <div class="skill-name">
+          <span class="skill-icon">📁</span>
+          ${skill.name}
+        </div>
+        <div class="skill-card-right">
+          <label class="toggle" title="${skill.enabled ? '停用' : '启用'}">
+            <input type="checkbox" ${skill.enabled ? 'checked' : ''} onchange="toggleSkill(${skill.id}, this.checked)">
+            <span class="toggle-slider"></span>
+          </label>
+          <button class="btn btn-secondary btn-sm btn-icon" onclick="deleteSkill(${skill.id})" title="删除">✕</button>
+        </div>
+      </div>
+      <div class="skill-desc">${skill.desc}</div>
+      <div class="skill-meta">
+        <span class="meta-chip">references/ ${skill.files.references} 个</span>
+        <span class="meta-chip">skeletons/ ${skill.files.skeletons} 个</span>
+        <span class="meta-chip">assets/ ${skill.files.assets} 个</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+function toggleSkill(id, enabled) {
+  const skill = state.skills.find(s => s.id === id);
+  if (skill) {
+    skill.enabled = enabled;
+    const card = document.getElementById('skill-card-' + id);
+    if (card) card.classList.toggle('disabled', !enabled);
+    updateSelects();
+  }
+}
+
+function deleteSkill(id) {
+  if (!confirm('确认删除该技能？此操作不可恢复。')) return;
+  state.skills = state.skills.filter(s => s.id !== id);
+  renderSkills(document.getElementById('skillSearch').value);
+  updateSelects();
+}
+
+function filterSkills() {
+  renderSkills(document.getElementById('skillSearch').value);
+}
+
+// ── Prompts Rendering ──
+function renderPrompts(filter = '') {
+  const list = document.getElementById('promptCardsList');
+  const filtered = state.prompts.filter(p =>
+    !filter || p.name.toLowerCase().includes(filter.toLowerCase()) || p.content.toLowerCase().includes(filter.toLowerCase())
+  );
+  document.getElementById('promptCount').textContent = `${state.prompts.length} 个提示词`;
+
+  list.innerHTML = filtered.map(prompt => {
+    const preview = highlightParams(prompt.content.substring(0, 120) + (prompt.content.length > 120 ? '...' : ''));
+    return `
+      <div class="prompt-card ${prompt.enabled ? '' : 'disabled'}">
+        <div class="prompt-card-top">
+          <div class="prompt-name">${prompt.name}</div>
+          <div class="prompt-card-right">
+            <label class="toggle" title="${prompt.enabled ? '停用' : '启用'}">
+              <input type="checkbox" ${prompt.enabled ? 'checked' : ''} onchange="togglePrompt(${prompt.id}, this.checked)">
+              <span class="toggle-slider"></span>
+            </label>
+            <button class="btn btn-secondary btn-sm btn-icon" onclick="openPromptModal(${prompt.id})" title="编辑">✎</button>
+            <button class="btn btn-secondary btn-sm btn-icon" onclick="deletePrompt(${prompt.id})" title="删除">✕</button>
+          </div>
+        </div>
+        <div class="prompt-preview">${preview}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function highlightParams(text) {
+  return text.replace(/\{\{([^}]+)\}\}/g, '<span class="param-highlight">{{$1}}</span>');
+}
+
+function togglePrompt(id, enabled) {
+  const prompt = state.prompts.find(p => p.id === id);
+  if (prompt) {
+    prompt.enabled = enabled;
+    renderPrompts(document.getElementById('promptSearch').value);
+    updateSelects();
+  }
+}
+
+function deletePrompt(id) {
+  if (!confirm('确认删除该提示词？')) return;
+  state.prompts = state.prompts.filter(p => p.id !== id);
+  renderPrompts(document.getElementById('promptSearch').value);
+  updateSelects();
+}
+
+function filterPrompts() {
+  renderPrompts(document.getElementById('promptSearch').value);
+}
+
+// ── Prompt Modal ──
+function openPromptModal(id) {
+  state.editingPromptId = id;
+  const modal = document.getElementById('promptModal');
+  if (id === null) {
+    document.getElementById('promptModalTitle').textContent = '新建提示词';
+    document.getElementById('promptFormName').value = '';
+    document.getElementById('promptFormContent').value = '';
+  } else {
+    const prompt = state.prompts.find(p => p.id === id);
+    document.getElementById('promptModalTitle').textContent = '编辑提示词';
+    document.getElementById('promptFormName').value = prompt.name;
+    document.getElementById('promptFormContent').value = prompt.content;
+  }
+  openModal('promptModal');
+}
+
+function savePrompt() {
+  const name = document.getElementById('promptFormName').value.trim();
+  const content = document.getElementById('promptFormContent').value.trim();
+  if (!name || !content) { alert('请填写名称和模板内容'); return; }
+
+  if (state.editingPromptId === null) {
+    state.prompts.push({ id: state.nextPromptId++, name, content, enabled: true });
+  } else {
+    const prompt = state.prompts.find(p => p.id === state.editingPromptId);
+    if (prompt) { prompt.name = name; prompt.content = content; }
+  }
+
+  closeModal('promptModal');
+  renderPrompts(document.getElementById('promptSearch').value);
+  updateSelects();
+}
+
+// ── Skill Import ──
+function triggerFolderInput() {
+  document.getElementById('folderInput').click();
+}
+
+function handleFolderSelect(event) {
+  const files = event.target.files;
+  if (!files || files.length === 0) return;
+  simulateImport(files[0].webkitRelativePath.split('/')[0], {
+    references: Math.floor(Math.random() * 4) + 2,
+    skeletons: Math.floor(Math.random() * 5) + 2,
+    assets: Math.floor(Math.random() * 2) + 1,
+  }, 'auto-imported-skill', '通过文件夹导入的 Skill，包含完整的参考文件和骨架模板。');
+}
+
+function handleDragOver(e) {
+  e.preventDefault();
+  document.getElementById('dropZone').classList.add('drag-over');
+}
+
+function handleDragLeave(e) {
+  document.getElementById('dropZone').classList.remove('drag-over');
+}
+
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('dropZone').classList.remove('drag-over');
+  const items = e.dataTransfer.items;
+  if (!items) return;
+
+  for (const item of items) {
+    if (item.kind === 'file') {
+      const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+      const folderName = entry?.name || 'unknown-skill';
+      simulateImport(folderName, {
+        references: 5, skeletons: 6, assets: 2
+      }, 'GEO Article v2', '围绕《餐厅养成记》产出 GEO 文章——支持「持续生成（模式 A）」和「复刻同行爆款（模式 B）」。');
+      break;
+    }
+  }
+}
+
+function simulateImport(folderName, files, skillName, skillDesc) {
+  state.pendingImport = { folderName, files, skillName, skillDesc };
+  document.getElementById('importPreview').style.display = 'none';
+  document.getElementById('importFooter').style.display = 'none';
+  document.getElementById('importProgressSection').style.display = 'block';
+  document.getElementById('importProgressBar').style.width = '0%';
+  document.getElementById('importStatus').textContent = '正在读取文件...';
+  openModal('importModal');
+
+  const steps = [
+    { pct: 20, msg: '正在读取 SKILL.md...' },
+    { pct: 50, msg: '上传 references/ 目录...' },
+    { pct: 75, msg: '上传 skeletons/ 目录...' },
+    { pct: 90, msg: '上传 assets/ 目录...' },
+    { pct: 100, msg: '解析完成' },
+  ];
+
+  let i = 0;
+  const advance = () => {
+    if (i >= steps.length) {
+      showImportPreview(skillName, skillDesc, files);
+      return;
+    }
+    document.getElementById('importProgressBar').style.width = steps[i].pct + '%';
+    document.getElementById('importStatus').textContent = steps[i].msg;
+    i++;
+    setTimeout(advance, 350);
+  };
+  setTimeout(advance, 100);
+}
+
+function showImportPreview(name, desc, files) {
+  document.getElementById('importSkillName').textContent = name;
+  document.getElementById('importSkillDesc').textContent = desc;
+  document.getElementById('importFileTree').innerHTML = [
+    `<div class="file-tree-item"><span>📂</span> references/ &nbsp;<span style="color:var(--accent)">${files.references} 个文件</span></div>`,
+    `<div class="file-tree-item"><span>📂</span> skeletons/ &nbsp;<span style="color:var(--accent)">${files.skeletons} 个文件</span></div>`,
+    `<div class="file-tree-item"><span>📂</span> assets/ &nbsp;<span style="color:var(--accent)">${files.assets} 个文件</span></div>`,
+    `<div class="file-tree-item"><span>📄</span> SKILL.md</div>`,
+  ].join('');
+  document.getElementById('importPreview').style.display = 'block';
+  document.getElementById('importFooter').style.display = 'flex';
+}
+
+function confirmImport() {
+  if (!state.pendingImport) return;
+  const { skillName, skillDesc, files } = state.pendingImport;
+  state.skills.push({
+    id: state.nextSkillId++,
+    name: skillName,
+    enabled: true,
+    desc: skillDesc,
+    files,
+  });
+  state.pendingImport = null;
+  closeModal('importModal');
+  renderSkills(document.getElementById('skillSearch').value);
+  updateSelects();
+}
+
+// ── Modal Helpers ──
+function openModal(id) {
+  document.getElementById(id).classList.add('open');
+}
+
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+}
+
+// Close modal on overlay click
+document.querySelectorAll('.modal-overlay').forEach(overlay => {
+  overlay.addEventListener('click', e => {
+    if (e.target === overlay) overlay.classList.remove('open');
+  });
+});
+
+// ── Boot ──
+init();
+</script>
+</body>
+</html>
