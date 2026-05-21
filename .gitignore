@@ -23,3 +23,5 @@ _tmp_*/
 *.db-wal
 *.log
 .claude/
+
+.ai-generation-demo
