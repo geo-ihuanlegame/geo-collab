@@ -15,3 +15,7 @@ pymysql==1.1.1
 python-jose[cryptography]==3.4.0
 aiofiles==24.1.0
 slowapi==0.1.9
+litellm
+langgraph
+markdown
+python-frontmatter

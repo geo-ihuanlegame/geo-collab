@@ -55,7 +55,10 @@ from server.app.api.routes.articles import router as articles_router
 from server.app.api.routes.assets import router as assets_router
 from server.app.api.routes.auth import router as auth_router
 from server.app.api.routes.chunked_assets import router as chunked_assets_router
+from server.app.api.routes.generation import router as generation_router
+from server.app.api.routes.prompt_templates import router as prompt_templates_router
 from server.app.api.routes.publish_records import router as publish_records_router
+from server.app.api.routes.skills import router as skills_router
 from server.app.api.routes.system import router as system_router
 from server.app.api.routes.tasks import router as tasks_router
 from server.app.core.config import get_settings
@@ -170,6 +173,14 @@ def create_app() -> FastAPI:
     app.include_router(publish_records_router, prefix="/api/publish-records", tags=["publish-records"], dependencies=[Depends(get_current_user)])
     app.include_router(system_router, prefix="/api/system", tags=["system"], dependencies=[Depends(get_current_user)])
     app.include_router(tasks_router, prefix="/api/tasks", tags=["tasks"], dependencies=[Depends(get_current_user)])
+    app.include_router(skills_router, prefix="/api/skills", tags=["skills"], dependencies=[Depends(get_current_user)])
+    app.include_router(prompt_templates_router, prefix="/api/prompt-templates", tags=["prompt-templates"], dependencies=[Depends(get_current_user)])
+    app.include_router(generation_router, prefix="/api/generation", tags=["generation"], dependencies=[Depends(get_current_user)])
+
+    # 为 AI 生文后台线程提供 SessionLocal（tasks.py 的生产路径走 executor.py 轮询，不需要；
+    # generation 没有对应的 worker，只能靠路由内后台线程，因此必须在此处初始化）
+    import server.app.api.routes.generation as _gen_routes
+    _gen_routes.bg_session_factory = SessionLocal
 
     try:
         # 挂载前端静态文件（Vite 构建产物）

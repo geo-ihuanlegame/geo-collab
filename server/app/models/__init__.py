@@ -9,6 +9,8 @@ from server.app.models.platform import Platform
 from server.app.models.publish import PublishRecord, PublishTask, PublishTaskAccount, TaskLog
 from server.app.models.tag import ArticleTag, Tag
 from server.app.models.user import User
+from server.app.models.generation import GenerationSession
+from server.app.models.skill import PromptTemplate, Skill
 from server.app.models.worker import WorkerHeartbeat
 
 __all__ = [
@@ -30,4 +32,7 @@ __all__ = [
     "TaskLog",
     "User",
     "WorkerHeartbeat",
+    "Skill",
+    "PromptTemplate",
+    "GenerationSession",
 ]

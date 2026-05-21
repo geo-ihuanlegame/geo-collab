@@ -1,7 +1,36 @@
-import { FileText, MonitorCog, RadioTower, Send } from "lucide-react";
+import { FileText, MonitorCog, RadioTower, Send, Sparkles } from "lucide-react";
 import type { ComponentType } from "react";
 
-export type NavKey = "content" | "media" | "tasks" | "system" | "admin";
+export type NavKey = "ai" | "content" | "media" | "tasks" | "system" | "admin";
+
+export type Skill = {
+  id: number;
+  name: string;
+  description: string | null;
+  file_stats: { references: number; skeletons: number; assets: number };
+  is_enabled: boolean;
+  is_deleted: boolean;
+  created_at: string;
+};
+
+export type PromptTemplate = {
+  id: number;
+  name: string;
+  content: string;
+  is_enabled: boolean;
+  is_deleted: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type GenerationSession = {
+  id: number;
+  status: "pending" | "running" | "done" | "failed";
+  article_ids: number[];
+  error_message: string | null;
+  created_at: string;
+  completed_at: string | null;
+};
 
 export type Asset = {
   id: string;
@@ -232,6 +261,7 @@ export function statusLabel(status: string): string {
 }
 
 export const navItems: { key: NavKey; label: string; icon: ComponentType<{ size?: number }> }[] = [
+  { key: "ai", label: "AI 生文", icon: Sparkles },
   { key: "content", label: "内容管理", icon: FileText },
   { key: "media", label: "媒体矩阵", icon: RadioTower },
   { key: "tasks", label: "分发引擎", icon: Send },

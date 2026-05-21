@@ -3,6 +3,7 @@ import { navItems } from "./types";
 import type { NavKey } from "./types";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ToastProvider } from "./components/Toast";
+import { AiGenerationWorkspace } from "./features/ai-generation/AiGenerationWorkspace";
 import { ContentWorkspace } from "./features/content/ContentWorkspace";
 import { AccountsWorkspace } from "./features/accounts/AccountsWorkspace";
 import { TasksWorkspace } from "./features/tasks/TasksWorkspace";
@@ -94,6 +95,13 @@ function AppShell() {
         </aside>
         <section className="workspace">
           <div className="workspaceInner">
+            {visitedTabs.has("ai") && (
+              <div style={{ display: activeNav === "ai" ? undefined : "none" }}>
+                <ErrorBoundary fallback={<p role="alert">AI 生文出错，请刷新重试</p>}>
+                  <AiGenerationWorkspace onNavigateToContent={() => handleNavClick("content")} />
+                </ErrorBoundary>
+              </div>
+            )}
             <div style={{ display: activeNav === "content" ? undefined : "none" }}>
               <ErrorBoundary fallback={<p role="alert">内容管理出错，请刷新重试</p>}>
                 <ContentWorkspace dirtyCheckRef={contentDirtyRef} />

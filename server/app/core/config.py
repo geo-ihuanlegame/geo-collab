@@ -50,6 +50,8 @@ class Settings(BaseSettings):
     publish_remote_browser_idle_timeout_seconds: int = 300  # 5 分钟无操作自动清理
     secure_cookie: bool = False  # 生产 HTTPS 时设为 True（GEO_SECURE_COOKIE=true）
     feishu_webhook_url: str | None = None  # GEO_FEISHU_WEBHOOK_URL，不设则静默跳过
+    ai_model: str = "claude-3-5-sonnet-20241022"  # GEO_AI_MODEL
+    ai_api_key: str = ""  # GEO_AI_API_KEY，通过 LiteLLM 注入给底层 SDK
 
     model_config = SettingsConfigDict(env_prefix="GEO_", env_file=".env", extra="ignore")
 
