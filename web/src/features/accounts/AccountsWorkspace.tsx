@@ -324,7 +324,7 @@ export function AccountsWorkspace() {
           <small style={{ color: "var(--fg-3)", fontSize: 11 }}>* 仅选择具体平台后可添加</small>
         </section>
 
-        <div>
+        <div className="accountListPane">
           <div className="listHeader">
             <h3>授权账号 <span style={{ color: "var(--fg)", fontSize: 13, textTransform: "none", letterSpacing: 0 }}>
               {selectedPlatform && selectedPlatformName ? `(${selectedPlatformName})` : "(全部)"}
