@@ -39,7 +39,18 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     if (response.status === 403 && payload.detail === "Password change required") {
       window.dispatchEvent(new CustomEvent("auth:password-change-required"));
     }
-    throw new Error(payload.detail || `${response.status} ${response.statusText}`);
+    const statusText: Record<number, string> = {
+      400: "请求参数错误",
+      401: "未登录或登录已过期",
+      403: "无权限执行此操作",
+      404: "请求的资源不存在",
+      409: "操作冲突，请刷新后重试",
+      422: "提交的数据格式有误",
+      500: "服务器内部错误",
+      502: "服务器网关错误",
+      503: "服务暂时不可用",
+    };
+    throw new Error(payload.detail || statusText[response.status] || `服务器错误（${response.status}）`);
   }
   if (response.status === 204) {
     return undefined as T;

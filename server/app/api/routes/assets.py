@@ -90,7 +90,7 @@ def cleanup_orphan_assets(
 def read_asset_meta(asset_id: str, db: Session = Depends(get_db)) -> AssetRead:
     asset = db.get(Asset, asset_id)
     if asset is None:
-        raise HTTPException(status_code=404, detail="Asset not found")
+        raise HTTPException(status_code=404, detail="资源不存在")
     return to_asset_read(asset)
 
 
@@ -133,7 +133,7 @@ def read_asset_file(
 ) -> Response:
     asset = db.get(Asset, asset_id)
     if asset is None or asset.is_deleted:
-        raise HTTPException(status_code=404, detail="Asset not found")
+        raise HTTPException(status_code=404, detail="资源不存在")
 
     try:
         path = resolve_asset_path(asset)
@@ -141,7 +141,7 @@ def read_asset_file(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     if not path.exists():
-        raise HTTPException(status_code=404, detail="Asset file not found")
+        raise HTTPException(status_code=404, detail="资源文件不存在")
 
     # WebP content negotiation
     accept = request.headers.get("accept", "")

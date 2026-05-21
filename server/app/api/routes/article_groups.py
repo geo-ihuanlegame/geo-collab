@@ -27,9 +27,9 @@ router = APIRouter()
 
 def _verify_group_ownership(group: ArticleGroup | None, current_user: User) -> ArticleGroup:
     if group is None:
-        raise HTTPException(status_code=404, detail="Article group not found")
+        raise HTTPException(status_code=404, detail="文章分组不存在")
     if current_user.role != "admin" and group.user_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Article group not found")
+        raise HTTPException(status_code=404, detail="文章分组不存在")
     return group
 
 
@@ -56,7 +56,7 @@ def create_group_endpoint(
         group = create_group(db, current_user.id, payload)
     except IntegrityError as exc:
         db.rollback()
-        raise HTTPException(status_code=400, detail="Article group name already exists") from exc
+        raise HTTPException(status_code=400, detail="分组名称已存在") from exc
     return to_group_read(group)
 
 
@@ -84,7 +84,7 @@ def update_group_endpoint(
         updated = update_group(db, group, payload)
     except IntegrityError as exc:
         db.rollback()
-        raise HTTPException(status_code=400, detail="Article group name already exists") from exc
+        raise HTTPException(status_code=400, detail="分组名称已存在") from exc
     return to_group_read(updated)
 
 

@@ -62,9 +62,9 @@ def _user_dict(u: User) -> dict:
 def login(request: Request, payload: LoginRequest, response: Response, db: Session = Depends(get_db)) -> dict:
     user = db.query(User).filter(User.username == payload.username).first()
     if not user or not user.check_password(payload.password):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
     if not user.is_active:
-        raise HTTPException(status_code=403, detail="Account disabled")
+        raise HTTPException(status_code=403, detail="账号已被禁用")
 
     user.last_login_at = utcnow()
     token = create_access_token(user.id, user.role)
@@ -105,18 +105,18 @@ def me(request: Request) -> dict:
 
     token = request.cookies.get("access_token")
     if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+        raise HTTPException(status_code=401, detail="未登录，请重新登录")
     payload = verify_token(token)
     if not payload:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
+        raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
 
     db: Session = SessionLocal()
     try:
         user = db.get(User, int(payload["sub"]))
         if not user:
-            raise HTTPException(status_code=401, detail="User not found")
+            raise HTTPException(status_code=401, detail="用户不存在")
         if not user.is_active:
-            raise HTTPException(status_code=403, detail="Account disabled")
+            raise HTTPException(status_code=403, detail="账号已被禁用")
         return {
             "id": user.id,
             "username": user.username,
@@ -133,20 +133,20 @@ def change_password(payload: ChangePasswordRequest, request: Request) -> dict:
 
     token = request.cookies.get("access_token")
     if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+        raise HTTPException(status_code=401, detail="未登录，请重新登录")
     jwt_payload = verify_token(token)
     if not jwt_payload:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
+        raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
 
     db: Session = SessionLocal()
     try:
         user = db.get(User, int(jwt_payload["sub"]))
         if not user:
-            raise HTTPException(status_code=401, detail="User not found")
+            raise HTTPException(status_code=401, detail="用户不存在")
         if not user.is_active:
-            raise HTTPException(status_code=403, detail="Account disabled")
+            raise HTTPException(status_code=403, detail="账号已被禁用")
         if not user.check_password(payload.old_password):
-            raise HTTPException(status_code=400, detail="Old password is incorrect")
+            raise HTTPException(status_code=400, detail="原密码错误")
         user.set_password(payload.new_password)
         user.must_change_password = False
         db.commit()
@@ -162,21 +162,21 @@ def create_user(payload: CreateUserRequest, request: Request) -> dict:
 
     token = request.cookies.get("access_token")
     if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+        raise HTTPException(status_code=401, detail="未登录，请重新登录")
     jwt_payload = verify_token(token)
     if not jwt_payload:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
+        raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
     if jwt_payload.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Admin required")
+        raise HTTPException(status_code=403, detail="需要管理员权限")
 
     db: Session = SessionLocal()
     try:
         caller = db.get(User, int(jwt_payload["sub"]))
         if not caller or not caller.is_active or caller.role != "admin":
-            raise HTTPException(status_code=403, detail="Admin required")
+            raise HTTPException(status_code=403, detail="需要管理员权限")
         existing = db.query(User).filter(User.username == payload.username).first()
         if existing:
-            raise HTTPException(status_code=409, detail="Username already exists")
+            raise HTTPException(status_code=409, detail="用户名已存在")
         user = User(
             username=payload.username,
             role=payload.role,
@@ -216,10 +216,10 @@ def update_user(
     current_user: User = Depends(require_admin),
 ) -> dict:
     if user_id == current_user.id:
-        raise HTTPException(status_code=400, detail="Cannot modify your own account")
+        raise HTTPException(status_code=400, detail="不能修改自己的账号")
     user = db.get(User, user_id)
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail="用户不存在")
     if payload.is_active is not None:
         user.is_active = payload.is_active
     if payload.role is not None:
@@ -242,7 +242,7 @@ def reset_password(
 ) -> dict:
     user = db.get(User, user_id)
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail="用户不存在")
     user.set_password(payload.new_password)
     user.must_change_password = True
     db.flush()

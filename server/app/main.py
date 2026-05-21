@@ -171,7 +171,7 @@ def create_app() -> FastAPI:
         @app.get("/{full_path:path}", include_in_schema=False)
         def serve_web_app(full_path: str) -> FileResponse:
             if full_path.startswith("api/"):
-                raise HTTPException(status_code=404, detail="API route not found")
+                raise HTTPException(status_code=404, detail="接口不存在")
             return FileResponse(f"{WEB_DIST_DIR}/index.html")
 
     except RuntimeError:

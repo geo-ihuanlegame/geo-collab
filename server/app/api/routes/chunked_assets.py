@@ -56,13 +56,13 @@ async def start_chunked_upload(
     if payload is not None:
         total_size = payload.total_size
     if total_size is None:
-        raise HTTPException(status_code=422, detail="total_size is required")
+        raise HTTPException(status_code=422, detail="请提供文件大小")
     if total_size <= 0:
-        raise HTTPException(status_code=400, detail="File is empty")
+        raise HTTPException(status_code=400, detail="文件不能为空")
     if total_size > MAX_ASSET_BYTES:
         raise HTTPException(
             status_code=413,
-            detail=f"File exceeds {MAX_ASSET_BYTES // (1024 * 1024)}MB limit",
+            detail=f"文件超过 {MAX_ASSET_BYTES // (1024 * 1024)}MB 限制",
         )
 
     manager = get_upload_manager()
@@ -97,10 +97,10 @@ async def upload_chunk(
     session = manager.get_session(upload_id)
 
     if not session:
-        raise HTTPException(status_code=404, detail="Upload session not found")
+        raise HTTPException(status_code=404, detail="上传会话不存在")
 
     if chunk_index < 0 or chunk_index >= session.chunk_count:
-        raise HTTPException(status_code=400, detail="Invalid chunk index")
+        raise HTTPException(status_code=400, detail="无效的分块索引")
 
     # 读取分块数据
     chunk_data = await file.read()
@@ -108,12 +108,12 @@ async def upload_chunk(
     # 验证分块大小（最后一个分块可能更小）
     if chunk_index < session.chunk_count - 1:
         if len(chunk_data) != CHUNK_SIZE:
-            raise HTTPException(status_code=400, detail="Invalid chunk size")
+            raise HTTPException(status_code=400, detail="分块大小不正确")
     else:
         # 最后一个分块
         expected_last_size = session.total_size - (session.chunk_count - 1) * CHUNK_SIZE
         if len(chunk_data) != expected_last_size:
-            raise HTTPException(status_code=400, detail="Invalid last chunk size")
+            raise HTTPException(status_code=400, detail="最后一个分块大小不正确")
 
     # 保存分块
     await manager.save_chunk(upload_id, chunk_index, chunk_data)
@@ -140,7 +140,7 @@ async def get_upload_status(
     session = manager.get_session(upload_id)
 
     if not session:
-        raise HTTPException(status_code=404, detail="Upload session not found")
+        raise HTTPException(status_code=404, detail="上传会话不存在")
 
     uploaded = manager.get_uploaded_chunks(upload_id)
 
@@ -174,17 +174,17 @@ async def complete_chunked_upload(
         filename = payload.filename
         content_type = payload.content_type
     if filename is None:
-        raise HTTPException(status_code=422, detail="filename is required")
+        raise HTTPException(status_code=422, detail="请提供文件名")
     content_type = content_type or "application/octet-stream"
 
     manager = get_upload_manager()
     session = manager.get_session(upload_id)
 
     if not session:
-        raise HTTPException(status_code=404, detail="Upload session not found")
+        raise HTTPException(status_code=404, detail="上传会话不存在")
 
     if not manager.is_complete(upload_id):
-        raise HTTPException(status_code=400, detail="Upload not complete")
+        raise HTTPException(status_code=400, detail="文件尚未上传完毕")
 
     try:
         import asyncio

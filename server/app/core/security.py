@@ -63,10 +63,10 @@ def get_current_user(request: Request) -> User:
 
     token = request.cookies.get("access_token")
     if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+        raise HTTPException(status_code=401, detail="未登录，请重新登录")
     payload = verify_token(token)
     if not payload:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
+        raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
 
     user_id = int(payload["sub"])
     user = _get_cached_user(user_id)
@@ -76,7 +76,7 @@ def get_current_user(request: Request) -> User:
         try:
             user = db.get(User, user_id)
             if not user:
-                raise HTTPException(status_code=401, detail="User not found")
+                raise HTTPException(status_code=401, detail="用户不存在")
             # 从 Session 中脱钩后缓存，User 没有懒加载关联，脱钩后列值仍可访问
             db.expunge(user)
             _user_cache[user_id] = (user, time.monotonic() + _USER_CACHE_TTL)
@@ -84,7 +84,7 @@ def get_current_user(request: Request) -> User:
             db.close()
 
     if not user.is_active:
-        raise HTTPException(status_code=403, detail="Account disabled")
+        raise HTTPException(status_code=403, detail="账号已被禁用")
     if user.must_change_password:
         raise HTTPException(status_code=403, detail="Password change required")
     return user
@@ -92,7 +92,7 @@ def get_current_user(request: Request) -> User:
 
 async def require_admin(current_user: User = Depends(get_current_user)) -> User:
     if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="Admin required")
+        raise HTTPException(status_code=403, detail="需要管理员权限")
     return current_user
 
 
@@ -103,7 +103,7 @@ async def require_local_token(request: Request) -> None:
 
     received = request.headers.get("X-Geo-Token")
     if not received:
-        raise HTTPException(status_code=401, detail="Missing X-Geo-Token header")
+        raise HTTPException(status_code=401, detail="缺少认证令牌")
 
     if not hmac.compare_digest(token, received):
-        raise HTTPException(status_code=401, detail="Invalid token")
+        raise HTTPException(status_code=401, detail="无效的认证令牌")

@@ -24,12 +24,12 @@ router = APIRouter()
 
 def _verify_record_ownership(record: PublishRecord | None, current_user: User, db: Session) -> PublishRecord:
     if record is None:
-        raise HTTPException(status_code=404, detail="Record not found")
+        raise HTTPException(status_code=404, detail="发布记录不存在")
     task = get_task(db, record.task_id)
     if task is None:
-        raise HTTPException(status_code=404, detail="Record not found")
+        raise HTTPException(status_code=404, detail="发布记录不存在")
     if current_user.role != "admin" and task.user_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Record not found")
+        raise HTTPException(status_code=404, detail="发布记录不存在")
     return record
 
 

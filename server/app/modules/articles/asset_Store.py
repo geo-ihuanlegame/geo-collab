@@ -215,7 +215,7 @@ async def store_upload(db: Session, user_id: int, upload: UploadFile) -> StoredA
                     if ok and chunk.startswith(b"RIFF") and (len(chunk) < 12 or chunk[8:12] != b"WEBP"):
                         ok = False
                     if not ok:
-                        raise HTTPException(status_code=415, detail="Unsupported file type")
+                        raise HTTPException(status_code=415, detail="不支持的文件类型")
 
                 await tmp.write(chunk)
                 sha256.update(chunk)

@@ -39,9 +39,9 @@ router = APIRouter()
 
 def _verify_account_ownership(account: AccountModel | None, current_user: User) -> AccountModel:
     if account is None:
-        raise HTTPException(status_code=404, detail="Account not found")
+        raise HTTPException(status_code=404, detail="账号不存在")
     if current_user.role != "admin" and account.user_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Account not found")
+        raise HTTPException(status_code=404, detail="账号不存在")
     return account
 
 
@@ -57,7 +57,7 @@ def _to_browser_session_read(result) -> AccountBrowserSessionRead:
 
 def _verify_platform_code(platform_code: str) -> str:
     if platform_code not in all_driver_codes():
-        raise HTTPException(status_code=404, detail="Unknown platform")
+        raise HTTPException(status_code=404, detail="未知平台")
     return platform_code
 
 
@@ -119,7 +119,7 @@ def get_login_session_status_endpoint(
     account = _verify_account_ownership(get_account(db, account_id), current_user)
     request = get_login_session_status(db, account, session_id)
     if request is None:
-        raise HTTPException(status_code=404, detail="Login session not found")
+        raise HTTPException(status_code=404, detail="登录会话不存在")
     return LoginSessionStatusRead(
         status=request.status,
         novnc_url=request.novnc_url,
@@ -200,7 +200,7 @@ async def import_accounts(
     if len(zip_bytes) > MAX_ZIP_BYTES:
         raise HTTPException(
             status_code=413,
-            detail=f"ZIP file exceeds {MAX_ZIP_BYTES // (1024 * 1024)}MB limit",
+            detail=f"ZIP 文件超过 {MAX_ZIP_BYTES // (1024 * 1024)}MB 限制",
         )
 
     ZIP_ENTRY_RE = re.compile(r"^(?:manifest\.json|accounts/[a-zA-Z0-9_]+-\d+/(?:account|storage_state)\.json)$")
@@ -211,15 +211,15 @@ async def import_accounts(
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as archive:
             entries = archive.namelist()
             if len(entries) > MAX_ENTRIES:
-                raise HTTPException(status_code=400, detail=f"ZIP contains {len(entries)} entries, max {MAX_ENTRIES} allowed")
+                raise HTTPException(status_code=400, detail=f"ZIP 文件包含 {len(entries)} 个条目，最多允许 {MAX_ENTRIES} 个")
             for entry_name in entries:
                 info = archive.getinfo(entry_name)
                 if not ZIP_ENTRY_RE.match(entry_name):
-                    raise HTTPException(status_code=400, detail=f"Invalid ZIP entry path: {entry_name}")
+                    raise HTTPException(status_code=400, detail=f"无效的 ZIP 条目路径：{entry_name}")
                 if info.file_size > MAX_ENTRY_BYTES:
-                    raise HTTPException(status_code=400, detail=f"ZIP entry too large: {entry_name} ({info.file_size} bytes)")
+                    raise HTTPException(status_code=400, detail=f"ZIP 条目过大：{entry_name}（{info.file_size} 字节）")
     except zipfile.BadZipFile:
-        raise HTTPException(status_code=400, detail="Invalid ZIP file")
+        raise HTTPException(status_code=400, detail="无效的 ZIP 文件")
 
     return import_accounts_auth_package(db, current_user.id, zip_bytes)
 

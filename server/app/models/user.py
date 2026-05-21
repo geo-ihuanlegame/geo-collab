@@ -25,7 +25,7 @@ class User(Base):
 
     def set_password(self, raw: str) -> None:
         if len(raw) < 8:
-            raise ValueError("Password must be at least 8 characters")
+            raise ValueError("密码长度不能少于 8 位")
         self.password_hash = bcrypt.hashpw(raw.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
     def check_password(self, raw: str) -> bool:

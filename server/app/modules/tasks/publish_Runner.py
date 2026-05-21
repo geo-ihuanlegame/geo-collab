@@ -141,7 +141,7 @@ def run_publish(
     platform_code, account_key = account_key_from_state_path(account.state_path)
     state_path = (get_data_dir() / account.state_path).resolve()
     if not state_path.exists():
-        raise PublishError(f"Account storage state not found: {account.state_path}")
+        raise PublishError(f"账号授权状态文件不存在: {account.state_path}")
 
     driver = get_driver(platform_code)
 

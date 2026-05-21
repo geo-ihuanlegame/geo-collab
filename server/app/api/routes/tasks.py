@@ -53,9 +53,9 @@ bg_session_factory: Any = None
 
 def _verify_task_ownership(task: PublishTask | None, current_user: User) -> PublishTask:
     if task is None:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise HTTPException(status_code=404, detail="任务不存在")
     if current_user.role != "admin" and task.user_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise HTTPException(status_code=404, detail="任务不存在")
     return task
 
 

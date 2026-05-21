@@ -23,9 +23,9 @@ router = APIRouter()
 
 def _verify_article_ownership(article: Article | None, current_user: User) -> Article:
     if article is None:
-        raise HTTPException(status_code=404, detail="Article not found")
+        raise HTTPException(status_code=404, detail="文章不存在")
     if current_user.role != "admin" and article.user_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Article not found")
+        raise HTTPException(status_code=404, detail="文章不存在")
     return article
 
 
@@ -138,6 +138,6 @@ def update_article_cover(
 ) -> ArticleRead:
     article = _verify_article_ownership(get_article(db, article_id), current_user)
     if payload.version is not None and article.version != payload.version:
-        raise ConflictError("Article has been modified; refresh before saving")
+        raise ConflictError("文章已被修改，请刷新后再保存")
     return to_article_read(set_article_cover(db, article, payload.cover_asset_id))
 
