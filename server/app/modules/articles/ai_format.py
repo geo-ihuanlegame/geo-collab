@@ -126,14 +126,18 @@ def _normalize_heading_indices(value: Any, valid_indices: set[int]) -> set[int]:
 
 
 def _apply_headings(content_json: dict, heading_indices: set[int]) -> dict:
+    """Only upgrade paragraphs to headings; never demote existing headings.
+
+    The LLM identifies which paragraphs should become headings.  Existing
+    headings NOT selected by the LLM are preserved as-is — the prompt says
+    "保留" (retain), so absence from heading_indices does NOT mean demote.
+    """
     content = list(content_json.get("content") or [])
     for i, node in enumerate(content):
         if not isinstance(node, dict):
             continue
         if i in heading_indices and node.get("type") == "paragraph":
             content[i] = _to_heading(node)
-        elif i not in heading_indices and node.get("type") == "heading":
-            content[i] = _to_paragraph(node)
     return {**content_json, "content": content}
 
 
@@ -199,8 +203,6 @@ def run_ai_format(
     lock_started_at: datetime | None = None,
 ) -> None:
     """Identify body subheadings and write the updated Tiptap document back to the article."""
-    from server.app.db.session import SessionLocal
-
     db = None
     try:
         from server.app.db.session import SessionLocal

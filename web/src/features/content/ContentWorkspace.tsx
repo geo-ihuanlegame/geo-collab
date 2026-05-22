@@ -304,6 +304,7 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
   const [aiChecking, setAiChecking] = useState(false);
   const [aiCheckStartedAt, setAiCheckStartedAt] = useState<number | null>(null);
   const [aiFormatRemainingSeconds, setAiFormatRemainingSeconds] = useState(AI_FORMAT_TIMEOUT_SECONDS);
+  const [aiFormatTriggerVersion, setAiFormatTriggerVersion] = useState<number | null>(null);
   const [stockCategories, setStockCategories] = useState<StockCategory[]>([]);
   const [groupPickerSelectedId, setGroupPickerSelectedId] = useState<number | null>(null);
   const [confirmDeleteArticle, setConfirmDeleteArticle] = useState(false);
@@ -488,13 +489,18 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
         if (data.ai_checking) return;
         setAiChecking(false);
         setAiCheckStartedAt(null);
+        setAiFormatTriggerVersion(null);
+        if (data.version === aiFormatTriggerVersion) {
+          toast("AI 排版执行失败，请检查配置或重试", "error");
+          return;
+        }
         syncArticleAfterAiFormat(data);
       } catch {
         // Keep polling; transient failures should not unlock the editor.
       }
     }, 2000);
     return () => clearInterval(interval);
-  }, [aiChecking, draft?.id, editor]);
+  }, [aiChecking, draft?.id, aiFormatTriggerVersion, editor]);
 
   useEffect(() => {
     if (!aiChecking || aiCheckStartedAt == null) {
@@ -509,6 +515,7 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
       if (remaining > 0) return;
       setAiChecking(false);
       setAiCheckStartedAt(null);
+      setAiFormatTriggerVersion(null);
       toast("AI格式调整超时", "error");
       if (draft?.id) {
         void getArticle(draft.id).then((data) => {
@@ -766,6 +773,7 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
       return;
     }
     const startedAt = Date.now();
+    setAiFormatTriggerVersion(saved.version);
     setAiChecking(true);
     setAiCheckStartedAt(startedAt);
     setAiFormatRemainingSeconds(AI_FORMAT_TIMEOUT_SECONDS);
@@ -775,6 +783,7 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
     } catch (error) {
       setAiChecking(false);
       setAiCheckStartedAt(null);
+      setAiFormatTriggerVersion(null);
       toast(error instanceof Error ? error.message : "AI 格式调整启动失败", "error");
     }
   }
