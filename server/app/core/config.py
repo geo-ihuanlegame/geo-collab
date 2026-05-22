@@ -50,8 +50,13 @@ class Settings(BaseSettings):
     publish_remote_browser_idle_timeout_seconds: int = 300  # 5 分钟无操作自动清理
     secure_cookie: bool = False  # 生产 HTTPS 时设为 True（GEO_SECURE_COOKIE=true）
     feishu_webhook_url: str | None = None  # GEO_FEISHU_WEBHOOK_URL，不设则静默跳过
+    # AI 生文（LangGraph 写作 Agent）—— 保持 Claude
     ai_model: str = "claude-3-5-sonnet-20241022"  # GEO_AI_MODEL
-    ai_api_key: str = ""  # GEO_AI_API_KEY，通过 LiteLLM 注入给底层 SDK
+    ai_api_key: str = ""  # GEO_AI_API_KEY
+
+    # AI 格式调整（标题识别 / 未来配图配链接）—— 独立模型，降低成本
+    ai_format_model: str = "deepseek/deepseek-chat"  # GEO_AI_FORMAT_MODEL，填入实际 v4-flash 模型名
+    ai_format_api_key: str = ""  # GEO_AI_FORMAT_API_KEY
 
     model_config = SettingsConfigDict(env_prefix="GEO_", env_file=".env", extra="ignore")
 

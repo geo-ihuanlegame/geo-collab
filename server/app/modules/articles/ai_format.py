@@ -119,8 +119,8 @@ def run_ai_format(article_id: int) -> None:
         from litellm import completion
 
         response = completion(
-            model=settings.ai_model,
-            api_key=settings.ai_api_key or None,
+            model=settings.ai_format_model,
+            api_key=settings.ai_format_api_key or None,
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user", "content": listing},
