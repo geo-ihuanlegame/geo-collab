@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import func, select
@@ -20,6 +22,8 @@ from server.app.api.serializers import to_article_read
 
 router = APIRouter()
 
+_AI_CHECK_TIMEOUT_SECONDS = 120
+
 
 def _verify_article_ownership(article: Article | None, current_user: User) -> Article:
     if article is None:
@@ -27,6 +31,19 @@ def _verify_article_ownership(article: Article | None, current_user: User) -> Ar
     if current_user.role != "admin" and article.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="文章不存在")
     return article
+
+
+def _check_not_ai_locked(article: Article) -> None:
+    """Raise ConflictError if article is under active AI format check."""
+    if not article.ai_checking:
+        return
+    started = article.ai_checking_started_at
+    if started is None:
+        return
+    elapsed = (datetime.now(timezone.utc).replace(tzinfo=None) - started).total_seconds()
+    if elapsed >= _AI_CHECK_TIMEOUT_SECONDS:
+        return  # timeout → treat as unlocked
+    raise ConflictError("文章正在进行 AI 格式调整，请稍后再试")
 
 
 # 获取文章列表，支持按标题/作者搜索、分页
@@ -113,6 +130,7 @@ def update_article_endpoint(
     current_user: User = Depends(get_current_user),
 ) -> ArticleRead:
     article = _verify_article_ownership(get_article(db, article_id), current_user)
+    _check_not_ai_locked(article)
     return to_article_read(update_article(db, article, payload))
 
 
@@ -124,6 +142,7 @@ def delete_article_endpoint(
     current_user: User = Depends(require_admin),
 ) -> Response:
     article = _verify_article_ownership(get_article(db, article_id), current_user)
+    _check_not_ai_locked(article)
     delete_article(db, article)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
