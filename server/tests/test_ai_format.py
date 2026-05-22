@@ -125,3 +125,51 @@ def test_edit_unlocked_article_succeeds(monkeypatch):
         assert response.json()["title"] == "正常更新"
     finally:
         test_app.cleanup()
+
+
+# ---------------------------------------------------------------------------
+# ai_format.py unit tests (no DB, no LiteLLM)
+# ---------------------------------------------------------------------------
+from server.app.modules.articles.ai_format import (
+    _top_level_paragraphs,
+    _paragraph_text,
+    _apply_headings,
+)
+
+
+def test_top_level_paragraphs_returns_only_paragraphs():
+    doc = {
+        "type": "doc",
+        "content": [
+            {"type": "heading", "attrs": {"level": 1}, "content": []},
+            {"type": "paragraph", "content": [{"type": "text", "text": "Hello"}]},
+        ],
+    }
+    result = _top_level_paragraphs(doc)
+    assert len(result) == 1
+    assert result[0][0] == 1  # index in doc.content
+
+
+def test_paragraph_text_joins_text_nodes():
+    node = {
+        "type": "paragraph",
+        "content": [
+            {"type": "text", "text": "Hello "},
+            {"type": "text", "text": "World"},
+        ],
+    }
+    assert _paragraph_text(node) == "Hello World"
+
+
+def test_apply_headings_converts_paragraph_to_h1():
+    doc = {
+        "type": "doc",
+        "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "Title"}]},
+            {"type": "paragraph", "content": [{"type": "text", "text": "Body"}]},
+        ],
+    }
+    result = _apply_headings(doc, heading_indices={0})
+    assert result["content"][0]["type"] == "heading"
+    assert result["content"][0]["attrs"]["level"] == 1
+    assert result["content"][1]["type"] == "paragraph"
