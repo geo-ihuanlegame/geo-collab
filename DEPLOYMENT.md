@@ -322,3 +322,158 @@ docker compose up --build -d app
 docker compose down -v
 docker system prune -a --volumes
 ```
+
+---
+
+## 7. 数据库备份与恢复
+
+### 7.1 手动备份（mysqldump）
+
+创建备份目录（首次执行一次即可）：
+
+```bash
+mkdir -p ~/geo/backups
+```
+
+执行完整备份：
+
+```bash
+# 读取密码并备份（时间戳格式：YYYYMMDD_HHMMSS）
+BACKUP_FILE=~/geo/backups/geo_collab_$(date +%Y%m%d_%H%M%S).sql.gz
+docker compose -f ~/geo/docker-compose.yml exec -T mysql \
+    mysqldump -u geo_user -p"${MYSQL_PASSWORD}" \
+    --single-transaction --routines --triggers geo_collab \
+    | gzip > "$BACKUP_FILE"
+echo "✓ 备份完成：$BACKUP_FILE"
+```
+
+> **说明：**
+> - `--single-transaction`：对 InnoDB 表做一致性快照，不锁表。
+> - `| gzip`：压缩输出，典型压缩率 80–90%。
+> - 备份文件统一存放在 `~/geo/backups/`，建议定期同步到云存储或异机。
+
+---
+
+### 7.2 定期自动备份（cron）
+
+创建备份脚本 `~/geo/scripts/backup_db.sh`：
+
+```bash
+#!/bin/bash
+set -e
+
+BACKUP_DIR=~/geo/backups
+LOG_FILE=~/geo/backups/backup.log
+COMPOSE_FILE=~/geo/docker-compose.yml
+DB_NAME=geo_collab
+DB_USER=geo_user
+KEEP_DAYS=7
+
+mkdir -p "$BACKUP_DIR"
+
+BACKUP_FILE="$BACKUP_DIR/${DB_NAME}_$(date +%Y%m%d_%H%M%S).sql.gz"
+
+# 执行备份
+docker compose -f "$COMPOSE_FILE" exec -T mysql \
+    mysqldump -u "$DB_USER" -p"${MYSQL_PASSWORD}" \
+    --single-transaction --routines --triggers "$DB_NAME" \
+    | gzip > "$BACKUP_FILE"
+
+echo "$(date '+%Y-%m-%d %H:%M:%S') ✓ 备份完成：$BACKUP_FILE" >> "$LOG_FILE"
+
+# 清理超过 KEEP_DAYS 天的旧备份
+find "$BACKUP_DIR" -name "${DB_NAME}_*.sql.gz" -mtime +${KEEP_DAYS} -delete
+echo "$(date '+%Y-%m-%d %H:%M:%S') ✓ 已清理 ${KEEP_DAYS} 天前的旧备份" >> "$LOG_FILE"
+```
+
+赋予执行权限：
+
+```bash
+chmod +x ~/geo/scripts/backup_db.sh
+```
+
+注册 cron 任务（每天凌晨 3:00 执行）：
+
+```bash
+# 编辑当前用户的 crontab
+crontab -e
+```
+
+在 crontab 中添加以下行：
+
+```
+# 每天 03:00 备份 geo_collab 数据库，保留最近 7 天
+0 3 * * * MYSQL_PASSWORD=$(grep MYSQL_PASSWORD ~/geo/.env | cut -d= -f2) ~/geo/scripts/backup_db.sh >> ~/geo/backups/backup.log 2>&1
+```
+
+验证 cron 任务已注册：
+
+```bash
+crontab -l
+```
+
+---
+
+### 7.3 从备份恢复
+
+> **警告：** 恢复操作会覆盖数据库中的现有数据，请务必先确认备份文件完整性（见 7.4）。
+
+**完整恢复流程：**
+
+```bash
+# 1. 停止应用服务（保留 mysql 容器运行）
+cd ~/geo
+docker compose stop app worker
+
+# 2. 确认要恢复的备份文件
+ls -lh ~/geo/backups/*.sql.gz
+
+# 3. 执行恢复（替换 <备份文件名> 为实际文件路径）
+BACKUP_FILE=~/geo/backups/<备份文件名>.sql.gz
+zcat "$BACKUP_FILE" | docker compose exec -T mysql \
+    mysql -u geo_user -p"${MYSQL_PASSWORD}" geo_collab
+
+echo "✓ 数据库恢复完成"
+
+# 4. 重新启动应用服务
+docker compose start app worker
+docker compose ps
+```
+
+**注意事项：**
+- 恢复前确认目标数据库 `geo_collab` 已存在（docker compose up 会自动创建）。
+- 如果备份来自不同版本，恢复后需运行 `docker compose exec app alembic upgrade head` 补跑迁移。
+- 生产环境恢复建议在维护窗口内操作，提前通知用户。
+
+---
+
+### 7.4 备份验证
+
+**检查备份文件是否损坏：**
+
+```bash
+# 方法 A：验证 gzip 完整性（快速，推荐日常使用）
+gzip -t ~/geo/backups/geo_collab_<时间戳>.sql.gz && echo "✓ 文件完整" || echo "❌ 文件损坏"
+
+# 方法 B：检查 SQL 内容头尾（确认有效 SQL 结构）
+zcat ~/geo/backups/geo_collab_<时间戳>.sql.gz | head -5
+zcat ~/geo/backups/geo_collab_<时间戳>.sql.gz | tail -5
+
+# 方法 C：统计备份文件行数（正常备份通常数千行以上）
+zcat ~/geo/backups/geo_collab_<时间戳>.sql.gz | wc -l
+```
+
+**一次性验证所有备份文件：**
+
+```bash
+for f in ~/geo/backups/*.sql.gz; do
+    gzip -t "$f" && echo "✓ OK: $f" || echo "❌ 损坏: $f"
+done
+```
+
+**查看备份历史：**
+
+```bash
+ls -lh ~/geo/backups/*.sql.gz
+cat ~/geo/backups/backup.log | tail -20
+```
