@@ -1,4 +1,17 @@
 services:
+  minio:
+    image: minio/minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?required}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+
   mysql:
     image: mysql:8.0
     restart: unless-stopped
@@ -78,3 +91,4 @@ services:
 volumes:
   mysql_data:
   app_data:
+  minio_data:

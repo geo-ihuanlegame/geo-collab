@@ -56,6 +56,7 @@ from server.app.api.routes.assets import router as assets_router
 from server.app.api.routes.auth import router as auth_router
 from server.app.api.routes.chunked_assets import router as chunked_assets_router
 from server.app.api.routes.generation import router as generation_router
+from server.app.api.routes.stock_images import router as stock_images_router, files_router as stock_files_router
 from server.app.api.routes.prompt_templates import router as prompt_templates_router
 from server.app.api.routes.publish_records import router as publish_records_router
 from server.app.api.routes.skills import router as skills_router
@@ -176,6 +177,8 @@ def create_app() -> FastAPI:
     app.include_router(skills_router, prefix="/api/skills", tags=["skills"], dependencies=[Depends(get_current_user)])
     app.include_router(prompt_templates_router, prefix="/api/prompt-templates", tags=["prompt-templates"], dependencies=[Depends(get_current_user)])
     app.include_router(generation_router, prefix="/api/generation", tags=["generation"], dependencies=[Depends(get_current_user)])
+    app.include_router(stock_images_router, prefix="/api/image-library", tags=["image-library"], dependencies=[Depends(get_current_user)])
+    app.include_router(stock_files_router, prefix="/api/stock-images", tags=["stock-images"])
 
     # 为 AI 生文后台线程提供 SessionLocal（tasks.py 的生产路径走 executor.py 轮询，不需要；
     # generation 没有对应的 worker，只能靠路由内后台线程，因此必须在此处初始化）

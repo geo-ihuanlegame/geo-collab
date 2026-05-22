@@ -47,6 +47,7 @@ class ArticleUpdate(BaseModel):
     word_count: int | None = None
     status: str | None = None
     version: int | None = Field(default=None, ge=1)
+    stock_category_id: int | None = None
 
     @field_validator("content_html", mode="before")
     @classmethod
@@ -90,6 +91,7 @@ class ArticleRead(BaseModel):
     version: int
     body_assets: list[ArticleBodyAssetRead]
     published_count: int = 0  # 成功发布次数
+    stock_category_id: int | None = None
     ai_checking: bool = False
     created_at: datetime
     updated_at: datetime

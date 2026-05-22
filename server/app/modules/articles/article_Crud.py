@@ -171,6 +171,9 @@ def update_article(db: Session, article: Article, payload: ArticleUpdate) -> Art
     for field in ("title", "author", "cover_asset_id", "content_html", "plain_text", "word_count", "status"):
         if field in update_data and update_data[field] is not None:
             setattr(article, field, update_data[field])
+    # stock_category_id 允许显式置 None（移除关联）
+    if "stock_category_id" in update_data:
+        article.stock_category_id = update_data["stock_category_id"]
 
     if "content_json" in update_data:
         article.content_json = dumps_content_json(content_json)

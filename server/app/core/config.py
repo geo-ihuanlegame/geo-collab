@@ -58,6 +58,12 @@ class Settings(BaseSettings):
     ai_format_model: str = "deepseek/deepseek-chat"  # GEO_AI_FORMAT_MODEL，填入实际 v4-flash 模型名
     ai_format_api_key: str = ""  # GEO_AI_FORMAT_API_KEY
 
+    # MinIO 图片库存储
+    minio_endpoint: str = "localhost:9000"  # GEO_MINIO_ENDPOINT
+    minio_access_key: str = ""             # GEO_MINIO_ACCESS_KEY
+    minio_secret_key: str = ""             # GEO_MINIO_SECRET_KEY
+    minio_secure: bool = False             # GEO_MINIO_SECURE
+
     model_config = SettingsConfigDict(env_prefix="GEO_", env_file=".env", extra="ignore")
 
 

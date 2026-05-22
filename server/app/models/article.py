@@ -31,12 +31,14 @@ class Article(Base):
         Boolean, nullable=False, default=False, server_default="0", index=True
     )
     ai_checking_started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    stock_category_id: Mapped[int | None] = mapped_column(ForeignKey("stock_categories.id"), nullable=True)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0", index=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
     cover_asset = relationship("Asset", foreign_keys=[cover_asset_id])
+    stock_category = relationship("StockCategory", foreign_keys=[stock_category_id])
     body_assets = relationship("ArticleBodyAsset", back_populates="article", cascade="all, delete-orphan")
     group_items = relationship("ArticleGroupItem", back_populates="article")
     publish_records = relationship("PublishRecord", back_populates="article")

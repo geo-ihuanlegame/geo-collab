@@ -1,7 +1,7 @@
-import { FileText, MonitorCog, RadioTower, Send, Sparkles } from "lucide-react";
+import { FileText, Images, MonitorCog, RadioTower, Send, Sparkles } from "lucide-react";
 import type { ComponentType } from "react";
 
-export type NavKey = "ai" | "content" | "media" | "tasks" | "system" | "admin";
+export type NavKey = "ai" | "content" | "image-library" | "media" | "tasks" | "system" | "admin";
 
 export type Skill = {
   id: number;
@@ -66,6 +66,7 @@ export type Article = ArticleSummary & {
   content_html: string;
   plain_text: string;
   body_assets: ArticleBodyAsset[];
+  stock_category_id: number | null;
   ai_checking: boolean;
 };
 
@@ -112,6 +113,7 @@ export type Draft = {
   cover_asset_id: string | null;
   status: string;
   version: number | null;
+  stock_category_id: number | null;
 };
 
 export type TaskAccountRead = {
@@ -217,7 +219,29 @@ export type ArticleUpdatePayload = {
   word_count?: number;
   status?: string;
   version?: number | null;
+  stock_category_id?: number | null;
   client_request_id?: string;
+};
+
+export type StockCategory = {
+  id: number;
+  name: string;
+  bucket_name: string;
+  description: string | null;
+  created_at: string;
+};
+
+export type StockImage = {
+  id: number;
+  category_id: number;
+  minio_key: string;
+  filename: string;
+  description: string | null;
+  tags: string[];
+  width: number | null;
+  height: number | null;
+  url: string;
+  created_at: string;
 };
 
 export type TaskCreatePayload = {
@@ -264,6 +288,7 @@ export function statusLabel(status: string): string {
 export const navItems: { key: NavKey; label: string; icon: ComponentType<{ size?: number }> }[] = [
   { key: "ai", label: "AI 生文", icon: Sparkles },
   { key: "content", label: "内容管理", icon: FileText },
+  { key: "image-library", label: "图片库", icon: Images },
   { key: "media", label: "媒体矩阵", icon: RadioTower },
   { key: "tasks", label: "分发引擎", icon: Send },
   { key: "system", label: "系统状态", icon: MonitorCog },

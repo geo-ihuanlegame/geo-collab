@@ -25,9 +25,10 @@ import {
   updateArticleGroup,
   updateArticleGroupItems,
 } from "../../api/articles";
+import { listCategories } from "../../api/image-library";
 import { uploadAsset as uploadAssetRequest } from "../../api/assets";
 import { assetSrc, assetThumbSrc, countWords, emptyDoc, newClientRequestId, singleFlight, withAssetToken } from "../../api/core";
-import type { Article, ArticleCreatePayload, ArticleGroup, ArticleGroupUpdateItemsPayload, ArticleSummary, ArticleUpdatePayload, Asset, Draft } from "../../types";
+import type { Article, ArticleCreatePayload, ArticleGroup, ArticleGroupUpdateItemsPayload, ArticleSummary, ArticleUpdatePayload, Asset, Draft, StockCategory } from "../../types";
 import { formatDateTime } from "../../utils/dateFormat";
 import { EditorToolbar } from "../../components/editor/EditorToolbar";
 import { ArticleListItem } from "../../components/ArticleListItem";
@@ -42,6 +43,7 @@ function makeEmptyDraft(): Draft {
     cover_asset_id: null,
     status: "draft",
     version: null,
+    stock_category_id: null,
   };
 }
 
@@ -299,6 +301,7 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
   const [expandedGroupIds, setExpandedGroupIds] = useState<Set<number>>(new Set());
   const [groupPickerArticle, setGroupPickerArticle] = useState<ArticleSummary | null>(null);
   const [aiChecking, setAiChecking] = useState(false);
+  const [stockCategories, setStockCategories] = useState<StockCategory[]>([]);
   const [groupPickerSelectedId, setGroupPickerSelectedId] = useState<number | null>(null);
   const [confirmDeleteArticle, setConfirmDeleteArticle] = useState(false);
   const [confirmDeleteGroup, setConfirmDeleteGroup] = useState(false);
@@ -433,6 +436,7 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
   useEffect(() => {
     void refreshArticles();
     void refreshGroups();
+    listCategories().then(setStockCategories).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -475,6 +479,7 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
       cover_asset_id: article.cover_asset_id,
       status: article.status,
       version: article.version,
+      stock_category_id: null,
     });
     setLoading(true);
     setStatusText("加载中");
@@ -488,6 +493,7 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
         cover_asset_id: detail.cover_asset_id,
         status: detail.status,
         version: detail.version,
+        stock_category_id: detail.stock_category_id ?? null,
       });
       setAiChecking(detail.ai_checking ?? false);
       const displayDoc = normalizeEditorDocument(detail.content_json || emptyDoc, "display");
@@ -518,6 +524,7 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
       cover_asset_id: saved.cover_asset_id,
       status: saved.status,
       version: saved.version,
+      stock_category_id: saved.stock_category_id ?? null,
     });
     savedStateRef.current = {
       title: saved.title?.trim() ?? "",
@@ -552,6 +559,7 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
         word_count: countWords(editor.getText()),
         status: draft.status,
         version: draft.version,
+        stock_category_id: draft.stock_category_id,
       };
       const articleId = draft.id;
       const saved = articleId
@@ -687,6 +695,7 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
     setAiChecking(true);
     try {
       await triggerAiFormat(draft.id);
+      toast("AI 排版已启动，请稍候…", "success");
     } catch (error) {
       setAiChecking(false);
       toast(error instanceof Error ? error.message : "AI 格式调整启动失败", "error");
@@ -1005,6 +1014,20 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
                 <option value="archived">归档</option>
               </select>
             </label>
+            {stockCategories.length > 0 && (
+              <label>
+                配图栏目
+                <select
+                  value={draft.stock_category_id ?? ""}
+                  onChange={(e) => setDraft({ ...draft, stock_category_id: e.target.value ? Number(e.target.value) : null })}
+                >
+                  <option value="">— 不自动配图 —</option>
+                  {stockCategories.map((cat) => (
+                    <option key={cat.id} value={cat.id}>{cat.name}</option>
+                  ))}
+                </select>
+              </label>
+            )}
           </div>
 
           <section className="coverRow">

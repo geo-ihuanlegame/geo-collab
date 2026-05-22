@@ -4,6 +4,7 @@ import type { NavKey } from "./types";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ToastProvider } from "./components/Toast";
 import { AiGenerationWorkspace } from "./features/ai-generation/AiGenerationWorkspace";
+import { ImageLibraryWorkspace } from "./features/image-library/ImageLibraryWorkspace";
 import { ContentWorkspace } from "./features/content/ContentWorkspace";
 import { AccountsWorkspace } from "./features/accounts/AccountsWorkspace";
 import { TasksWorkspace } from "./features/tasks/TasksWorkspace";
@@ -107,6 +108,13 @@ function AppShell() {
                 <ContentWorkspace dirtyCheckRef={contentDirtyRef} />
               </ErrorBoundary>
             </div>
+            {visitedTabs.has("image-library") && (
+              <div style={{ display: activeNav === "image-library" ? undefined : "none" }}>
+                <ErrorBoundary fallback={<p role="alert">图片库出错，请刷新重试</p>}>
+                  <ImageLibraryWorkspace />
+                </ErrorBoundary>
+              </div>
+            )}
             {visitedTabs.has("media") && (
               <div style={{ display: activeNav === "media" ? undefined : "none" }}>
                 <ErrorBoundary fallback={<p role="alert">媒体矩阵出错，请刷新重试</p>}>

@@ -43,8 +43,10 @@ def to_article_read(article: Article, published_count: int = 0) -> ArticleRead:
             )
             for item in body_assets
         ],
+        stock_category_id=article.stock_category_id,
         created_at=article.created_at,
         updated_at=article.updated_at,
+        ai_checking=article.ai_checking,
     )
 
 
