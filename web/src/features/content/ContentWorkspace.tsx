@@ -684,8 +684,12 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
 
   async function handleAiFormat() {
     if (!draft?.id) return;
-    await triggerAiFormat(draft.id);
-    setAiChecking(true);
+    try {
+      await triggerAiFormat(draft.id);
+      setAiChecking(true);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "AI 格式调整启动失败", "error");
+    }
   }
 
   async function deleteCurrentArticle() {
