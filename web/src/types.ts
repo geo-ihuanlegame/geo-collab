@@ -66,6 +66,7 @@ export type Article = ArticleSummary & {
   content_html: string;
   plain_text: string;
   body_assets: ArticleBodyAsset[];
+  ai_checking: boolean;
 };
 
 export type ArticleGroup = {

@@ -61,3 +61,10 @@ export function updateArticleGroupItems(
 export function deleteArticleGroup(groupId: number): Promise<void> {
   return api<void>(`/api/article-groups/${groupId}`, { method: "DELETE" });
 }
+
+export async function triggerAiFormat(articleId: number): Promise<void> {
+  await fetch(`/api/articles/${articleId}/ai-format`, {
+    method: "POST",
+    credentials: "include",
+  });
+}
