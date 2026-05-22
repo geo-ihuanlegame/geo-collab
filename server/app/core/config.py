@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     # AI 格式调整（标题识别 / 未来配图配链接）—— 独立模型，降低成本
     ai_format_model: str = "deepseek/deepseek-chat-v4-flash"  # GEO_AI_FORMAT_MODEL
     ai_format_api_key: str = ""  # GEO_AI_FORMAT_API_KEY
+    ai_format_timeout_seconds: int = 120  # GEO_AI_FORMAT_TIMEOUT_SECONDS
 
     # MinIO 图片库存储
     minio_endpoint: str = "localhost:9000"  # GEO_MINIO_ENDPOINT

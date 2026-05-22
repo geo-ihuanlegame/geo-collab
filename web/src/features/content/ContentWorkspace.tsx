@@ -275,6 +275,7 @@ const CustomImage = Image.extend({
 
 const LIST_PAGE_SIZE = 10;
 const ARTICLE_FETCH_LIMIT = 200;
+const AI_FORMAT_TIMEOUT_SECONDS = 120;
 
 type UnifiedListItem =
   | { type: "article"; article: ArticleSummary; sortTime: number }
@@ -301,6 +302,8 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
   const [expandedGroupIds, setExpandedGroupIds] = useState<Set<number>>(new Set());
   const [groupPickerArticle, setGroupPickerArticle] = useState<ArticleSummary | null>(null);
   const [aiChecking, setAiChecking] = useState(false);
+  const [aiCheckStartedAt, setAiCheckStartedAt] = useState<number | null>(null);
+  const [aiFormatRemainingSeconds, setAiFormatRemainingSeconds] = useState(AI_FORMAT_TIMEOUT_SECONDS);
   const [stockCategories, setStockCategories] = useState<StockCategory[]>([]);
   const [groupPickerSelectedId, setGroupPickerSelectedId] = useState<number | null>(null);
   const [confirmDeleteArticle, setConfirmDeleteArticle] = useState(false);
@@ -433,6 +436,44 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
     }
   }
 
+  function syncArticleAfterAiFormat(detail: Article) {
+    setSelectedArticle(detail);
+    setDraft({
+      id: detail.id,
+      title: detail.title,
+      author: detail.author ?? "",
+      cover_asset_id: detail.cover_asset_id,
+      status: detail.status,
+      version: detail.version,
+      stock_category_id: detail.stock_category_id ?? null,
+    });
+
+    const displayDoc = normalizeEditorDocument(detail.content_json || emptyDoc, "display");
+    editor?.commands.setContent(displayDoc);
+    savedStateRef.current = {
+      title: detail.title?.trim() ?? "",
+      author: detail.author ?? "",
+      cover_asset_id: detail.cover_asset_id,
+      bodyState: stableStringify(normalizeEditorDocument(detail.content_json || emptyDoc, "save")),
+    };
+    setArticles((prev) =>
+      prev.map((article) =>
+        article.id === detail.id
+          ? {
+              ...article,
+              title: detail.title,
+              author: detail.author,
+              cover_asset_id: detail.cover_asset_id,
+              word_count: detail.word_count,
+              status: detail.status,
+              version: detail.version,
+              updated_at: detail.updated_at,
+            }
+          : article,
+      ),
+    );
+  }
+
   useEffect(() => {
     void refreshArticles();
     void refreshGroups();
@@ -442,19 +483,44 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
   useEffect(() => {
     if (!aiChecking || !draft?.id) return;
     const interval = setInterval(async () => {
-      const res = await fetch(`/api/articles/${draft.id}`, { credentials: "include" });
-      if (!res.ok) return;
-      const data = await res.json() as { ai_checking?: boolean; content_json?: unknown };
-      if (!data.ai_checking) {
+      try {
+        const data = await getArticle(draft.id!);
+        if (data.ai_checking) return;
         setAiChecking(false);
-        if (data.content_json) {
-          const displayDoc = normalizeEditorDocument(data.content_json, "display");
-          editor?.commands.setContent(displayDoc);
-        }
+        setAiCheckStartedAt(null);
+        syncArticleAfterAiFormat(data);
+      } catch {
+        // Keep polling; transient failures should not unlock the editor.
       }
     }, 2000);
     return () => clearInterval(interval);
   }, [aiChecking, draft?.id, editor]);
+
+  useEffect(() => {
+    if (!aiChecking || aiCheckStartedAt == null) {
+      setAiFormatRemainingSeconds(AI_FORMAT_TIMEOUT_SECONDS);
+      return;
+    }
+
+    const tick = () => {
+      const elapsed = Math.floor((Date.now() - aiCheckStartedAt) / 1000);
+      const remaining = Math.max(0, AI_FORMAT_TIMEOUT_SECONDS - elapsed);
+      setAiFormatRemainingSeconds(remaining);
+      if (remaining > 0) return;
+      setAiChecking(false);
+      setAiCheckStartedAt(null);
+      toast("AI格式调整超时", "error");
+      if (draft?.id) {
+        void getArticle(draft.id).then((data) => {
+          if (!data.ai_checking) syncArticleAfterAiFormat(data);
+        }).catch(() => {});
+      }
+    };
+
+    tick();
+    const timer = window.setInterval(tick, 1000);
+    return () => window.clearInterval(timer);
+  }, [aiChecking, aiCheckStartedAt, draft?.id, toast]);
 
   useEffect(() => {
     editor?.setEditable(!aiChecking);
@@ -466,6 +532,8 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
     setPendingCoverUrl((url) => { if (url) URL.revokeObjectURL(url); return null; });
     editor?.commands.setContent(emptyDoc);
     setSelectedArticleIds([]);
+    setAiChecking(false);
+    setAiCheckStartedAt(null);
     savedStateRef.current = null;
   }
 
@@ -496,6 +564,7 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
         stock_category_id: detail.stock_category_id ?? null,
       });
       setAiChecking(detail.ai_checking ?? false);
+      setAiCheckStartedAt(detail.ai_checking ? Date.now() : null);
       const displayDoc = normalizeEditorDocument(detail.content_json || emptyDoc, "display");
       editor?.commands.setContent(displayDoc);
       const bodyState = editor
@@ -692,12 +761,16 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
 
   async function handleAiFormat() {
     if (!draft?.id) return;
+    const startedAt = Date.now();
     setAiChecking(true);
+    setAiCheckStartedAt(startedAt);
+    setAiFormatRemainingSeconds(AI_FORMAT_TIMEOUT_SECONDS);
     try {
       await triggerAiFormat(draft.id);
       toast("AI 排版已启动，请稍候…", "success");
     } catch (error) {
       setAiChecking(false);
+      setAiCheckStartedAt(null);
       toast(error instanceof Error ? error.message : "AI 格式调整启动失败", "error");
     }
   }
@@ -1042,7 +1115,14 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
             {selectedArticle ? <span className="metaText">正文图片 {selectedArticle.body_assets.length} 张</span> : null}
           </section>
 
-          <EditorToolbar editor={editor} onImageUpload={handleBodyImageUpload} articleId={draft.id ?? 0} aiChecking={aiChecking} onAiFormat={handleAiFormat} />
+          <EditorToolbar
+            editor={editor}
+            onImageUpload={handleBodyImageUpload}
+            articleId={draft.id ?? 0}
+            aiChecking={aiChecking}
+            aiFormatRemainingSeconds={aiFormatRemainingSeconds}
+            onAiFormat={handleAiFormat}
+          />
           <div className="editorWrap">
             <EditorContent editor={editor} />
           </div>

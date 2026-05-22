@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from server.app.core.config import get_settings
 from server.app.core.security import get_current_user, require_admin
 from server.app.db.session import get_db
 from server.app.models import Article, PublishRecord, User
@@ -23,9 +24,6 @@ from server.app.api.serializers import to_article_read
 
 router = APIRouter()
 
-_AI_CHECK_TIMEOUT_SECONDS = 120
-
-
 def _verify_article_ownership(article: Article | None, current_user: User) -> Article:
     if article is None:
         raise HTTPException(status_code=404, detail="文章不存在")
@@ -34,20 +32,33 @@ def _verify_article_ownership(article: Article | None, current_user: User) -> Ar
     return article
 
 
-def _check_not_ai_locked(article: Article) -> None:
-    """Raise ConflictError if article is under active AI format check."""
+def _is_ai_lock_expired(article: Article) -> bool:
     if not article.ai_checking:
-        return
+        return False
     started = article.ai_checking_started_at
     if started is None:
-        return
+        return True
     elapsed = (datetime.now(timezone.utc).replace(tzinfo=None) - started).total_seconds()
-    if elapsed >= _AI_CHECK_TIMEOUT_SECONDS:
-        return  # timeout → treat as unlocked
-    raise ConflictError("文章正在进行 AI 格式调整，请稍后再试")
+    return elapsed >= get_settings().ai_format_timeout_seconds
 
 
-# 获取文章列表，支持按标题/作者搜索、分页
+def _clear_ai_lock_if_expired(db: Session, article: Article) -> None:
+    if not _is_ai_lock_expired(article):
+        return
+    article.ai_checking = False
+    article.ai_checking_started_at = None
+    db.commit()
+    db.refresh(article)
+
+
+def _check_not_ai_locked(db: Session, article: Article) -> None:
+    """Raise ConflictError if article is under active AI format check."""
+    _clear_ai_lock_if_expired(db, article)
+    if not article.ai_checking:
+        return
+    raise ConflictError("\u6587\u7ae0\u6b63\u5728\u8fdb\u884c AI \u683c\u5f0f\u8c03\u6574\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5")
+
+
 @router.get("", response_model=list[ArticleListRead])
 def read_articles(
     q: str | None = Query(default=None),
@@ -119,6 +130,7 @@ def read_article(
     current_user: User = Depends(get_current_user),
 ) -> ArticleRead:
     article = _verify_article_ownership(get_article(db, article_id), current_user)
+    _clear_ai_lock_if_expired(db, article)
     return to_article_read(article)
 
 
@@ -131,7 +143,7 @@ def update_article_endpoint(
     current_user: User = Depends(get_current_user),
 ) -> ArticleRead:
     article = _verify_article_ownership(get_article(db, article_id), current_user)
-    _check_not_ai_locked(article)
+    _check_not_ai_locked(db, article)
     return to_article_read(update_article(db, article, payload))
 
 
@@ -143,7 +155,7 @@ def delete_article_endpoint(
     current_user: User = Depends(require_admin),
 ) -> Response:
     article = _verify_article_ownership(get_article(db, article_id), current_user)
-    _check_not_ai_locked(article)
+    _check_not_ai_locked(db, article)
     delete_article(db, article)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -170,15 +182,16 @@ def trigger_ai_format_endpoint(
     current_user: User = Depends(get_current_user),
 ) -> dict[str, str]:
     article = _verify_article_ownership(get_article(db, article_id), current_user)
-    _check_not_ai_locked(article)
+    _check_not_ai_locked(db, article)
 
+    lock_started_at = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
     article.ai_checking = True
-    article.ai_checking_started_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    article.ai_checking_started_at = lock_started_at
     db.commit()
 
     def _run() -> None:
         from server.app.modules.articles.ai_format import run_ai_format
-        run_ai_format(article_id)
+        run_ai_format(article_id, include_images=False, lock_started_at=lock_started_at)
 
     threading.Thread(target=_run, daemon=True).start()
     return {"status": "started"}

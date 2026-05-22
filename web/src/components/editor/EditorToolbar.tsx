@@ -11,12 +11,14 @@ export function EditorToolbar({
   onImageUpload,
   articleId: _articleId,
   aiChecking,
+  aiFormatRemainingSeconds,
   onAiFormat,
 }: {
   editor: ReturnType<typeof useEditor>;
   onImageUpload: (files: File[]) => Promise<void>;
   articleId: number;
   aiChecking: boolean;
+  aiFormatRemainingSeconds?: number;
   onAiFormat: () => void;
 }) {
   if (!editor) return null;
@@ -88,7 +90,7 @@ export function EditorToolbar({
         title="AI 格式调整"
         type="button"
       >
-        {aiChecking ? "AI 调整中…" : "AI 格式"}
+        {aiChecking ? `AI 调整中 ${Math.max(0, aiFormatRemainingSeconds ?? 0)}s` : "AI 格式"}
       </button>
     </div>
   );
