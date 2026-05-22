@@ -356,17 +356,20 @@ def _select_body_editor_contents(page: Any) -> bool:
 
 
 def _insert_runs(page: Any, runs: tuple[tuple[str, bool], ...]) -> None:
-    """Insert text runs into editor, toggling Ctrl+B around bold runs."""
+    """Insert text runs into editor, toggling Ctrl+B around bold runs.
+
+    Uses keyboard.type() instead of clipboard paste to avoid clipboard API
+    failures in headless Chromium (Xvfb) which can silently truncate long text
+    or fail entirely, causing Ctrl+V to paste stale clipboard content.
+    """
     for text, is_bold in runs:
         if not text:
             continue
         if is_bold:
             page.keyboard.press("Control+b")
             page.wait_for_timeout(50)
-        page.evaluate("text => navigator.clipboard.writeText(text)", text)
+        page.keyboard.type(text, delay=5)
         page.wait_for_timeout(50)
-        page.keyboard.press("Control+v")
-        page.wait_for_timeout(100)
         if is_bold:
             page.keyboard.press("Control+b")
             page.wait_for_timeout(50)

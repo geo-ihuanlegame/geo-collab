@@ -1,3 +1,4 @@
+import logging
 import threading
 from datetime import datetime, timezone
 
@@ -194,8 +195,21 @@ def trigger_ai_format_endpoint(
     db.commit()
 
     def _run() -> None:
-        from server.app.modules.articles.ai_format import run_ai_format
-        run_ai_format(article_id, include_images=False, lock_started_at=lock_started_at)
+        try:
+            from server.app.modules.articles.ai_format import run_ai_format
+            run_ai_format(article_id, include_images=False, lock_started_at=lock_started_at)
+        except Exception:
+            logging.getLogger(__name__).exception(
+                "ai_format background thread crashed for article %s", article_id
+            )
+            try:
+                from server.app.db.session import SessionLocal
+                from server.app.modules.articles.ai_format import _unlock_ai_format
+                cleanup_db = SessionLocal()
+                _unlock_ai_format(cleanup_db, article_id, lock_started_at)
+                cleanup_db.close()
+            except Exception:
+                pass
 
     threading.Thread(target=_run, daemon=True).start()
     return {"status": "started"}

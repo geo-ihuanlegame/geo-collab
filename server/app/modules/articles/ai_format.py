@@ -201,8 +201,10 @@ def run_ai_format(
     """Identify body subheadings and write the updated Tiptap document back to the article."""
     from server.app.db.session import SessionLocal
 
-    db = SessionLocal()
+    db = None
     try:
+        from server.app.db.session import SessionLocal
+        db = SessionLocal()
         from server.app.modules.articles.article_Crud import get_article
 
         article = get_article(db, article_id)
@@ -263,12 +265,14 @@ def run_ai_format(
         )
 
     except Exception:
-        db.rollback()
+        if db is not None:
+            db.rollback()
         logger.exception("ai_format failed for article %s", article_id)
     finally:
-        try:
-            _unlock_ai_format(db, article_id, lock_started_at)
-        except Exception:
-            db.rollback()
-            logger.exception("ai_format unlock failed for article %s", article_id)
-        db.close()
+        if db is not None:
+            try:
+                _unlock_ai_format(db, article_id, lock_started_at)
+            except Exception:
+                db.rollback()
+                logger.exception("ai_format unlock failed for article %s", article_id)
+            db.close()
