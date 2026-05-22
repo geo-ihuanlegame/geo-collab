@@ -226,10 +226,11 @@ def run_ai_format(
             f"{i} {_node_label(node)}: {_node_text(node)}" for i, node in text_nodes
         )
 
+        get_settings.cache_clear()
         settings = get_settings()
         response = _call_litellm_completion(
             model=settings.ai_format_model,
-            api_key=settings.ai_format_api_key or None,
+            api_key=settings.ai_format_api_key or settings.ai_api_key or None,
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT_HEADINGS_ONLY},
                 {"role": "user", "content": listing},
