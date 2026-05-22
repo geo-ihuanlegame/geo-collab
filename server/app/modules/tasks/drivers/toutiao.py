@@ -400,6 +400,34 @@ def _insert_body_text(page: Any, text: str) -> None:
     page.wait_for_timeout(100)
 
 
+def _insert_runs(page: Any, runs: tuple[tuple[str, bool], ...]) -> None:
+    """Insert text runs into editor, toggling Ctrl+B around bold runs."""
+    for text, is_bold in runs:
+        if not text:
+            continue
+        if is_bold:
+            page.keyboard.press("Control+b")
+            page.wait_for_timeout(50)
+        page.evaluate("text => navigator.clipboard.writeText(text)", text)
+        page.wait_for_timeout(50)
+        page.keyboard.press("Control+v")
+        page.wait_for_timeout(100)
+        if is_bold:
+            page.keyboard.press("Control+b")
+            page.wait_for_timeout(50)
+
+
+def _insert_text_paragraph(page: Any, runs: tuple[tuple[str, bool], ...]) -> None:
+    _insert_runs(page, runs)
+
+
+def _insert_heading_paragraph(page: Any, runs: tuple[tuple[str, bool], ...]) -> None:
+    """Apply heading format on current line (Ctrl+Alt+1), then insert text."""
+    page.keyboard.press("Control+Alt+1")
+    page.wait_for_timeout(150)
+    _insert_runs(page, runs)
+
+
 def _body_image_count(page: Any) -> int:
     try:
         return page.locator("[contenteditable='true'] img").count()
