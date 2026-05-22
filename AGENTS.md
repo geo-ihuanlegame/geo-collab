@@ -12,13 +12,13 @@ uvicorn server.app.main:app --reload --host 127.0.0.1 --port 8000
 # frontend (port 5173, proxies /api → :8000)
 pnpm --filter @geo/web dev
 
-# typecheck (uses tsc -b from web/package.json)
+# typecheck (tsc -b, see web/package.json)
 pnpm --filter @geo/web typecheck
 
 # build (tsc -b && vite build)
 pnpm --filter @geo/web build
 
-# whole repo typecheck + build (also in root package.json)
+# whole repo typecheck + build (root package.json forwards)
 pnpm typecheck
 pnpm build
 
@@ -56,20 +56,22 @@ pnpm install
   - `require_local_token()` in `security.py` is **dead code** — not used by any route.
 - **Entry point**: Docker CMD: `alembic upgrade head && uvicorn server.app.main:app`. Dev: `uvicorn server.app.main:app --reload`.
 - **Monorepo**: pnpm workspace at root; packages defined in `pnpm-workspace.yaml`. `server/` is Python (FastAPI), `web/` is React 19 + Vite + TypeScript (`@geo/web`). Root `package.json` only has `pnpm --filter @geo/web` forwarding scripts.
-- **Routes**: 9 modules under `/api/` (`auth`, `accounts`, `articles`, `article-groups`, `assets`, `chunked-assets`, `publish-records`, `system`, `tasks`). Task SSE at `GET /api/tasks/{id}/stream`.
+- **Routes**: 12 modules under `/api/` (`auth`, `accounts`, `articles`, `article-groups`, `assets`, `chunked-assets`, `publish-records`, `system`, `tasks`, `skills`, `prompt-templates`, `generation`). Task SSE at `GET /api/tasks/{id}/stream`.
 - **Database**: **MySQL only** (`mysql+pymysql`). `GEO_DATABASE_URL` or `GEO_DB_HOST`/`GEO_DB_USER`/`GEO_DB_NAME` required at runtime. `alembic.ini` `sqlalchemy.url` is a placeholder — overridden by `get_database_url()`.
   - FTS via MySQL `FULLTEXT INDEX WITH PARSER ngram` (not SQLite FTS5).
   - No SQLite support. No `sqlite:///` fallback. Tests require real MySQL via `GEO_TEST_DATABASE_URL`.
 - **Frontend**: React 19, Vite, TypeScript strict, Tiptap rich-text, Lucide icons. Feature-split: `features/content/`, `accounts/`, `tasks/`, `system/`.
 - **Asset upload**: `<3MB → `POST /api/assets`; `>=3MB → chunked upload (`/api/chunked-assets/*`, 3MB chunks, 4 concurrent). **Frontend must NOT compute SHA256** — `upload-start` takes `{ total_size }` only; `file_hash` ignored. Backend computes SHA256 at `merge_chunks()` time.
 - **Modules** (`server/app/modules/`):
-  - `tasks/` — engine + driver registry + Playwright publish pipeline (`task_Executor.py`, `task_Crud.py`, `publish_Runner.py`, `drivers/toutiao.py`)
+  - `tasks/` — engine + driver registry + Playwright publish pipeline (`task_Executor.py`, `task_Crud.py`, `publish_runner.py`, `drivers/toutiao.py`)
   - `accounts/` — CRUD, login session state machine, Xvfb + x11vnc + websockify → noVNC remote browser (`account_Auth.py`, `account_Crud.py`, `browser_Session.py`)
-  - `articles/` — CRUD, Tiptap JSON parsing (`article_Crud.py`, `tiptap_Parser.py`, `asset_Store.py`)
+  - `articles/` — CRUD, Tiptap JSON parsing, chunked upload, AI format helpers (`article_Crud.py`, `tiptap_Parser.py`, `asset_Store.py`, `chunked_upload.py`, `ai_format.py`)
+  - `ai_generation/` — LangGraph pipeline, markdown→Tiptap converter (`pipeline.py`, `md_converter.py`, `generation_Crud.py`)
+  - `skills/` / `prompt_templates/` — CRUD for Skill folders and prompt templates used by AI generation
 - **Shared** (`server/app/shared/`): `errors.py` (exception classes), `feishu.py` (webhook), `diagnostics.py`, `system_status.py`
 - **Config**: pydantic-settings with `GEO_` prefix. `get_settings()` is `@lru_cache`'d — call `.cache_clear()` after env changes.
 - **Data dir**: `GEO_DATA_DIR`. Subdirs: `assets/`, `browser_states/<platform_code>/<account_key>/`, `logs/`, `exports/`.
-- **Startup order** (`create_app()`): ensure_data_dirs → import driver modules (registers drivers) → `recover_stuck_records` (resets leases expired during crash) → register exception handlers → uvicorn serve.
+- **Startup order** (`create_app()`): ensure_data_dirs → import driver modules (registers drivers) → `recover_stuck_records` (resets leases expired during crash) → register exception handlers → mount static files → uvicorn serve.
 - **Docker Compose**: mysql:8.0, app (FastAPI + static files), worker (publish executor + account login processor), nginx (80 → app, noVNC proxy). Worker is **single-instance** — do NOT `--scale worker=N`.
 - **Exception hierarchy** (`shared/errors.py`): `ClientError(Exception)` → 400, `ConflictError(ClientError)` → 409, `AccountError(ClientError)` → 400, `ValidationError(ClientError)` → 400. **Raise these in service code, not raw `ValueError`** — there is no global handler for uncaught `ValueError` → 500.
 
@@ -77,7 +79,7 @@ pnpm install
 
 - **Two modes**:
   - **Test/dev**: `POST /api/tasks/{id}/execute` spawns background thread via `bg_session_factory` (monkeypatched to `TestingSessionLocal` in tests). Returns 202.
-  - **Production**: `worker` Docker service polls DB, claims tasks via optimistic locking on `worker_id`/`worker_lease_until`, calls `execute_task()` synchronously. API only releases stale claims.
+  - **Production**: `worker` Docker service (`python -m server.worker.executor`) polls DB, claims tasks via optimistic locking on `worker_id`/`worker_lease_until`, calls `execute_task()` synchronously. API only releases stale claims.
 - **Three-level concurrency control**:
   1. **Per-task lock** (`threading.Lock` in `_task_locks` dict) — prevents re-entering `execute_task`
   2. **Global semaphore** (`_global_publish_sem`, `MAX_CONCURRENT_RECORDS=5`, configurable via `GEO_PUBLISH_MAX_CONCURRENT_RECORDS`) — limits concurrent record execution
@@ -85,6 +87,15 @@ pnpm install
 - **Crash recovery**: Worker does periodic (every ~60 iterations) recovery of tasks stuck in `"running"` with all records terminal. `recover_stuck_records` runs at startup. `recover_stuck_task_claims` (startup + periodic) releases expired worker leases.
 - **Account lock cleanup**: `_release_account_lock` called in `finally` block. If `_finish_record_future` raises, the outer `try/finally` ensures locks are released.
 - **DB session safety**: `run_in_executor` calls must do ALL `db` operations (including `flush`/`commit`/`refresh`) inside the executor thread. Do NOT access the same `Session` from both an executor thread and the event loop thread — SQLAlchemy `Session` is not thread-safe.
+
+## AI generation
+
+- **Key rule**: All model calls go through **LiteLLM**, never direct `anthropic` or `openai` SDK. Model ID comes from `GEO_AI_MODEL`.
+- **Flow**: LangGraph pipeline — plan agent (sequential, reads/writes skill shared-state files) → fan-out to N writing agents (concurrent, `max_workers=4`, each writes via `save_article` tool) → fan-in → done.
+- **Skill = folder** (e.g. `geo-article-v2/`) with `SKILL.md` + `references/` + `skeletons/` + `assets/`. Prompts are independent assets, combined with skills at runtime. Both managed via `/api/skills` and `/api/prompt-templates`.
+- **Database**: Generated articles go straight into the `articles` table. `create_article` has `client_request_id` idempotency — concurrent retries are safe. `generation_sessions` table tracks batch metadata.
+- **Format**: `md_converter.py` provides `markdown_to_tiptap()` and `markdown_to_html()`. No "placeholder article" pattern — agents write final articles directly.
+- **Session factory**: `generation` routes set `bg_session_factory = SessionLocal` in `create_app()` (line 183 of `main.py`) — AI generation has no dedicated worker, uses background threads from the API server.
 
 ## Playwright automation
 
@@ -135,6 +146,7 @@ import server.app.modules.tasks.drivers.myplatform  # noqa: F401
 - `build_test_app` calls `browser_Session._reset_globals()` to prevent cross-test browser session leaks.
 - Test database name must contain `"test"` (safety check in `get_test_database_url()`). Override with `GEO_ALLOW_NON_TEST_DATABASE_FOR_TESTS=1`.
 - `pytest.skip` is called inside `get_test_database_url()` when `GEO_TEST_DATABASE_URL` is missing — usable only from within a test function body, not at module scope.
+- Conftest uses `@pytest.mark.mysql` markers; tests are auto-skipped when `GEO_TEST_DATABASE_URL` is absent (module-level skip via `pytest_collection_modifyitems`).
 
 ## Gotchas
 
@@ -143,10 +155,10 @@ import server.app.modules.tasks.drivers.myplatform  # noqa: F401
 - `TaskCreate.platform_code` default is `"toutiao"` — backend fills in when frontend omits it.
 - **Route ordering**: `POST /api/accounts/{account_id:int}/login-session` MUST be registered before `POST /api/accounts/{platform_code}/login-session`. The `:int` converter prevents platform_code routes from swallowing numeric account IDs.
 - **Database constraints**: `article_groups.name` has a per-user unique constraint `(user_id, name)`, NOT a global unique. The old global unique index was dropped (migration 0021).
-- **Unique constraints**: `client_request_id` on `articles` and `publish_tasks` now include `user_id` (migration 0020). Cross-user conflicts no longer cause `IntegrityError` → 500.
+- **Unique constraints**: `client_request_id` on `articles` and `publish_tasks` include `user_id` (migration 0020). Cross-user conflicts no longer cause `IntegrityError` → 500.
 - **Chunked upload errors**: `complete_chunked_upload` must re-raise `HTTPException` so 415/4xx status isn't wrapped as 500.
 - **`stop_before_publish` flow**: Driver returns `PublishResult` normally. Record status becomes `waiting_manual_publish`. Do NOT `raise UserInputRequired` from driver for this case.
 - **Account lock release**: `_release_account_lock` is always called in `finally` block — never add `return` or `raise` between `_finish_record_future` and it, or the account permanently deadlocks.
 - **`None` values in `ArticleUpdate`**: `model_dump(exclude_unset=True)` includes `None` values. `article_Crud.py` filters them out with `and update_data[field] is not None` before `setattr` to avoid `IntegrityError` on NOT NULL columns.
 - **`docs/` directory**: `CHUNKED_UPLOAD.md` (chunked upload impl), `UPLOAD_OPTIMIZATION.md`. `scripts/deploy_check.py` for pre-deployment checks.
-- **Current migration head**: 0021 (`0021_drop_article_groups_name_unique.py`). Last non-migration change: Codex SQLite removal (commit `fe697d3`).
+- **Current migration head**: 0023 (`0023_add_ai_checking_to_articles.py`).
