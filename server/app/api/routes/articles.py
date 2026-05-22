@@ -1,3 +1,4 @@
+import threading
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -159,4 +160,26 @@ def update_article_cover(
     if payload.version is not None and article.version != payload.version:
         raise ConflictError("文章已被修改，请刷新后再保存")
     return to_article_read(set_article_cover(db, article, payload.cover_asset_id))
+
+
+# 触发 AI 格式调整
+@router.post("/{article_id}/ai-format", status_code=202)
+def trigger_ai_format_endpoint(
+    article_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, str]:
+    article = _verify_article_ownership(get_article(db, article_id), current_user)
+    _check_not_ai_locked(article)
+
+    article.ai_checking = True
+    article.ai_checking_started_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.commit()
+
+    def _run() -> None:
+        from server.app.modules.articles.ai_format import run_ai_format
+        run_ai_format(article_id)
+
+    threading.Thread(target=_run, daemon=True).start()
+    return {"status": "started"}
 
