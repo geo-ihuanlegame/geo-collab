@@ -28,6 +28,54 @@ PublishFillResult = PublishResult
 
 
 @dataclass(frozen=True)
+class BodyParagraph:
+    kind: str  # "text" | "heading" | "image"
+    runs: tuple[tuple[str, bool], ...] = ()   # (text, is_bold)
+    heading_level: int | None = None
+    image_path: Path | None = None
+    image_asset_id: str | None = None
+
+
+def _group_paragraphs(segments: list[BodySegment]) -> list[BodyParagraph]:
+    """Group flat BodySegments into logical paragraphs for sequential insertion."""
+    paragraphs: list[BodyParagraph] = []
+    current_runs: list[tuple[str, bool]] = []
+    current_hlevel: int | None = None
+
+    def _flush() -> None:
+        if not current_runs:
+            return
+        text = "".join(t for t, _ in current_runs)
+        if not text.strip():
+            current_runs.clear()
+            return
+        kind = "heading" if current_hlevel is not None else "text"
+        paragraphs.append(
+            BodyParagraph(kind=kind, runs=tuple(current_runs), heading_level=current_hlevel)
+        )
+        current_runs.clear()
+
+    for seg in segments:
+        if seg.kind == "image":
+            _flush()
+            current_hlevel = None
+            paragraphs.append(
+                BodyParagraph(kind="image", image_path=seg.image_path, image_asset_id=seg.image_asset_id)
+            )
+        elif seg.kind == "text" and seg.text == "\n":
+            _flush()
+            current_hlevel = None
+        elif seg.kind == "text":
+            if current_runs and current_hlevel != seg.heading_level:
+                _flush()
+            current_hlevel = seg.heading_level
+            current_runs.append((seg.text, seg.bold))
+
+    _flush()
+    return paragraphs
+
+
+@dataclass(frozen=True)
 class BodyImageSlot:
     index: int
     marker: str
