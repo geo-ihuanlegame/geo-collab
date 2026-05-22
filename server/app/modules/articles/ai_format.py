@@ -10,11 +10,10 @@ from server.app.modules.articles.tiptap_Parser import loads_content_json, dumps_
 logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = (
-    "You are a document formatter. Given a numbered list of article paragraphs, "
-    "identify which indices (0-based) should be formatted as H1 headings. "
-    "Headings are short topic-introducing phrases, typically under 20 characters. "
-    'Respond ONLY with valid JSON: {"heading_indices": [0, 3]} '
-    'or {"heading_indices": []} if none.'
+    "你是一个文章排版助手。给定一组编号段落，判断哪些段落应该格式化为小标题（H1）。"
+    "小标题通常是简短的主题引导句，一般不超过20个字。"
+    "只返回合法 JSON，格式为 {\"heading_indices\": [0, 3]}，没有小标题则返回 {\"heading_indices\": []}。"
+    "不要输出任何其他内容。"
 )
 
 
