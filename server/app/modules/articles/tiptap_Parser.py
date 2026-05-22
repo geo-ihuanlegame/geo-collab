@@ -139,9 +139,22 @@ def _compact(segments: list[BodySegment]) -> list[BodySegment]:
             if seg.text == "\n":
                 compacted.append(seg)
                 continue
-            if compacted and compacted[-1].kind == "text" and compacted[-1].text != "\n":
+            if (
+                compacted
+                and compacted[-1].kind == "text"
+                and compacted[-1].text != "\n"
+                and compacted[-1].bold == seg.bold
+                and compacted[-1].heading_level == seg.heading_level
+            ):
                 prev = compacted.pop()
-                compacted.append(BodySegment(kind="text", text=prev.text + seg.text))
+                compacted.append(
+                    BodySegment(
+                        kind="text",
+                        text=prev.text + seg.text,
+                        bold=prev.bold,
+                        heading_level=prev.heading_level,
+                    )
+                )
             else:
                 compacted.append(seg)
         else:
