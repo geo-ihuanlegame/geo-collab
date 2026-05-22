@@ -228,7 +228,7 @@ def _focus_body_editor(page: Any) -> None:
 
 
 def _fill_body(page: Any, segments: list[BodySegment]) -> None:
-    """逐段插入正文：标题用 Ctrl+Alt+1，加粗用 Ctrl+B，图片用原有上传流程。"""
+    """逐段插入正文：标题用 '# ' inputRule，加粗用 Ctrl+B，图片用原有上传流程。"""
     if not segments:
         raise ToutiaoPublishError("文章正文为空")
 
