@@ -70,3 +70,38 @@ def test_hard_break_produces_newline():
     segs = parse_body_segments(_article(content_json=content))
     full = "".join(s.text for s in segs if s.kind == "text")
     assert "A" in full and "B" in full and "\n" in full
+
+
+def test_heading_segment_has_heading_level():
+    import json
+    doc = {
+        "type": "doc",
+        "content": [
+            {
+                "type": "heading",
+                "attrs": {"level": 1},
+                "content": [{"type": "text", "text": "My Title"}],
+            }
+        ],
+    }
+    segs = parse_body_segments(_article(content_json=json.dumps(doc)))
+    text_segs = [s for s in segs if s.kind == "text" and s.text != "\n"]
+    assert text_segs[0].heading_level == 1
+
+
+def test_bold_mark_sets_bold_true():
+    import json
+    doc = {
+        "type": "doc",
+        "content": [
+            {
+                "type": "paragraph",
+                "content": [
+                    {"type": "text", "text": "bold", "marks": [{"type": "bold"}]},
+                ],
+            }
+        ],
+    }
+    segs = parse_body_segments(_article(content_json=json.dumps(doc)))
+    text_segs = [s for s in segs if s.kind == "text" and s.text != "\n"]
+    assert text_segs[0].bold is True

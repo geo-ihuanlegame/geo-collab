@@ -11,6 +11,8 @@ from typing import Any, Iterable
 class BodySegment:
     kind: str                           # "text" | "image"
     text: str = ""                      # populated for kind="text"
+    bold: bool = False                  # text 节点有 bold mark
+    heading_level: int | None = None    # 来自 heading 节点时为 1 或 2
     image_path: Path | None = None      # populated after resolution in publish_Runner
     image_asset_id: str | None = None   # populated by parser; used for tracing
 
