@@ -23,22 +23,10 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-_orig_init_subclass = BaseModel.__init_subclass__
-
-
-def _init_subclass_patch(cls, **kwargs):
-    _orig_init_subclass(**kwargs)
-    if cls.__name__ == "BaseModel":
-        return
-    encoders = dict(cls.model_config.get("json_encoders", {}))
-    encoders.setdefault(
-        datetime,
-        lambda dt: dt.isoformat() + ("Z" if dt.tzinfo is None else ""),
-    )
-    cls.model_config["json_encoders"] = encoders
-
-
-BaseModel.__init_subclass__ = classmethod(_init_subclass_patch)
+# ── datetime 序列化：在 BaseModel.model_config 上设置，所有子类自动继承 ──
+BaseModel.model_config["json_encoders"] = {
+    datetime: lambda dt: dt.isoformat() + ("Z" if dt.tzinfo is None else ""),
+}
 
 import fastapi.encoders
 
