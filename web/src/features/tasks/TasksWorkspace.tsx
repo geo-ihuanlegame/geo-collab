@@ -22,6 +22,32 @@ import { formatDate, formatDateTime, formatTime } from "../../utils/dateFormat";
 import { Pagination } from "../../components/Pagination";
 
 const TASK_PAGE_SIZE = 10;
+const TASK_LIST_REFRESH_MS = 4_000;
+
+function isTaskActive(task: Task | null | undefined): task is Task {
+  return Boolean(task && !TERMINAL_STATUSES.has(task.status));
+}
+
+function upsertTask(tasks: Task[], task: Task): Task[] {
+  return tasks.some((item) => item.id === task.id)
+    ? tasks.map((item) => (item.id === task.id ? task : item))
+    : [task, ...tasks];
+}
+
+function pruneFinishedAutoRefreshIds(ids: Set<number>, tasks: Task[]): Set<number> {
+  if (ids.size === 0) return ids;
+  const taskById = new Map(tasks.map((task) => [task.id, task]));
+  let changed = false;
+  const next = new Set(ids);
+  ids.forEach((taskId) => {
+    const task = taskById.get(taskId);
+    if (!task || TERMINAL_STATUSES.has(task.status)) {
+      next.delete(taskId);
+      changed = true;
+    }
+  });
+  return changed ? next : ids;
+}
 
 export function TasksWorkspace() {
   const { toast } = useToast();
@@ -55,7 +81,8 @@ export function TasksWorkspace() {
   );
   const shouldPollSelectedTask =
     selectedTaskId !== null &&
-    (selectedTask?.status === "running" || hasActiveRecords || autoRefreshTaskIds.has(selectedTaskId));
+    (isTaskActive(selectedTask) || hasActiveRecords || autoRefreshTaskIds.has(selectedTaskId));
+  const hasActiveTasks = tasks.some(isTaskActive);
   const articleMap = useMemo(() => Object.fromEntries(articles.map((a) => [a.id, a])), [articles]);
   const accountMap = useMemo(() => Object.fromEntries(accounts.map((a) => [a.id, a])), [accounts]);
   const sortedTasks = useMemo(
@@ -68,6 +95,20 @@ export function TasksWorkspace() {
   useEffect(() => {
     void loadInitial();
   }, []);
+
+  useEffect(() => {
+    if (!hasActiveTasks) return;
+    const timer = window.setInterval(async () => {
+      try {
+        const nextTasks = await listTasks();
+        setTasks(nextTasks);
+        setAutoRefreshTaskIds((prev) => pruneFinishedAutoRefreshIds(prev, nextTasks));
+      } catch (error) {
+        console.warn("Failed to refresh task list", error);
+      }
+    }, TASK_LIST_REFRESH_MS);
+    return () => window.clearInterval(timer);
+  }, [hasActiveTasks]);
 
   useEffect(() => {
     if (!selectedTaskId || !shouldPollSelectedTask) return;
@@ -217,6 +258,8 @@ export function TasksWorkspace() {
         createTaskRequest(payload),
       );
       if (!task) return;
+      setTasks((prev) => upsertTask(prev, task));
+      setAutoRefreshTaskIds((prev) => new Set(prev).add(task.id));
       setShowCreateForm(false);
       setFormName("");
       setFormArticleId(null);
@@ -225,7 +268,7 @@ export function TasksWorkspace() {
       setFormError("");
       setPreview(null);
       setTaskPage(0);
-      toast("任务已创建", "success");
+      toast("任务已创建，正在等待执行", "success");
       await selectTask(task.id);
     } catch (error) {
       const msg = error instanceof Error ? error.message : "创建失败";
@@ -496,7 +539,7 @@ export function TasksWorkspace() {
                 </div>
               ) : null}
               <button className="primaryButton" style={{ width: "100%" }} type="button" disabled={loading} onClick={() => void createTask()}>
-                创建任务
+                创建并入队
               </button>
             </div>
           ) : null}
@@ -549,7 +592,7 @@ export function TasksWorkspace() {
               {canExecute ? (
                 <button className="primaryButton" type="button" disabled={loading} onClick={() => void executeTask()}>
                   <Send size={15} />
-                  执行
+                  唤醒执行
                 </button>
               ) : null}
               {canCancel ? (
