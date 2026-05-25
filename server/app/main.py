@@ -7,9 +7,9 @@ Geo Collab API 应用工厂与全局配置。
 
 阅读顺序建议：
   1. create_app() → 了解路由注册、全局异常处理、启动行为
-  2. models/publish.py → PublishTask / PublishRecord 状态机
-  3. services/tasks.py → 任务执行引擎
-  4. services/drivers/toutiao.py → 头条浏览器自动化
+  2. modules/tasks/models.py → PublishTask / PublishRecord 状态机
+  3. modules/tasks/executor.py → 任务执行引擎
+  4. modules/tasks/drivers/toutiao.py → 头条浏览器自动化
 """
 import os
 import sys
@@ -112,12 +112,8 @@ def create_app() -> FastAPI:
             "Startup recovery failed — stuck records may not have been reset"
         )
 
-    # 全局异常处理：业务层统一 raise ClientError → 400
-    @app.exception_handler(ClientError)
-    async def _client_error_handler(request: Request, exc: ClientError) -> JSONResponse:
-        return JSONResponse(status_code=400, content={"detail": str(exc)})
-
-    # ConflictError(ValueError) 有更具体的含义 → 409，优先于 ValueError 处理器
+    # 全局异常处理：子类先注册，父类后注册，确保子类不被父类处理器吃掉
+    # ConflictError → 409（子类，先注册）
     @app.exception_handler(ConflictError)
     async def _conflict_error_handler(request: Request, exc: ConflictError) -> JSONResponse:
         return JSONResponse(status_code=409, content={"detail": str(exc)})
@@ -128,6 +124,11 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(AccountError)
     async def _account_error_handler(request: Request, exc: AccountError) -> JSONResponse:
+        return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+    # ClientError → 400（父类，后注册）
+    @app.exception_handler(ClientError)
+    async def _client_error_handler(request: Request, exc: ClientError) -> JSONResponse:
         return JSONResponse(status_code=400, content={"detail": str(exc)})
 
     @app.exception_handler(Exception)

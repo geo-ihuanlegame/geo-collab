@@ -1,9 +1,4 @@
-"""任务模块路由。
-
-合并自：
-  - api/routes/tasks.py
-  - api/routes/publish_records.py
-"""
+"""任务模块路由。"""
 import logging
 import threading
 import time

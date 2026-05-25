@@ -63,10 +63,10 @@ pnpm install
 - **Frontend**: React 19, Vite, TypeScript strict, Tiptap rich-text, Lucide icons. Feature-split: `features/content/`, `accounts/`, `tasks/`, `system/`.
 - **Asset upload**: `<3MB → `POST /api/assets`; `>=3MB → chunked upload (`/api/chunked-assets/*`, 3MB chunks, 4 concurrent). **Frontend must NOT compute SHA256** — `upload-start` takes `{ total_size }` only; `file_hash` ignored. Backend computes SHA256 at `merge_chunks()` time.
 - **Modules** (`server/app/modules/`):
-  - `tasks/` — engine + driver registry + Playwright publish pipeline (`task_Executor.py`, `task_Crud.py`, `publish_runner.py`, `drivers/toutiao.py`)
-  - `accounts/` — CRUD, login session state machine, Xvfb + x11vnc + websockify → noVNC remote browser (`account_Auth.py`, `account_Crud.py`, `browser_Session.py`)
-  - `articles/` — CRUD, Tiptap JSON parsing, chunked upload, AI format helpers (`article_Crud.py`, `tiptap_Parser.py`, `asset_Store.py`, `chunked_upload.py`, `ai_format.py`)
-  - `ai_generation/` — LangGraph pipeline, markdown→Tiptap converter (`pipeline.py`, `md_converter.py`, `generation_Crud.py`)
+  - `tasks/` — engine + driver registry + Playwright publish pipeline (`executor.py`, `service.py`, `runner.py`, `drivers/toutiao.py`)
+  - `accounts/` — CRUD, login session state machine, Xvfb + x11vnc + websockify → noVNC remote browser (`auth.py`, `service.py`, `browser.py`)
+  - `articles/` — CRUD, Tiptap JSON parsing, chunked upload, AI format helpers (`service.py`, `parser.py`, `store.py`, `uploader.py`, `ai_format.py`)
+  - `ai_generation/` — LangGraph pipeline, markdown→Tiptap converter (`pipeline.py`, `converter.py`, `service.py`)
   - `skills/` / `prompt_templates/` — CRUD for Skill folders and prompt templates used by AI generation
 - **Shared** (`server/app/shared/`): `errors.py` (exception classes), `feishu.py` (webhook), `diagnostics.py`, `system_status.py`
 - **Config**: pydantic-settings with `GEO_` prefix. `get_settings()` is `@lru_cache`'d — call `.cache_clear()` after env changes.
@@ -94,7 +94,7 @@ pnpm install
 - **Flow**: LangGraph pipeline — plan agent (sequential, reads/writes skill shared-state files) → fan-out to N writing agents (concurrent, `max_workers=4`, each writes via `save_article` tool) → fan-in → done.
 - **Skill = folder** (e.g. `geo-article-v2/`) with `SKILL.md` + `references/` + `skeletons/` + `assets/`. Prompts are independent assets, combined with skills at runtime. Both managed via `/api/skills` and `/api/prompt-templates`.
 - **Database**: Generated articles go straight into the `articles` table. `create_article` has `client_request_id` idempotency — concurrent retries are safe. `generation_sessions` table tracks batch metadata.
-- **Format**: `md_converter.py` provides `markdown_to_tiptap()` and `markdown_to_html()`. No "placeholder article" pattern — agents write final articles directly.
+- **Format**: `converter.py` provides `markdown_to_tiptap()` and `markdown_to_html()`. No "placeholder article" pattern — agents write final articles directly.
 - **Session factory**: `generation` routes set `bg_session_factory = SessionLocal` in `create_app()` (line 183 of `main.py`) — AI generation has no dedicated worker, uses background threads from the API server.
 
 ## Playwright automation
@@ -141,9 +141,9 @@ import server.app.modules.tasks.drivers.myplatform  # noqa: F401
 
 - `build_test_app(monkeypatch)` in `server/tests/utils.py` requires `GEO_TEST_DATABASE_URL`. Rebuilds disposable MySQL schema, creates temp data dir + admin user + JWT cookie. **Every test must call `test_app.cleanup()`** (or use `try/finally`).
 - Tests that execute tasks must pass `"stop_before_publish": False` (or the task pauses at preview).
-- Mock the publish runner: `monkeypatch.setattr("server.app.modules.tasks.task_Executor.build_publish_runner_for_record", lambda r: stub_runner)`.
+- Mock the publish runner: `monkeypatch.setattr("server.app.modules.tasks.executor.build_publish_runner_for_record", lambda r: stub_runner)`.
 - Background task execution uses `bg_session_factory` — patched to `TestingSessionLocal` by `build_test_app`.
-- `build_test_app` calls `browser_Session._reset_globals()` to prevent cross-test browser session leaks.
+- `build_test_app` calls `browser._reset_globals()` to prevent cross-test browser session leaks.
 - Test database name must contain `"test"` (safety check in `get_test_database_url()`). Override with `GEO_ALLOW_NON_TEST_DATABASE_FOR_TESTS=1`.
 - `pytest.skip` is called inside `get_test_database_url()` when `GEO_TEST_DATABASE_URL` is missing — usable only from within a test function body, not at module scope.
 - Conftest uses `@pytest.mark.mysql` markers; tests are auto-skipped when `GEO_TEST_DATABASE_URL` is absent (module-level skip via `pytest_collection_modifyitems`).
@@ -151,7 +151,7 @@ import server.app.modules.tasks.drivers.myplatform  # noqa: F401
 ## Gotchas
 
 - `ensure_data_dirs()` runs at **module import** of `server/app/db/session.py`.
-- `bg_session_factory` (module-level var in `server/app/api/routes/tasks.py`) is imported **lazily** inside functions to avoid circular imports. Do NOT top-level import it.
+- `bg_session_factory` (module-level var in `server/app/modules/tasks/router.py`) is imported **lazily** inside functions to avoid circular imports. Do NOT top-level import it.
 - `TaskCreate.platform_code` default is `"toutiao"` — backend fills in when frontend omits it.
 - **Route ordering**: `POST /api/accounts/{account_id:int}/login-session` MUST be registered before `POST /api/accounts/{platform_code}/login-session`. The `:int` converter prevents platform_code routes from swallowing numeric account IDs.
 - **Database constraints**: `article_groups.name` has a per-user unique constraint `(user_id, name)`, NOT a global unique. The old global unique index was dropped (migration 0021).
@@ -159,6 +159,6 @@ import server.app.modules.tasks.drivers.myplatform  # noqa: F401
 - **Chunked upload errors**: `complete_chunked_upload` must re-raise `HTTPException` so 415/4xx status isn't wrapped as 500.
 - **`stop_before_publish` flow**: Driver returns `PublishResult` normally. Record status becomes `waiting_manual_publish`. Do NOT `raise UserInputRequired` from driver for this case.
 - **Account lock release**: `_release_account_lock` is always called in `finally` block — never add `return` or `raise` between `_finish_record_future` and it, or the account permanently deadlocks.
-- **`None` values in `ArticleUpdate`**: `model_dump(exclude_unset=True)` includes `None` values. `article_Crud.py` filters them out with `and update_data[field] is not None` before `setattr` to avoid `IntegrityError` on NOT NULL columns.
+- **`None` values in `ArticleUpdate`**: `model_dump(exclude_unset=True)` includes `None` values. `service.py` (articles module) filters them out with `and update_data[field] is not None` before `setattr` to avoid `IntegrityError` on NOT NULL columns.
 - **`docs/` directory**: `CHUNKED_UPLOAD.md` (chunked upload impl), `UPLOAD_OPTIMIZATION.md`. `scripts/deploy_check.py` for pre-deployment checks.
 - **Current migration head**: 0023 (`0023_add_ai_checking_to_articles.py`).

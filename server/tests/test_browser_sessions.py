@@ -1,8 +1,8 @@
 from pathlib import Path
 
 from server.app.core.config import get_settings
-from server.app.modules.accounts import browser as browser_Session
-browser_sessions = browser_Session
+from server.app.modules.accounts import browser as browser_session
+browser_sessions = browser_session
 
 
 class FakeProcess:
@@ -39,11 +39,11 @@ def test_remote_browser_session_starts_processes_and_cleans_up(monkeypatch, tmp_
     monkeypatch.setenv("GEO_PUBLISH_REMOTE_BROWSER_HOST", "127.0.0.1")
     monkeypatch.setenv("GEO_PUBLISH_NOVNC_WEB_DIR", str(tmp_path))
     get_settings.cache_clear()
-    monkeypatch.setattr(browser_Session.shutil, "which", lambda command: f"/usr/bin/{command}")
-    monkeypatch.setattr(browser_Session.subprocess, "Popen", fake_popen)
-    monkeypatch.setattr(browser_Session, "_wait_for_x_display", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(browser_Session, "_wait_for_port", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(browser_Session, "_port_available", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(browser_session.shutil, "which", lambda command: f"/usr/bin/{command}")
+    monkeypatch.setattr(browser_session.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(browser_session, "_wait_for_x_display", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(browser_session, "_wait_for_port", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(browser_session, "_port_available", lambda *_args, **_kwargs: True)
 
     try:
         with browser_sessions.managed_remote_browser_session("spike") as session:

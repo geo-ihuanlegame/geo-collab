@@ -88,6 +88,7 @@ def planner_node(state: PipelineState) -> dict:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
+        api_key=settings.ai_api_key or None,
     )
     raw = response.choices[0].message.content or "[]"
 
@@ -152,6 +153,7 @@ def _write_one_article(
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
+        api_key=settings.ai_api_key or None,
     )
     md_content = response.choices[0].message.content or ""
 

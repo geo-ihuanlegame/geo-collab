@@ -96,6 +96,8 @@ async def require_admin(current_user: User = Depends(get_current_user)) -> User:
     return current_user
 
 
+# NOTE: This function is currently unused (no route depends on it).
+# Kept for potential future use. Remove if never adopted.
 async def require_local_token(request: Request) -> None:
     token = os.environ.get("GEO_LOCAL_API_TOKEN")
     if not token:

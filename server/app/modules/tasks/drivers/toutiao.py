@@ -661,7 +661,7 @@ def _publish_image_state(page: Any) -> dict[str, Any]:
 
 
 def _handle_cover(page: Any, cover_path: Path, cover_asset_id: str | None) -> None:
-    """上传封面图片。封面图是必填项，路径已由 publish_runner 预先解析。"""
+    """上传封面图片。封面图是必填项，路径已由 runner 预先解析。"""
     if not cover_path.exists():
         raise ToutiaoPublishError(f"Cover asset file not found: {cover_asset_id or cover_path}")
     record_publish_diagnostic(f"cover upload start: asset_id={cover_asset_id}; path={cover_path.name}")

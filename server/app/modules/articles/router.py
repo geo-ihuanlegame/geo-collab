@@ -1,11 +1,4 @@
-"""文章模块路由。
-
-合并自：
-  - api/routes/articles.py
-  - api/routes/article_groups.py
-  - api/routes/assets.py
-  - api/routes/chunked_assets.py
-"""
+"""文章模块路由。"""
 import logging
 import os
 import threading
@@ -78,6 +71,8 @@ articles_router = APIRouter()
 article_groups_router = APIRouter()
 assets_router = APIRouter()
 chunked_assets_router = APIRouter()
+
+_logger = logging.getLogger(__name__)
 
 
 # ── Article helpers ───────────────────────────────────────────────────────────
@@ -687,4 +682,7 @@ async def complete_chunked_upload(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
     finally:
-        manager.cleanup_session(upload_id)
+        try:
+            manager.cleanup_session(upload_id)
+        except Exception:
+            _logger.warning("Failed to cleanup chunked upload session %s", upload_id, exc_info=True)

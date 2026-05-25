@@ -16,11 +16,11 @@
 
 | 操作 | 文件 |
 |------|------|
-| 修改 | `server/app/models/article.py` |
+| 修改 | `server/app/modules/articles/models.py` |
 | 新建 | `server/app/db/migrations/versions/xxxx_add_ai_checking_to_articles.py` |
 | 新建 | `server/app/modules/articles/ai_format.py` |
-| 修改 | `server/app/api/routes/articles.py` |
-| 修改 | `server/app/schemas/article.py` |
+| 修改 | `server/app/modules/articles/router.py` |
+| 修改 | `server/app/modules/articles/schemas.py` |
 | 新建 | `server/tests/test_ai_format.py` |
 | 修改 | `web/src/api/articles.ts`（或同目录下 articles 相关 API 文件）|
 | 修改 | `web/src/features/content/EditorToolbar.tsx` |
@@ -31,12 +31,12 @@
 ### Task 1: Article 模型添加锁字段 + Alembic 迁移
 
 **Files:**
-- Modify: `server/app/models/article.py`
+- Modify: `server/app/modules/articles/models.py`
 - Create: alembic migration
 
 - [ ] **Step 1: 更新 Article 模型**
 
-在 `server/app/models/article.py` 的 `Article` 类中，在 `is_deleted` 字段后追加：
+在 `server/app/modules/articles/models.py` 的 `Article` 类中，在 `is_deleted` 字段后追加：
 
 ```python
 from datetime import datetime
@@ -70,7 +70,7 @@ alembic upgrade head
 - [ ] **Step 4: Commit**
 
 ```bash
-git add server/app/models/article.py
+git add server/app/modules/articles/models.py
 git add server/app/db/migrations/versions/
 git commit -m "feat: add ai_checking lock fields to Article model"
 ```
@@ -80,11 +80,11 @@ git commit -m "feat: add ai_checking lock fields to Article model"
 ### Task 2: 在 ArticleRead schema 暴露 ai_checking 字段
 
 **Files:**
-- Modify: `server/app/schemas/article.py`
+- Modify: `server/app/modules/articles/schemas.py`
 
 - [ ] **Step 1: 在 ArticleRead 中添加字段**
 
-在 `server/app/schemas/article.py` 的 `ArticleRead`（或等价的响应 schema）类中追加：
+在 `server/app/modules/articles/schemas.py` 的 `ArticleRead`（或等价的响应 schema）类中追加：
 
 ```python
 ai_checking: bool = False
@@ -99,7 +99,7 @@ pytest server/tests/ -q
 - [ ] **Step 3: Commit**
 
 ```bash
-git add server/app/schemas/article.py
+git add server/app/modules/articles/schemas.py
 git commit -m "feat: expose ai_checking in ArticleRead schema"
 ```
 
@@ -108,7 +108,7 @@ git commit -m "feat: expose ai_checking in ArticleRead schema"
 ### Task 3: 添加锁检查辅助函数，更新编辑/删除端点
 
 **Files:**
-- Modify: `server/app/api/routes/articles.py`
+- Modify: `server/app/modules/articles/router.py`
 
 - [ ] **Step 1: 写失败测试**
 
@@ -133,7 +133,7 @@ def test_edit_locked_article_returns_409(monkeypatch):
 
 - [ ] **Step 2: 在 articles.py 添加锁检查函数**
 
-在 `server/app/api/routes/articles.py` 文件顶部的辅助函数区域添加：
+在 `server/app/modules/articles/router.py` 文件顶部的辅助函数区域添加：
 
 ```python
 from datetime import datetime, timezone
@@ -178,7 +178,7 @@ pytest server/tests/ -q
 - [ ] **Step 5: Commit**
 
 ```bash
-git add server/app/api/routes/articles.py
+git add server/app/modules/articles/router.py
 git commit -m "feat: lock article against edit/delete while ai_checking is active"
 ```
 
@@ -209,7 +209,7 @@ import logging
 from datetime import datetime, timezone
 
 from server.app.core.config import get_settings
-from server.app.modules.articles.tiptap_Parser import loads_content_json, dumps_content_json
+from server.app.modules.articles.parser import loads_content_json, dumps_content_json
 
 logger = logging.getLogger(__name__)
 
@@ -257,7 +257,7 @@ def run_ai_format(article_id: int) -> None:
 
     db = SessionLocal()
     try:
-        from server.app.modules.articles.article_Crud import get_article
+        from server.app.modules.articles.service import get_article
 
         article = get_article(db, article_id)
         if article is None or article.is_deleted:
@@ -299,7 +299,7 @@ def run_ai_format(article_id: int) -> None:
         logger.exception("ai_format failed for article %s", article_id)
     finally:
         try:
-            from server.app.modules.articles.article_Crud import get_article as _get
+            from server.app.modules.articles.service import get_article as _get
 
             article = _get(db, article_id)
             if article is not None:
@@ -375,7 +375,7 @@ git commit -m "feat: add ai_format service for heading detection via LiteLLM"
 ### Task 5: 添加 POST /api/articles/{id}/ai-format 端点
 
 **Files:**
-- Modify: `server/app/api/routes/articles.py`
+- Modify: `server/app/modules/articles/router.py`
 
 - [ ] **Step 1: 在 articles.py 末尾追加端点**
 
@@ -418,7 +418,7 @@ pytest server/tests/ -q
 - [ ] **Step 4: Commit**
 
 ```bash
-git add server/app/api/routes/articles.py
+git add server/app/modules/articles/router.py
 git commit -m "feat: add POST /api/articles/{id}/ai-format endpoint"
 ```
 

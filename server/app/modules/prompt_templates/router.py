@@ -1,7 +1,4 @@
-"""提示词模板模块路由。
-
-迁移自：api/routes/prompt_templates.py
-"""
+"""提示词模板模块路由。"""
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException

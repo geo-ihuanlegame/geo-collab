@@ -14,7 +14,7 @@
 
 | 操作 | 文件 |
 |------|------|
-| 修改 | `server/app/modules/articles/tiptap_Parser.py` |
+| 修改 | `server/app/modules/articles/parser.py` |
 | 新建 | `server/tests/test_tiptap_parser.py` |
 | 修改 | `server/app/modules/tasks/drivers/toutiao.py` |
 | 新建 | `server/tests/test_toutiao_group_paragraphs.py` |
@@ -24,7 +24,7 @@
 ### Task 1: 为 BodySegment 添加 bold 和 heading_level 字段
 
 **Files:**
-- Modify: `server/app/modules/articles/tiptap_Parser.py:10-15`
+- Modify: `server/app/modules/articles/parser.py:10-15`
 - Create: `server/tests/test_tiptap_parser.py`
 
 - [ ] **Step 1: 写失败测试**
@@ -33,7 +33,7 @@
 # server/tests/test_tiptap_parser.py
 import json
 import pytest
-from server.app.modules.articles.tiptap_Parser import BodySegment, parse_body_segments
+from server.app.modules.articles.parser import BodySegment, parse_body_segments
 
 
 def _article(content_json: dict):
@@ -87,7 +87,7 @@ pytest server/tests/test_tiptap_parser.py -v
 
 - [ ] **Step 3: 更新 BodySegment**
 
-将 `server/app/modules/articles/tiptap_Parser.py` 第 10-15 行替换为：
+将 `server/app/modules/articles/parser.py` 第 10-15 行替换为：
 
 ```python
 @dataclass(frozen=True)
@@ -111,7 +111,7 @@ pytest server/tests/test_tiptap_parser.py -v
 - [ ] **Step 5: Commit**
 
 ```bash
-git add server/app/modules/articles/tiptap_Parser.py server/tests/test_tiptap_parser.py
+git add server/app/modules/articles/parser.py server/tests/test_tiptap_parser.py
 git commit -m "feat: add bold and heading_level fields to BodySegment"
 ```
 
@@ -120,7 +120,7 @@ git commit -m "feat: add bold and heading_level fields to BodySegment"
 ### Task 2: 更新 _append_segments 传递标题上下文
 
 **Files:**
-- Modify: `server/app/modules/articles/tiptap_Parser.py:78-114`
+- Modify: `server/app/modules/articles/parser.py:78-114`
 
 - [ ] **Step 1: 重写 _append_segments**
 
@@ -191,7 +191,7 @@ pytest server/tests/test_tiptap_parser.py -v
 - [ ] **Step 3: Commit**
 
 ```bash
-git add server/app/modules/articles/tiptap_Parser.py
+git add server/app/modules/articles/parser.py
 git commit -m "feat: propagate heading level context in _append_segments"
 ```
 
@@ -200,7 +200,7 @@ git commit -m "feat: propagate heading level context in _append_segments"
 ### Task 3: 更新 _compact 不跨 bold/heading_level 边界合并
 
 **Files:**
-- Modify: `server/app/modules/articles/tiptap_Parser.py:117-135`
+- Modify: `server/app/modules/articles/parser.py:117-135`
 - Modify: `server/tests/test_tiptap_parser.py`
 
 - [ ] **Step 1: 补充测试**
@@ -208,7 +208,7 @@ git commit -m "feat: propagate heading level context in _append_segments"
 在 `server/tests/test_tiptap_parser.py` 末尾追加：
 
 ```python
-from server.app.modules.articles.tiptap_Parser import _compact
+from server.app.modules.articles.parser import _compact
 
 
 def test_compact_does_not_merge_across_bold_boundary():
@@ -299,7 +299,7 @@ pytest server/tests/test_tiptap_parser.py -v
 - [ ] **Step 5: Commit**
 
 ```bash
-git add server/app/modules/articles/tiptap_Parser.py server/tests/test_tiptap_parser.py
+git add server/app/modules/articles/parser.py server/tests/test_tiptap_parser.py
 git commit -m "feat: compact respects bold and heading_level boundaries"
 ```
 
@@ -316,7 +316,7 @@ git commit -m "feat: compact respects bold and heading_level boundaries"
 ```python
 # server/tests/test_toutiao_group_paragraphs.py
 from pathlib import Path
-from server.app.modules.articles.tiptap_Parser import BodySegment
+from server.app.modules.articles.parser import BodySegment
 from server.app.modules.tasks.drivers.toutiao import BodyParagraph, _group_paragraphs
 
 

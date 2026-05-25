@@ -1,7 +1,4 @@
-"""AI 生文模块路由。
-
-迁移自：api/routes/generation.py
-"""
+"""AI 生文模块路由。"""
 import logging
 import threading
 from typing import Any

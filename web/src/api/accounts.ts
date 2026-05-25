@@ -77,6 +77,8 @@ export function listPlatforms(): Promise<PlatformOption[]> {
   return api<PlatformOption[]>("/api/accounts/platforms");
 }
 
+// TODO: This function is defined but currently unused in the frontend.
+// Wire it up when implementing the platform login flow.
 export function loginPlatformAccount(platformCode: string, payload: AccountLoginPayload): Promise<Account> {
   return api<Account>(`/api/accounts/${platformCode}/login`, { method: "POST", body: JSON.stringify(payload) });
 }

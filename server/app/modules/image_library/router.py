@@ -1,7 +1,4 @@
-"""图片库模块路由。
-
-迁移自：api/routes/stock_images.py
-"""
+"""图片库模块路由。"""
 from __future__ import annotations
 
 import struct

@@ -291,7 +291,7 @@ finally:
 # 检查初始用户
 docker compose exec -T app python -c "
 from server.app.db.session import SessionLocal
-from server.app.models import User
+from server.app.modules.system.models import User
 db = SessionLocal()
 users = db.query(User).all()
 print(f'✓ 用户数: {len(users)}')

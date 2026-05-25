@@ -1,7 +1,4 @@
-"""技能模块路由。
-
-迁移自：api/routes/skills.py
-"""
+"""技能模块路由。"""
 import io
 import zipfile
 from pathlib import Path

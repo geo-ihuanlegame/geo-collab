@@ -59,7 +59,7 @@ def upgrade() -> None:
         sa.Column("prompt_template_id", sa.Integer(), nullable=True),
         sa.Column("extra_instruction", sa.Text(), nullable=True),
         sa.Column("status", sa.String(length=20), nullable=False, server_default="pending"),
-        sa.Column("article_ids", sa.Text(), nullable=False),
+        sa.Column("article_ids", sa.Text(), server_default='[]', nullable=False),
         sa.Column("error_message", sa.Text(), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("completed_at", sa.DateTime(), nullable=True),

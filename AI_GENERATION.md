@@ -156,7 +156,7 @@ GET    /api/generation/sessions/{id}   查询进度和结果
   - 规划 Agent（顺序）：读取 Skill 共享文件，输出 N 份写作任务规格
   - 写作 Agent × N（并发，max_workers=4）：各自独立执行，调用 `save_article` tool 写库
 - **格式转换**：AI 输出 Markdown，后端转换为 Tiptap JSON + HTML
-  - 新增 `server/app/modules/ai_generation/md_converter.py`
+  - 新增 `server/app/modules/ai_generation/converter.py`
   - `markdown_to_tiptap(md: str) -> dict`
   - `markdown_to_html(md: str) -> str`（用 python-markdown）
 - **并发安全**：每篇文章独立 INSERT，`client_request_id` 幂等，无共享槽位冲突
