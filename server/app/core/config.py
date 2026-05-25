@@ -55,7 +55,7 @@ class Settings(BaseSettings):
     ai_api_key: str = ""  # GEO_AI_API_KEY
 
     # AI 格式调整（标题识别 / 未来配图配链接）—— 独立模型，降低成本
-    ai_format_model: str = "deepseek/deepseek-chat-v4-flash"  # GEO_AI_FORMAT_MODEL
+    ai_format_model: str = "deepseek/deepseek-v4-flash"  # GEO_AI_FORMAT_MODEL
     ai_format_api_key: str = ""  # GEO_AI_FORMAT_API_KEY
     ai_format_timeout_seconds: int = 120  # GEO_AI_FORMAT_TIMEOUT_SECONDS
 
