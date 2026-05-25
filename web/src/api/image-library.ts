@@ -45,3 +45,10 @@ export async function uploadImage(payload: {
 export function deleteImage(imageId: number): Promise<void> {
   return api<void>(`/api/image-library/images/${imageId}`, { method: "DELETE" });
 }
+
+export function updateImage(imageId: number, payload: { tags?: string | null; description?: string | null }): Promise<StockImage> {
+  return api<StockImage>(`/api/image-library/images/${imageId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}

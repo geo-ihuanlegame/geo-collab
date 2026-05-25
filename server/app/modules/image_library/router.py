@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from typing import Optional
 
 from server.app.core.security import get_current_user
 from server.app.db.session import get_db
@@ -241,3 +242,28 @@ def delete_image(
             pass
     db.delete(img)
     db.commit()
+
+
+class ImageUpdate(BaseModel):
+    tags: Optional[str] = None
+    description: Optional[str] = None
+
+
+@router.patch("/images/{image_id}", response_model=StockImageRead)
+def update_image(
+    image_id: int,
+    payload: ImageUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+) -> Any:
+    img = db.get(StockImage, image_id)
+    if img is None:
+        raise HTTPException(status_code=404, detail="图片不存在")
+
+    if payload.tags is not None:
+        img.tags = [t.strip() for t in payload.tags.split(",") if t.strip()]
+    if payload.description is not None:
+        img.description = payload.description
+    db.commit()
+    db.refresh(img)
+    return _to_image_read(img)

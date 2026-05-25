@@ -1995,10 +1995,7 @@ input:focus, select:focus, textarea:focus {
 .imageLibraryEmpty { color: var(--fg-3); font-size: 13px; grid-column: 1/-1; }
 .imageLibraryLoading { color: var(--fg-3); font-size: 13px; grid-column: 1/-1; }
 
-.imageLibraryCard {
-  border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
-  background: var(--bg-1);
-}
+
 .imageLibraryCardImg { width: 100%; aspect-ratio: 1; overflow: hidden; background: var(--bg-2); }
 .imageLibraryCardImg img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .imageLibraryCardInfo { padding: 8px; }
@@ -2011,9 +2008,36 @@ input:focus, select:focus, textarea:focus {
   font-size: 10px; padding: 1px 5px; border-radius: 3px;
   background: var(--accent-soft); color: var(--accent-deep);
 }
-.imageLibraryDeleteBtn {
-  font-size: 11px; color: var(--fg-3); border: none; background: none;
-  cursor: pointer; padding: 0; text-decoration: underline;
-}
-.imageLibraryDeleteBtn:hover { color: #e53e3e; }
 .imageUploadPreviewName { font-size: 12px; color: var(--fg-2); margin: 0; }
+
+.topbarActions { display: flex; gap: 10px; align-items: center; }
+
+.topbarActions button { display: inline-flex; align-items: center; gap: 5px; }
+
+.imageLibraryCard { position: relative; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--bg-1); }
+
+.imageLibraryCardActions { position: absolute; top: 6px; right: 6px; z-index: 10; }
+
+.imageLibraryMenuBtn {
+  width: 28px; height: 28px; display: grid; place-items: center;
+  border: none; border-radius: 5px; background: rgba(0,0,0,.45); color: #fff;
+  cursor: pointer; opacity: 0; transition: opacity .12s;
+}
+.imageLibraryCard:hover .imageLibraryMenuBtn { opacity: 1; }
+.imageLibraryMenuBtn:hover { background: rgba(0,0,0,.65); }
+
+.imageLibraryDropdown {
+  position: absolute; top: 34px; right: 0; z-index: 20;
+  background: var(--paper); border: 1px solid var(--border);
+  border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,.12);
+  min-width: 120px; overflow: hidden;
+}
+.imageLibraryDropdown button {
+  display: flex; align-items: center; gap: 6px;
+  width: 100%; padding: 8px 12px; border: none; background: none;
+  font-size: 12px; color: var(--fg); cursor: pointer; text-align: left;
+  transition: background .1s;
+}
+.imageLibraryDropdown button:hover { background: var(--bg-2); }
+.imageLibraryDropdown button.danger { color: #e53e3e; }
+.imageLibraryDropdown button.danger:hover { background: #fff5f5; }
