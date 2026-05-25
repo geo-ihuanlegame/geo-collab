@@ -26,34 +26,66 @@ _SYSTEM_PROMPT_HEADINGS_ONLY = (
     '返回：仅返回一行 JSON，不添加任何解释：{"heading_indices": [2, 7]}'
 )
 
-_SYSTEM_PROMPT_WITH_IMAGES = (
-    "你是文章正文排版助手，只处理正文顶层节点，不处理文章主标题。\n"
-    "输入格式：每行一个顶层节点，格式为\n"
-    "  <原始索引> [段落] 文本内容\n"
-    "  <原始索引> [小标题] 文本内容\n"
-    "\n"
-    "你需要完成两项判断：\n"
-    "\n"
-    "【小标题判断】\n"
-    "找出应设为正文小标题（H1）的节点索引。\n"
-    "- 小标题特征：短句、章节引导语、概括性短语，通常不超过 20 字\n"
-    "- 不是小标题：完整叙述句、解释说明、数据陈述\n"
-    "- 宁少勿多，不确定就不选\n"
-    "- 不生成新标题，不改写任何文字\n"
-    "\n"
-    "【配图位置判断】\n"
-    "找出适合在其后插入图片的节点索引。\n"
-    "- 只在段落节点后插图，不在小标题后插图\n"
-    "- 相邻配图间距不少于 3 个节点\n"
-    "- 全文配图不超过 3 张\n"
-    "- 若无明显适合位置，返回空数组\n"
-    "\n"
-    '返回：仅返回一行 JSON，不添加任何解释：{"heading_indices": [2, 7], "image_positions": [4, 10]}'
-)
+def _image_prompt_params(text_nodes: list[tuple[int, dict]]) -> tuple[int, int]:
+    """Derive (max_images, min_spacing) from article structure.
+
+    List-style articles (Top N, ranked items) typically have several headings or
+    many short paragraph nodes.  For those we allow one image per section and
+    relax the spacing constraint.  Narrative articles fall back to conservative
+    defaults (3 images, 3-node gap).
+    """
+    existing_headings = sum(1 for _, n in text_nodes if n.get("type") == "heading")
+    short_paragraphs = sum(
+        1 for _, n in text_nodes
+        if n.get("type") == "paragraph" and len(_node_text(n).strip()) <= 25
+    )
+    # Use existing headings first; fall back to counting short paragraphs that
+    # are likely to become headings after the LLM pass.
+    section_estimate = existing_headings if existing_headings >= 3 else (
+        short_paragraphs if short_paragraphs >= 3 else 0
+    )
+    if section_estimate >= 3:
+        return section_estimate, 1  # one image per section, tight spacing OK
+    return 3, 3  # conservative defaults for narrative articles
 
 
-def _fallback_prompt(include_images: bool) -> str:
-    return _SYSTEM_PROMPT_WITH_IMAGES if include_images else _SYSTEM_PROMPT_HEADINGS_ONLY
+def _build_system_prompt_with_images(text_nodes: list[tuple[int, dict]]) -> str:
+    """Return an image-aware system prompt tailored to the article's structure."""
+    max_images, min_spacing = _image_prompt_params(text_nodes)
+    if max_images > 3:
+        count_rule = f"- 全文配图不超过 {max_images} 张（每个小标题 / 条目对应一张）"
+    else:
+        count_rule = f"- 全文配图不超过 {max_images} 张"
+    return (
+        "你是文章正文排版助手，只处理正文顶层节点，不处理文章主标题。\n"
+        "输入格式：每行一个顶层节点，格式为\n"
+        "  <原始索引> [段落] 文本内容\n"
+        "  <原始索引> [小标题] 文本内容\n"
+        "\n"
+        "你需要完成两项判断：\n"
+        "\n"
+        "【小标题判断】\n"
+        "找出应设为正文小标题（H1）的节点索引。\n"
+        "- 小标题特征：短句、章节引导语、概括性短语，通常不超过 20 字\n"
+        "- 不是小标题：完整叙述句、解释说明、数据陈述\n"
+        "- 宁少勿多，不确定就不选\n"
+        "- 不生成新标题，不改写任何文字\n"
+        "\n"
+        "【配图位置判断】\n"
+        "找出适合在其后插入图片的节点索引。\n"
+        "- 只在段落节点后插图，不在小标题后插图\n"
+        f"- 相邻配图间距不少于 {min_spacing} 个节点\n"
+        f"{count_rule}\n"
+        "- 若无明显适合位置，返回空数组\n"
+        "\n"
+        '返回：仅返回一行 JSON，不添加任何解释：{"heading_indices": [2, 7], "image_positions": [4, 10]}'
+    )
+
+
+def _fallback_prompt(include_images: bool, text_nodes: list[tuple[int, dict]] | None = None) -> str:
+    if include_images:
+        return _build_system_prompt_with_images(text_nodes or [])
+    return _SYSTEM_PROMPT_HEADINGS_ONLY
 
 
 def _load_ai_format_prompt(
@@ -62,16 +94,17 @@ def _load_ai_format_prompt(
     preset_id: int | None,
     user_id: int | None,
     include_images: bool,
+    text_nodes: list[tuple[int, dict]] | None = None,
 ) -> str:
     if preset_id is None or user_id is None:
-        return _fallback_prompt(include_images)
+        return _fallback_prompt(include_images, text_nodes)
 
     from server.app.modules.prompt_templates.service import get_visible_prompt_template
 
     prompt = get_visible_prompt_template(db, preset_id, user_id=user_id, scope="ai_format")
     if prompt is None or not prompt.is_enabled:
         logger.info("ai_format preset %s unavailable; falling back to built-in prompt", preset_id)
-        return _fallback_prompt(include_images)
+        return _fallback_prompt(include_images, text_nodes)
 
     logger.info("ai_format using DB prompt template %s", preset_id)
     return prompt.content
@@ -333,6 +366,7 @@ def run_ai_format(
             preset_id=preset_id,
             user_id=user_id,
             include_images=include_images,
+            text_nodes=text_nodes,
         )
         response = _call_litellm_completion(
             model=settings.ai_format_model,
