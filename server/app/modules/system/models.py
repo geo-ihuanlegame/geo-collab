@@ -10,7 +10,7 @@
 from datetime import datetime
 
 import bcrypt
-from sqlalchemy import Boolean, DateTime, Integer, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from server.app.core.time import utcnow
@@ -29,6 +29,10 @@ class User(Base):
     display_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     feishu_open_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
     solo_mode: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    ai_format_preset_id: Mapped[int | None] = mapped_column(
+        ForeignKey("prompt_templates.id", name="fk_users_ai_format_preset_id", use_alter=True),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 

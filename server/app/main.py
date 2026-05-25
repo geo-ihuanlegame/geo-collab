@@ -39,6 +39,7 @@ from fastapi.staticfiles import StaticFiles
 
 from server.app.modules.system.auth_router import router as auth_router
 from server.app.modules.system.system_router import router as system_router
+from server.app.modules.system.users_router import router as users_router
 from server.app.modules.accounts.router import router as accounts_router
 from server.app.modules.articles.router import (
     articles_router,
@@ -154,6 +155,7 @@ def create_app() -> FastAPI:
 
     # 注册 auth 路由（不加鉴权依赖）
     app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
+    app.include_router(users_router, prefix="/api/users", tags=["users"])
 
     # 注册 API 路由模块（全部需要 JWT cookie 鉴权）
     app.include_router(accounts_router, prefix="/api/accounts", tags=["accounts"], dependencies=[Depends(get_current_user)])

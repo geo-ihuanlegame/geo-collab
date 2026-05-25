@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from server.app.core.time import utcnow
@@ -15,6 +15,9 @@ class PromptTemplate(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(200))
     content: Mapped[str] = mapped_column(Text)
+    scope: Mapped[str] = mapped_column(String(50), default="generation", server_default="generation", index=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", name="fk_prompt_templates_user_id"), nullable=True, index=True)
+    is_system: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

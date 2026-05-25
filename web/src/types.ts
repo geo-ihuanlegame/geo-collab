@@ -1,7 +1,9 @@
-import { FileText, Images, MonitorCog, RadioTower, Send, Sparkles } from "lucide-react";
+import { FileText, Images, MessagesSquare, MonitorCog, RadioTower, Send, Sparkles } from "lucide-react";
 import type { ComponentType } from "react";
 
-export type NavKey = "ai" | "content" | "image-library" | "media" | "tasks" | "system" | "admin";
+export type NavKey = "ai" | "content" | "prompts" | "image-library" | "media" | "tasks" | "system" | "admin";
+
+export type PromptScope = "generation" | "ai_format";
 
 export type Skill = {
   id: number;
@@ -17,6 +19,9 @@ export type PromptTemplate = {
   id: number;
   name: string;
   content: string;
+  scope: PromptScope;
+  user_id: number | null;
+  is_system: boolean;
   is_enabled: boolean;
   is_deleted: boolean;
   created_at: string;
@@ -289,6 +294,7 @@ export function statusLabel(status: string): string {
 export const navItems: { key: NavKey; label: string; icon: ComponentType<{ size?: number }> }[] = [
   { key: "ai", label: "AI 生文", icon: Sparkles },
   { key: "content", label: "内容管理", icon: FileText },
+  { key: "prompts", label: "提示词管理", icon: MessagesSquare },
   { key: "image-library", label: "图片库", icon: Images },
   { key: "media", label: "媒体矩阵", icon: RadioTower },
   { key: "tasks", label: "分发引擎", icon: Send },
@@ -302,6 +308,7 @@ export type UserInfo = {
   username: string;
   role: "admin" | "operator";
   must_change_password: boolean;
+  ai_format_preset_id: number | null;
 };
 
 export type UserRecord = {

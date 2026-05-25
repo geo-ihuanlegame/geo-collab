@@ -26,14 +26,16 @@ import {
   updateArticleGroupItems,
 } from "../../api/articles";
 import { listCategories } from "../../api/image-library";
+import { listPromptTemplates, updateUserAiFormatPreset } from "../../api/prompt-templates";
 import { uploadAsset as uploadAssetRequest } from "../../api/assets";
 import { assetSrc, assetThumbSrc, countWords, emptyDoc, newClientRequestId, singleFlight, withAssetToken } from "../../api/core";
-import type { Article, ArticleCreatePayload, ArticleGroup, ArticleGroupUpdateItemsPayload, ArticleSummary, ArticleUpdatePayload, Asset, Draft, StockCategory } from "../../types";
+import type { Article, ArticleCreatePayload, ArticleGroup, ArticleGroupUpdateItemsPayload, ArticleSummary, ArticleUpdatePayload, Asset, Draft, PromptTemplate, StockCategory } from "../../types";
 import { formatDateTime } from "../../utils/dateFormat";
 import { EditorToolbar } from "../../components/editor/EditorToolbar";
 import { ArticleListItem } from "../../components/ArticleListItem";
 import { Modal } from "../../components/Modal";
 import { Pagination } from "../../components/Pagination";
+import { useAuth } from "../auth/AuthContext";
 
 function makeEmptyDraft(): Draft {
   return {
@@ -287,6 +289,7 @@ interface Props {
 
 export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [articles, setArticles] = useState<ArticleSummary[]>([]);
   const [groups, setGroups] = useState<ArticleGroup[]>([]);
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
@@ -306,6 +309,8 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
   const [aiFormatRemainingSeconds, setAiFormatRemainingSeconds] = useState(AI_FORMAT_TIMEOUT_SECONDS);
   const [aiFormatTriggerVersion, setAiFormatTriggerVersion] = useState<number | null>(null);
   const [stockCategories, setStockCategories] = useState<StockCategory[]>([]);
+  const [aiFormatPresets, setAiFormatPresets] = useState<PromptTemplate[]>([]);
+  const [selectedAiFormatPresetId, setSelectedAiFormatPresetId] = useState<number | "">(user?.ai_format_preset_id ?? "");
   const [groupPickerSelectedId, setGroupPickerSelectedId] = useState<number | null>(null);
   const [confirmDeleteArticle, setConfirmDeleteArticle] = useState(false);
   const [confirmDeleteGroup, setConfirmDeleteGroup] = useState(false);
@@ -479,7 +484,14 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
     void refreshArticles();
     void refreshGroups();
     listCategories().then(setStockCategories).catch(() => {});
+    listPromptTemplates("ai_format")
+      .then((data) => setAiFormatPresets(data.filter((prompt) => prompt.is_enabled)))
+      .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    setSelectedAiFormatPresetId(user?.ai_format_preset_id ?? "");
+  }, [user?.id, user?.ai_format_preset_id]);
 
   useEffect(() => {
     if (!aiChecking || !draft?.id) return;
@@ -777,6 +789,19 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
     await persistArticle();
   }
 
+  async function handleAiFormatPresetChange(value: string) {
+    const previous = selectedAiFormatPresetId;
+    const nextValue = value ? Number(value) : "";
+    setSelectedAiFormatPresetId(nextValue);
+    try {
+      await updateUserAiFormatPreset(nextValue === "" ? null : nextValue);
+      toast("AI 格式预设已更新", "success");
+    } catch (error) {
+      setSelectedAiFormatPresetId(previous);
+      toast(error instanceof Error ? error.message : "AI 格式预设更新失败", "error");
+    }
+  }
+
   async function handleAiFormat() {
     const saved = await persistArticle({ quiet: true });
     if (!saved) {
@@ -789,7 +814,10 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
     setAiCheckStartedAt(startedAt);
     setAiFormatRemainingSeconds(AI_FORMAT_TIMEOUT_SECONDS);
     try {
-      await triggerAiFormat(saved.id);
+      await triggerAiFormat(
+        saved.id,
+        selectedAiFormatPresetId === "" ? undefined : { preset_id: selectedAiFormatPresetId },
+      );
       toast("AI 排版已启动，请稍候…", "success");
     } catch (error) {
       setAiChecking(false);
@@ -1125,6 +1153,21 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
                 </select>
               </label>
             )}
+            <label>
+              AI 格式预设
+              <select
+                value={selectedAiFormatPresetId}
+                onChange={(event) => void handleAiFormatPresetChange(event.target.value)}
+                disabled={aiChecking}
+              >
+                <option value="">内置默认</option>
+                {aiFormatPresets.map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.name}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
 
           <section className="coverRow">

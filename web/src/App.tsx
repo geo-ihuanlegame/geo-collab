@@ -6,6 +6,7 @@ import { ToastProvider } from "./components/Toast";
 import { AiGenerationWorkspace } from "./features/ai-generation/AiGenerationWorkspace";
 import { ImageLibraryWorkspace } from "./features/image-library/ImageLibraryWorkspace";
 import { ContentWorkspace } from "./features/content/ContentWorkspace";
+import { PromptsWorkspace } from "./features/prompt-templates/PromptsWorkspace";
 import { AccountsWorkspace } from "./features/accounts/AccountsWorkspace";
 import { TasksWorkspace } from "./features/tasks/TasksWorkspace";
 import { SystemWorkspace } from "./features/system/SystemWorkspace";
@@ -108,6 +109,13 @@ function AppShell() {
                 <ContentWorkspace dirtyCheckRef={contentDirtyRef} />
               </ErrorBoundary>
             </div>
+            {visitedTabs.has("prompts") && (
+              <div style={{ display: activeNav === "prompts" ? undefined : "none" }}>
+                <ErrorBoundary fallback={<p role="alert">提示词管理出错，请刷新重试</p>}>
+                  <PromptsWorkspace />
+                </ErrorBoundary>
+              </div>
+            )}
             {visitedTabs.has("image-library") && (
               <div style={{ display: activeNav === "image-library" ? undefined : "none" }}>
                 <ErrorBoundary fallback={<p role="alert">图片库出错，请刷新重试</p>}>

@@ -11,7 +11,7 @@ from server.app.core.security import get_current_user
 from server.app.db.session import get_db
 from server.app.modules.system.models import User
 from server.app.modules.ai_generation.service import create_session, get_session
-from server.app.modules.prompt_templates.service import get_prompt_template
+from server.app.modules.prompt_templates.service import get_visible_prompt_template
 from server.app.modules.skills.service import get_skill
 from server.app.modules.ai_generation.schemas import GenerationSessionCreate, GenerationSessionRead
 
@@ -32,7 +32,12 @@ def start_generation(
     if skill is None or not skill.is_enabled:
         raise HTTPException(status_code=404, detail="Skill 不存在或已停用")
 
-    prompt = get_prompt_template(db, payload.prompt_template_id)
+    prompt = get_visible_prompt_template(
+        db,
+        payload.prompt_template_id,
+        user_id=current_user.id,
+        scope="generation",
+    )
     if prompt is None or not prompt.is_enabled:
         raise HTTPException(status_code=404, detail="提示词模板不存在或已停用")
 

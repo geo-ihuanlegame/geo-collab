@@ -6,6 +6,7 @@ export interface User {
   username: string;
   role: "admin" | "operator";
   must_change_password: boolean;
+  ai_format_preset_id: number | null;
 }
 
 export interface AuthState {
@@ -44,13 +45,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    api<{ id: number; username: string; role: string; must_change_password: boolean }>("/api/auth/me")
+    api<{ id: number; username: string; role: string; must_change_password: boolean; ai_format_preset_id: number | null }>("/api/auth/me")
       .then((data) => {
         setUser({
           id: data.id,
           username: data.username,
           role: data.role as "admin" | "operator",
           must_change_password: data.must_change_password,
+          ai_format_preset_id: data.ai_format_preset_id,
         });
       })
       .catch(() => {
@@ -66,12 +68,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       method: "POST",
       body: JSON.stringify({ username, password }),
     });
-    const data = await api<{ id: number; username: string; role: string; must_change_password: boolean }>("/api/auth/me");
+    const data = await api<{ id: number; username: string; role: string; must_change_password: boolean; ai_format_preset_id: number | null }>("/api/auth/me");
     setUser({
       id: data.id,
       username: data.username,
       role: data.role as "admin" | "operator",
       must_change_password: data.must_change_password,
+      ai_format_preset_id: data.ai_format_preset_id,
     });
   }, []);
 

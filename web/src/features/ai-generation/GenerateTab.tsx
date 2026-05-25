@@ -27,7 +27,7 @@ export function GenerateTab({ onNavigateToContent }: { onNavigateToContent: () =
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    Promise.all([listSkills(), listPromptTemplates()]).then(([s, p]) => {
+    Promise.all([listSkills(), listPromptTemplates("generation")]).then(([s, p]) => {
       setSkills(s.filter((x) => x.is_enabled));
       setPrompts(p.filter((x) => x.is_enabled));
     });

@@ -52,6 +52,7 @@ def _user_dict(u: User) -> dict:
         "must_change_password": u.must_change_password,
         "display_name": u.display_name,
         "feishu_open_id": u.feishu_open_id,
+        "ai_format_preset_id": u.ai_format_preset_id,
         "created_at": u.created_at,
         "last_login_at": u.last_login_at,
     }
@@ -82,6 +83,7 @@ def login(request: Request, payload: LoginRequest, response: Response, db: Sessi
         "username": user.username,
         "role": user.role,
         "must_change_password": user.must_change_password,
+        "ai_format_preset_id": user.ai_format_preset_id,
     }
 
 
@@ -122,6 +124,7 @@ def me(request: Request) -> dict:
             "username": user.username,
             "role": user.role,
             "must_change_password": user.must_change_password,
+            "ai_format_preset_id": user.ai_format_preset_id,
         }
     finally:
         db.close()
@@ -194,6 +197,7 @@ def create_user(payload: CreateUserRequest, request: Request) -> dict:
             "role": user.role,
             "is_active": user.is_active,
             "must_change_password": user.must_change_password,
+            "ai_format_preset_id": user.ai_format_preset_id,
         }
     finally:
         db.close()

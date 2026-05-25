@@ -132,7 +132,7 @@ export function SkillsPromptsTab() {
   const [promptModal, setPromptModal] = useState<{ editing?: PromptTemplate } | null>(null);
 
   async function reload() {
-    const [s, p] = await Promise.all([listSkills(), listPromptTemplates()]);
+    const [s, p] = await Promise.all([listSkills(), listPromptTemplates("generation")]);
     setSkills(s);
     setPrompts(p);
   }

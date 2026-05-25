@@ -39,6 +39,31 @@ _SYSTEM_PROMPT_WITH_IMAGES = (
 )
 
 
+def _fallback_prompt(include_images: bool) -> str:
+    return _SYSTEM_PROMPT_WITH_IMAGES if include_images else _SYSTEM_PROMPT_HEADINGS_ONLY
+
+
+def _load_ai_format_prompt(
+    db: Any,
+    *,
+    preset_id: int | None,
+    user_id: int | None,
+    include_images: bool,
+) -> str:
+    if preset_id is None or user_id is None:
+        return _fallback_prompt(include_images)
+
+    from server.app.modules.prompt_templates.service import get_visible_prompt_template
+
+    prompt = get_visible_prompt_template(db, preset_id, user_id=user_id, scope="ai_format")
+    if prompt is None or not prompt.is_enabled:
+        logger.info("ai_format preset %s unavailable; falling back to built-in prompt", preset_id)
+        return _fallback_prompt(include_images)
+
+    logger.info("ai_format using DB prompt template %s", preset_id)
+    return prompt.content
+
+
 def _extract_json(raw: str) -> str:
     """Extract the first JSON object from a model response."""
     m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.DOTALL)
@@ -256,6 +281,8 @@ def run_ai_format(
     *,
     include_images: bool = False,
     lock_started_at: datetime | None = None,
+    preset_id: int | None = None,
+    user_id: int | None = None,
 ) -> None:
     """Identify body subheadings and write the updated Tiptap document back to the article."""
     db = None
@@ -288,7 +315,12 @@ def run_ai_format(
         if not api_key:
             raise AIFormatConfigurationError("AI 排版失败：未配置 API Key，请设置 GEO_AI_FORMAT_API_KEY。")
 
-        system_prompt = _SYSTEM_PROMPT_WITH_IMAGES if include_images else _SYSTEM_PROMPT_HEADINGS_ONLY
+        system_prompt = _load_ai_format_prompt(
+            db,
+            preset_id=preset_id,
+            user_id=user_id,
+            include_images=include_images,
+        )
         response = _call_litellm_completion(
             model=settings.ai_format_model,
             api_key=api_key,

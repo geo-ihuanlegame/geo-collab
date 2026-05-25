@@ -75,6 +75,10 @@ chunked_assets_router = APIRouter()
 _logger = logging.getLogger(__name__)
 
 
+class AIFormatRequest(BaseModel):
+    preset_id: int | None = None
+
+
 # ── Article helpers ───────────────────────────────────────────────────────────
 
 def _verify_article_ownership(article: Article | None, current_user: User) -> Article:
@@ -228,6 +232,7 @@ def update_article_cover(
 @articles_router.post("/{article_id}/ai-format", status_code=202)
 def trigger_ai_format_endpoint(
     article_id: int,
+    payload: AIFormatRequest | None = Body(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict[str, str]:
@@ -237,6 +242,14 @@ def trigger_ai_format_endpoint(
 
     if not has_ai_format_targets(article.content_json):
         raise ClientError("文章正文为空，无法进行 AI 格式调整")
+
+    preset_id = payload.preset_id if payload and payload.preset_id is not None else current_user.ai_format_preset_id
+    if preset_id is not None:
+        from server.app.modules.prompt_templates.service import get_visible_prompt_template
+
+        preset = get_visible_prompt_template(db, preset_id, user_id=current_user.id, scope="ai_format")
+        if preset is None or not preset.is_enabled:
+            raise HTTPException(status_code=404, detail="AI format prompt preset not found")
 
     lock_started_at = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
     include_images = article.stock_category_id is not None
@@ -248,7 +261,13 @@ def trigger_ai_format_endpoint(
     def _run() -> None:
         try:
             from server.app.modules.articles.ai_format import run_ai_format
-            run_ai_format(article_id, include_images=include_images, lock_started_at=lock_started_at)
+            run_ai_format(
+                article_id,
+                include_images=include_images,
+                lock_started_at=lock_started_at,
+                preset_id=preset_id,
+                user_id=current_user.id,
+            )
         except Exception as exc:
             logging.getLogger(__name__).exception(
                 "ai_format background thread crashed for article %s", article_id

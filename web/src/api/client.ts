@@ -4,4 +4,5 @@ export * from "./ai-generation";
 export * from "./articles";
 export * from "./assets";
 export * from "./image-library";
+export * from "./prompt-templates";
 export * from "./tasks";

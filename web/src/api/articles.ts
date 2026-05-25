@@ -62,6 +62,9 @@ export function deleteArticleGroup(groupId: number): Promise<void> {
   return api<void>(`/api/article-groups/${groupId}`, { method: "DELETE" });
 }
 
-export function triggerAiFormat(articleId: number): Promise<void> {
-  return api<void>(`/api/articles/${articleId}/ai-format`, { method: "POST" });
+export function triggerAiFormat(articleId: number, payload?: { preset_id?: number | null }): Promise<void> {
+  return api<void>(`/api/articles/${articleId}/ai-format`, {
+    method: "POST",
+    body: JSON.stringify(payload ?? {}),
+  });
 }
