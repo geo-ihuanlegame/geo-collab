@@ -55,7 +55,14 @@ def build_test_engine() -> Engine:
 
 
 def reset_test_database(engine: Engine, *, create_schema: bool = True) -> None:
-    import server.app.models  # noqa: F401
+    import server.app.modules.system.models            # noqa: F401
+    import server.app.modules.accounts.models          # noqa: F401
+    import server.app.modules.articles.models          # noqa: F401
+    import server.app.modules.tasks.models             # noqa: F401
+    import server.app.modules.ai_generation.models     # noqa: F401
+    import server.app.modules.image_library.models     # noqa: F401
+    import server.app.modules.skills.models            # noqa: F401
+    import server.app.modules.prompt_templates.models  # noqa: F401
 
     with engine.connect() as conn:
         conn.execute(sa.text("SET FOREIGN_KEY_CHECKS=0"))

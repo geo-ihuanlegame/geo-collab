@@ -47,10 +47,16 @@ def start_generation(
         extra_instruction=payload.extra_instruction,
     )
     db.flush()
+    db.commit()
 
     session_id = session.id
 
-    if bg_session_factory is not None:
+    if bg_session_factory is None:
+        logger.error(
+            "bg_session_factory 未初始化，AI 生文后台线程将不会运行（session_id=%d）",
+            session.id,
+        )
+    else:
         factory = bg_session_factory
 
         def _run() -> None:
