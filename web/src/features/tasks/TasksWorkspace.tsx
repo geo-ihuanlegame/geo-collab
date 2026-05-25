@@ -62,6 +62,7 @@ export function TasksWorkspace() {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [loading, setLoading] = useState(false);
   const [autoRefreshTaskIds, setAutoRefreshTaskIds] = useState<Set<number>>(new Set());
+  const [sseFallbackTaskIds, setSseFallbackTaskIds] = useState<Set<number>>(new Set());
 
   const [formName, setFormName] = useState("");
   const [formType, setFormType] = useState<"single" | "group_round_robin">("single");
@@ -82,6 +83,10 @@ export function TasksWorkspace() {
   const shouldPollSelectedTask =
     selectedTaskId !== null &&
     (isTaskActive(selectedTask) || hasActiveRecords || autoRefreshTaskIds.has(selectedTaskId));
+  const shouldStreamSelectedTask =
+    shouldPollSelectedTask && selectedTaskId !== null && !sseFallbackTaskIds.has(selectedTaskId);
+  const shouldFallbackPollSelectedTask =
+    shouldPollSelectedTask && selectedTaskId !== null && sseFallbackTaskIds.has(selectedTaskId);
   const hasActiveTasks = tasks.some(isTaskActive);
   const articleMap = useMemo(() => Object.fromEntries(articles.map((a) => [a.id, a])), [articles]);
   const accountMap = useMemo(() => Object.fromEntries(accounts.map((a) => [a.id, a])), [accounts]);
@@ -111,7 +116,7 @@ export function TasksWorkspace() {
   }, [hasActiveTasks]);
 
   useEffect(() => {
-    if (!selectedTaskId || !shouldPollSelectedTask) return;
+    if (!selectedTaskId || !shouldStreamSelectedTask) return;
     const taskId = selectedTaskId;
     const es = new EventSource(`/api/tasks/${taskId}/stream?after_log_id=${lastLogIdRef.current}`);
     let errorCount = 0;
@@ -157,12 +162,23 @@ export function TasksWorkspace() {
       errorCount++;
       if (errorCount > 5) {
         es.close();
+        setSseFallbackTaskIds((prev) => new Set(prev).add(taskId));
         void refreshDetail(taskId).catch(() => {});
       }
     };
 
     return () => { es.close(); };
-  }, [selectedTaskId, shouldPollSelectedTask]);
+  }, [selectedTaskId, shouldStreamSelectedTask]);
+
+  useEffect(() => {
+    if (!selectedTaskId || !shouldFallbackPollSelectedTask) return;
+    const taskId = selectedTaskId;
+    const timer = window.setInterval(() => {
+      void refreshDetail(taskId).catch(() => {});
+    }, TASK_LIST_REFRESH_MS);
+    void refreshDetail(taskId).catch(() => {});
+    return () => window.clearInterval(timer);
+  }, [selectedTaskId, shouldFallbackPollSelectedTask]);
 
   useEffect(() => {
     if (taskPage >= totalTaskPages) {
@@ -219,11 +235,23 @@ export function TasksWorkspace() {
         next.delete(taskId);
         return next;
       });
+      setSseFallbackTaskIds((prev) => {
+        if (!prev.has(taskId)) return prev;
+        const next = new Set(prev);
+        next.delete(taskId);
+        return next;
+      });
     }
   }
 
   async function selectTask(taskId: number) {
     setSelectedTaskId(taskId);
+    setSseFallbackTaskIds((prev) => {
+      if (!prev.has(taskId)) return prev;
+      const next = new Set(prev);
+      next.delete(taskId);
+      return next;
+    });
     lastLogIdRef.current = 0;
     setLogs([]);
     await refreshDetail(taskId);
