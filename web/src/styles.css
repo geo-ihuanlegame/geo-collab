@@ -1008,12 +1008,14 @@ input:focus, select:focus, textarea:focus {
 
 .accountList {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 420px));
+  grid-auto-rows: max-content;
+  justify-content: start;
+  align-items: start;
   gap: 12px;
   background: transparent;
   border: none;
   border-radius: 0;
-  flex: 1;
   min-height: 0;
   overflow-y: auto;
   padding: 1px 0;
@@ -1028,6 +1030,7 @@ input:focus, select:focus, textarea:focus {
   transition: background .15s;
   border: 1px solid var(--hair);
   border-radius: var(--r);
+  align-self: start;
 }
 .accountCard:hover { background: var(--cream); }
 
@@ -1058,6 +1061,8 @@ input:focus, select:focus, textarea:focus {
 
 .accountCardActions {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
   grid-column: 1 / -1;
 }
@@ -1065,7 +1070,9 @@ input:focus, select:focus, textarea:focus {
 .accountCardActions button {
   display: inline-flex;
   align-items: center;
+  flex: 0 0 auto;
   gap: 5px;
+  min-height: 32px;
   padding: 6px 10px;
   font-size: 12px;
   border: 1px solid var(--hair);

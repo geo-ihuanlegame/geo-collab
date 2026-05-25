@@ -96,6 +96,57 @@ def test_login_page_loader_runs_in_background(monkeypatch):
         test_app.cleanup()
 
 
+def test_worker_start_login_session_uses_existing_thread(monkeypatch):
+    test_app = build_test_app(monkeypatch)
+    client = test_app.client
+    install_fake_driver(monkeypatch)
+    owner_thread = threading.get_ident()
+
+    class FakeSession:
+        id = "wk-browser"
+        novnc_url = "http://127.0.0.1:6080/vnc.html"
+
+    def fake_start_impl(*_args):
+        assert threading.get_ident() == owner_thread
+        return FakeSession()
+
+    monkeypatch.setattr("server.app.modules.accounts.auth._start_login_browser_impl", fake_start_impl)
+
+    try:
+        write_storage_state(test_app.data_dir, "demo")
+        account = client.post(
+            "/api/accounts/toutiao/login",
+            json={"display_name": "worker-start-demo", "account_key": "demo", "use_browser": False},
+        ).json()
+
+        from server.app.modules.accounts.models import AccountLoginSession
+        from server.app.modules.accounts import auth as accounts
+
+        db = test_app.session_factory()
+        try:
+            request = AccountLoginSession(
+                id="wk-start",
+                account_id=account["id"],
+                platform_code="toutiao",
+                account_key="demo",
+                channel="chromium",
+                status=accounts.LOGIN_STATUS_STARTING,
+            )
+            db.add(request)
+            db.commit()
+
+            accounts._worker_start_login_session(db, request)
+            db.refresh(request)
+
+            assert request.status == accounts.LOGIN_STATUS_ACTIVE
+            assert request.browser_session_id == "wk-browser"
+            assert request.novnc_url == "http://127.0.0.1:6080/vnc.html"
+        finally:
+            db.close()
+    finally:
+        test_app.cleanup()
+
+
 def test_worker_finish_login_session_uses_existing_thread(monkeypatch):
     test_app = build_test_app(monkeypatch)
     client = test_app.client
@@ -151,20 +202,20 @@ def test_worker_finish_login_session_uses_existing_thread(monkeypatch):
         db = test_app.session_factory()
         try:
             request = AccountLoginSession(
-                id="worker-finish",
+                id="wk-finish",
                 account_id=account["id"],
                 platform_code="toutiao",
                 account_key="demo",
                 channel="chromium",
                 status=accounts.LOGIN_STATUS_FINISHING,
-                browser_session_id="worker-session",
+                browser_session_id="wk-session",
             )
             db.add(request)
             db.commit()
 
             page = FakePage()
             session = RemoteBrowserSession(
-                id="worker-session",
+                id="wk-session",
                 account_key="demo",
                 display_number=99,
                 display=":99",
@@ -185,7 +236,7 @@ def test_worker_finish_login_session_uses_existing_thread(monkeypatch):
 
             assert request.status == accounts.LOGIN_STATUS_FINISHED
             assert request.logged_in is True
-            assert browser_sessions.get_session("worker-session") is None
+            assert browser_sessions.get_session("wk-session") is None
         finally:
             db.close()
     finally:
@@ -440,6 +491,6 @@ def test_unknown_platform_returns_404(monkeypatch):
         )
 
         assert response.status_code == 404
-        assert response.json()["detail"] == "Unknown platform"
+        assert response.json()["detail"] == "未知平台"
     finally:
         test_app.cleanup()

@@ -1146,6 +1146,7 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
             aiChecking={aiChecking}
             aiFormatRemainingSeconds={aiFormatRemainingSeconds}
             onAiFormat={handleAiFormat}
+            stockCategorySelected={!!draft.stock_category_id}
           />
           <div className="editorWrap">
             <EditorContent editor={editor} />

@@ -239,6 +239,7 @@ def trigger_ai_format_endpoint(
         raise ClientError("文章正文为空，无法进行 AI 格式调整")
 
     lock_started_at = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
+    include_images = article.stock_category_id is not None
     article.ai_checking = True
     article.ai_checking_started_at = lock_started_at
     article.ai_format_error = None
@@ -247,7 +248,7 @@ def trigger_ai_format_endpoint(
     def _run() -> None:
         try:
             from server.app.modules.articles.ai_format import run_ai_format
-            run_ai_format(article_id, include_images=False, lock_started_at=lock_started_at)
+            run_ai_format(article_id, include_images=include_images, lock_started_at=lock_started_at)
         except Exception as exc:
             logging.getLogger(__name__).exception(
                 "ai_format background thread crashed for article %s", article_id

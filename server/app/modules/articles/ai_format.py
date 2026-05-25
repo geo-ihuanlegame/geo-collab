@@ -23,6 +23,21 @@ _SYSTEM_PROMPT_HEADINGS_ONLY = (
     '返回：只返回一行 JSON，格式固定为 {"heading_indices": [2,7]}；没有则返回 {"heading_indices": []}。'
 )
 
+_SYSTEM_PROMPT_WITH_IMAGES = (
+    "你是正文排版助手。你只处理文章正文里的顶层节点，不处理文章主标题。\n"
+    "输入是若干行，格式为：<顶层 content 原始索引> [段落/小标题]: 文本。\n"
+    "任务：\n"
+    "1. 判断哪些原始索引应该设置为正文小标题（H1）。\n"
+    "2. 判断哪些原始索引后面适合插入配图（段落之后、相邻索引间隔不少于 2）。\n"
+    "规则：\n"
+    "- 不生成新标题，不改写文本，不改文章主标题。\n"
+    "- 只返回顶层 content 的原始索引，不要重新编号。\n"
+    "- 小标题宁少勿多，不确定就不选。\n"
+    "- 配图位置：每 3-5 个段落最多 1 张，全文不超过 3 张，不在标题节点之后放图。\n"
+    '返回：只返回一行 JSON，格式固定为 {"heading_indices": [2,7], "image_positions": [4,9]}；'
+    "没有则对应字段返回空数组。"
+)
+
 
 def _extract_json(raw: str) -> str:
     """Extract the first JSON object from a model response."""
@@ -273,11 +288,12 @@ def run_ai_format(
         if not api_key:
             raise AIFormatConfigurationError("AI 排版失败：未配置 API Key，请设置 GEO_AI_FORMAT_API_KEY。")
 
+        system_prompt = _SYSTEM_PROMPT_WITH_IMAGES if include_images else _SYSTEM_PROMPT_HEADINGS_ONLY
         response = _call_litellm_completion(
             model=settings.ai_format_model,
             api_key=api_key,
             messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT_HEADINGS_ONLY},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": listing},
             ],
             timeout_seconds=settings.ai_format_timeout_seconds,

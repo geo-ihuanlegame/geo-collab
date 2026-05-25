@@ -13,6 +13,7 @@ export function EditorToolbar({
   aiChecking,
   aiFormatRemainingSeconds,
   onAiFormat,
+  stockCategorySelected,
 }: {
   editor: ReturnType<typeof useEditor>;
   onImageUpload: (files: File[]) => Promise<void>;
@@ -20,6 +21,7 @@ export function EditorToolbar({
   aiChecking: boolean;
   aiFormatRemainingSeconds?: number;
   onAiFormat: () => void;
+  stockCategorySelected?: boolean;
 }) {
   if (!editor) return null;
 
@@ -87,10 +89,12 @@ export function EditorToolbar({
       <button
         onClick={onAiFormat}
         disabled={aiChecking}
-        title="AI 格式调整"
+        title={stockCategorySelected ? "AI 格式调整（将自动配图）" : "AI 格式调整"}
         type="button"
       >
-        {aiChecking ? `AI 调整中 ${Math.max(0, aiFormatRemainingSeconds ?? 0)}s` : "AI 格式"}
+        {aiChecking
+          ? `AI 调整中 ${Math.max(0, aiFormatRemainingSeconds ?? 0)}s`
+          : stockCategorySelected ? "AI格式·配图" : "AI 格式"}
       </button>
     </div>
   );
