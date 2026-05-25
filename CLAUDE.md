@@ -66,9 +66,16 @@ docker-compose exec app python -m server.scripts.seed_users
 
 ### Domain Modules (`server/app/modules/`)
 
-- `articles/` — article CRUD, article groups, Tiptap parsing, asset storage, chunked upload session management.
-- `accounts/` — account CRUD, login session state, browser profile paths, Xvfb/x11vnc/websockify/noVNC session management.
-- `tasks/` — task CRUD, execution engine, publish runner, platform driver registry, platform drivers.
+Each module is self-contained: `models.py` + `schemas.py` + `service.py` + `router.py`.
+
+- `system/` — `User`, `Platform`, `WorkerHeartbeat` models; auth and system routers (`auth_router.py`, `system_router.py`).
+- `accounts/` — account CRUD (`service.py`), login session state (`auth.py`), browser profile paths, Xvfb/x11vnc/websockify/noVNC session management (`browser.py`); router at `router.py`.
+- `articles/` — article CRUD (`service.py`), article groups, Tiptap parsing (`parser.py`), asset storage (`store.py`), chunked upload (`uploader.py`); four routers exported from `router.py`.
+- `tasks/` — task CRUD (`service.py`), execution engine (`executor.py`), publish runner (`runner.py`), platform driver registry/drivers (`drivers/`); two routers exported from `router.py`.
+- `ai_generation/` — generation session CRUD (`service.py`), LangGraph pipeline (`pipeline.py`), Markdown→Tiptap converter (`converter.py`); router at `router.py`.
+- `image_library/` — stock image models, MinIO store (`store.py`), image selector/inserter, generation hook (`hook.py`); router at `router.py`.
+- `skills/` — Skill model, CRUD (`service.py`), router.
+- `prompt_templates/` — PromptTemplate model, CRUD (`service.py`), router.
 
 ### Shared (`server/app/shared/`)
 
@@ -144,7 +151,7 @@ Drivers receive a prebuilt `PublishPayload`; they should not import ORM article/
 - `build_test_app(monkeypatch)` requires `GEO_TEST_DATABASE_URL`, rebuilds a disposable MySQL schema, creates temp data dir, admin user, and JWT cookie.
 - Tests using `build_test_app` must call `test_app.cleanup()` in `finally`.
 - Tests that execute tasks must pass `"stop_before_publish": false`, or records stay in `waiting_manual_publish`.
-- Mock publish runners with `monkeypatch.setattr("server.app.modules.tasks.task_Executor.build_publish_runner_for_record", lambda r: stub_runner)`.
+- Mock publish runners with `monkeypatch.setattr("server.app.modules.tasks.executor.build_publish_runner_for_record", lambda r: stub_runner)`.
 - Chunked asset tests live in `server/tests/test_assets_api.py`; the focused command is `pytest server/tests/test_assets_api.py -q -k chunked`.
 
 ## AI 生文模块
@@ -194,10 +201,10 @@ Skill 上传到服务器存储，通过 `/api/skills` 管理；提示词（Promp
 
 ### 格式转换
 
-现有代码有 Tiptap 序列化工具（`tiptap_Parser.py`）但无 Markdown → Tiptap 转换。需新增：
+现有代码有 Tiptap 序列化工具（`articles/parser.py`）但无 Markdown → Tiptap 转换。需新增：
 
 ```python
-# server/app/modules/ai_generation/md_converter.py
+# server/app/modules/ai_generation/converter.py
 def markdown_to_tiptap(md: str) -> dict: ...   # 段落 + 标题节点
 def markdown_to_html(md: str) -> str: ...       # 用 python-markdown
 ```
