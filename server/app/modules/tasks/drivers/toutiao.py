@@ -108,7 +108,10 @@ def _dismiss_blocking_popups(page: Any) -> None:
     workflow_text_re = re.compile(
         r"确认发布|预览并发布|本地上传|已上传|选择封面|裁剪封面|封面设置|发布设置|定时发布"
     )
-    close_text_re = re.compile(r"关闭|取消|我知道了|稍后再说|暂不|以后再说|跳过|不再提示|×|✕")
+    close_text_re = re.compile(
+        r"关闭|取消|我知道了|稍后再说|暂不|以后再说|跳过|不再提示|×|✕"
+        r"|不恢复|放弃草稿|放弃编辑|丢弃|不保留|重新开始|不使用草稿"
+    )
 
     try:
         page.keyboard.press("Escape")
@@ -330,10 +333,43 @@ def _verify_body_text_complete(page: Any, paragraphs: list[BodyParagraph]) -> No
 
 
 def _clear_body_editor(page: Any) -> None:
-    if not _select_body_editor_contents(page):
-        raise ToutiaoPublishError("Toutiao body editor not found")
-    page.keyboard.press("Backspace")
-    page.wait_for_timeout(200)
+    """清空正文编辑器，并验证文本与图片节点均已清除（最多重试 3 次）。
+
+    每次尝试：先全选（Ctrl+A），再按 Backspace 删除，然后读取编辑器内剩余文本和图片数。
+    如果三次均未清除干净，仍继续发布流程并记录警告——避免因草稿顽固残留而直接失败。
+    """
+    for attempt in range(3):
+        if not _select_body_editor_contents(page):
+            raise ToutiaoPublishError("Toutiao body editor not found")
+        # Ctrl+A 确保全选（_select_body_editor_contents 已使用 DOM selectNodeContents，
+        # 再按键盘 Ctrl+A 可覆盖部分 ProseMirror 版本对 range 的处理差异）
+        page.keyboard.press("Control+a")
+        page.wait_for_timeout(100)
+        page.keyboard.press("Backspace")
+        page.wait_for_timeout(400)
+
+        # 验证编辑器是否确实清空（文本 + 图片节点）
+        text_left = ""
+        images_left = 0
+        try:
+            text_left = _compact_body_text(_body_editor_text(page))
+        except Exception:
+            pass
+        try:
+            images_left = _body_image_count(page)
+        except Exception:
+            pass
+
+        if not text_left and images_left == 0:
+            return
+
+        logger.warning(
+            "Body editor not fully cleared (attempt %d/3): text_len=%d images=%d",
+            attempt + 1, len(text_left), images_left,
+        )
+        page.wait_for_timeout(300)
+
+    logger.warning("Body editor may still contain residual content after 3 clear attempts; proceeding anyway")
 
 
 def _select_body_editor_contents(page: Any) -> bool:
@@ -784,33 +820,40 @@ def _click_publish_and_wait(page: Any, stop_before_publish: bool = False) -> str
         screenshot = _screenshot(page)
         raise ToutiaoPublishError(f"无法点击「确认发布」按钮: {exc}\n页面内容摘要: {body_hint}", screenshot) from exc
 
-    page.wait_for_timeout(300)
+    page.wait_for_timeout(500)
 
-    try:
-        ok_btn = page.get_by_role("button", name="确定")
-        if ok_btn.count() and ok_btn.is_visible(timeout=3000):
-            ok_btn.click()
-            page.wait_for_timeout(300)
-    except Exception:
-        logger.warning("Failed to dismiss post-publish popup", exc_info=True)
+    # 发布后轮询：每轮先关闭后置弹窗（作品同步授权、加入创作者计划等），
+    # 再等待 URL 跳转（5s 超时），共 6 轮，总计约 30s。
+    # 这比单次 30s wait_for_url 更可靠：弹窗会阻止 URL 跳转，必须先关再等。
+    for attempt in range(6):
+        # 关闭发布后可能出现的各类弹窗
+        _dismiss_blocking_popups(page)
 
-    try:
-        page.wait_for_url(lambda url: url != before_url, timeout=30000)
-        return page.url
-    except Exception:
-        logger.warning("URL change wait failed after publish", exc_info=True)
-
-    try:
-        body_text = page.locator("body").inner_text(timeout=3000)
-        if any(h in body_text for h in ("发布失败", "提交失败", "操作失败", "网络错误")):
-            raise ToutiaoPublishError(f"发布页面报错: {body_text[:300]}")
-        if any(h in body_text for h in ("发布成功", "已发布", "审核中", "投稿成功")):
+        try:
+            page.wait_for_url(lambda url: url != before_url, timeout=5000)
             return page.url
-    except ToutiaoPublishError:
-        raise
-    except Exception:
-        logger.warning("Failed to read body text after publish", exc_info=True)
+        except Exception:
+            pass
 
+        # 检查页面正文是否出现明确的成功或失败信号
+        try:
+            body_text = page.locator("body").inner_text(timeout=2000)
+            if any(h in body_text for h in ("发布失败", "提交失败", "操作失败", "网络错误")):
+                raise ToutiaoPublishError(f"发布页面报错: {body_text[:300]}")
+            if any(h in body_text for h in ("发布成功", "已发布", "审核中", "投稿成功")):
+                logger.info(
+                    "Publish confirmed by page text after attempt %d (URL did not change)",
+                    attempt + 1,
+                )
+                return page.url
+        except ToutiaoPublishError:
+            raise
+        except Exception:
+            pass
+
+    logger.warning(
+        "URL change wait failed after publish (all 6 attempts, ~30s total); treating as success"
+    )
     return page.url
 
 
@@ -858,6 +901,46 @@ def _page_is_closed(page: Any) -> bool | str:
         return f"unknown: {type(exc).__name__}: {exc}"
 
 
+def _install_draft_cleanup_script(page: Any) -> None:
+    """注入 init_script，在页面脚本执行前清除头条编辑器的草稿数据。
+
+    使用 add_init_script 确保清理代码在 DOMContentLoaded 之前运行，优先于
+    ProseMirror/SylEditor 读取 localStorage 草稿的时机，防止上次发布的内容
+    通过自动草稿恢复功能混入当前发布。
+    """
+    try:
+        page.add_init_script(
+            """(() => {
+                try { sessionStorage.clear(); } catch (_) {}
+                try {
+                    const remove = [];
+                    for (let i = 0; i < localStorage.length; i++) {
+                        const k = localStorage.key(i);
+                        if (!k) continue;
+                        const lk = k.toLowerCase();
+                        if (
+                            lk.includes('draft') ||
+                            lk.includes('editor') ||
+                            lk.includes('article') ||
+                            lk.includes('content') ||
+                            lk.includes('syl') ||
+                            lk.includes('pgc') ||
+                            lk.includes('autosave') ||
+                            lk.includes('local_save') ||
+                            lk.includes('offline')
+                        ) {
+                            remove.push(k);
+                        }
+                    }
+                    remove.forEach(k => { try { localStorage.removeItem(k); } catch (_) {} });
+                } catch (_) {}
+            })();"""
+        )
+        logger.debug("Draft cleanup init_script installed")
+    except Exception:
+        logger.warning("Failed to install draft cleanup init_script", exc_info=True)
+
+
 def _do_publish(page: Any, context: Any, payload: PublishPayload, stop_before_publish: bool) -> PublishResult:
     """
     核心发布逻辑。
@@ -865,6 +948,8 @@ def _do_publish(page: Any, context: Any, payload: PublishPayload, stop_before_pu
     步骤：
       1. 打开头条发布页 → 2. 填标题 → 3. 上传封面 → 4. 填正文 → 5. 等待图片就绪 → 6. 点击发布
     """
+    # 在页面脚本执行前注入草稿清理代码，防止头条编辑器自动恢复上次的草稿内容
+    _install_draft_cleanup_script(page)
     with publish_step("open Toutiao publish page", page=page):
         page.goto(TOUTIAO_PUBLISH_URL, wait_until="domcontentloaded", timeout=60000)
     try:
