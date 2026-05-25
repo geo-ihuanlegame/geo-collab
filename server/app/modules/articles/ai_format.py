@@ -147,6 +147,38 @@ def _article_lock_matches(article: Any, lock_started_at: datetime | None) -> boo
     return bool(article.ai_checking and article.ai_checking_started_at == lock_started_at)
 
 
+class AIFormatConfigurationError(RuntimeError):
+    """Raised when AI format cannot start because local model config is incomplete."""
+
+
+def _describe_ai_format_error(exc: BaseException) -> str:
+    raw = str(exc).strip()
+    lower = raw.lower()
+    if isinstance(exc, AIFormatConfigurationError):
+        return raw
+    if "insufficient balance" in lower or "payment required" in lower or "402" in lower or "quota" in lower:
+        return "AI 排版失败：DeepSeek 账户余额不足，请充值或更换 API Key。"
+    if (
+        "unauthorized" in lower
+        or "authentication" in lower
+        or "invalid api key" in lower
+        or "invalid_api_key" in lower
+        or "401" in lower
+    ):
+        return "AI 排版失败：API Key 无效或无权限，请检查 GEO_AI_FORMAT_API_KEY。"
+    if "rate limit" in lower or "too many requests" in lower or "429" in lower:
+        return "AI 排版失败：模型服务触发限流，请稍后重试。"
+    if "model" in lower and ("not found" in lower or "does not exist" in lower or "404" in lower):
+        return "AI 排版失败：模型名称无效，请检查 GEO_AI_FORMAT_MODEL。"
+    if "timeout" in lower or "timed out" in lower or "read timed out" in lower:
+        return "AI 排版失败：模型服务响应超时，请稍后重试。"
+    if "connection" in lower or "network" in lower or "name resolution" in lower:
+        return "AI 排版失败：无法连接模型服务，请检查服务器网络。"
+    if isinstance(exc, json.JSONDecodeError) or "json" in lower:
+        return "AI 排版失败：模型返回格式异常，请重试。"
+    return "AI 排版失败：后台任务异常，请查看 app 容器日志。"
+
+
 def _call_litellm_completion(
     *,
     model: str,
@@ -185,7 +217,13 @@ def _maybe_insert_images(content_json: dict, parsed: dict, article: Any, db: Any
     return insert_images_at_positions(content_json, refs, image_positions), len(refs)
 
 
-def _unlock_ai_format(db: Any, article_id: int, lock_started_at: datetime | None) -> None:
+def _unlock_ai_format(
+    db: Any,
+    article_id: int,
+    lock_started_at: datetime | None,
+    *,
+    error_message: str | None = None,
+) -> None:
     from server.app.modules.articles.article_Crud import get_article
 
     article = get_article(db, article_id)
@@ -193,6 +231,8 @@ def _unlock_ai_format(db: Any, article_id: int, lock_started_at: datetime | None
         return
     article.ai_checking = False
     article.ai_checking_started_at = None
+    if error_message is not None:
+        article.ai_format_error = error_message
     db.commit()
 
 
@@ -204,6 +244,7 @@ def run_ai_format(
 ) -> None:
     """Identify body subheadings and write the updated Tiptap document back to the article."""
     db = None
+    error_message: str | None = None
     try:
         from server.app.db.session import SessionLocal
         db = SessionLocal()
@@ -228,9 +269,13 @@ def run_ai_format(
 
         get_settings.cache_clear()
         settings = get_settings()
+        api_key = settings.ai_format_api_key or settings.ai_api_key or None
+        if not api_key:
+            raise AIFormatConfigurationError("AI 排版失败：未配置 API Key，请设置 GEO_AI_FORMAT_API_KEY。")
+
         response = _call_litellm_completion(
             model=settings.ai_format_model,
-            api_key=settings.ai_format_api_key or settings.ai_api_key or None,
+            api_key=api_key,
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT_HEADINGS_ONLY},
                 {"role": "user", "content": listing},
@@ -267,14 +312,20 @@ def run_ai_format(
             article_id,
         )
 
-    except Exception:
+    except Exception as exc:
         if db is not None:
             db.rollback()
+        error_message = _describe_ai_format_error(exc)
         logger.exception("ai_format failed for article %s", article_id)
     finally:
         if db is not None:
             try:
-                _unlock_ai_format(db, article_id, lock_started_at)
+                _unlock_ai_format(
+                    db,
+                    article_id,
+                    lock_started_at,
+                    error_message=error_message,
+                )
             except Exception:
                 db.rollback()
                 logger.exception("ai_format unlock failed for article %s", article_id)

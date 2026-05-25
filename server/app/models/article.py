@@ -31,6 +31,7 @@ class Article(Base):
         Boolean, nullable=False, default=False, server_default="0", index=True
     )
     ai_checking_started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    ai_format_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     stock_category_id: Mapped[int | None] = mapped_column(ForeignKey("stock_categories.id"), nullable=True)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0", index=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

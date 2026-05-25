@@ -68,6 +68,7 @@ export type Article = ArticleSummary & {
   body_assets: ArticleBodyAsset[];
   stock_category_id: number | null;
   ai_checking: boolean;
+  ai_format_error: string | null;
 };
 
 export type ArticleGroup = {

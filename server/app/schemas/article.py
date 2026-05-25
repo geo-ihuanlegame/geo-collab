@@ -93,6 +93,7 @@ class ArticleRead(BaseModel):
     published_count: int = 0  # 成功发布次数
     stock_category_id: int | None = None
     ai_checking: bool = False
+    ai_format_error: str | None = None
     created_at: datetime
     updated_at: datetime
 

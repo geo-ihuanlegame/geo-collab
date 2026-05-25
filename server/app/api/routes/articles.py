@@ -48,6 +48,7 @@ def _clear_ai_lock_if_expired(db: Session, article: Article) -> None:
         return
     article.ai_checking = False
     article.ai_checking_started_at = None
+    article.ai_format_error = "AI 排版超时：模型服务响应超时或后台任务未完成，请重试。"
     db.commit()
     db.refresh(article)
 
@@ -192,22 +193,30 @@ def trigger_ai_format_endpoint(
     lock_started_at = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
     article.ai_checking = True
     article.ai_checking_started_at = lock_started_at
+    article.ai_format_error = None
     db.commit()
 
     def _run() -> None:
         try:
             from server.app.modules.articles.ai_format import run_ai_format
             run_ai_format(article_id, include_images=False, lock_started_at=lock_started_at)
-        except Exception:
+        except Exception as exc:
             logging.getLogger(__name__).exception(
                 "ai_format background thread crashed for article %s", article_id
             )
             try:
                 from server.app.db.session import SessionLocal
-                from server.app.modules.articles.ai_format import _unlock_ai_format
+                from server.app.modules.articles.ai_format import _describe_ai_format_error, _unlock_ai_format
                 cleanup_db = SessionLocal()
-                _unlock_ai_format(cleanup_db, article_id, lock_started_at)
-                cleanup_db.close()
+                try:
+                    _unlock_ai_format(
+                        cleanup_db,
+                        article_id,
+                        lock_started_at,
+                        error_message=_describe_ai_format_error(exc),
+                    )
+                finally:
+                    cleanup_db.close()
             except Exception:
                 pass
 

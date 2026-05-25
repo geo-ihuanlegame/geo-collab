@@ -491,7 +491,7 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
         setAiCheckStartedAt(null);
         setAiFormatTriggerVersion(null);
         if (data.version === aiFormatTriggerVersion) {
-          toast("AI 排版执行失败，请检查配置或重试", "error");
+          toast(data.ai_format_error || "AI 排版执行失败，请检查配置或重试", "error");
           return;
         }
         syncArticleAfterAiFormat(data);
@@ -516,18 +516,29 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
       setAiChecking(false);
       setAiCheckStartedAt(null);
       setAiFormatTriggerVersion(null);
-      toast("AI格式调整超时", "error");
       if (draft?.id) {
         void getArticle(draft.id).then((data) => {
-          if (!data.ai_checking) syncArticleAfterAiFormat(data);
-        }).catch(() => {});
+          if (data.ai_checking) {
+            toast("AI 排版超时：后台任务仍在运行，请稍后刷新查看结果", "error");
+            return;
+          }
+          if (data.version === aiFormatTriggerVersion) {
+            toast(data.ai_format_error || "AI 排版超时：模型服务响应超时或后台任务未完成，请重试", "error");
+            return;
+          }
+          syncArticleAfterAiFormat(data);
+        }).catch(() => {
+          toast("AI 排版超时：无法确认后台状态，请刷新后重试", "error");
+        });
+      } else {
+        toast("AI 排版超时：模型服务响应超时或后台任务未完成，请重试", "error");
       }
     };
 
     tick();
     const timer = window.setInterval(tick, 1000);
     return () => window.clearInterval(timer);
-  }, [aiChecking, aiCheckStartedAt, draft?.id, toast]);
+  }, [aiChecking, aiCheckStartedAt, draft?.id, aiFormatTriggerVersion, toast]);
 
   useEffect(() => {
     editor?.setEditable(!aiChecking);

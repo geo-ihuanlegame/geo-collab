@@ -47,6 +47,7 @@ def to_article_read(article: Article, published_count: int = 0) -> ArticleRead:
         created_at=article.created_at,
         updated_at=article.updated_at,
         ai_checking=article.ai_checking,
+        ai_format_error=article.ai_format_error,
     )
 
 
