@@ -224,7 +224,7 @@ def _unlock_ai_format(
     *,
     error_message: str | None = None,
 ) -> None:
-    from server.app.modules.articles.article_Crud import get_article
+    from server.app.modules.articles.service import get_article
 
     article = get_article(db, article_id)
     if article is None or not _article_lock_matches(article, lock_started_at):
@@ -248,7 +248,7 @@ def run_ai_format(
     try:
         from server.app.db.session import SessionLocal
         db = SessionLocal()
-        from server.app.modules.articles.article_Crud import get_article
+        from server.app.modules.articles.service import get_article
 
         article = get_article(db, article_id)
         if article is None or article.is_deleted:

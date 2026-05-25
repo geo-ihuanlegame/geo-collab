@@ -562,7 +562,7 @@ def test_concurrent_execute_only_one_succeeds(monkeypatch):
     client = test_app.client
 
     try:
-        from server.app.modules.tasks import task_Executor as tasks_mod
+        from server.app.modules.tasks import executor as tasks_mod
 
         cover_id = _upload_cover_image(client)
         article_id = _create_article(client, "Concurrent Article", plain_text="Body", cover_asset_id=cover_id)

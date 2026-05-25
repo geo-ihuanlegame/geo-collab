@@ -84,13 +84,13 @@ def build_test_app(monkeypatch) -> TestApp:
     monkeypatch.setenv("GEO_JWT_SECRET", "test-secret")
     get_settings.cache_clear()
 
-    from server.app.modules.tasks import task_Executor as _tasks_mod
+    from server.app.modules.tasks import executor as _tasks_mod
     _tasks_mod._task_locks.clear()
     _tasks_mod._account_locks.clear()
     _tasks_mod._account_locks_lock = threading.Lock()
     _tasks_mod._task_cancel.clear()
 
-    from server.app.modules.accounts import browser_Session as _bs_mod
+    from server.app.modules.accounts import browser as _bs_mod
     _bs_mod._reset_globals()
 
     from server.app.core import security as _security_mod
