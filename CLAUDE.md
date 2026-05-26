@@ -14,10 +14,24 @@ Always activate the Python environment before Python commands:
 conda activate geo_xzpt
 ```
 
+Minimum required env vars for local dev (`.env` file or exported):
+
+```bash
+GEO_JWT_SECRET=<any-long-random-string>   # required — server raises RuntimeError without it
+GEO_DATA_DIR=/path/to/local/data          # required — stores assets, browser states, logs
+GEO_DATABASE_URL=mysql+pymysql://geo_user:password@127.0.0.1:3306/geo_dev  # or use GEO_DB_HOST/USER/PASS/NAME
+```
+
 Backend development server:
 
 ```bash
 uvicorn server.app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+Production worker (polls DB, executes tasks, separate process from the web server):
+
+```bash
+python -m server.worker.executor
 ```
 
 Frontend development server:
@@ -39,6 +53,8 @@ Backend tests:
 pytest server/tests/ -v
 GEO_TEST_DATABASE_URL=mysql+pymysql://geo_user:password@127.0.0.1:3306/geo_test pytest server/tests/ -q
 pytest server/tests/test_assets_api.py -q
+# Run a single test
+pytest server/tests/test_articles_api.py::test_function_name -q
 ```
 
 Database migrations:
@@ -70,10 +86,10 @@ Each module is self-contained: `models.py` + `schemas.py` + `service.py` + `rout
 
 - `system/` — `User`, `Platform`, `WorkerHeartbeat` models; auth and system routers (`auth_router.py`, `system_router.py`).
 - `accounts/` — account CRUD (`service.py`), login session state (`auth.py`), browser profile paths, Xvfb/x11vnc/websockify/noVNC session management (`browser.py`); router at `router.py`.
-- `articles/` — article CRUD (`service.py`), article groups, Tiptap parsing (`parser.py`), asset storage (`store.py`), chunked upload (`uploader.py`); four routers exported from `router.py`.
+- `articles/` — article CRUD (`service.py`), article groups, Tiptap parsing (`parser.py`), asset storage (`store.py`), chunked upload (`uploader.py`); four routers exported from `router.py`. Article body is stored in three parallel forms: `content_json` (Tiptap doc), `content_html` (rendered), `plain_text` (for publish); always keep all three in sync. `ai_format.py` runs AI-based heading detection + auto image insertion on draft articles, tracking state via `Article.ai_checking` / `Article.ai_format_error`.
 - `tasks/` — task CRUD (`service.py`), execution engine (`executor.py`), publish runner (`runner.py`), platform driver registry/drivers (`drivers/`); two routers exported from `router.py`.
 - `ai_generation/` — generation session CRUD (`service.py`), LangGraph pipeline (`pipeline.py`), Markdown→Tiptap converter (`converter.py`); router at `router.py`.
-- `image_library/` — stock image models, MinIO store (`store.py`), image selector/inserter, generation hook (`hook.py`); router at `router.py`.
+- `image_library/` — stock image models, MinIO store (`store.py`), image selector/inserter, generation hook (`hook.py`); router at `router.py`. Requires a running MinIO instance; configure via `GEO_MINIO_ENDPOINT`, `GEO_MINIO_ACCESS_KEY`, `GEO_MINIO_SECRET_KEY`. Images are grouped into `StockCategory` buckets; articles reference categories via `article_stock_categories` many-to-many table.
 - `skills/` — Skill model, CRUD (`service.py`), router.
 - `prompt_templates/` — PromptTemplate model, CRUD (`service.py`), router.
 
@@ -169,6 +185,10 @@ AI 生文是独立的新功能模块，计划路径：P1 平台搭配 skill 生�
 - **任务调度**：复用现有 `server/worker/executor.py`（P3 每日定时生文）
 
 不要直接使用 `anthropic` SDK 或 `openai` SDK；所有模型调用走 LiteLLM。
+
+两套模型配置（均通过 LiteLLM 调用）：
+- `GEO_AI_MODEL` / `GEO_AI_API_KEY` — 生文主模型（默认 `claude-3-5-sonnet-20241022`）
+- `GEO_AI_FORMAT_MODEL` / `GEO_AI_FORMAT_API_KEY` — 格式调整专用模型（默认 `deepseek/deepseek-v4-flash`，用于标题识别和配图，低成本）
 
 ### LangGraph 流程
 
