@@ -13,7 +13,7 @@ from jinja2.sandbox import SandboxedEnvironment
 from server.app.core.config import get_settings
 from server.app.modules.articles.parser import dumps_content_json, loads_content_json
 from server.app.modules.image_library.inserter import has_images_in_content, insert_images_at_positions
-from server.app.modules.image_library.selector import fetch_image_by_id, select_images_by_hints
+from server.app.modules.image_library.selector import fetch_image_by_id, pick_image_id, ImageQuery
 
 logger = logging.getLogger(__name__)
 
@@ -355,62 +355,6 @@ def _call_litellm_completion(
     )
 
 
-def _legacy_maybe_insert_images_old_unused(content_json: dict, parsed: dict, article: Any, db: Any) -> tuple[dict, int]:
-
-    if has_images_in_content(content_json):
-        return content_json, 0
-
-    # 收集所有关联栏目 ID（多对多优先，兼容旧的单栏目字段）
-    category_ids: list[int] = [sc.id for sc in (article.stock_categories or [])]
-    if not category_ids and article.stock_category_id is not None:
-        category_ids = [article.stock_category_id]
-    if not category_ids:
-        return content_json, 0
-
-    image_positions_raw = parsed.get("image_positions", [])
-    if not isinstance(image_positions_raw, list) or not image_positions_raw:
-        return content_json, 0
-
-    # 解析新旧两种格式
-    # 新格式：[{"index": 4, "hint": "环境描写"}, ...]
-    # 旧格式（纯整数数组）：[4, 10, ...]  → hint 全部为 None → 不插图
-    positions: list[int] = []
-    hints: list[str | None] = []
-    for item in image_positions_raw:
-        if isinstance(item, dict):
-            idx = item.get("index")
-            hint = item.get("hint") or None
-            if isinstance(idx, int):
-                positions.append(idx)
-                hints.append(hint)
-        elif isinstance(item, int):
-            # 旧格式：hint 为 None，后续会跳过
-            positions.append(item)
-            hints.append(None)
-
-    if not positions:
-        return content_json, 0
-
-    # 语义匹配选图；hint 为 None 或无匹配时返回 None（不降级随机）
-    image_ids = select_images_by_hints(category_ids, hints, db)
-
-    # 只保留有匹配图片的位置
-    matched_refs = []
-    matched_positions = []
-    for pos, image_id in zip(positions, image_ids):
-        if image_id is None:
-            continue
-        ref = fetch_image_by_id(image_id, db)
-        if ref is not None:
-            matched_refs.append(ref)
-            matched_positions.append(pos)
-
-    if not matched_refs:
-        return content_json, 0
-
-    return insert_images_at_positions(content_json, matched_refs, matched_positions), len(matched_refs)
-
-
 def _maybe_insert_images(content_json: dict, parsed: dict, article: Any, db: Any) -> tuple[dict, int]:
     if has_images_in_content(content_json):
         return content_json, 0
@@ -424,50 +368,36 @@ def _maybe_insert_images(content_json: dict, parsed: dict, article: Any, db: Any
         return content_json, 0
 
     positions: list[int] = []
-    hints: list[str | None] = []
     requested_category_ids: list[int | None] = []
     for item in image_positions_raw:
         if isinstance(item, dict):
             idx = item.get("index")
-            hint = item.get("hint") or None
             category_id = item.get("category_id")
             if isinstance(idx, int):
                 positions.append(idx)
-                hints.append(hint)
                 requested_category_ids.append(category_id if isinstance(category_id, int) else None)
         elif isinstance(item, int):
             positions.append(item)
-            hints.append(None)
             requested_category_ids.append(None)
 
     if not positions:
         return content_json, 0
 
+    valid_category_ids = set(category_ids)
     matched_refs = []
     matched_positions = []
-    if all(category_id is None for category_id in requested_category_ids):
-        image_ids = select_images_by_hints(category_ids, hints, db)
-        items = zip(positions, image_ids)
-    else:
-        picked: list[tuple[int, int | None]] = []
-        valid_category_ids = set(category_ids)
-        for pos, hint, requested_category_id in zip(positions, hints, requested_category_ids):
-            if requested_category_id is not None:
-                if requested_category_id not in valid_category_ids:
-                    picked.append((pos, None))
-                    continue
-                candidate_category_ids = [requested_category_id]
-            else:
-                candidate_category_ids = category_ids
-            image_ids = select_images_by_hints(candidate_category_ids, [hint], db)
-            picked.append((pos, image_ids[0] if image_ids else None))
-        items = picked
-
-    for pos, image_id in items:
+    used_ids: list[int] = []
+    for pos, requested_category_id in zip(positions, requested_category_ids):
+        if requested_category_id is None or requested_category_id not in valid_category_ids:
+            continue
+        image_id = pick_image_id(
+            ImageQuery(category_ids=[requested_category_id], excluded_ids=used_ids), db
+        )
         if image_id is None:
             continue
         ref = fetch_image_by_id(image_id, db)
         if ref is not None:
+            used_ids.append(image_id)
             matched_refs.append(ref)
             matched_positions.append(pos)
 
