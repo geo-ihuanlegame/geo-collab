@@ -10,12 +10,12 @@
 {% endfor %}
 
 {% if available_categories %}
-以下是本文允许使用的游戏图片栏目。你只能从这些 category_id 中选择，不要编造 category_id：
+以下是本文允许使用的游戏图片栏目，你只能从这些 category_id 中选择，不要编造：
 {% for category in available_categories -%}
   - category_id={{ category.id }}，栏目名={{ category.name }}{% if category.description %}，描述={{ category.description }}{% endif %}
 {% endfor %}
 {% else %}
-本文没有可用游戏图片栏目，不要输出 image_positions。
+本文没有可用游戏图片栏目，image_positions 返回空数组。
 {% endif %}
 
 你需要完成两项判断：
@@ -28,15 +28,13 @@
 - 不生成新标题，不改写任何文字
 
 【配图位置判断】
-找出适合在其后插入图片的段落节点索引，同时选择最匹配的游戏栏目和配图主题关键词。
+对每个段落节点，判断其内容是否明确属于某个可用游戏栏目，若是则记录该位置和对应 category_id。
 - 只在段落节点后插图，不在小标题后插图
 - 相邻配图间距不少于 {{ min_spacing }} 个节点
 - 全文配图不超过 {{ max_images }} 张
-- 每个小标题段落最多一张配图
-- 只有段落内容有明显可配图的游戏主题时才插图，不确定就不插
-- category_id 必须来自上面的可用游戏图片栏目
-- hint 为 1-5 个字的关键词，描述该配图应表达的内容主题
+- 只有能明确判断段落所属游戏栏目时才插图，不确定就不插
+- category_id 必须来自上面的可用栏目列表，不要编造
 - 若无明显适合位置，image_positions 返回空数组
 
 返回：仅返回一行 JSON，不添加任何解释：
-{"heading_indices":[2,7],"image_positions":[{"index":4,"category_id":12,"hint":"战斗场景"}]}
+{"heading_indices":[2,7],"image_positions":[{"index":4,"category_id":12}]}
