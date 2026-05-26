@@ -2002,7 +2002,7 @@ input:focus, select:focus, textarea:focus {
 .imageLibraryEmpty { color: var(--fg-3); font-size: 13px; padding: 8px 14px; }
 
 .imageLibraryCardImg { position: relative; cursor: pointer; width: 100%; aspect-ratio: 1; overflow: hidden; background: var(--bg-2); }
-.imageLibraryCardImg img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.imageLibraryCardImg img { width: 100%; height: 100%; object-fit: contain; object-position: center; display: block; }
 .imageLibraryCardInfo { padding: 8px; }
 .imageLibraryCardName {
   font-size: 11px; color: var(--fg-2);
@@ -2048,10 +2048,8 @@ input:focus, select:focus, textarea:focus {
 .imageLibraryDropdown button.danger:hover { background: #fff5f5; }
 
 /* ── Image Library: Card Hover ── */
-.imageLibraryCardImg img { transition: transform 0.25s ease; }
 .imageLibraryCard { transition: border-color 0.2s, box-shadow 0.2s; }
 .imageLibraryCard:hover { border-color: var(--accent); box-shadow: 0 2px 12px rgba(91,95,233,0.15); }
-.imageLibraryCard:hover .imageLibraryCardImg img { transform: scale(1.04); }
 
 .imageLibraryCardOverlay {
   position: absolute; inset: 0;

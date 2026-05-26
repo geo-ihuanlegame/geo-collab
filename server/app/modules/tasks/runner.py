@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 import threading
 from pathlib import Path
 from typing import Any
@@ -72,6 +73,49 @@ def _attach_page_network_diagnostics(page: Any) -> None:
     page.on("response", on_response)
 
 
+def _cleanup_temp_files(paths: list[Path] | tuple[Path, ...]) -> None:
+    for path in paths:
+        try:
+            path.unlink(missing_ok=True)
+        except Exception:
+            record_publish_diagnostic(f"stock image temp cleanup failed: {path}", level="warn")
+
+
+def _stock_image_suffix(filename: str, minio_key: str) -> str:
+    suffix = Path(filename).suffix or Path(minio_key).suffix
+    return suffix if suffix else ".jpg"
+
+
+def _resolve_stock_image_path(stock_image_id: int) -> Path:
+    from server.app.db.session import SessionLocal
+    from server.app.modules.image_library import store as minio_store
+    from server.app.modules.image_library.models import StockCategory, StockImage
+
+    db = SessionLocal()
+    try:
+        img = db.get(StockImage, stock_image_id)
+        if img is None:
+            raise PublishError(f"图片库图片不存在: {stock_image_id}")
+        cat = db.get(StockCategory, img.category_id)
+        if cat is None:
+            raise PublishError(f"图片库栏目不存在: {img.category_id}")
+        data = minio_store.get_object_bytes(cat.bucket_name, img.minio_key)
+        suffix = _stock_image_suffix(img.filename, img.minio_key)
+    finally:
+        db.close()
+
+    tmp = tempfile.NamedTemporaryFile(prefix=f"geo_stock_{stock_image_id}_", suffix=suffix, delete=False)
+    tmp_path = Path(tmp.name)
+    try:
+        tmp.write(data)
+        tmp.close()
+    except Exception:
+        tmp.close()
+        tmp_path.unlink(missing_ok=True)
+        raise
+    return tmp_path
+
+
 
 def _build_payload(
     article: Article,
@@ -122,6 +166,71 @@ def _build_payload(
         display_name=account.display_name,
         platform_code=platform_code,
     )
+
+
+def _build_payload_with_stock_images(
+    article: Article,
+    account: Account,
+    account_key: str,
+    platform_code: str,
+    state_path: Path,
+) -> PublishPayload:
+    if article.cover_asset is None:
+        raise PublishError("封面图片是必填项")
+    cover_path = resolve_asset_path(article.cover_asset)
+
+    raw_segments = parse_body_segments(article)
+    resolved: list[BodySegment] = []
+    temp_files: list[Path] = []
+    try:
+        for seg in raw_segments:
+            if seg.kind == "image" and seg.image_asset_id:
+                asset_link = next(
+                    (
+                        link
+                        for link in article.body_assets
+                        if link.asset_id == seg.image_asset_id and link.asset is not None
+                    ),
+                    None,
+                )
+                if asset_link is None:
+                    raise PublishError(f"正文图片资源不存在或未加载: {seg.image_asset_id}")
+                resolved.append(
+                    BodySegment(
+                        kind="image",
+                        image_asset_id=seg.image_asset_id,
+                        image_path=resolve_asset_path(asset_link.asset),
+                    )
+                )
+            elif seg.kind == "image" and seg.stock_image_id is not None:
+                image_path = _resolve_stock_image_path(seg.stock_image_id)
+                temp_files.append(image_path)
+                resolved.append(
+                    BodySegment(
+                        kind="image",
+                        stock_image_id=seg.stock_image_id,
+                        image_path=image_path,
+                    )
+                )
+            else:
+                resolved.append(seg)
+
+        return PublishPayload(
+            title=article.title,
+            cover_asset_path=cover_path,
+            body_segments=resolved,
+            account_key=account_key,
+            state_path=state_path,
+            display_name=account.display_name,
+            platform_code=platform_code,
+            temp_files=tuple(temp_files),
+        )
+    except Exception:
+        _cleanup_temp_files(temp_files)
+        raise
+
+
+_build_payload = _build_payload_with_stock_images
 
 
 def run_publish(
@@ -232,3 +341,4 @@ def run_publish(
                 page.close()
             except Exception:
                 pass
+        _cleanup_temp_files(payload.temp_files)

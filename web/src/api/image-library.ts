@@ -9,9 +9,20 @@ export function createCategory(payload: {
   name: string;
   bucket_name: string;
   description?: string | null;
+  official_url?: string | null;
 }): Promise<StockCategory> {
   return api<StockCategory>("/api/image-library/categories", {
     method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateCategory(
+  categoryId: number,
+  payload: { name?: string; description?: string | null; official_url?: string | null },
+): Promise<StockCategory> {
+  return api<StockCategory>(`/api/image-library/categories/${categoryId}`, {
+    method: "PATCH",
     body: JSON.stringify(payload),
   });
 }

@@ -16,6 +16,7 @@ class StockCategory(Base):
     name: Mapped[str] = mapped_column(String(100), unique=True)
     bucket_name: Mapped[str] = mapped_column(String(63), unique=True)
     description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    official_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     images = relationship("StockImage", back_populates="category", cascade="all, delete-orphan")

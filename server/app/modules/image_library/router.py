@@ -5,12 +5,12 @@ import struct
 import uuid
 from datetime import datetime
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
-from typing import Optional
 
 from server.app.core.security import get_current_user
 from server.app.db.session import get_db
@@ -25,9 +25,26 @@ files_router = APIRouter()   # /api/stock-images/*  — 公开（图片嵌入文
 # ── Pydantic schemas ──────────────────────────────────────────────────────────
 
 class CategoryCreate(BaseModel):
-    name: str
-    bucket_name: str
+    name: str = Field(min_length=1, max_length=100)
+    bucket_name: str = Field(min_length=1, max_length=63)
     description: str | None = None
+    official_url: str | None = None
+
+    @field_validator("official_url", mode="before")
+    @classmethod
+    def normalize_official_url(cls, value: Any) -> str | None:
+        return _normalize_official_url(value)
+
+
+class CategoryUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    description: str | None = None
+    official_url: str | None = None
+
+    @field_validator("official_url", mode="before")
+    @classmethod
+    def normalize_official_url(cls, value: Any) -> str | None:
+        return _normalize_official_url(value)
 
 
 class CategoryRead(BaseModel):
@@ -35,6 +52,7 @@ class CategoryRead(BaseModel):
     name: str
     bucket_name: str
     description: str | None
+    official_url: str | None
     created_at: datetime
 
 
@@ -78,6 +96,31 @@ def _guess_image_size(data: bytes) -> tuple[int | None, int | None]:
     return None, None
 
 
+def _normalize_official_url(value: Any) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("official_url must be a string")
+    trimmed = value.strip()
+    if not trimmed:
+        return None
+    parsed = urlparse(trimmed)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("official_url must start with http:// or https://")
+    return trimmed
+
+
+def _to_category_read(cat: StockCategory) -> CategoryRead:
+    return CategoryRead(
+        id=cat.id,
+        name=cat.name,
+        bucket_name=cat.bucket_name,
+        description=cat.description,
+        official_url=cat.official_url,
+        created_at=cat.created_at,
+    )
+
+
 def _to_image_read(img: StockImage) -> StockImageRead:
     return StockImageRead(
         id=img.id,
@@ -108,17 +151,16 @@ def create_category(
         minio_store.ensure_bucket(payload.bucket_name)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"MinIO bucket 创建失败: {exc}") from exc
-    cat = StockCategory(name=payload.name, bucket_name=payload.bucket_name, description=payload.description)
+    cat = StockCategory(
+        name=payload.name,
+        bucket_name=payload.bucket_name,
+        description=payload.description,
+        official_url=payload.official_url,
+    )
     db.add(cat)
     db.commit()
     db.refresh(cat)
-    return CategoryRead(
-        id=cat.id,
-        name=cat.name,
-        bucket_name=cat.bucket_name,
-        description=cat.description,
-        created_at=cat.created_at,
-    )
+    return _to_category_read(cat)
 
 
 @router.get("/categories", response_model=list[CategoryRead])
@@ -127,10 +169,31 @@ def list_categories(
     _: User = Depends(get_current_user),
 ) -> Any:
     cats = db.query(StockCategory).order_by(StockCategory.created_at.desc()).all()
-    return [
-        CategoryRead(id=c.id, name=c.name, bucket_name=c.bucket_name, description=c.description, created_at=c.created_at)
-        for c in cats
-    ]
+    return [_to_category_read(c) for c in cats]
+
+
+@router.patch("/categories/{category_id}", response_model=CategoryRead)
+def update_category(
+    category_id: int,
+    payload: CategoryUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+) -> Any:
+    cat = db.get(StockCategory, category_id)
+    if cat is None:
+        raise HTTPException(status_code=404, detail="栏目不存在")
+
+    update_data = payload.model_dump(exclude_unset=True)
+    if "name" in update_data and update_data["name"] is not None:
+        cat.name = update_data["name"].strip()
+    if "description" in update_data:
+        cat.description = update_data["description"]
+    if "official_url" in update_data:
+        cat.official_url = update_data["official_url"]
+
+    db.commit()
+    db.refresh(cat)
+    return _to_category_read(cat)
 
 
 # ── Image routes ──────────────────────────────────────────────────────────────
@@ -245,8 +308,8 @@ def delete_image(
 
 
 class ImageUpdate(BaseModel):
-    tags: Optional[str] = None
-    description: Optional[str] = None
+    tags: str | None = None
+    description: str | None = None
 
 
 @router.patch("/images/{image_id}", response_model=StockImageRead)

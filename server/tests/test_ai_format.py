@@ -218,7 +218,7 @@ def test_apply_headings_converts_paragraph_to_h1():
     assert result["content"][1]["type"] == "paragraph"
 
 
-def test_apply_headings_downgrades_unselected_heading():
+def test_apply_headings_preserves_unselected_heading():
     doc = {
         "type": "doc",
         "content": [
@@ -226,8 +226,8 @@ def test_apply_headings_downgrades_unselected_heading():
         ],
     }
     result = _apply_headings(doc, heading_indices=set())
-    assert result["content"][0]["type"] == "paragraph"
-    assert "attrs" not in result["content"][0]
+    assert result["content"][0]["type"] == "heading"
+    assert result["content"][0]["attrs"]["level"] == 1
 
 
 def test_derive_html_and_text_generates_correct_output():
@@ -280,7 +280,7 @@ def test_ai_format_empty_indices_releases_lock_without_changing_content(monkeypa
 
 
 @pytest.mark.mysql
-def test_ai_format_button_path_does_not_trigger_image_insertion(monkeypatch):
+def test_ai_format_button_path_triggers_image_insertion_when_categories_selected(monkeypatch):
     test_app = build_test_app(monkeypatch)
     client = test_app.client
 
@@ -316,7 +316,7 @@ def test_ai_format_button_path_does_not_trigger_image_insertion(monkeypatch):
         assert response.status_code == 202
         _wait_until_unlocked(test_app, article_id)
 
-        assert image_insert_called is False
+        assert image_insert_called is True
         with test_app.session_factory() as db:
             db_article = db.get(Article, article_id)
             assert "image" not in db_article.content_json
@@ -343,6 +343,40 @@ def _simple_content():
             {"type": "paragraph", "content": [{"type": "text", "text": "段落二"}]},
         ],
     }
+
+
+def test_render_ai_format_prompt_injects_category_names_without_private_fields():
+    from server.app.modules.articles.ai_format import render_ai_format_prompt
+
+    text_nodes = [(0, {"type": "paragraph", "content": [{"type": "text", "text": "原神战斗画面很好看"}]})]
+    template = (
+        "{% for category in available_categories %}"
+        "{{ category.id }} {{ category.name }} {{ category.description }} "
+        "{% endfor %}"
+        "{% for node in text_nodes %}{{ node.index }} {{ node.text }}{% endfor %}"
+    )
+    prompt = render_ai_format_prompt(
+        template,
+        text_nodes=text_nodes,
+        available_categories=[{"id": 12, "name": "原神", "description": "开放世界"}],
+    )
+
+    assert "12 原神 开放世界" in prompt
+    assert "原神战斗画面" in prompt
+    assert "bucket" not in prompt
+    assert "official_url" not in prompt
+
+
+def test_render_ai_format_prompt_strict_undefined_raises():
+    from jinja2 import UndefinedError
+    from server.app.modules.articles.ai_format import render_ai_format_prompt
+
+    with pytest.raises(UndefinedError):
+        render_ai_format_prompt(
+            "{{ missing_value }}",
+            text_nodes=[],
+            available_categories=[],
+        )
 
 
 def test_maybe_insert_images_skips_when_no_stock_categories(monkeypatch):
@@ -471,6 +505,53 @@ def test_maybe_insert_images_uses_all_category_ids(monkeypatch):
     _maybe_insert_images(_simple_content(), parsed, article, db=None)
 
     assert set(received_ids) == {10, 20, 30}
+
+
+def test_maybe_insert_images_uses_requested_category_id(monkeypatch):
+    """模型返回 category_id 时，仅在该栏目中按 hint 选图。"""
+    from server.app.modules.articles.ai_format import _maybe_insert_images
+
+    received = []
+
+    def fake_select(category_ids, hints, db):
+        received.append((tuple(category_ids), tuple(hints)))
+        return [42]
+
+    fake_ref = SimpleNamespace(id=42, url="/api/stock-images/42/file", filename="test.jpg", width=800, height=600)
+    monkeypatch.setattr("server.app.modules.articles.ai_format.select_images_by_hints", fake_select)
+    monkeypatch.setattr("server.app.modules.articles.ai_format.fetch_image_by_id", lambda image_id, db: fake_ref)
+    monkeypatch.setattr("server.app.modules.articles.ai_format.has_images_in_content", lambda content: False)
+    monkeypatch.setattr(
+        "server.app.modules.articles.ai_format.insert_images_at_positions",
+        lambda content_json, refs, positions: content_json,
+    )
+
+    cats = [SimpleNamespace(id=10), SimpleNamespace(id=20)]
+    article = _make_article_stub(stock_categories=cats)
+    parsed = {"image_positions": [{"index": 0, "category_id": 20, "hint": "战斗"}]}
+    _, count = _maybe_insert_images(_simple_content(), parsed, article, db=None)
+
+    assert count == 1
+    assert received == [((20,), ("战斗",))]
+
+
+def test_maybe_insert_images_skips_unavailable_requested_category(monkeypatch):
+    """模型返回未关联 category_id 时跳过，不调用选图。"""
+    from server.app.modules.articles.ai_format import _maybe_insert_images
+
+    select_called = []
+    monkeypatch.setattr(
+        "server.app.modules.articles.ai_format.select_images_by_hints",
+        lambda *args, **kwargs: select_called.append(args) or [42],
+    )
+    monkeypatch.setattr("server.app.modules.articles.ai_format.fetch_image_by_id", lambda *a, **kw: None)
+
+    article = _make_article_stub(stock_categories=[SimpleNamespace(id=10)])
+    parsed = {"image_positions": [{"index": 0, "category_id": 99, "hint": "战斗"}]}
+    _, count = _maybe_insert_images(_simple_content(), parsed, article, db=None)
+
+    assert count == 0
+    assert select_called == []
 
 
 def test_maybe_insert_images_old_format_integers_skipped(monkeypatch):

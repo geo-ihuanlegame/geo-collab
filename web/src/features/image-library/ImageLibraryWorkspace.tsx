@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { MoreHorizontal, Plus, Trash2, Upload, Pencil, ChevronLeft, ChevronRight, X, Images } from "lucide-react";
-import { createCategory, deleteImage, listCategories, listImages, updateImage, uploadImage } from "../../api/image-library";
+import { createCategory, deleteImage, listCategories, listImages, updateCategory, updateImage, uploadImage } from "../../api/image-library";
 import type { StockCategory, StockImage } from "../../types";
 import { useToast } from "../../components/Toast";
 
@@ -15,7 +15,14 @@ export function ImageLibraryWorkspace() {
   const [catName, setCatName] = useState("");
   const [catBucket, setCatBucket] = useState("");
   const [catDesc, setCatDesc] = useState("");
+  const [catUrl, setCatUrl] = useState("");
   const [catSaving, setCatSaving] = useState(false);
+
+  const [editingCategory, setEditingCategory] = useState<StockCategory | null>(null);
+  const [editCatName, setEditCatName] = useState("");
+  const [editCatDesc, setEditCatDesc] = useState("");
+  const [editCatUrl, setEditCatUrl] = useState("");
+  const [editCatSaving, setEditCatSaving] = useState(false);
 
   const [showUpload, setShowUpload] = useState(false);
   const [uploadCategoryId, setUploadCategoryId] = useState<number | null>(null);
@@ -85,11 +92,16 @@ export function ImageLibraryWorkspace() {
     if (!catName.trim() || !catBucket.trim()) return;
     setCatSaving(true);
     try {
-      const cat = await createCategory({ name: catName.trim(), bucket_name: catBucket.trim(), description: catDesc.trim() || null });
+      const cat = await createCategory({
+        name: catName.trim(),
+        bucket_name: catBucket.trim(),
+        description: catDesc.trim() || null,
+        official_url: catUrl.trim() || null,
+      });
       setCategories((prev) => [cat, ...prev]);
       setSelectedCategoryId(cat.id);
       setShowNewCat(false);
-      setCatName(""); setCatBucket(""); setCatDesc("");
+      setCatName(""); setCatBucket(""); setCatDesc(""); setCatUrl("");
       showToast("栏目创建成功", "success");
     } catch (e: unknown) {
       showToast((e as Error).message, "error");
@@ -163,7 +175,34 @@ export function ImageLibraryWorkspace() {
     }
   }
 
+  function openCategoryEdit(category: StockCategory) {
+    setEditingCategory(category);
+    setEditCatName(category.name);
+    setEditCatDesc(category.description ?? "");
+    setEditCatUrl(category.official_url ?? "");
+  }
+
+  async function handleSaveCategoryEdit() {
+    if (!editingCategory || !editCatName.trim()) return;
+    setEditCatSaving(true);
+    try {
+      const updated = await updateCategory(editingCategory.id, {
+        name: editCatName.trim(),
+        description: editCatDesc.trim() || null,
+        official_url: editCatUrl.trim() || null,
+      });
+      setCategories((prev) => prev.map((cat) => (cat.id === updated.id ? updated : cat)));
+      setEditingCategory(null);
+      showToast("栏目已更新", "success");
+    } catch (e: unknown) {
+      showToast((e as Error).message, "error");
+    } finally {
+      setEditCatSaving(false);
+    }
+  }
+
   const lightboxImage = lightboxIndex !== null ? (images[lightboxIndex] ?? null) : null;
+  const selectedCategory = categories.find((cat) => cat.id === selectedCategoryId) ?? null;
 
   return (
     <div className="imageLibrary">
@@ -175,6 +214,14 @@ export function ImageLibraryWorkspace() {
         <div className="topbarActions">
           <button type="button" className="btn btn-secondary" onClick={() => setShowNewCat(true)}>
             <Plus size={15} /> 新建栏目
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={!selectedCategory}
+            onClick={() => { if (selectedCategory) openCategoryEdit(selectedCategory); }}
+          >
+            <Pencil size={15} /> 编辑栏目
           </button>
           <button
             type="button"
@@ -282,10 +329,44 @@ export function ImageLibraryWorkspace() {
               描述（选填）
               <input value={catDesc} onChange={(e) => setCatDesc(e.target.value)} placeholder="栏目说明" />
             </label>
+            <label>
+              官网 URL（选填）
+              <input type="url" value={catUrl} onChange={(e) => setCatUrl(e.target.value)} placeholder="https://example.com" />
+            </label>
             <div className="modalActions">
               <button type="button" className="btn btn-secondary" onClick={() => setShowNewCat(false)}>取消</button>
               <button type="button" className="btn btn-primary" disabled={catSaving || !catName.trim() || !catBucket.trim()} onClick={handleCreateCategory}>
                 {catSaving ? "创建中..." : "确认创建"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editingCategory && (
+        <div className="modalOverlay" onClick={() => setEditingCategory(null)}>
+          <div className="modalCard" onClick={(e) => e.stopPropagation()}>
+            <h2>编辑栏目</h2>
+            <label>
+              栏目名称
+              <input value={editCatName} onChange={(e) => setEditCatName(e.target.value)} placeholder="如：原神" />
+            </label>
+            <label>
+              Bucket 名称
+              <input value={editingCategory.bucket_name} disabled />
+            </label>
+            <label>
+              描述（选填）
+              <input value={editCatDesc} onChange={(e) => setEditCatDesc(e.target.value)} placeholder="栏目说明" />
+            </label>
+            <label>
+              官网 URL（选填）
+              <input type="url" value={editCatUrl} onChange={(e) => setEditCatUrl(e.target.value)} placeholder="https://example.com" />
+            </label>
+            <div className="modalActions">
+              <button type="button" className="btn btn-secondary" onClick={() => setEditingCategory(null)}>取消</button>
+              <button type="button" className="btn btn-primary" disabled={editCatSaving || !editCatName.trim()} onClick={handleSaveCategoryEdit}>
+                {editCatSaving ? "保存中..." : "保存"}
               </button>
             </div>
           </div>

@@ -15,6 +15,7 @@ class BodySegment:
     heading_level: int | None = None    # 来自 heading 节点时为 1 或 2
     image_path: Path | None = None      # populated after resolution in publish_Runner
     image_asset_id: str | None = None   # populated by parser; used for tracing
+    stock_image_id: int | None = None   # populated for image-library images
 
 
 def _iter_nodes(node: Any) -> Iterable[dict[str, Any]]:
@@ -40,6 +41,24 @@ def _asset_id_from_image_node(node: dict[str, Any]) -> str | None:
     src = attrs.get("src")
     if isinstance(src, str) and "/api/assets/" in src:
         return src.rstrip("/").split("/api/assets/")[-1].split("?")[0]
+    return None
+
+
+def _stock_image_id_from_image_node(node: dict[str, Any]) -> int | None:
+    attrs = node.get("attrs")
+    if not isinstance(attrs, dict):
+        return None
+    for key in ("stockImageId", "stock_image_id", "dataStockImageId"):
+        value = attrs.get(key)
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str) and value.isdigit():
+            return int(value)
+    src = attrs.get("src")
+    if isinstance(src, str):
+        match = re.search(r"/api/stock-images/(\d+)/file", src)
+        if match:
+            return int(match.group(1))
     return None
 
 
@@ -69,12 +88,24 @@ def extract_body_image_nodes(content_json: dict[str, Any]) -> list[tuple[str, st
     return result
 
 
+def extract_body_stock_image_nodes(content_json: dict[str, Any]) -> list[int]:
+    result = []
+    for node in _iter_nodes(content_json):
+        if node.get("type") != "image":
+            continue
+        stock_image_id = _stock_image_id_from_image_node(node)
+        if stock_image_id is not None:
+            result.append(stock_image_id)
+    return result
+
+
 def has_publishable_body(article: Any) -> bool:
     if (article.plain_text or "").strip():
         return True
     if re.sub(r"<[^>]+>", "", article.content_html or "").strip():
         return True
-    return bool(extract_body_image_nodes(loads_content_json(article.content_json)))
+    content_json = loads_content_json(article.content_json)
+    return bool(extract_body_image_nodes(content_json) or extract_body_stock_image_nodes(content_json))
 
 
 def _append_segments(
@@ -105,6 +136,10 @@ def _append_segments(
         asset_id = _asset_id_from_image_node(node)
         if asset_id:
             segments.append(BodySegment(kind="image", image_asset_id=asset_id))
+            return
+        stock_image_id = _stock_image_id_from_image_node(node)
+        if stock_image_id is not None:
+            segments.append(BodySegment(kind="image", stock_image_id=stock_image_id))
         return
 
     if node_type == "heading":

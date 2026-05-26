@@ -245,3 +245,37 @@ def test_run_publish_keeps_session_on_user_input_required(monkeypatch, tmp_path)
     )
     assert exc.session_id == stub_session.id, f"Expected session_id={stub_session.id!r}, got {exc.session_id!r}"
     assert exc.novnc_url == stub_session.novnc_url, f"Expected novnc_url={stub_session.novnc_url!r}, got {exc.novnc_url!r}"
+
+
+def test_build_payload_resolves_stock_image_segments(monkeypatch, tmp_path):
+    from server.app.modules.tasks import runner as publish_runner
+
+    cover_path = tmp_path / "cover.jpg"
+    cover_path.write_bytes(b"cover")
+    stock_path = tmp_path / "stock.jpg"
+    stock_path.write_bytes(b"stock")
+
+    article = types.SimpleNamespace(
+        title="Stock image article",
+        cover_asset=object(),
+        content_json='{"type":"doc","content":[{"type":"image","attrs":{"stockImageId":42,"src":"/api/stock-images/42/file"}}]}',
+        plain_text="",
+        content_html="",
+        body_assets=[],
+    )
+    account = _make_stub_account()
+
+    monkeypatch.setattr("server.app.modules.tasks.runner.resolve_asset_path", lambda asset: cover_path)
+    monkeypatch.setattr("server.app.modules.tasks.runner._resolve_stock_image_path", lambda stock_image_id: stock_path)
+
+    payload = publish_runner._build_payload(
+        article,
+        account,
+        "k1",
+        "testplat",
+        tmp_path / "browser_states/testplat/k1/storage_state.json",
+    )
+
+    assert payload.body_segments[0].stock_image_id == 42
+    assert payload.body_segments[0].image_path == stock_path
+    assert payload.temp_files == (stock_path,)

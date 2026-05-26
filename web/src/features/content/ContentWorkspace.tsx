@@ -65,6 +65,12 @@ function extractLocalAssetId(value: unknown): string | null {
   return assetId || null;
 }
 
+function extractStockImageId(value: unknown): number | null {
+  if (typeof value !== "string") return null;
+  const match = value.match(/\/api\/stock-images\/(\d+)\/file/);
+  return match ? Number(match[1]) : null;
+}
+
 function normalizeEditorDocument(value: unknown, mode: "display" | "save"): EditorDoc {
   const normalized = normalizeEditorNode(value, mode);
   const doc = isRecord(normalized) ? normalized : { ...emptyDoc };
@@ -102,6 +108,18 @@ function normalizeEditorNode(value: unknown, mode: "display" | "save"): unknown 
       attrs.assetId = assetId;
       attrs.src = mode === "display" ? assetSrc(assetId) ?? `/api/assets/${assetId}` : `/api/assets/${assetId}`;
       next.attrs = attrs;
+    } else {
+      const stockImageId =
+        (typeof attrs.stockImageId === "number" && attrs.stockImageId) ||
+        (typeof attrs.stockImageId === "string" && Number(attrs.stockImageId)) ||
+        (typeof attrs.stock_image_id === "number" && attrs.stock_image_id) ||
+        (typeof attrs.stock_image_id === "string" && Number(attrs.stock_image_id)) ||
+        extractStockImageId(attrs.src);
+      if (stockImageId) {
+        attrs.stockImageId = stockImageId;
+        attrs.src = `/api/stock-images/${stockImageId}/file`;
+        next.attrs = attrs;
+      }
     }
   }
 
@@ -175,6 +193,7 @@ function ImageResizeView({ node, updateAttributes, selected }: NodeViewProps) {
     alt: string;
     title: string;
     assetId: string | null;
+    stockImageId: number | null;
     width: string;
     progress: number | null;
   };
@@ -238,6 +257,7 @@ function ImageResizeView({ node, updateAttributes, selected }: NodeViewProps) {
           alt={attrs.alt ?? ""}
           title={attrs.title ?? ""}
           data-asset-id={attrs.assetId ?? undefined}
+          data-stock-image-id={attrs.stockImageId ?? undefined}
           style={{ width: "100%", display: "block", borderRadius: "var(--r)" }}
           draggable={false}
           onError={() => { if (isPending) setImgError(true); }}
@@ -257,6 +277,14 @@ const CustomImage = Image.extend({
         default: null,
         parseHTML: (el) => el.getAttribute("data-asset-id"),
         renderHTML: (attrs) => (attrs.assetId ? { "data-asset-id": attrs.assetId } : {}),
+      },
+      stockImageId: {
+        default: null,
+        parseHTML: (el) => {
+          const value = el.getAttribute("data-stock-image-id");
+          return value ? Number(value) : null;
+        },
+        renderHTML: (attrs) => (attrs.stockImageId ? { "data-stock-image-id": attrs.stockImageId } : {}),
       },
       width: {
         default: "100%",

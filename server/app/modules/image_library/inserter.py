@@ -19,7 +19,15 @@ def build_image_node(ref: StockImageRef) -> dict:
             "alt": ref.filename,
             "title": "",
             "width": "100%",
+            "stockImageId": ref.id,
         },
+    }
+
+
+def build_url_paragraph(url: str) -> dict:
+    return {
+        "type": "paragraph",
+        "content": [{"type": "text", "text": url}],
     }
 
 
@@ -44,6 +52,10 @@ def insert_images_at_positions(
 
     for pos, ref in pairs:
         insert_at = min(pos + 1, len(content))
-        content.insert(insert_at, build_image_node(ref))
+        nodes = [build_image_node(ref)]
+        official_url = (ref.official_url or "").strip()
+        if official_url:
+            nodes.append(build_url_paragraph(official_url))
+        content[insert_at:insert_at] = nodes
 
     return {**content_json, "content": content}

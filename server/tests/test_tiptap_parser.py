@@ -28,6 +28,23 @@ def test_image_segment_has_asset_id():
     assert img_segs[0].image_path is None
 
 
+def test_stock_image_segment_has_stock_image_id_from_attr():
+    content = '{"type":"doc","content":[{"type":"image","attrs":{"stockImageId":42,"src":"/api/stock-images/42/file"}}]}'
+    segs = parse_body_segments(_article(content_json=content))
+    img_segs = [s for s in segs if s.kind == "image"]
+    assert len(img_segs) == 1
+    assert img_segs[0].stock_image_id == 42
+    assert img_segs[0].image_asset_id is None
+
+
+def test_stock_image_segment_has_stock_image_id_from_src():
+    content = '{"type":"doc","content":[{"type":"image","attrs":{"src":"/api/stock-images/99/file"}}]}'
+    segs = parse_body_segments(_article(content_json=content))
+    img_segs = [s for s in segs if s.kind == "image"]
+    assert len(img_segs) == 1
+    assert img_segs[0].stock_image_id == 99
+
+
 def test_body_segments_preserve_text_image_order_and_duplicate_images():
     content = (
         '{"type":"doc","content":['

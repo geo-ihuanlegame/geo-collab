@@ -236,6 +236,7 @@ export type StockCategory = {
   name: string;
   bucket_name: string;
   description: string | null;
+  official_url: string | null;
   created_at: string;
 };
 

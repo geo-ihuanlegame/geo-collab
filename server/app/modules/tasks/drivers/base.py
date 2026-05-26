@@ -20,6 +20,7 @@ class PublishPayload:
     state_path: Path
     display_name: str
     platform_code: str
+    temp_files: tuple[Path, ...] = ()
 
 
 @dataclass(frozen=True)

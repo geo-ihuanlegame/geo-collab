@@ -4,7 +4,11 @@ import json
 import logging
 import re
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
+
+from jinja2 import StrictUndefined
+from jinja2.sandbox import SandboxedEnvironment
 
 from server.app.core.config import get_settings
 from server.app.modules.articles.parser import dumps_content_json, loads_content_json
@@ -172,6 +176,133 @@ def _node_text(node: dict) -> str:
 
 def _node_label(node: dict) -> str:
     return "[小标题]" if node.get("type") == "heading" else "[段落]"
+
+
+_PROMPT_DIR = Path(__file__).with_name("prompts")
+_AI_FORMAT_WITH_IMAGES_TEMPLATE = _PROMPT_DIR / "ai_format_with_images.j2"
+
+
+def _template_env() -> SandboxedEnvironment:
+    return SandboxedEnvironment(
+        undefined=StrictUndefined,
+        autoescape=False,
+        trim_blocks=True,
+        lstrip_blocks=True,
+    )
+
+
+def _template_text_nodes(text_nodes: list[tuple[int, dict]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "index": index,
+            "label": "[小标题]" if node.get("type") == "heading" else "[段落]",
+            "text": _node_text(node),
+        }
+        for index, node in text_nodes
+    ]
+
+
+def _category_context(category: Any) -> dict[str, Any] | None:
+    category_id = getattr(category, "id", None)
+    if not isinstance(category_id, int):
+        return None
+    return {
+        "id": category_id,
+        "name": str(getattr(category, "name", "") or category_id),
+        "description": getattr(category, "description", None),
+    }
+
+
+def _available_categories_for_article(article: Any, db: Any | None = None) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    seen: set[int] = set()
+
+    for category in (getattr(article, "stock_categories", None) or []):
+        item = _category_context(category)
+        if item is not None and item["id"] not in seen:
+            result.append(item)
+            seen.add(item["id"])
+
+    legacy_id = getattr(article, "stock_category_id", None)
+    if isinstance(legacy_id, int) and legacy_id not in seen:
+        category = getattr(article, "stock_category", None)
+        if category is None and db is not None:
+            from server.app.modules.image_library.models import StockCategory
+
+            category = db.get(StockCategory, legacy_id)
+        item = _category_context(category) if category is not None else {
+            "id": legacy_id,
+            "name": str(legacy_id),
+            "description": None,
+        }
+        if item is not None:
+            result.append(item)
+            seen.add(item["id"])
+
+    return result
+
+
+def render_ai_format_prompt(
+    template_source: str,
+    *,
+    text_nodes: list[tuple[int, dict]],
+    available_categories: list[dict[str, Any]],
+    max_images: int | None = None,
+    min_spacing: int | None = None,
+) -> str:
+    derived_max_images, derived_min_spacing = _image_prompt_params(text_nodes)
+    template = _template_env().from_string(template_source)
+    return template.render(
+        text_nodes=_template_text_nodes(text_nodes),
+        available_categories=available_categories,
+        max_images=max_images if max_images is not None else derived_max_images,
+        min_spacing=min_spacing if min_spacing is not None else derived_min_spacing,
+    )
+
+
+def _builtin_prompt_template(include_images: bool) -> str:
+    if include_images:
+        return _AI_FORMAT_WITH_IMAGES_TEMPLATE.read_text(encoding="utf-8")
+    return _SYSTEM_PROMPT_HEADINGS_ONLY
+
+
+def _fallback_prompt(
+    include_images: bool,
+    text_nodes: list[tuple[int, dict]] | None = None,
+    available_categories: list[dict[str, Any]] | None = None,
+) -> str:
+    return render_ai_format_prompt(
+        _builtin_prompt_template(include_images),
+        text_nodes=text_nodes or [],
+        available_categories=available_categories or [],
+    )
+
+
+def _load_ai_format_prompt(
+    db: Any,
+    *,
+    preset_id: int | None,
+    user_id: int | None,
+    include_images: bool,
+    text_nodes: list[tuple[int, dict]] | None = None,
+    available_categories: list[dict[str, Any]] | None = None,
+) -> str:
+    if preset_id is None or user_id is None:
+        return _fallback_prompt(include_images, text_nodes, available_categories)
+
+    from server.app.modules.prompt_templates.service import get_visible_prompt_template
+
+    prompt = get_visible_prompt_template(db, preset_id, user_id=user_id, scope="ai_format")
+    if prompt is None or not prompt.is_enabled:
+        logger.info("ai_format preset %s unavailable; falling back to built-in prompt", preset_id)
+        return _fallback_prompt(include_images, text_nodes, available_categories)
+
+    logger.info("ai_format using DB prompt template %s", preset_id)
+    return render_ai_format_prompt(
+        prompt.content,
+        text_nodes=text_nodes or [],
+        available_categories=available_categories or [],
+    )
 
 
 def _to_heading(node: dict, level: int = 1) -> dict:
@@ -354,6 +485,72 @@ def _maybe_insert_images(content_json: dict, parsed: dict, article: Any, db: Any
     return insert_images_at_positions(content_json, matched_refs, matched_positions), len(matched_refs)
 
 
+def _maybe_insert_images(content_json: dict, parsed: dict, article: Any, db: Any) -> tuple[dict, int]:
+    if has_images_in_content(content_json):
+        return content_json, 0
+
+    category_ids: list[int] = [cat["id"] for cat in _available_categories_for_article(article, db)]
+    if not category_ids:
+        return content_json, 0
+
+    image_positions_raw = parsed.get("image_positions", [])
+    if not isinstance(image_positions_raw, list) or not image_positions_raw:
+        return content_json, 0
+
+    positions: list[int] = []
+    hints: list[str | None] = []
+    requested_category_ids: list[int | None] = []
+    for item in image_positions_raw:
+        if isinstance(item, dict):
+            idx = item.get("index")
+            hint = item.get("hint") or None
+            category_id = item.get("category_id")
+            if isinstance(idx, int):
+                positions.append(idx)
+                hints.append(hint)
+                requested_category_ids.append(category_id if isinstance(category_id, int) else None)
+        elif isinstance(item, int):
+            positions.append(item)
+            hints.append(None)
+            requested_category_ids.append(None)
+
+    if not positions:
+        return content_json, 0
+
+    matched_refs = []
+    matched_positions = []
+    if all(category_id is None for category_id in requested_category_ids):
+        image_ids = select_images_by_hints(category_ids, hints, db)
+        items = zip(positions, image_ids)
+    else:
+        picked: list[tuple[int, int | None]] = []
+        valid_category_ids = set(category_ids)
+        for pos, hint, requested_category_id in zip(positions, hints, requested_category_ids):
+            if requested_category_id is not None:
+                if requested_category_id not in valid_category_ids:
+                    picked.append((pos, None))
+                    continue
+                candidate_category_ids = [requested_category_id]
+            else:
+                candidate_category_ids = category_ids
+            image_ids = select_images_by_hints(candidate_category_ids, [hint], db)
+            picked.append((pos, image_ids[0] if image_ids else None))
+        items = picked
+
+    for pos, image_id in items:
+        if image_id is None:
+            continue
+        ref = fetch_image_by_id(image_id, db)
+        if ref is not None:
+            matched_refs.append(ref)
+            matched_positions.append(pos)
+
+    if not matched_refs:
+        return content_json, 0
+
+    return insert_images_at_positions(content_json, matched_refs, matched_positions), len(matched_refs)
+
+
 def _unlock_ai_format(
     db: Any,
     article_id: int,
@@ -412,12 +609,14 @@ def run_ai_format(
         if not api_key:
             raise AIFormatConfigurationError("AI 排版失败：未配置 API Key，请设置 GEO_AI_FORMAT_API_KEY。")
 
+        available_categories = _available_categories_for_article(article, db) if include_images else []
         system_prompt = _load_ai_format_prompt(
             db,
             preset_id=preset_id,
             user_id=user_id,
             include_images=include_images,
             text_nodes=text_nodes,
+            available_categories=available_categories,
         )
         response = _call_litellm_completion(
             model=settings.ai_format_model,

@@ -32,6 +32,8 @@ class StockImageRef:
     filename: str
     width: int | None
     height: int | None
+    category_id: int | None = None
+    official_url: str | None = None
 
 
 # ══ THE UPGRADE POINT ════════════════════════════════════════════════════════
@@ -67,6 +69,8 @@ def fetch_image_by_id(image_id: int, db: Session) -> StockImageRef | None:
         filename=img.filename,
         width=img.width,
         height=img.height,
+        category_id=img.category_id,
+        official_url=img.category.official_url if img.category is not None else None,
     )
 
 
