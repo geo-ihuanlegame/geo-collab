@@ -391,21 +391,33 @@ def _select_body_editor_contents(page: Any) -> bool:
     )
 
 
-def _insert_runs(page: Any, runs: tuple[tuple[str, bool], ...]) -> None:
-    """Insert text runs into editor, toggling Ctrl+B around bold runs.
+def _insert_text_atomic(page: Any, text: str) -> None:
+    """将一段文本作为单次 DOM 事件原子插入当前光标位置。
 
-    Uses keyboard.type() instead of clipboard paste to avoid clipboard API
-    failures in headless Chromium (Xvfb) which can silently truncate long text
-    or fail entirely, causing Ctrl+V to paste stale clipboard content.
+    用 document.execCommand('insertText') 代替 keyboard.type(delay=5)：
+    - keyboard.type 逐字符派发 keydown/keypress/input 事件；ProseMirror 对每个
+      字符运行 inputRule 检测，行首 "1. "（数字+点+空格）会触发有序列表转换，
+      导致 "1." 变成 CSS 生成的列表序号，innerText 读不到，verify 失败。
+    - execCommand('insertText') 触发单次 input 事件（inputType=insertText），
+      ProseMirror 只检查光标前末尾的几个字符，不会误触 orderedList inputRule。
+    - 整段一次性写入，不存在字符丢失或 DOM 更新打断的时序问题。
+    - 返回 false 时（极少数浏览器限制）回退到逐字符键入。
     """
+    ok = page.evaluate("(t) => document.execCommand('insertText', false, t)", text)
+    if not ok:
+        page.keyboard.type(text, delay=5)
+    page.wait_for_timeout(50)
+
+
+def _insert_runs(page: Any, runs: tuple[tuple[str, bool], ...]) -> None:
+    """Insert text runs into editor, toggling Ctrl+B around bold runs."""
     for text, is_bold in runs:
         if not text:
             continue
         if is_bold:
             page.keyboard.press("Control+b")
             page.wait_for_timeout(50)
-        page.keyboard.type(text, delay=5)
-        page.wait_for_timeout(50)
+        _insert_text_atomic(page, text)
         if is_bold:
             page.keyboard.press("Control+b")
             page.wait_for_timeout(50)
