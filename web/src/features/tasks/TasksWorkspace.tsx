@@ -49,7 +49,7 @@ function pruneFinishedAutoRefreshIds(ids: Set<number>, tasks: Task[]): Set<numbe
   return changed ? next : ids;
 }
 
-export function TasksWorkspace() {
+export function TasksWorkspace({ isActive }: { isActive?: boolean } = {}) {
   const { toast } = useToast();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [taskPage, setTaskPage] = useState(0);
@@ -73,6 +73,7 @@ export function TasksWorkspace() {
   const [formError, setFormError] = useState("");
 
   const lastLogIdRef = useRef(0);
+  const isInitialMountRef = useRef(true);
   const prevRecordsJsonRef = useRef<string>("");
   const prevTasksJsonRef = useRef<string>("");
 
@@ -100,6 +101,15 @@ export function TasksWorkspace() {
   useEffect(() => {
     void loadInitial();
   }, []);
+
+  useEffect(() => {
+    if (isInitialMountRef.current) {
+      isInitialMountRef.current = false;
+      return;
+    }
+    if (!isActive) return;
+    void loadInitial();
+  }, [isActive]);
 
   useEffect(() => {
     if (!hasActiveTasks) return;
@@ -156,6 +166,8 @@ export function TasksWorkspace() {
         next.delete(taskId);
         return next;
       });
+      // 500ms 后兜底拉取最终状态
+      setTimeout(() => void refreshDetail(taskId).catch(() => {}), 500);
     });
 
     es.onerror = () => {
