@@ -252,7 +252,7 @@ def trigger_ai_format_endpoint(
             raise HTTPException(status_code=404, detail="AI format prompt preset not found")
 
     lock_started_at = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
-    include_images = article.stock_category_id is not None
+    include_images = article.stock_category_id is not None or len(article.stock_categories or []) > 0
     article.ai_checking = True
     article.ai_checking_started_at = lock_started_at
     article.ai_format_error = None

@@ -78,6 +78,7 @@ class ArticleUpdate(BaseModel):
     status: str | None = None
     version: int | None = Field(default=None, ge=1)
     stock_category_id: int | None = None
+    stock_category_ids: list[int] = Field(default_factory=list)
 
     @field_validator("content_html", mode="before")
     @classmethod
@@ -120,6 +121,7 @@ class ArticleRead(BaseModel):
     body_assets: list[ArticleBodyAssetRead]
     published_count: int = 0  # 成功发布次数
     stock_category_id: int | None = None
+    stock_category_ids: list[int] = Field(default_factory=list)
     ai_checking: bool = False
     ai_format_error: str | None = None
     created_at: datetime
@@ -195,6 +197,7 @@ def to_article_read(article: "Article", published_count: int = 0) -> ArticleRead
             for item in body_assets
         ],
         stock_category_id=article.stock_category_id,
+        stock_category_ids=[sc.id for sc in (article.stock_categories or [])],
         created_at=article.created_at,
         updated_at=article.updated_at,
         ai_checking=article.ai_checking,

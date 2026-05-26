@@ -13,13 +13,23 @@
 from datetime import datetime
 
 from sqlalchemy import (
-    Boolean, CheckConstraint, DateTime, ForeignKey, Integer,
-    String, Text, UniqueConstraint,
+    Boolean, CheckConstraint, Column, DateTime, ForeignKey, Integer,
+    String, Table, Text, UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from server.app.core.time import utcnow
 from server.app.db.base import Base
+
+
+# 文章-图库栏目 多对多关联表
+article_stock_categories_table = Table(
+    "article_stock_categories",
+    Base.metadata,
+    Column("article_id", Integer, ForeignKey("articles.id", ondelete="CASCADE"), primary_key=True),
+    Column("stock_category_id", Integer, ForeignKey("stock_categories.id", ondelete="CASCADE"), primary_key=True),
+    UniqueConstraint("article_id", "stock_category_id", name="uq_article_stock_cat"),
+)
 
 
 class Asset(Base):
@@ -98,6 +108,11 @@ class Article(Base):
 
     cover_asset = relationship("Asset", foreign_keys=[cover_asset_id])
     stock_category = relationship("StockCategory", foreign_keys=[stock_category_id])
+    stock_categories = relationship(
+        "StockCategory",
+        secondary="article_stock_categories",
+        lazy="select",
+    )
     body_assets = relationship("ArticleBodyAsset", back_populates="article", cascade="all, delete-orphan")
     group_items = relationship("ArticleGroupItem", back_populates="article")
     publish_records = relationship("PublishRecord", back_populates="article")

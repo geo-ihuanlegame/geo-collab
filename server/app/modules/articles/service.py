@@ -54,7 +54,10 @@ def get_article(db: Session, article_id: int) -> Article | None:
     stmt = (
         select(Article)
         .where(Article.id == article_id, Article.is_deleted == False)  # noqa: E712
-        .options(selectinload(Article.body_assets).selectinload(ArticleBodyAsset.asset))
+        .options(
+            selectinload(Article.body_assets).selectinload(ArticleBodyAsset.asset),
+            selectinload(Article.stock_categories),
+        )
     )
     return db.execute(stmt).scalar_one_or_none()
 
@@ -174,6 +177,25 @@ def update_article(db: Session, article: Article, payload: ArticleUpdate) -> Art
     # stock_category_id 允许显式置 None（移除关联）
     if "stock_category_id" in update_data:
         article.stock_category_id = update_data["stock_category_id"]
+
+    # 多对多栏目：如果传了 stock_category_ids，更新关联表
+    if "stock_category_ids" in update_data:
+        from server.app.modules.image_library.models import StockCategory as _StockCategory
+        cat_ids = update_data["stock_category_ids"] or []
+        if cat_ids:
+            cats = list(db.execute(
+                select(_StockCategory).where(_StockCategory.id.in_(cat_ids))
+            ).scalars().all())
+        else:
+            cats = []
+        article.stock_categories = cats
+    elif "stock_category_id" in update_data and update_data["stock_category_id"] is not None:
+        # 兼容旧字段：如果只传了 stock_category_id 且多对多列表为空，把旧值塞进多对多
+        from server.app.modules.image_library.models import StockCategory as _StockCategory
+        if not article.stock_categories:
+            cat = db.get(_StockCategory, update_data["stock_category_id"])
+            if cat is not None:
+                article.stock_categories = [cat]
 
     if "content_json" in update_data:
         article.content_json = dumps_content_json(content_json)

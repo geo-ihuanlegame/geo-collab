@@ -288,14 +288,15 @@ def test_ai_format_button_path_does_not_trigger_image_insertion(monkeypatch):
         article = _create_article(test_app.client)
         article_id = article["id"]
 
-        from server.app.modules.articles.models import Article, StockCategory
+        from server.app.modules.articles.models import Article
+        from server.app.modules.image_library.models import StockCategory
 
         with test_app.session_factory() as db:
             category = StockCategory(name="covers", bucket_name="covers")
             db.add(category)
             db.flush()
             db_article = db.get(Article, article_id)
-            db_article.stock_category_id = category.id
+            db_article.stock_categories = [category]  # 多对多关联
             db.commit()
 
         image_insert_called = False
@@ -307,7 +308,7 @@ def test_ai_format_button_path_does_not_trigger_image_insertion(monkeypatch):
 
         monkeypatch.setattr(
             "server.app.modules.articles.ai_format._call_litellm_completion",
-            lambda **_: _fake_completion('{"heading_indices": [0], "image_positions": [0]}'),
+            lambda **_: _fake_completion('{"heading_indices": [0], "image_positions": [{"index": 0, "hint": "风景描写"}]}'),
         )
         monkeypatch.setattr("server.app.modules.articles.ai_format._maybe_insert_images", fake_maybe_insert_images)
 
@@ -321,3 +322,196 @@ def test_ai_format_button_path_does_not_trigger_image_insertion(monkeypatch):
             assert "image" not in db_article.content_json
     finally:
         test_app.cleanup()
+
+
+# ── _maybe_insert_images 单元测试（不依赖数据库）────────────────────────────
+
+def _make_article_stub(stock_category_id=None, stock_categories=None):
+    """构造 Article stub，模拟 ORM 对象的关键属性。"""
+    return SimpleNamespace(
+        stock_category_id=stock_category_id,
+        stock_categories=stock_categories or [],
+    )
+
+
+def _simple_content():
+    """最小化的 Tiptap doc，包含两个段落节点（索引 0 和 1）。"""
+    return {
+        "type": "doc",
+        "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "段落一"}]},
+            {"type": "paragraph", "content": [{"type": "text", "text": "段落二"}]},
+        ],
+    }
+
+
+def test_maybe_insert_images_skips_when_no_stock_categories(monkeypatch):
+    """stock_categories 为空且 stock_category_id 为 None → 不插图。"""
+    from server.app.modules.articles.ai_format import _maybe_insert_images
+
+    select_called = []
+    monkeypatch.setattr(
+        "server.app.modules.articles.ai_format.select_images_by_hints",
+        lambda *a, **kw: select_called.append(1) or [],
+    )
+
+    content = _simple_content()
+    parsed = {"image_positions": [{"index": 0, "hint": "风景"}]}
+    article = _make_article_stub()
+    result_json, count = _maybe_insert_images(content, parsed, article, db=None)
+
+    assert count == 0
+    assert select_called == []  # 选图函数未被调用
+
+
+def test_maybe_insert_images_skips_when_hint_is_none_or_empty(monkeypatch):
+    """hint 为 None 或空字符串 → 不插图，select_images_by_hints 不被调用。"""
+    from server.app.modules.articles.ai_format import _maybe_insert_images
+
+    select_called = []
+    monkeypatch.setattr(
+        "server.app.modules.articles.ai_format.select_images_by_hints",
+        lambda *a, **kw: select_called.append(1) or [None, None],
+    )
+    monkeypatch.setattr(
+        "server.app.modules.articles.ai_format.fetch_image_by_id",
+        lambda *a, **kw: None,
+    )
+
+    cat = SimpleNamespace(id=1)
+    article = _make_article_stub(stock_categories=[cat])
+
+    # hint=None
+    parsed = {"image_positions": [{"index": 0, "hint": None}]}
+    _, count = _maybe_insert_images(_simple_content(), parsed, article, db=None)
+    assert count == 0
+
+    # hint="" (空字符串)
+    parsed2 = {"image_positions": [{"index": 0, "hint": ""}]}
+    _, count2 = _maybe_insert_images(_simple_content(), parsed2, article, db=None)
+    assert count2 == 0
+
+
+def test_maybe_insert_images_skips_when_no_library_match(monkeypatch):
+    """hint 有值但图库无匹配（返回 None）→ 不插图，不降级随机。"""
+    from server.app.modules.articles.ai_format import _maybe_insert_images
+
+    monkeypatch.setattr(
+        "server.app.modules.articles.ai_format.select_images_by_hints",
+        lambda category_ids, hints, db: [None] * len(hints),
+    )
+    monkeypatch.setattr(
+        "server.app.modules.articles.ai_format.fetch_image_by_id",
+        lambda *a, **kw: None,
+    )
+
+    cat = SimpleNamespace(id=1)
+    article = _make_article_stub(stock_categories=[cat])
+    parsed = {"image_positions": [{"index": 0, "hint": "不存在的主题"}]}
+    _, count = _maybe_insert_images(_simple_content(), parsed, article, db=None)
+
+    assert count == 0
+
+
+def test_maybe_insert_images_inserts_when_hint_matches(monkeypatch):
+    """hint 匹配到图片 → 插入图片，count=1。"""
+    from server.app.modules.articles.ai_format import _maybe_insert_images
+
+    fake_ref = SimpleNamespace(id=42, url="/api/stock-images/42/file", filename="test.jpg", width=800, height=600)
+
+    monkeypatch.setattr(
+        "server.app.modules.articles.ai_format.select_images_by_hints",
+        lambda category_ids, hints, db: [42],
+    )
+    monkeypatch.setattr(
+        "server.app.modules.articles.ai_format.fetch_image_by_id",
+        lambda image_id, db: fake_ref,
+    )
+    monkeypatch.setattr(
+        "server.app.modules.articles.ai_format.has_images_in_content",
+        lambda content: False,
+    )
+
+    # insert_images_at_positions 只需验证调用了，返回原 content 即可
+    inserted_positions = []
+    def fake_insert(content_json, refs, positions):
+        inserted_positions.extend(positions)
+        return content_json
+
+    monkeypatch.setattr(
+        "server.app.modules.articles.ai_format.insert_images_at_positions",
+        fake_insert,
+    )
+
+    cat = SimpleNamespace(id=1)
+    article = _make_article_stub(stock_categories=[cat])
+    parsed = {"image_positions": [{"index": 0, "hint": "风景"}]}
+    _, count = _maybe_insert_images(_simple_content(), parsed, article, db=None)
+
+    assert count == 1
+    assert 0 in inserted_positions
+
+
+def test_maybe_insert_images_uses_all_category_ids(monkeypatch):
+    """select_images_by_hints 收到的 category_ids 包含 stock_categories 中的所有 ID。"""
+    from server.app.modules.articles.ai_format import _maybe_insert_images
+
+    received_ids = []
+
+    def fake_select(category_ids, hints, db):
+        received_ids.extend(category_ids)
+        return [None] * len(hints)
+
+    monkeypatch.setattr("server.app.modules.articles.ai_format.select_images_by_hints", fake_select)
+    monkeypatch.setattr("server.app.modules.articles.ai_format.fetch_image_by_id", lambda *a, **kw: None)
+
+    cats = [SimpleNamespace(id=10), SimpleNamespace(id=20), SimpleNamespace(id=30)]
+    article = _make_article_stub(stock_categories=cats)
+    parsed = {"image_positions": [{"index": 0, "hint": "主题"}]}
+    _maybe_insert_images(_simple_content(), parsed, article, db=None)
+
+    assert set(received_ids) == {10, 20, 30}
+
+
+def test_maybe_insert_images_old_format_integers_skipped(monkeypatch):
+    """旧格式（纯整数数组）→ hint 全为 None → 全部跳过，不插图。"""
+    from server.app.modules.articles.ai_format import _maybe_insert_images
+
+    select_called = []
+    monkeypatch.setattr(
+        "server.app.modules.articles.ai_format.select_images_by_hints",
+        lambda category_ids, hints, db: select_called.append(hints) or [None] * len(hints),
+    )
+    monkeypatch.setattr("server.app.modules.articles.ai_format.fetch_image_by_id", lambda *a, **kw: None)
+
+    cat = SimpleNamespace(id=1)
+    article = _make_article_stub(stock_categories=[cat])
+    parsed = {"image_positions": [0, 1]}  # 旧格式：纯整数
+    _, count = _maybe_insert_images(_simple_content(), parsed, article, db=None)
+
+    assert count == 0
+    # select 被调用，但 hints 全是 None，内部会全部跳过
+    if select_called:
+        assert all(h is None for h in select_called[0])
+
+
+def test_maybe_insert_images_fallback_to_old_stock_category_id(monkeypatch):
+    """stock_categories 为空但 stock_category_id 有值 → 兼容旧字段，尝试选图。"""
+    from server.app.modules.articles.ai_format import _maybe_insert_images
+
+    received_ids = []
+
+    def fake_select(category_ids, hints, db):
+        received_ids.extend(category_ids)
+        return [None] * len(hints)
+
+    monkeypatch.setattr("server.app.modules.articles.ai_format.select_images_by_hints", fake_select)
+    monkeypatch.setattr("server.app.modules.articles.ai_format.fetch_image_by_id", lambda *a, **kw: None)
+
+    # stock_categories 为空，只有旧字段
+    article = _make_article_stub(stock_category_id=99, stock_categories=[])
+    parsed = {"image_positions": [{"index": 0, "hint": "风景"}]}
+    _maybe_insert_images(_simple_content(), parsed, article, db=None)
+
+    # 应当把旧的 stock_category_id 包含进 category_ids
+    assert 99 in received_ids
