@@ -20,9 +20,17 @@ from sqlalchemy import select, update as sa_update
 
 from server.app.core.time import utcnow
 from server.app.db.session import SessionLocal
-from server.app.modules.tasks.models import PublishTask
+from server.app.modules.tasks.models import PublishRecord, PublishTask
 from server.app.modules.system.models import WorkerHeartbeat
 from server.app.modules.accounts import process_account_login_session_requests
+from server.app.modules.accounts.models import (
+    Account,
+    AccountLoginSession,
+    BrowserProfileLock,
+    BrowserSession,
+    RecordBrowserSession,
+)
+from server.app.modules.accounts.service import profile_key_from_state_path
 import server.app.modules.image_library.models  # noqa: F401  # 确保 StockCategory 注册到 mapper registry（Article.stock_category 关系依赖它）
 from server.app.modules.tasks import (
     TERMINAL_TASK_STATUSES,
@@ -37,9 +45,13 @@ _logger = logging.getLogger(__name__)
 # Unique identity for this worker process
 WORKER_ID = f"{socket.gethostname()}-{os.getpid()}"
 CLAIM_LEASE_MINUTES = 10
+PROFILE_LOCK_HEARTBEAT_SECONDS = 30
+PROFILE_LOCK_LEASE_SECONDS = 900
 
 # Graceful shutdown flag
 _shutdown = False
+_profile_lock_heartbeat_at = 0.0
+_profile_lock_heartbeat_lock = threading.Lock()
 
 
 def _handle_signal(signum, frame) -> None:
@@ -116,7 +128,61 @@ def _write_worker_heartbeat(db) -> None:
             heartbeat_at=utcnow(),
         )
     )
+    _heartbeat_active_profile_locks(db)
     db.commit()
+
+
+def _heartbeat_active_profile_locks(db) -> None:
+    global _profile_lock_heartbeat_at
+    now_monotonic = time.monotonic()
+    with _profile_lock_heartbeat_lock:
+        if now_monotonic - _profile_lock_heartbeat_at < PROFILE_LOCK_HEARTBEAT_SECONDS:
+            return
+        _profile_lock_heartbeat_at = now_monotonic
+
+    now = utcnow()
+    lease_until = now + timedelta(seconds=PROFILE_LOCK_LEASE_SECONDS)
+    owners: list[tuple[str, str, str]] = []
+
+    login_rows = db.execute(
+        select(AccountLoginSession.id, Account.state_path)
+        .join(Account, Account.id == AccountLoginSession.account_id)
+        .where(
+            AccountLoginSession.status == "active",
+            AccountLoginSession.worker_id == WORKER_ID,
+        )
+    ).all()
+    owners.extend(
+        (profile_key_from_state_path(state_path), "login", str(request_id))
+        for request_id, state_path in login_rows
+    )
+
+    publish_rows = db.execute(
+        select(PublishRecord.id, Account.state_path)
+        .join(Account, Account.id == PublishRecord.account_id)
+        .join(RecordBrowserSession, RecordBrowserSession.record_id == PublishRecord.id)
+        .join(BrowserSession, BrowserSession.id == RecordBrowserSession.session_id)
+        .where(
+            PublishRecord.status.in_(["waiting_manual_publish", "waiting_user_input"]),
+            PublishRecord.is_deleted == False,  # noqa: E712
+            BrowserSession.worker_id == WORKER_ID,
+        )
+    ).all()
+    owners.extend(
+        (profile_key_from_state_path(state_path), "publish", str(record_id))
+        for record_id, state_path in publish_rows
+    )
+
+    for profile_key, owner_kind, owner_id in owners:
+        db.execute(
+            sa_update(BrowserProfileLock)
+            .where(
+                BrowserProfileLock.profile_key == profile_key,
+                BrowserProfileLock.owner_kind == owner_kind,
+                BrowserProfileLock.owner_id == owner_id,
+            )
+            .values(heartbeat_at=now, lease_until=lease_until, worker_id=WORKER_ID)
+        )
 
 
 def _account_login_loop() -> None:

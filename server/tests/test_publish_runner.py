@@ -110,14 +110,19 @@ def _patch_common(monkeypatch, tmp_path: Path, stub_session, pw_cm, context, pag
 
     # profile_dir_for_key → a path that doesn't need to exist
     monkeypatch.setattr(
-        "server.app.modules.tasks.runner.profile_dir_for_key",
-        lambda platform_code, account_key: tmp_path / "profile",
+        "server.app.modules.tasks.runner.profile_key_from_state_path",
+        lambda state_path: "browser_states/testplat/k1",
+    )
+
+    monkeypatch.setattr(
+        "server.app.modules.tasks.runner.profile_dir_from_state_path",
+        lambda state_path: tmp_path / "profile",
     )
 
     # get_or_create_account_session → returns stub_session directly
     monkeypatch.setattr(
         "server.app.modules.tasks.runner.get_or_create_account_session",
-        lambda platform_code, account_key: stub_session,
+        lambda platform_code, account_key, profile_key=None: stub_session,
     )
 
     # stop_remote_browser_session → no-op (called on launch failure path)
@@ -245,6 +250,76 @@ def test_run_publish_keeps_session_on_user_input_required(monkeypatch, tmp_path)
     )
     assert exc.session_id == stub_session.id, f"Expected session_id={stub_session.id!r}, got {exc.session_id!r}"
     assert exc.novnc_url == stub_session.novnc_url, f"Expected novnc_url={stub_session.novnc_url!r}, got {exc.novnc_url!r}"
+
+
+def test_run_publish_stops_session_after_auto_publish(monkeypatch, tmp_path):
+    from server.app.modules.tasks import runner as publish_runner
+
+    stub_session = _make_stub_session()
+    pw_cm, context, page = _make_stub_pw_context_page()
+
+    _patch_common(monkeypatch, tmp_path, stub_session, pw_cm, context, page)
+
+    class _StubDriver:
+        code = "testplat"
+        name = "Test Platform"
+        home_url = "https://example.com"
+        publish_url = "https://example.com/publish"
+
+        def detect_logged_in(self, *, url, title, body):
+            return True
+
+        def publish(self, *, page, context, payload, stop_before_publish):
+            return PublishResult(url="https://example.com/article/1", title=payload.title, message="ok")
+
+    stopped = []
+    kept_alive = []
+    monkeypatch.setattr("server.app.modules.tasks.runner.get_driver", lambda platform_code: _StubDriver())
+    monkeypatch.setattr("server.app.modules.tasks.runner.stop_remote_browser_session", lambda session_id: stopped.append(session_id))
+    monkeypatch.setattr("server.app.modules.tasks.runner.keep_session_alive", lambda session_id: kept_alive.append(session_id))
+
+    result = publish_runner.run_publish(article=_make_stub_article(tmp_path), account=_make_stub_account())
+
+    assert result.url == "https://example.com/article/1"
+    assert stopped == [stub_session.id]
+    assert kept_alive == []
+
+
+def test_run_publish_keeps_session_for_manual_publish(monkeypatch, tmp_path):
+    from server.app.modules.tasks import runner as publish_runner
+
+    stub_session = _make_stub_session()
+    pw_cm, context, page = _make_stub_pw_context_page()
+
+    _patch_common(monkeypatch, tmp_path, stub_session, pw_cm, context, page)
+
+    class _StubDriver:
+        code = "testplat"
+        name = "Test Platform"
+        home_url = "https://example.com"
+        publish_url = "https://example.com/publish"
+
+        def detect_logged_in(self, *, url, title, body):
+            return True
+
+        def publish(self, *, page, context, payload, stop_before_publish):
+            return PublishResult(url=None, title=payload.title, message="waiting")
+
+    stopped = []
+    kept_alive = []
+    monkeypatch.setattr("server.app.modules.tasks.runner.get_driver", lambda platform_code: _StubDriver())
+    monkeypatch.setattr("server.app.modules.tasks.runner.stop_remote_browser_session", lambda session_id: stopped.append(session_id))
+    monkeypatch.setattr("server.app.modules.tasks.runner.keep_session_alive", lambda session_id: kept_alive.append(session_id))
+
+    result = publish_runner.run_publish(
+        article=_make_stub_article(tmp_path),
+        account=_make_stub_account(),
+        stop_before_publish=True,
+    )
+
+    assert result.message == "waiting"
+    assert kept_alive == [stub_session.id]
+    assert stopped == []
 
 
 def test_build_payload_resolves_stock_image_segments(monkeypatch, tmp_path):

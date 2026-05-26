@@ -1,5 +1,12 @@
 import { api } from "./core";
-import type { Account, AccountBrowserSession, AccountBrowserSessionFinish, PlatformLoginPayload, PlatformOption } from "../types";
+import type {
+  Account,
+  AccountBrowserSession,
+  AccountBrowserSessionFinish,
+  AccountLoginSessionStatusResponse,
+  PlatformLoginPayload,
+  PlatformOption,
+} from "../types";
 
 // Sentinel to distinguish terminal session errors from transient network errors.
 class LoginSessionTerminalError extends Error {
@@ -13,28 +20,29 @@ export async function pollLoginSessionUntilActive(
   accountId: number,
   sessionId: string,
   timeoutMs = 90_000,
-): Promise<{ novnc_url: string; session_id: string }> {
+  onStatus?: (status: AccountLoginSessionStatusResponse) => void,
+): Promise<{ novnc_url: string; session_id: string; queue_reason: string | null; error_message: string | null }> {
   const deadline = Date.now() + timeoutMs;
+  let lastStatus: AccountLoginSessionStatusResponse | null = null;
   while (Date.now() < deadline) {
     try {
-      const status = await api<{
-        status: string;
-        novnc_url: string | null;
-        error_message: string | null;
-        browser_session_id: string | null;
-      }>(`/api/accounts/${accountId}/login-session/${sessionId}/status`);
+      const status = await api<AccountLoginSessionStatusResponse>(`/api/accounts/${accountId}/login-session/${sessionId}/status`);
+      lastStatus = status;
+      onStatus?.(status);
 
       if (status.status === "active") {
         return {
           session_id: status.browser_session_id ?? sessionId,
           novnc_url: status.novnc_url ?? "",
+          queue_reason: status.queue_reason ?? null,
+          error_message: status.error_message ?? null,
         };
       }
       if (status.status === "failed" || status.status === "cancelled") {
         // Terminal status from the session — do not retry.
-        throw new LoginSessionTerminalError(status.error_message || "Login session failed to start");
+        throw new LoginSessionTerminalError(status.error_message || status.queue_reason || "Login session failed to start");
       }
-      // pending / starting — keep polling
+      // pending / queued / starting — keep polling
     } catch (err) {
       if (err instanceof LoginSessionTerminalError) {
         // Re-throw terminal session errors; these are not transient.
@@ -50,7 +58,8 @@ export async function pollLoginSessionUntilActive(
     }
     await new Promise((r) => setTimeout(r, 1000));
   }
-  throw new Error("Login session did not become active in time");
+  const reason = lastStatus?.error_message || lastStatus?.queue_reason;
+  throw new Error(reason ? `Login session did not become active in time: ${reason}` : "Login session did not become active in time");
 }
 
 export type AccountLoginPayload = PlatformLoginPayload & {

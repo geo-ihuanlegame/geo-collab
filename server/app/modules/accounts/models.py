@@ -67,6 +67,7 @@ class AccountLoginSession(Base):
     result_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     result_title: Mapped[str | None] = mapped_column(String(500), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    queue_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     previous_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
     worker_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
@@ -80,6 +81,7 @@ class BrowserSession(Base):
     id: Mapped[str] = mapped_column(String(12), primary_key=True)
     platform_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
     account_key: Mapped[str] = mapped_column(String(200), nullable=False)
+    profile_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
     display: Mapped[str | None] = mapped_column(String(20), nullable=True)
     novnc_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     started_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
@@ -99,3 +101,18 @@ class RecordBrowserSession(Base):
     session_id: Mapped[str] = mapped_column(
         String(12), ForeignKey("browser_sessions.id", ondelete="CASCADE"), nullable=False
     )
+
+
+class BrowserProfileLock(Base):
+    """Cross-process lock for one Chrome persistent profile directory."""
+
+    __tablename__ = "browser_profile_locks"
+
+    profile_key: Mapped[str] = mapped_column(String(255), primary_key=True)
+    owner_kind: Mapped[str] = mapped_column(String(40), nullable=False)
+    owner_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    worker_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    queue_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    acquired_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    heartbeat_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    lease_until: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)

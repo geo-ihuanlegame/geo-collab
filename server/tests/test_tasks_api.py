@@ -123,6 +123,7 @@ def test_create_single_task_generates_one_publish_record(monkeypatch):
                 "platform_id": task["platform_id"],
                 "account_id": account_id,
                 "status": "pending",
+                "queue_reason": None,
                 "publish_url": None,
                 "error_message": None,
                 "retry_of_record_id": None,

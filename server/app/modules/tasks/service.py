@@ -189,12 +189,26 @@ def manual_confirm_record(
     publish_url: str | None,
     error_message: str | None,
 ) -> PublishRecord:
+    from server.app.modules.accounts import (
+        disassociate_record,
+        get_session_for_record,
+        release_profile_lock_by_owner,
+        stop_remote_browser_session,
+    )
+
     if record.status != "waiting_manual_publish":
         raise ClientError(f"Record is not waiting for manual confirm: {record.status}")
     if outcome not in {"succeeded", "failed"}:
         raise ClientError(f"Invalid outcome: {outcome}")
 
+    session = get_session_for_record(record.id)
+    if session:
+        stop_remote_browser_session(session.id)
+    disassociate_record(record.id)
+    release_profile_lock_by_owner(owner_kind="publish", owner_id=record.id)
+
     record.status = outcome
+    record.queue_reason = None
     record.finished_at = utcnow()
     if outcome == "succeeded":
         record.publish_url = str(publish_url) if publish_url else None
@@ -216,6 +230,7 @@ def resolve_user_input_record(db: Session, record: PublishRecord) -> PublishReco
     from server.app.modules.accounts import (
         disassociate_record,
         get_session_for_record,
+        release_profile_lock_by_owner,
         stop_remote_browser_session,
     )
 
@@ -226,9 +241,11 @@ def resolve_user_input_record(db: Session, record: PublishRecord) -> PublishReco
     if session:
         stop_remote_browser_session(session.id)
     disassociate_record(record.id)
+    release_profile_lock_by_owner(owner_kind="publish", owner_id=record.id)
 
     record.status = "pending"
     record.error_message = None
+    record.queue_reason = None
     record.started_at = None
     record.finished_at = None
     record.lease_until = None

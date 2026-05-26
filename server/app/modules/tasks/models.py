@@ -88,6 +88,7 @@ class PublishRecord(Base):
     status: Mapped[str] = mapped_column(String(40), default="pending", index=True)
     publish_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    queue_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     snapshot_title: Mapped[str | None] = mapped_column(String(300), nullable=True)
     snapshot_content_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     retry_of_record_id: Mapped[int | None] = mapped_column(ForeignKey("publish_records.id"), nullable=True)

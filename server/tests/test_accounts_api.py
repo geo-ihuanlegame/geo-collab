@@ -266,7 +266,7 @@ def test_toutiao_login_registers_existing_storage_and_lists_account(monkeypatch)
         assert payload["display_name"] == "测试头条号"
         assert payload["platform_code"] == "toutiao"
         assert payload["status"] == "valid"
-        assert payload["state_path"] == "browser_states/toutiao/demo/storage_state.json"
+        assert payload["state_path"] == "browser_states/users/1/toutiao/demo/storage_state.json"
 
         list_response = client.get("/api/accounts")
         assert list_response.status_code == 200
@@ -354,7 +354,7 @@ def test_toutiao_remote_login_session_creates_unknown_account(monkeypatch):
         assert payload["novnc_url"] is None
         assert payload["account"]["display_name"] == "remote-demo"
         assert payload["account"]["status"] == "unknown"
-        assert payload["account"]["state_path"] == "browser_states/toutiao/remote-demo/storage_state.json"
+        assert payload["account"]["state_path"] == "browser_states/users/1/toutiao/remote-demo/storage_state.json"
     finally:
         test_app.cleanup()
 
@@ -437,7 +437,7 @@ def test_finish_remote_login_session_saves_state_and_stops_session(monkeypatch):
         assert context.closed is True
         assert playwright.stopped is True
         assert browser_sessions.get_session("finish-session") is None
-        state_file = test_app.data_dir / "browser_states" / "toutiao" / "demo" / "storage_state.json"
+        state_file = test_app.data_dir / "browser_states" / "users" / "1" / "toutiao" / "demo" / "storage_state.json"
         assert json.loads(state_file.read_text(encoding="utf-8"))["cookies"][0]["name"] == "session"
     finally:
         test_app.cleanup()

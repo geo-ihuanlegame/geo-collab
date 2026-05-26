@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import hashlib
 import uuid
 from pathlib import Path
 from typing import Any
@@ -22,16 +23,33 @@ def normalize_account_key(account_key: str | None) -> str:
     return value or uuid.uuid4().hex
 
 
-def state_dir_for_key(platform_code: str, account_key: str) -> Path:
-    return get_data_dir() / "browser_states" / platform_code / account_key
+def state_dir_for_key(platform_code: str, account_key: str, user_id: int | None = None) -> Path:
+    if user_id is None:
+        return get_data_dir() / "browser_states" / platform_code / account_key
+    return get_data_dir() / "browser_states" / "users" / str(user_id) / platform_code / account_key
 
 
-def state_path_for_key(platform_code: str, account_key: str) -> Path:
-    return state_dir_for_key(platform_code, account_key) / "storage_state.json"
+def state_path_for_key(platform_code: str, account_key: str, user_id: int | None = None) -> Path:
+    return state_dir_for_key(platform_code, account_key, user_id=user_id) / "storage_state.json"
 
 
-def profile_dir_for_key(platform_code: str, account_key: str) -> Path:
-    return state_dir_for_key(platform_code, account_key) / "profile"
+def profile_dir_for_key(platform_code: str, account_key: str, user_id: int | None = None) -> Path:
+    return state_dir_for_key(platform_code, account_key, user_id=user_id) / "profile"
+
+
+def state_dir_from_state_path(state_path: str) -> Path:
+    return get_data_dir() / Path(state_path).parent
+
+
+def profile_dir_from_state_path(state_path: str) -> Path:
+    return state_dir_from_state_path(state_path) / "profile"
+
+
+def profile_key_from_state_path(state_path: str) -> str:
+    key = Path(state_path).parent.as_posix()
+    if len(key) <= 240:
+        return key
+    return "sha256:" + hashlib.sha256(key.encode("utf-8")).hexdigest()
 
 
 def clear_profile_locks(profile_dir: Path) -> None:
@@ -51,6 +69,8 @@ def account_key_from_state_path(state_path: str) -> tuple[str, str]:
     parts = Path(state_path).parts
     try:
         idx = parts.index("browser_states")
+        if parts[idx + 1] == "users":
+            return parts[idx + 3], parts[idx + 4]
         return parts[idx + 1], parts[idx + 2]
     except (ValueError, IndexError):
         raise ClientError(f"Invalid state path: {state_path}") from None

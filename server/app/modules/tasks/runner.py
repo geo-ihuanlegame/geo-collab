@@ -14,16 +14,19 @@ from server.app.modules.articles.models import Article
 from server.app.modules.articles.store import resolve_asset_path
 from server.app.modules.articles.parser import BodySegment, parse_body_segments
 from server.app.modules.tasks.drivers.base import PublishPayload
-from server.app.modules.accounts import (
-    account_key_from_state_path,
+from server.app.modules.accounts.browser import (
     associate_record_with_session,
     attach_browser_handles,
-    clear_profile_locks,
     get_or_create_account_session,
     keep_session_alive,
-    launch_options,
-    profile_dir_for_key,
     stop_remote_browser_session,
+)
+from server.app.modules.accounts.service import (
+    account_key_from_state_path,
+    clear_profile_locks,
+    launch_options,
+    profile_dir_from_state_path,
+    profile_key_from_state_path,
 )
 from server.app.modules.tasks.drivers import get_driver
 from server.app.modules.tasks.drivers.base import PublishError, PublishResult, UserInputRequired
@@ -249,6 +252,8 @@ def run_publish(
         raise PublishError("封面图片是必填项")
 
     platform_code, account_key = account_key_from_state_path(account.state_path)
+    profile_key = profile_key_from_state_path(account.state_path)
+    profile_dir = profile_dir_from_state_path(account.state_path)
     state_path = (get_data_dir() / account.state_path).resolve()
     if not state_path.exists():
         raise PublishError(f"账号授权状态文件不存在: {account.state_path}")
@@ -260,7 +265,7 @@ def run_publish(
     payload = _build_payload(article, account, account_key, platform_code, state_path)
 
     with publish_step("remote browser session"):
-        session = get_or_create_account_session(platform_code, account_key)
+        session = get_or_create_account_session(platform_code, account_key, profile_key=profile_key)
         # Associate immediately so the timeout handler can stop this session.
         if record_id is not None:
             associate_record_with_session(record_id, session.id)
@@ -279,7 +284,7 @@ def run_publish(
         # call from any thread even when the original greenlet thread has exited.
         stop_remote_browser_session(session.id)
         with publish_step("remote browser session (re-acquire after thread switch)"):
-            session = get_or_create_account_session(platform_code, account_key)
+            session = get_or_create_account_session(platform_code, account_key, profile_key=profile_key)
             if record_id is not None:
                 associate_record_with_session(record_id, session.id)
 
@@ -289,11 +294,11 @@ def run_publish(
             with publish_step("start Playwright"):
                 pw = sync_playwright().start()
             with publish_step("launch Chromium"):
-                clear_profile_locks(profile_dir_for_key(platform_code, account_key))
+                clear_profile_locks(profile_dir)
                 options = launch_options(channel, executable_path)
                 options["env"] = {**os.environ, "DISPLAY": session.display}
                 context = pw.chromium.launch_persistent_context(
-                    user_data_dir=str(profile_dir_for_key(platform_code, account_key)),
+                    user_data_dir=str(profile_dir),
                     **options,
                 )
                 context.set_default_navigation_timeout(30000)
@@ -318,12 +323,16 @@ def run_publish(
         page = context.new_page()
         _attach_page_network_diagnostics(page)
         with publish_step("driver publish flow", page=page):
-            return driver.publish(
+            result = driver.publish(
                 page=page,
                 context=context,
                 payload=payload,
                 stop_before_publish=stop_before_publish,
             )
+            if stop_before_publish:
+                _keep_browser = True
+                keep_session_alive(session.id)
+            return result
     except UserInputRequired as exc:
         _keep_browser = True
         keep_session_alive(session.id)
@@ -341,4 +350,6 @@ def run_publish(
                 page.close()
             except Exception:
                 pass
+        if not _keep_browser:
+            stop_remote_browser_session(session.id)
         _cleanup_temp_files(payload.temp_files)

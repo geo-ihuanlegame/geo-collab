@@ -12,7 +12,7 @@ import {
   stopAccountLoginSession,
   updateAccountDisplayName,
 } from "../../api/accounts";
-import type { Account, AccountBrowserSession, PlatformLoginPayload, PlatformOption } from "../../types";
+import type { Account, AccountBrowserSession, AccountLoginSessionStatusResponse, PlatformLoginPayload, PlatformOption } from "../../types";
 import { CheckCircle2, Download, ExternalLink, Plus, RefreshCw, Trash2, Upload, UserPlus, X } from "lucide-react";
 import { useToast } from "../../components/Toast";
 
@@ -21,6 +21,8 @@ const DEFAULT_PLATFORM_CODE = "toutiao";
 type ActiveLoginSession = {
   sessionId: string;
   novncUrl: string;
+  queueReason?: string | null;
+  opening?: boolean;
 };
 
 export function AccountsWorkspace({ isActive }: { isActive?: boolean } = {}) {
@@ -89,6 +91,7 @@ export function AccountsWorkspace({ isActive }: { isActive?: boolean } = {}) {
   }, [isActive]);
 
   async function startNewRemoteLogin() {
+    const browserTab = openRemoteBrowserPlaceholder();
     setLoading(true);
     try {
       const payload: PlatformLoginPayload = {
@@ -97,20 +100,25 @@ export function AccountsWorkspace({ isActive }: { isActive?: boolean } = {}) {
         use_browser: true,
       };
       const result = await startPlatformLoginSession(selectedPlatformCode, { ...payload, channel: "chromium", wait_seconds: 180 });
-      rememberLoginSession(result);
+      rememberLoginSession(result, { opening: true, queueReason: result.queue_reason ?? null });
       await refreshAccounts();
       toast("正在启动远程浏览器…", "info");
-      const active = await pollLoginSessionUntilActive(result.account.id, result.session_id);
+      const active = await pollLoginSessionUntilActive(result.account.id, result.session_id, 90_000, (status) =>
+        updateLoginSessionStatus(result.account.id, status),
+      );
       setActiveLoginSessions((prev) => ({
         ...prev,
         [result.account.id]: {
           sessionId: active.session_id,
           novncUrl: active.novnc_url,
+          queueReason: active.queue_reason,
+          opening: false,
         },
       }));
-      openRemoteBrowser(active.novnc_url);
+      openRemoteBrowser(active.novnc_url, browserTab);
       toast("远程浏览器已打开，登录完成后点击\"完成登录\"", "info");
     } catch (error) {
+      if (browserTab && !browserTab.closed) browserTab.close();
       toast(error instanceof Error ? error.message : "打开远程浏览器失败", "error");
     } finally {
       setLoading(false);
@@ -118,23 +126,29 @@ export function AccountsWorkspace({ isActive }: { isActive?: boolean } = {}) {
   }
 
   async function startExistingRemoteLogin(account: Account, actionLabel: string) {
+    const browserTab = openRemoteBrowserPlaceholder();
     setLoading(true);
     try {
       const result = await startAccountLoginSession(account.id, { channel: "chromium", use_browser: true });
-      rememberLoginSession(result);
+      rememberLoginSession(result, { opening: true, queueReason: result.queue_reason ?? null });
       await refreshAccounts();
       toast(`正在启动远程浏览器…`, "info");
-      const active = await pollLoginSessionUntilActive(account.id, result.session_id);
+      const active = await pollLoginSessionUntilActive(account.id, result.session_id, 90_000, (status) =>
+        updateLoginSessionStatus(account.id, status),
+      );
       setActiveLoginSessions((prev) => ({
         ...prev,
         [account.id]: {
           sessionId: active.session_id,
           novncUrl: active.novnc_url,
+          queueReason: active.queue_reason,
+          opening: false,
         },
       }));
-      openRemoteBrowser(active.novnc_url);
+      openRemoteBrowser(active.novnc_url, browserTab);
       toast(`远程浏览器已打开，请完成${actionLabel}后点击"完成登录"`, "info");
     } catch (error) {
+      if (browserTab && !browserTab.closed) browserTab.close();
       toast(error instanceof Error ? error.message : `${actionLabel}失败`, "error");
     } finally {
       setLoading(false);
@@ -180,18 +194,45 @@ export function AccountsWorkspace({ isActive }: { isActive?: boolean } = {}) {
     }
   }
 
-  function rememberLoginSession(result: AccountBrowserSession) {
+  function rememberLoginSession(result: AccountBrowserSession, state: Pick<ActiveLoginSession, "opening" | "queueReason"> = {}) {
     setActiveLoginSessions((prev) => ({
       ...prev,
       [result.account.id]: {
         sessionId: result.session_id,
         novncUrl: result.novnc_url ?? "",
+        queueReason: state.queueReason ?? result.queue_reason ?? null,
+        opening: state.opening ?? !result.novnc_url,
       },
     }));
   }
 
-  function openRemoteBrowser(url: string) {
+  function updateLoginSessionStatus(accountId: number, status: AccountLoginSessionStatusResponse) {
+    setActiveLoginSessions((prev) => {
+      const current = prev[accountId];
+      if (!current) return prev;
+      return {
+        ...prev,
+        [accountId]: {
+          ...current,
+          novncUrl: status.novnc_url ?? current.novncUrl,
+          queueReason: status.queue_reason ?? status.error_message ?? current.queueReason ?? null,
+          opening: status.status !== "active",
+        },
+      };
+    });
+  }
+
+  function openRemoteBrowserPlaceholder() {
+    return window.open("about:blank", "_blank");
+  }
+
+  function openRemoteBrowser(url: string, targetWindow?: Window | null) {
+    if (!url) return;
     const target = normalizeRemoteBrowserUrl(url);
+    if (targetWindow && !targetWindow.closed) {
+      targetWindow.location.href = target;
+      return;
+    }
     window.open(target, "_blank", "noopener,noreferrer");
   }
 
@@ -397,20 +438,26 @@ export function AccountsWorkspace({ isActive }: { isActive?: boolean } = {}) {
                 </button>
               </div>
               {activeLoginSessions[account.id] ? (
-                <div className="accountCardActions">
-                  <button type="button" disabled={loading} onClick={() => openRemoteBrowser(activeLoginSessions[account.id]!.novncUrl)}>
-                    <ExternalLink size={15} />
-                    打开远程浏览器
-                  </button>
-                  <button type="button" disabled={loading} onClick={() => void completeLoginSession(account)}>
-                    <CheckCircle2 size={15} />
-                    完成登录
-                  </button>
-                  <button type="button" disabled={loading} onClick={() => void closeLoginSession(account)}>
-                    <X size={15} />
-                    关闭
-                  </button>
-                </div>
+                <>
+                  <small>
+                    {activeLoginSessions[account.id]!.opening ? "远程浏览器排队/启动中" : "远程浏览器已就绪"}
+                    {activeLoginSessions[account.id]!.queueReason ? `: ${activeLoginSessions[account.id]!.queueReason}` : ""}
+                  </small>
+                  <div className="accountCardActions">
+                    <button type="button" disabled={loading || !activeLoginSessions[account.id]!.novncUrl} onClick={() => openRemoteBrowser(activeLoginSessions[account.id]!.novncUrl)}>
+                      <ExternalLink size={15} />
+                      打开远程浏览器
+                    </button>
+                    <button type="button" disabled={loading} onClick={() => void completeLoginSession(account)}>
+                      <CheckCircle2 size={15} />
+                      完成登录
+                    </button>
+                    <button type="button" disabled={loading} onClick={() => void closeLoginSession(account)}>
+                      <X size={15} />
+                      关闭
+                    </button>
+                  </div>
+                </>
               ) : null}
             </article>
           ))}

@@ -670,6 +670,9 @@ export function TasksWorkspace({ isActive }: { isActive?: boolean } = {}) {
                     {record.error_message ? (
                       <small style={{ color: "#dc2626" }}>{record.error_message}</small>
                     ) : null}
+                    {record.queue_reason ? (
+                      <small style={{ color: "#a16207" }}>{record.queue_reason}</small>
+                    ) : null}
 
                     {record.status === "failed" && !records.some((r) => r.retry_of_record_id === record.id) ? (
                       <button

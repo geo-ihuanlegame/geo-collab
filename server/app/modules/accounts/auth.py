@@ -4,6 +4,7 @@ import io
 import json
 import logging
 import os
+import shutil
 import sys
 import tempfile
 import threading
@@ -29,7 +30,9 @@ from server.app.modules.accounts.service import (
     normalize_account_key,
     state_path_for_key,
     state_dir_for_key,
-    profile_dir_for_key,
+    state_dir_from_state_path,
+    profile_dir_from_state_path,
+    profile_key_from_state_path,
     clear_profile_locks,
     relative_to_data_dir,
     account_key_from_state_path,
@@ -56,9 +59,12 @@ class AccountBrowserSessionResult:
     account_key: str
     session_id: str
     novnc_url: str | None
+    status: str | None = None
+    queue_reason: str | None = None
 
 
 LOGIN_STATUS_PENDING = "pending"
+LOGIN_STATUS_QUEUED = "queued"
 LOGIN_STATUS_STARTING = "starting"
 LOGIN_STATUS_ACTIVE = "active"
 LOGIN_STATUS_FINISH_REQUESTED = "finish_requested"
@@ -125,15 +131,21 @@ def register_account_from_storage_state(
     driver = _get_driver(platform_code)
     platform = get_or_create_platform(db, driver.code, driver.name, driver.home_url)
     account_key = normalize_account_key(payload.account_key)
-    state_path = state_path_for_key(platform_code, account_key)
+    state_path = state_path_for_key(platform_code, account_key, user_id=user_id)
     state_path.parent.mkdir(parents=True, exist_ok=True)
 
+    _copy_legacy_state_if_needed(platform_code, account_key, state_path)
     if not state_path.exists():
         raise ClientError(f"Storage state not found: {state_path}")
 
     relative_state_path = relative_to_data_dir(state_path)
+    legacy_relative_state_path = relative_to_data_dir(state_path_for_key(platform_code, account_key))
     account = db.execute(
-        select(Account).where(Account.platform_id == platform.id, Account.state_path == relative_state_path)
+        select(Account).where(
+            Account.user_id == user_id,
+            Account.platform_id == platform.id,
+            Account.state_path.in_([relative_state_path, legacy_relative_state_path]),
+        )
     ).scalar_one_or_none()
     now = utcnow()
     if account is None:
@@ -152,6 +164,7 @@ def register_account_from_storage_state(
     else:
         account.display_name = payload.display_name
         account.status = "valid"
+        account.state_path = relative_state_path
         account.note = payload.note
         account.is_deleted = False
         account.deleted_at = None
@@ -172,12 +185,17 @@ def start_login_session(
     driver = _get_driver(platform_code)
     platform = get_or_create_platform(db, driver.code, driver.name, driver.home_url)
     account_key = normalize_account_key(payload.account_key)
-    state_path = state_path_for_key(platform_code, account_key)
+    state_path = state_path_for_key(platform_code, account_key, user_id=user_id)
     state_path.parent.mkdir(parents=True, exist_ok=True)
 
     relative_state_path = relative_to_data_dir(state_path)
+    legacy_relative_state_path = relative_to_data_dir(state_path_for_key(platform_code, account_key))
     account = db.execute(
-        select(Account).where(Account.platform_id == platform.id, Account.state_path == relative_state_path)
+        select(Account).where(
+            Account.user_id == user_id,
+            Account.platform_id == platform.id,
+            Account.state_path.in_([relative_state_path, legacy_relative_state_path]),
+        )
     ).scalar_one_or_none()
     now = utcnow()
     if account is None:
@@ -198,6 +216,7 @@ def start_login_session(
         account.display_name = payload.display_name
         account.note = payload.note
         account.status = "unknown"
+        account.state_path = relative_state_path
         account.is_deleted = False
         account.deleted_at = None
         account.last_checked_at = now
@@ -219,7 +238,26 @@ def start_login_session(
         account_key=account_key,
         session_id=request_id,
         novnc_url=None,
+        status=LOGIN_STATUS_PENDING,
     )
+
+
+def _copy_legacy_state_if_needed(platform_code: str, account_key: str, user_state_path: Path) -> None:
+    if user_state_path.exists():
+        return
+    legacy_dir = state_dir_for_key(platform_code, account_key)
+    legacy_state = legacy_dir / "storage_state.json"
+    if not legacy_state.exists():
+        return
+    user_dir = user_state_path.parent
+    user_dir.mkdir(parents=True, exist_ok=True)
+    for child in legacy_dir.iterdir():
+        dest = user_dir / child.name
+        if child.is_dir():
+            if not dest.exists():
+                shutil.copytree(child, dest)
+        elif child.is_file() and not dest.exists():
+            shutil.copy2(child, dest)
 
 
 def start_account_login_session(db: Session, account: Account, payload: AccountCheckRequest) -> AccountBrowserSessionResult:
@@ -245,6 +283,7 @@ def start_account_login_session(db: Session, account: Account, payload: AccountC
         account_key=account_key,
         session_id=request_id,
         novnc_url=None,
+        status=LOGIN_STATUS_PENDING,
     )
 
 
@@ -254,7 +293,7 @@ def finish_account_login_session(db: Session, account: Account, session_id: str)
         return _finish_login_browser_via_worker(db, account, request)
 
     platform_code, account_key = account_key_from_state_path(account.state_path)
-    result = _finish_login_browser_local(platform_code, account_key, session_id)
+    result = _finish_login_browser_local(platform_code, account_key, account.state_path, session_id)
     _apply_login_result(account, result)
     db.flush()
     return get_account(db, account.id) or account, result
@@ -384,8 +423,9 @@ def _finish_login_browser_via_worker(
 def _cancel_login_browser_via_worker(db: Session, request: AccountLoginSession) -> None:
     if request.status in LOGIN_TERMINAL_STATUSES:
         return
-    if request.status == LOGIN_STATUS_PENDING:
+    if request.status in {LOGIN_STATUS_PENDING, LOGIN_STATUS_QUEUED}:
         request.status = LOGIN_STATUS_CANCELLED
+        request.queue_reason = None
         _touch_login_request(request)
         db.commit()
         return
@@ -412,7 +452,7 @@ def process_account_login_session_requests(db: Session, worker_id: str) -> bool:
         .where(
             or_(
                 and_(
-                    AccountLoginSession.status == LOGIN_STATUS_PENDING,
+                    AccountLoginSession.status.in_([LOGIN_STATUS_PENDING, LOGIN_STATUS_QUEUED]),
                     AccountLoginSession.worker_id.is_(None),
                 ),
                 and_(
@@ -430,13 +470,20 @@ def process_account_login_session_requests(db: Session, worker_id: str) -> bool:
         return False
 
     request_id, status = row
-    next_status = {
-        LOGIN_STATUS_PENDING: LOGIN_STATUS_STARTING,
-        LOGIN_STATUS_FINISH_REQUESTED: LOGIN_STATUS_FINISHING,
-        LOGIN_STATUS_CANCEL_REQUESTED: LOGIN_STATUS_CANCELLING,
-    }[status]
+    if status in {LOGIN_STATUS_PENDING, LOGIN_STATUS_QUEUED}:
+        request = db.get(AccountLoginSession, request_id)
+        if request is None:
+            return False
+        if not _try_acquire_login_profile_lock(db, request):
+            return True
+        next_status = LOGIN_STATUS_STARTING
+    else:
+        next_status = {
+            LOGIN_STATUS_FINISH_REQUESTED: LOGIN_STATUS_FINISHING,
+            LOGIN_STATUS_CANCEL_REQUESTED: LOGIN_STATUS_CANCELLING,
+        }[status]
     where_clause = [AccountLoginSession.id == request_id, AccountLoginSession.status == status]
-    if status == LOGIN_STATUS_PENDING:
+    if status in {LOGIN_STATUS_PENDING, LOGIN_STATUS_QUEUED}:
         where_clause.append(AccountLoginSession.worker_id.is_(None))
     else:
         where_clause.append(AccountLoginSession.worker_id == worker_id)
@@ -444,7 +491,7 @@ def process_account_login_session_requests(db: Session, worker_id: str) -> bool:
     rows = db.execute(
         sa_update(AccountLoginSession)
         .where(*where_clause)
-        .values(status=next_status, worker_id=worker_id, updated_at=utcnow())
+        .values(status=next_status, worker_id=worker_id, queue_reason=None, updated_at=utcnow())
     ).rowcount
     db.commit()
     if rows == 0:
@@ -462,23 +509,61 @@ def process_account_login_session_requests(db: Session, worker_id: str) -> bool:
     return True
 
 
+def _try_acquire_login_profile_lock(db: Session, request: AccountLoginSession) -> bool:
+    from server.app.modules.accounts.browser import try_acquire_profile_lock
+
+    account = db.get(Account, request.account_id)
+    if account is None:
+        request.status = LOGIN_STATUS_FAILED
+        request.error_message = "Account not found"
+        request.queue_reason = None
+        _touch_login_request(request)
+        db.commit()
+        return False
+
+    profile_key = profile_key_from_state_path(account.state_path)
+    reason = "账号正在执行发布或登录操作，登录请求已排队"
+    if try_acquire_profile_lock(profile_key, owner_kind="login", owner_id=request.id, queue_reason=reason):
+        return True
+
+    request.status = LOGIN_STATUS_QUEUED
+    request.queue_reason = reason
+    request.worker_id = None
+    _touch_login_request(request)
+    db.commit()
+    return False
+
+
 def _worker_start_login_session(db: Session, request: AccountLoginSession) -> None:
     try:
+        account = db.get(Account, request.account_id)
+        if account is None:
+            raise ClientError("Account not found")
+        platform_code = request.platform_code
+        account_key = request.account_key
         session = _start_login_browser_impl(
-            request.platform_code,
-            request.account_key,
+            platform_code,
+            account_key,
+            account.state_path,
             request.channel,
             request.executable_path,
+            False,
         )
         request.browser_session_id = session.id
         request.novnc_url = session.novnc_url
         request.status = LOGIN_STATUS_ACTIVE
         request.error_message = None
+        request.queue_reason = None
+        _touch_login_request(request)
+        db.commit()
+        _load_login_page_for_session(session, platform_code, account_key, _get_driver(platform_code).home_url)
+        return
     except Exception as exc:
         request.status = LOGIN_STATUS_FAILED
         request.error_message = str(exc)
+        request.queue_reason = None
+        _release_login_profile_lock(db, request)
         _logger.exception("Failed to start account login session %s", request.id)
-    finally:
         _touch_login_request(request)
         db.commit()
 
@@ -498,6 +583,7 @@ def _worker_finish_login_session(db: Session, request: AccountLoginSession) -> N
         result = _finish_login_browser_impl(
             request.platform_code,
             request.account_key,
+            account.state_path,
             request.browser_session_id,
         )
         _apply_login_result(account, result)
@@ -506,11 +592,14 @@ def _worker_finish_login_session(db: Session, request: AccountLoginSession) -> N
         request.result_title = result.title
         request.status = LOGIN_STATUS_FINISHED
         request.error_message = None
+        request.queue_reason = None
     except Exception as exc:
         request.status = LOGIN_STATUS_FAILED
         request.error_message = str(exc)
+        request.queue_reason = None
         _logger.exception("Failed to finish account login session %s", request.id)
     finally:
+        _release_login_profile_lock(db, request)
         _touch_login_request(request)
         db.commit()
 
@@ -521,6 +610,7 @@ def _worker_cancel_login_session(db: Session, request: AccountLoginSession) -> N
             _stop_login_browser_impl(request.account_key, request.browser_session_id)
         request.status = LOGIN_STATUS_CANCELLED
         request.error_message = None
+        request.queue_reason = None
         if request.previous_status is not None:
             account = db.get(Account, request.account_id)
             if account is not None and account.status == "unknown":
@@ -529,10 +619,24 @@ def _worker_cancel_login_session(db: Session, request: AccountLoginSession) -> N
     except Exception as exc:
         request.status = LOGIN_STATUS_FAILED
         request.error_message = str(exc)
+        request.queue_reason = None
         _logger.exception("Failed to cancel account login session %s", request.id)
     finally:
+        _release_login_profile_lock(db, request)
         _touch_login_request(request)
         db.commit()
+
+
+def _release_login_profile_lock(db: Session, request: AccountLoginSession) -> None:
+    from server.app.modules.accounts.browser import release_profile_lock
+
+    account = db.get(Account, request.account_id)
+    if account is None:
+        return
+    try:
+        release_profile_lock(profile_key_from_state_path(account.state_path), owner_kind="login", owner_id=request.id)
+    except Exception:
+        _logger.warning("Failed to release login profile lock for request %s", request.id, exc_info=True)
 
 
 def _apply_login_result(account: Account, result: BrowserCheckResult) -> None:
@@ -544,11 +648,16 @@ def _apply_login_result(account: Account, result: BrowserCheckResult) -> None:
     account.updated_at = now
 
 
-def _finish_login_browser_local(platform_code: str, account_key: str, session_id: str) -> BrowserCheckResult:
-    return _run_in_plain_thread(lambda: _finish_login_browser_impl(platform_code, account_key, session_id))
+def _finish_login_browser_local(
+    platform_code: str,
+    account_key: str,
+    state_path: str,
+    session_id: str,
+) -> BrowserCheckResult:
+    return _run_in_plain_thread(lambda: _finish_login_browser_impl(platform_code, account_key, state_path, session_id))
 
 
-def _finish_login_browser_impl(platform_code: str, account_key: str, session_id: str) -> BrowserCheckResult:
+def _finish_login_browser_impl(platform_code: str, account_key: str, state_path: str, session_id: str) -> BrowserCheckResult:
     from server.app.modules.accounts.browser import get_session, stop_remote_browser_session
 
     session = get_session(session_id)
@@ -563,7 +672,7 @@ def _finish_login_browser_impl(platform_code: str, account_key: str, session_id:
         return _read_and_save_login_state_from_remote_session(
             session,
             platform_code,
-            state_path_for_key(platform_code, account_key),
+            get_data_dir() / state_path,
         )
     finally:
         stop_remote_browser_session(session_id)
@@ -585,10 +694,18 @@ def _stop_login_browser_impl(account_key: str, session_id: str) -> None:
 
 
 def _start_login_browser(platform_code: str, account_key: str, channel: str, executable_path: str | None):
-    return _run_in_plain_thread(lambda: _start_login_browser_impl(platform_code, account_key, channel, executable_path))
+    state_path = relative_to_data_dir(state_path_for_key(platform_code, account_key))
+    return _run_in_plain_thread(lambda: _start_login_browser_impl(platform_code, account_key, state_path, channel, executable_path))
 
 
-def _start_login_browser_impl(platform_code: str, account_key: str, channel: str, executable_path: str | None):
+def _start_login_browser_impl(
+    platform_code: str,
+    account_key: str,
+    state_path: str,
+    channel: str,
+    executable_path: str | None,
+    load_login_page: bool = True,
+):
     from playwright.sync_api import sync_playwright
 
     from server.app.modules.accounts.browser import (
@@ -600,8 +717,14 @@ def _start_login_browser_impl(platform_code: str, account_key: str, channel: str
 
     driver = _get_driver(platform_code)
     ensure_data_dirs()
-    state_dir_for_key(platform_code, account_key).mkdir(parents=True, exist_ok=True)
-    session = start_remote_browser_session(account_key, platform_code=platform_code)
+    state_dir = state_dir_from_state_path(state_path)
+    profile_dir = profile_dir_from_state_path(state_path)
+    state_dir.mkdir(parents=True, exist_ok=True)
+    session = start_remote_browser_session(
+        account_key,
+        platform_code=platform_code,
+        profile_key=profile_key_from_state_path(state_path),
+    )
     pw = None
     context = None
     try:
@@ -609,16 +732,17 @@ def _start_login_browser_impl(platform_code: str, account_key: str, channel: str
         options = launch_options(channel, executable_path)
         options["env"] = {**os.environ, "DISPLAY": session.display}
 
-        clear_profile_locks(profile_dir_for_key(platform_code, account_key))
+        clear_profile_locks(profile_dir)
         context = pw.chromium.launch_persistent_context(
-            user_data_dir=str(profile_dir_for_key(platform_code, account_key)),
+            user_data_dir=str(profile_dir),
             **options,
         )
         context.set_default_navigation_timeout(30000)
         page = _primary_page_for_context(context)
         attach_browser_handles(session.id, pw, context, page, context_thread_id=threading.get_ident())
         keep_session_alive(session.id)
-        _load_login_page(page, platform_code, account_key, driver.home_url)
+        if load_login_page:
+            _load_login_page_for_session(session, platform_code, account_key, driver.home_url, raise_on_error=True)
         return session
     except Exception:
         try:
@@ -666,6 +790,28 @@ def _load_login_page(page, platform_code: str, account_key: str, home_url: str) 
         raise ClientError(f"Remote login page load failed: {home_url}")
 
 
+def _load_login_page_for_session(
+    session,
+    platform_code: str,
+    account_key: str,
+    home_url: str,
+    raise_on_error: bool = False,
+) -> None:
+    operation_lock = getattr(session, "operation_lock", None)
+    if operation_lock is None or getattr(session, "page", None) is None:
+        return
+    with operation_lock:
+        page = getattr(session, "page", None)
+        if page is None:
+            return
+        try:
+            _load_login_page(page, platform_code, account_key, home_url)
+        except Exception:
+            _logger.warning("Login page load failed for %s/%s", platform_code, account_key, exc_info=True)
+            if raise_on_error:
+                raise
+
+
 def _start_login_page_loader(session_id: str, platform_code: str, account_key: str, home_url: str) -> None:
     def _load() -> None:
         from server.app.modules.accounts.browser import get_session
@@ -677,7 +823,10 @@ def _start_login_page_loader(session_id: str, platform_code: str, account_key: s
             page = session.page
             if page is None:
                 return
-            _load_login_page(page, platform_code, account_key, home_url)
+            try:
+                _load_login_page(page, platform_code, account_key, home_url)
+            except Exception:
+                _logger.warning("Async login page load failed for %s/%s", platform_code, account_key, exc_info=True)
 
     worker = threading.Thread(
         target=_load,
@@ -731,7 +880,20 @@ def check_account(db: Session, account: Account, payload: AccountCheckRequest) -
     abs_state_path = get_data_dir() / account.state_path
 
     if payload.use_browser and abs_state_path.exists():
-        logged_in = _run_in_plain_thread(lambda: _check_account_in_browser(driver, abs_state_path, payload))
+        from server.app.modules.accounts.browser import release_profile_lock, try_acquire_profile_lock
+
+        profile_key = profile_key_from_state_path(account.state_path)
+        if not try_acquire_profile_lock(
+            profile_key,
+            owner_kind="account_check",
+            owner_id=account.id,
+            queue_reason="账号正在执行发布或登录操作，无法同时检查授权状态",
+        ):
+            raise ClientError("账号正在执行发布或登录操作，请稍后再检查授权状态")
+        try:
+            logged_in = _run_in_plain_thread(lambda: _check_account_in_browser(driver, abs_state_path, payload))
+        finally:
+            release_profile_lock(profile_key, owner_kind="account_check", owner_id=account.id)
     else:
         logged_in = abs_state_path.exists()
 
@@ -877,17 +1039,19 @@ def import_accounts_auth_package(db: Session, user_id: int, zip_bytes: bytes) ->
                 skipped.append(f"{display_name}（缺少 state_path）")
                 continue
 
+            try:
+                platform_code, account_key = account_key_from_state_path(state_path_rel)
+            except ClientError:
+                skipped.append(f"{display_name}（state_path 格式无效）")
+                continue
+            dest = state_path_for_key(platform_code, account_key, user_id=user_id)
+            new_state_path_rel = relative_to_data_dir(dest)
+
             existing = db.execute(
-                select(Account).where(Account.state_path == state_path_rel)
+                select(Account).where(Account.user_id == user_id, Account.state_path == new_state_path_rel)
             ).scalar_one_or_none()
             if existing is not None and not existing.is_deleted:
                 skipped.append(display_name)
-                continue
-
-            try:
-                platform_code, account_key = account_key_from_state_path(state_path_rel)
-            except ValueError:
-                skipped.append(f"{display_name}（state_path 格式无效）")
                 continue
 
             account_dir_in_zip = f"accounts/{entry.get('platform_code', platform_code)}-{entry['id']}"
@@ -896,7 +1060,6 @@ def import_accounts_auth_package(db: Session, user_id: int, zip_bytes: bytes) ->
                 skipped.append(f"{display_name}（ZIP 中缺少 storage_state.json）")
                 continue
 
-            dest = state_path_for_key(platform_code, account_key)
             if not dest.resolve().is_relative_to(get_data_dir().resolve()):
                 raise ClientError(f"ZIP entry path escapes data directory: {state_path_rel}")
             dest.parent.mkdir(parents=True, exist_ok=True)
@@ -923,7 +1086,7 @@ def import_accounts_auth_package(db: Session, user_id: int, zip_bytes: bytes) ->
                     display_name=display_name,
                     platform_user_id=entry.get("platform_user_id"),
                     status=imported_status,
-                    state_path=state_path_rel,
+                    state_path=new_state_path_rel,
                     note=entry.get("note"),
                     last_login_at=last_login_at,
                     last_checked_at=now,

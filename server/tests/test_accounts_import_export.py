@@ -5,6 +5,10 @@ import zipfile
 from server.tests.utils import build_test_app
 
 
+def _contains_any(text: str, *needles: str) -> bool:
+    return any(needle in text for needle in needles)
+
+
 def _write_storage_state(data_dir, account_key: str = "demo") -> str:
     state_dir = data_dir / "browser_states" / "toutiao" / account_key
     state_dir.mkdir(parents=True, exist_ok=True)
@@ -59,7 +63,7 @@ def test_import_non_zip_returns_400(monkeypatch):
             files={"file": ("export.zip", b"not a zip file", "application/zip")},
         )
         assert response.status_code == 400
-        assert "Invalid ZIP" in response.json()["detail"]
+        assert _contains_any(response.json()["detail"], "Invalid ZIP", "无效的 ZIP")
     finally:
         test_app.cleanup()
 
@@ -87,7 +91,7 @@ def test_import_path_traversal_returns_400(monkeypatch):
         )
         assert response.status_code == 400
         content = response.json()["detail"]
-        assert "Invalid ZIP entry path" in content or "无效的授权包" in content
+        assert _contains_any(content, "Invalid ZIP entry path", "无效的 ZIP 条目路径", "无效的授权包")
     finally:
         test_app.cleanup()
 
@@ -102,7 +106,7 @@ def test_import_exceeds_max_zip_bytes_returns_413(monkeypatch):
             files={"file": ("big.zip", padding, "application/zip")},
         )
         assert response.status_code == 413
-        assert "limit" in response.json()["detail"]
+        assert _contains_any(response.json()["detail"], "limit", "限制")
     finally:
         test_app.cleanup()
 
@@ -128,7 +132,7 @@ def test_import_oversized_entry_returns_400(monkeypatch):
             files={"file": ("oversized.zip", zip_bytes, "application/zip")},
         )
         assert response.status_code == 400
-        assert "ZIP entry too large" in response.json()["detail"]
+        assert _contains_any(response.json()["detail"], "ZIP entry too large", "ZIP 条目过大")
     finally:
         test_app.cleanup()
 

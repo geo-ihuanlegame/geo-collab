@@ -21,13 +21,18 @@ import time
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from datetime import timedelta
 from pathlib import Path
 from typing import Any, BinaryIO, Iterator
 
+from sqlalchemy import delete as sa_delete, text as sa_text, update as sa_update
+
 from server.app.core.config import get_settings
 from server.app.core.paths import get_data_dir
+from server.app.core.time import utcnow
 
 _logger = logging.getLogger(__name__)
+PROFILE_LOCK_LEASE_SECONDS = 900
 
 
 @dataclass
@@ -48,6 +53,7 @@ class RemoteBrowserSession:
     novnc_url: str
     log_dir: Path
     platform_code: str = ""
+    profile_key: str | None = None
     processes: list[ManagedProcess] = field(default_factory=list, repr=False)
     playwright: Any | None = field(default=None, repr=False)
     browser_context: Any | None = field(default=None, repr=False)
@@ -80,6 +86,135 @@ def _get_db():
     return SessionLocal()
 
 
+def try_acquire_profile_lock(
+    profile_key: str,
+    *,
+    owner_kind: str,
+    owner_id: str | int,
+    queue_reason: str | None = None,
+    lease_seconds: int = PROFILE_LOCK_LEASE_SECONDS,
+) -> bool:
+    """Acquire a cross-process lock for one persistent Chromium profile."""
+    from server.app.modules.accounts.models import BrowserProfileLock
+
+    owner_id = str(owner_id)
+    worker_id = _worker_id()
+    now = utcnow()
+    lease_until = now + timedelta(seconds=lease_seconds)
+    db = _get_db()
+    try:
+        db.execute(
+            sa_delete(BrowserProfileLock).where(
+                BrowserProfileLock.profile_key == profile_key,
+                BrowserProfileLock.lease_until < now,
+            )
+        )
+        db.execute(
+            sa_text(
+                """
+                INSERT INTO browser_profile_locks
+                    (profile_key, owner_kind, owner_id, worker_id, queue_reason, acquired_at, heartbeat_at, lease_until)
+                VALUES
+                    (:profile_key, :owner_kind, :owner_id, :worker_id, :queue_reason, :now, :now, :lease_until)
+                ON DUPLICATE KEY UPDATE profile_key = profile_key
+                """
+            ),
+            {
+                "profile_key": profile_key,
+                "owner_kind": owner_kind,
+                "owner_id": owner_id,
+                "worker_id": worker_id,
+                "queue_reason": queue_reason,
+                "now": now,
+                "lease_until": lease_until,
+            },
+        )
+        db.commit()
+
+        lock = db.get(BrowserProfileLock, profile_key)
+        if lock is None:
+            return False
+        if lock.owner_kind == owner_kind and lock.owner_id == owner_id:
+            lock.worker_id = worker_id
+            lock.queue_reason = queue_reason
+            lock.heartbeat_at = now
+            lock.lease_until = lease_until
+            db.commit()
+            return True
+        return False
+    except Exception:
+        db.rollback()
+        _logger.warning("Failed to acquire browser profile lock for %s", profile_key, exc_info=True)
+        return False
+    finally:
+        db.close()
+
+
+def heartbeat_profile_lock(
+    profile_key: str,
+    *,
+    owner_kind: str,
+    owner_id: str | int,
+    lease_seconds: int = PROFILE_LOCK_LEASE_SECONDS,
+) -> None:
+    from server.app.modules.accounts.models import BrowserProfileLock
+
+    now = utcnow()
+    lease_until = now + timedelta(seconds=lease_seconds)
+    db = _get_db()
+    try:
+        db.execute(
+            sa_update(BrowserProfileLock)
+            .where(
+                BrowserProfileLock.profile_key == profile_key,
+                BrowserProfileLock.owner_kind == owner_kind,
+                BrowserProfileLock.owner_id == str(owner_id),
+            )
+            .values(heartbeat_at=now, lease_until=lease_until, worker_id=_worker_id())
+        )
+        db.commit()
+    finally:
+        db.close()
+
+
+def release_profile_lock(profile_key: str, *, owner_kind: str, owner_id: str | int) -> None:
+    from server.app.modules.accounts.models import BrowserProfileLock
+
+    db = _get_db()
+    try:
+        db.execute(
+            sa_delete(BrowserProfileLock).where(
+                BrowserProfileLock.profile_key == profile_key,
+                BrowserProfileLock.owner_kind == owner_kind,
+                BrowserProfileLock.owner_id == str(owner_id),
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+
+def release_profile_lock_by_owner(*, owner_kind: str, owner_id: str | int) -> None:
+    from server.app.modules.accounts.models import BrowserProfileLock
+
+    db = _get_db()
+    try:
+        db.execute(
+            sa_delete(BrowserProfileLock).where(
+                BrowserProfileLock.owner_kind == owner_kind,
+                BrowserProfileLock.owner_id == str(owner_id),
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+
+def _worker_id() -> str | None:
+    import os as _os
+    return _os.environ.get("GEO_WORKER_ID")
+
+
 def _write_session_to_db(session: RemoteBrowserSession, worker_id: str | None) -> None:
     try:
         from server.app.modules.accounts.models import BrowserSession
@@ -91,6 +226,7 @@ def _write_session_to_db(session: RemoteBrowserSession, worker_id: str | None) -
                 id=session.id,
                 platform_code=session.platform_code,
                 account_key=session.account_key,
+                profile_key=session.profile_key,
                 display=session.display,
                 novnc_url=session.novnc_url,
                 started_at=now,
@@ -285,11 +421,15 @@ def _context_alive(context: object) -> bool:
         return False
 
 
-def _account_session_key(platform_code: str, account_key: str) -> str:
-    return f"{platform_code}:{account_key}"
+def _account_session_key(platform_code: str, account_key: str, profile_key: str | None = None) -> str:
+    return profile_key or f"{platform_code}:{account_key}"
 
 
-def get_or_create_account_session(platform_code: str, account_key: str) -> RemoteBrowserSession:
+def get_or_create_account_session(
+    platform_code: str,
+    account_key: str,
+    profile_key: str | None = None,
+) -> RemoteBrowserSession:
     """Return the persistent session for an account, creating one if needed.
 
     Reuse condition: session exists locally, not in keep_alive state, Chromium
@@ -298,7 +438,7 @@ def get_or_create_account_session(platform_code: str, account_key: str) -> Remot
     Per-account creation lock prevents two concurrent callers from both seeing
     no session and each spawning a separate browser instance for the same account.
     """
-    cache_key = _account_session_key(platform_code, account_key)
+    cache_key = _account_session_key(platform_code, account_key, profile_key)
 
     def _try_reuse() -> RemoteBrowserSession | None:
         with _sessions_lock:
@@ -328,7 +468,7 @@ def get_or_create_account_session(platform_code: str, account_key: str) -> Remot
         if (existing := _try_reuse()) is not None:
             return existing
 
-        session = start_remote_browser_session(account_key, platform_code=platform_code)
+        session = start_remote_browser_session(account_key, platform_code=platform_code, profile_key=profile_key)
         with _sessions_lock:
             _account_sessions[cache_key] = session.id
         return session
@@ -379,7 +519,11 @@ def managed_remote_browser_session(account_key: str) -> Iterator[RemoteBrowserSe
             stop_remote_browser_session(session.id)
 
 
-def start_remote_browser_session(account_key: str, platform_code: str = "") -> RemoteBrowserSession:
+def start_remote_browser_session(
+    account_key: str,
+    platform_code: str = "",
+    profile_key: str | None = None,
+) -> RemoteBrowserSession:
     import os as _os
     worker_id = _os.environ.get("GEO_WORKER_ID")
 
@@ -411,6 +555,7 @@ def start_remote_browser_session(account_key: str, platform_code: str = "") -> R
         novnc_port=novnc_port,
         novnc_url=_novnc_url(settings.publish_remote_browser_host, novnc_port),
         log_dir=log_dir,
+        profile_key=profile_key,
     )
 
     try:

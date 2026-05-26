@@ -105,6 +105,25 @@ export type AccountBrowserSession = {
   account_key: string;
   session_id: string;
   novnc_url: string | null;
+  status?: "pending" | "queued" | "starting" | "active" | "failed" | "cancelled";
+  queue_reason?: string | null;
+  error_message?: string | null;
+};
+
+export type AccountLoginSessionStatus =
+  | "pending"
+  | "queued"
+  | "starting"
+  | "active"
+  | "failed"
+  | "cancelled";
+
+export type AccountLoginSessionStatusResponse = {
+  status: AccountLoginSessionStatus;
+  novnc_url: string | null;
+  error_message: string | null;
+  queue_reason?: string | null;
+  browser_session_id: string | null;
 };
 
 export type AccountBrowserSessionFinish = {
@@ -158,6 +177,7 @@ export type PublishRecord = {
   platform_id: number;
   account_id: number;
   status: string;
+  queue_reason: string | null;
   publish_url: string | null;
   error_message: string | null;
   retry_of_record_id: number | null;

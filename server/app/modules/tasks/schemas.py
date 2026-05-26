@@ -55,6 +55,7 @@ class PublishRecordRead(BaseModel):
     platform_id: int
     account_id: int
     status: str
+    queue_reason: str | None = None
     publish_url: str | None
     error_message: str | None
     retry_of_record_id: int | None
@@ -160,6 +161,7 @@ def to_record_read(record: "PublishRecord") -> PublishRecordRead:
         platform_id=record.platform_id,
         account_id=record.account_id,
         status=record.status,
+        queue_reason=getattr(record, "queue_reason", None),
         publish_url=record.publish_url,
         error_message=record.error_message,
         retry_of_record_id=record.retry_of_record_id,

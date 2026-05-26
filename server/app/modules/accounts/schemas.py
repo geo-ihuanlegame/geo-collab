@@ -30,6 +30,8 @@ class AccountBrowserSessionRead(BaseModel):
     account_key: str
     session_id: str
     novnc_url: str | None = None
+    status: str | None = None
+    queue_reason: str | None = None
 
 
 class AccountBrowserSessionFinishRead(BaseModel):
@@ -43,6 +45,7 @@ class LoginSessionStatusRead(BaseModel):
     status: str
     novnc_url: str | None = None
     error_message: str | None = None
+    queue_reason: str | None = None
     browser_session_id: str | None = None
 
 

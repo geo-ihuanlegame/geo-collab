@@ -53,6 +53,8 @@ def _to_browser_session_read(result) -> AccountBrowserSessionRead:
         account_key=result.account_key,
         session_id=result.session_id,
         novnc_url=result.novnc_url,
+        status=getattr(result, "status", None),
+        queue_reason=getattr(result, "queue_reason", None),
     )
 
 
@@ -120,6 +122,7 @@ def get_login_session_status_endpoint(
         status=request.status,
         novnc_url=request.novnc_url,
         error_message=request.error_message,
+        queue_reason=request.queue_reason,
         browser_session_id=request.browser_session_id,
     )
 
