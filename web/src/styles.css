@@ -2003,7 +2003,7 @@ input:focus, select:focus, textarea:focus {
 .imageLibraryLoading { color: var(--fg-3); font-size: 13px; grid-column: 1/-1; }
 
 
-.imageLibraryCardImg { width: 100%; aspect-ratio: 1; overflow: hidden; background: var(--bg-2); }
+.imageLibraryCardImg { position: relative; width: 100%; aspect-ratio: 1; overflow: hidden; background: var(--bg-2); }
 .imageLibraryCardImg img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .imageLibraryCardInfo { padding: 8px; }
 .imageLibraryCardName {
