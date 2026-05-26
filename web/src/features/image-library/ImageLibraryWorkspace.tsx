@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { MoreHorizontal, Plus, Trash2, Upload, Pencil, ChevronLeft, ChevronRight, X } from "lucide-react";
+import { MoreHorizontal, Plus, Trash2, Upload, Pencil, ChevronLeft, ChevronRight, X, Images } from "lucide-react";
 import { createCategory, deleteImage, listCategories, listImages, updateImage, uploadImage } from "../../api/image-library";
 import type { StockCategory, StockImage } from "../../types";
 import { useToast } from "../../components/Toast";
@@ -214,11 +214,17 @@ export function ImageLibraryWorkspace() {
         </aside>
 
         <div className="imageLibraryGrid">
-          {loading && <p className="imageLibraryLoading">加载中...</p>}
-          {!loading && images.length === 0 && (
-            <p className="imageLibraryEmpty">暂无图片，上传第一张吧</p>
+          {loading && Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="imageLibraryCardSkeleton" />
+          ))}
+          {!loading && images.length === 0 && selectedCategoryId !== null && (
+            <div className="imageLibraryEmptyState">
+              <Images size={40} strokeWidth={1.2} />
+              <p className="imageLibraryEmptyTitle">这个栏目还没有图片</p>
+              <p>点击右上角「上传图片」开始添加</p>
+            </div>
           )}
-          {images.map((img, idx) => (
+          {!loading && images.map((img, idx) => (
             <div key={img.id} className="imageLibraryCard">
               <div className="imageLibraryCardImg" onClick={() => setLightboxIndex(idx)}>
                 <img src={img.url} alt={img.filename} loading="lazy" />
