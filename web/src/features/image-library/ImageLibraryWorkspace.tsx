@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { MoreHorizontal, Plus, Trash2, Upload, Pencil } from "lucide-react";
+import { MoreHorizontal, Plus, Trash2, Upload, Pencil, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { createCategory, deleteImage, listCategories, listImages, updateImage, uploadImage } from "../../api/image-library";
 import type { StockCategory, StockImage } from "../../types";
 import { useToast } from "../../components/Toast";
@@ -34,6 +34,8 @@ export function ImageLibraryWorkspace() {
   const [editDesc, setEditDesc] = useState("");
   const [editSaving, setEditSaving] = useState(false);
 
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
@@ -43,6 +45,17 @@ export function ImageLibraryWorkspace() {
     document.addEventListener("click", handleClickOutside);
     return () => document.removeEventListener("click", handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    if (lightboxIndex === null) return;
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") { setLightboxIndex(null); return; }
+      if (e.key === "ArrowLeft") setLightboxIndex((i) => i === null ? null : (i - 1 + images.length) % images.length);
+      if (e.key === "ArrowRight") setLightboxIndex((i) => i === null ? null : (i + 1) % images.length);
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [lightboxIndex, images.length]);
 
   useEffect(() => {
     listCategories()
@@ -149,6 +162,8 @@ export function ImageLibraryWorkspace() {
     }
   }
 
+  const lightboxImage = lightboxIndex !== null ? (images[lightboxIndex] ?? null) : null;
+
   return (
     <div className="imageLibrary">
       <div className="topbar">
@@ -197,9 +212,9 @@ export function ImageLibraryWorkspace() {
           {!loading && images.length === 0 && (
             <p className="imageLibraryEmpty">暂无图片，上传第一张吧</p>
           )}
-          {images.map((img) => (
+          {images.map((img, idx) => (
             <div key={img.id} className="imageLibraryCard">
-              <div className="imageLibraryCardImg">
+              <div className="imageLibraryCardImg" onClick={() => setLightboxIndex(idx)}>
                 <img src={img.url} alt={img.filename} loading="lazy" />
                 <div className="imageLibraryCardOverlay">
                   <span className="imageLibraryCardOverlayName">{img.filename}</span>
@@ -336,6 +351,57 @@ export function ImageLibraryWorkspace() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {lightboxImage && (
+        <div className="lightboxOverlay" onClick={() => setLightboxIndex(null)}>
+          <div className="lightboxInner" onClick={(e) => e.stopPropagation()}>
+            <button type="button" className="lightboxClose" onClick={() => setLightboxIndex(null)}>
+              <X size={20} />
+            </button>
+            <img className="lightboxImg" src={lightboxImage.url} alt={lightboxImage.filename} />
+            <div className="lightboxInfo">
+              <p className="lightboxInfoName">{lightboxImage.filename}</p>
+              {lightboxImage.width != null && lightboxImage.height != null && (
+                <p className="lightboxInfoDim">{lightboxImage.width} × {lightboxImage.height}</p>
+              )}
+              {lightboxImage.tags.length > 0 && (
+                <div className="lightboxInfoTags">
+                  {lightboxImage.tags.map((tag) => (
+                    <span key={tag} className="lightboxTag">{tag}</span>
+                  ))}
+                </div>
+              )}
+              {lightboxImage.description && (
+                <p className="lightboxInfoDesc">{lightboxImage.description}</p>
+              )}
+            </div>
+          </div>
+          {images.length > 1 && (
+            <>
+              <button
+                type="button"
+                className="lightboxArrow lightboxArrowLeft"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setLightboxIndex((i) => i === null ? null : (i - 1 + images.length) % images.length);
+                }}
+              >
+                <ChevronLeft size={28} />
+              </button>
+              <button
+                type="button"
+                className="lightboxArrow lightboxArrowRight"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setLightboxIndex((i) => i === null ? null : (i + 1) % images.length);
+                }}
+              >
+                <ChevronRight size={28} />
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>
