@@ -599,10 +599,6 @@ def run_ai_format(
             logger.info("ai_format skipped article %s: no non-empty paragraph/heading nodes", article_id)
             return
 
-        listing = "\n".join(
-            f"{i} {_node_label(node)}: {_node_text(node)}" for i, node in text_nodes
-        )
-
         get_settings.cache_clear()
         settings = get_settings()
         api_key = settings.ai_format_api_key or settings.ai_api_key or None
@@ -623,7 +619,7 @@ def run_ai_format(
             api_key=api_key,
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": listing},
+                {"role": "user", "content": "请按上述要求完成分析，仅返回 JSON。"},
             ],
             timeout_seconds=settings.ai_format_timeout_seconds,
         )
