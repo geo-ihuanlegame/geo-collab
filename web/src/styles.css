@@ -2048,3 +2048,24 @@ input:focus, select:focus, textarea:focus {
 .imageLibraryDropdown button:hover { background: var(--bg-2); }
 .imageLibraryDropdown button.danger { color: #e53e3e; }
 .imageLibraryDropdown button.danger:hover { background: #fff5f5; }
+
+/* ── Image Library: Card Hover ── */
+.imageLibraryCardImg { cursor: pointer; }
+.imageLibraryCardImg img { transition: transform 0.25s ease; }
+.imageLibraryCard { transition: border-color 0.2s, box-shadow 0.2s; }
+.imageLibraryCard:hover { border-color: var(--accent); box-shadow: 0 2px 12px rgba(91,95,233,0.15); }
+.imageLibraryCard:hover .imageLibraryCardImg img { transform: scale(1.04); }
+
+.imageLibraryCardOverlay {
+  position: absolute; inset: 0;
+  background: linear-gradient(to top, rgba(0,0,0,0.55) 0%, transparent 55%);
+  opacity: 0; transition: opacity 0.2s;
+  display: flex; align-items: flex-end; padding: 8px;
+  pointer-events: none;
+}
+.imageLibraryCard:hover .imageLibraryCardOverlay { opacity: 1; }
+.imageLibraryCardOverlayName {
+  font-size: 11px; color: #fff; font-weight: 500;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%;
+}

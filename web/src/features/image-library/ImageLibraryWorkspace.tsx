@@ -201,6 +201,9 @@ export function ImageLibraryWorkspace() {
             <div key={img.id} className="imageLibraryCard">
               <div className="imageLibraryCardImg">
                 <img src={img.url} alt={img.filename} loading="lazy" />
+                <div className="imageLibraryCardOverlay">
+                  <span className="imageLibraryCardOverlayName">{img.filename}</span>
+                </div>
               </div>
               <div className="imageLibraryCardActions">
                 <button
