@@ -40,7 +40,7 @@ def test_export_import_round_trip(monkeypatch):
         imported = accounts[0]
         assert imported["display_name"] == "round-trip-test"
         assert imported["platform_code"] == "toutiao"
-        assert imported["status"] == "valid"
+        assert imported["status"] == "expired"
         assert imported["note"] == "rt"
         assert "demo" in imported["state_path"]
 
@@ -131,3 +131,63 @@ def test_import_oversized_entry_returns_400(monkeypatch):
         assert "ZIP entry too large" in response.json()["detail"]
     finally:
         test_app.cleanup()
+
+
+# ── _assess_imported_status 单元测试 ─────────────────────────────────────────
+
+def test_assess_imported_status_empty_cookies(tmp_path):
+    """cookies 为空数组 → expired。"""
+    from server.app.modules.accounts.auth import _assess_imported_status
+
+    state_file = tmp_path / "storage_state.json"
+    state_file.write_text('{"cookies": [], "origins": []}', encoding="utf-8")
+    assert _assess_imported_status(state_file) == "expired"
+
+
+def test_assess_imported_status_all_expired(tmp_path):
+    """所有 cookies 的 expires 均在过去 → expired。"""
+    import time
+    from server.app.modules.accounts.auth import _assess_imported_status
+
+    past = int(time.time()) - 3600  # 1 hour ago
+    state_file = tmp_path / "storage_state.json"
+    state_file.write_text(
+        json.dumps({"cookies": [{"name": "sid", "value": "x", "expires": past}], "origins": []}),
+        encoding="utf-8",
+    )
+    assert _assess_imported_status(state_file) == "expired"
+
+
+def test_assess_imported_status_session_cookie(tmp_path):
+    """expires == -1 的 session cookie → valid（无论有没有其他 cookie）。"""
+    from server.app.modules.accounts.auth import _assess_imported_status
+
+    state_file = tmp_path / "storage_state.json"
+    state_file.write_text(
+        json.dumps({"cookies": [{"name": "sess", "value": "abc", "expires": -1}], "origins": []}),
+        encoding="utf-8",
+    )
+    assert _assess_imported_status(state_file) == "valid"
+
+
+def test_assess_imported_status_future_cookie(tmp_path):
+    """至少一个 cookie expires 在未来 → valid。"""
+    import time
+    from server.app.modules.accounts.auth import _assess_imported_status
+
+    future = int(time.time()) + 86400  # 1 day from now
+    state_file = tmp_path / "storage_state.json"
+    state_file.write_text(
+        json.dumps({"cookies": [{"name": "tok", "value": "y", "expires": future}], "origins": []}),
+        encoding="utf-8",
+    )
+    assert _assess_imported_status(state_file) == "valid"
+
+
+def test_assess_imported_status_invalid_json(tmp_path):
+    """文件内容不是有效 JSON → unknown。"""
+    from server.app.modules.accounts.auth import _assess_imported_status
+
+    state_file = tmp_path / "storage_state.json"
+    state_file.write_text("not valid json {{{{", encoding="utf-8")
+    assert _assess_imported_status(state_file) == "unknown"

@@ -313,9 +313,10 @@ type UnifiedListItem =
 
 interface Props {
   dirtyCheckRef?: MutableRefObject<() => boolean>;
+  isActive?: boolean;
 }
 
-export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
+export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
   const { toast } = useToast();
   const { user } = useAuth();
   const [articles, setArticles] = useState<ArticleSummary[]>([]);
@@ -345,6 +346,7 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
   const [confirmUnsavedNew, setConfirmUnsavedNew] = useState(false);
 
   const pasteImageRef = useRef<(file: File) => void>(() => {});
+  const isInitialMountRef = useRef(true);
   const [charCount, setCharCount] = useState(0);
   const [imageUploading, setImageUploading] = useState(0);
   const pendingBlobsRef = useRef<Set<string>>(new Set());
@@ -516,6 +518,16 @@ export function ContentWorkspace({ dirtyCheckRef }: Props = {}) {
       .then((data) => setAiFormatPresets(data.filter((prompt) => prompt.is_enabled)))
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (isInitialMountRef.current) {
+      isInitialMountRef.current = false;
+      return;
+    }
+    if (!isActive) return;
+    void refreshArticles();
+    void refreshGroups();
+  }, [isActive]);
 
   useEffect(() => {
     setSelectedAiFormatPresetId(user?.ai_format_preset_id ?? "");

@@ -831,6 +831,33 @@ def export_accounts_auth_package(db: Session, payload: AccountExportRequest) -> 
     return export_path
 
 
+def _assess_imported_status(state_path: Path) -> str:
+    """解析 storage_state.json，评估 cookies 有效性。
+
+    返回：
+      "valid"   — cookies 非空，且至少有一个 session cookie 或未来过期的 cookie
+      "expired" — cookies 为空，或全部已过期
+      "unknown" — 文件无法解析
+    """
+    import time as _time
+    try:
+        data = json.loads(state_path.read_text(encoding="utf-8"))
+    except Exception:
+        return "unknown"
+
+    cookies = data.get("cookies") or []
+    if not cookies:
+        return "expired"
+
+    now = _time.time()
+    for cookie in cookies:
+        expires = cookie.get("expires", -1)
+        if expires == -1 or expires > now:  # session cookie 或未过期
+            return "valid"
+
+    return "expired"
+
+
 def import_accounts_auth_package(db: Session, user_id: int, zip_bytes: bytes) -> dict[str, list[str]]:
     ensure_data_dirs()
     imported: list[str] = []
@@ -888,10 +915,7 @@ def import_accounts_auth_package(db: Session, user_id: int, zip_bytes: bytes) ->
             except ValueError:
                 skipped.append(f"{display_name}（last_login_at 格式无效）")
                 continue
-            _valid_statuses = {"valid", "expired", "unknown"}
-            imported_status = entry.get("status", "unknown")
-            if imported_status not in _valid_statuses:
-                imported_status = "unknown"
+            imported_status = _assess_imported_status(dest)
             if existing is None:
                 account = Account(
                     user_id=user_id,

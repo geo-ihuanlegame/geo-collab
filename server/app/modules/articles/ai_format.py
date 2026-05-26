@@ -13,16 +13,15 @@ from jinja2.sandbox import SandboxedEnvironment
 from server.app.core.config import get_settings
 from server.app.modules.articles.parser import dumps_content_json, loads_content_json
 from server.app.modules.image_library.inserter import has_images_in_content, insert_images_at_positions
-from server.app.modules.image_library.selector import fetch_image_by_id, select_images_by_hints
+from server.app.modules.image_library.selector import fetch_image_by_id, pick_image_id, ImageQuery
 
 logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT_HEADINGS_ONLY = (
     "你是文章正文排版助手，只处理正文顶层节点，不处理文章主标题。\n"
-    "输入格式：每行一个顶层节点，格式为\n"
-    "  <原始索引> [段落] 文本内容\n"
-    "  <原始索引> [小标题] 文本内容\n"
     "\n"
+    "正文节点列表：\n"
+    "{% for node in text_nodes %}{{ node.index }} {{ node.label }} {{ node.text }}\n{% endfor %}\n"
     "找出应设为正文小标题（H1）的节点索引。\n"
     "- 小标题特征：短句、章节引导语、概括性短语，通常不超过 20 字\n"
     "- 不是小标题：完整叙述句、解释说明、数据陈述\n"
@@ -53,80 +52,6 @@ def _image_prompt_params(text_nodes: list[tuple[int, dict]]) -> tuple[int, int]:
     if section_estimate >= 3:
         return section_estimate, 3  # one image per section, min spacing 3
     return 3, 3  # conservative defaults for narrative articles
-
-
-def _build_system_prompt_with_images(text_nodes: list[tuple[int, dict]]) -> str:
-    """Return an image-aware system prompt tailored to the article's structure."""
-    max_images, min_spacing = _image_prompt_params(text_nodes)
-    if max_images > 3:
-        count_rule = f"- 全文配图不超过 {max_images} 张（每个小标题段落最多一张）"
-    else:
-        count_rule = f"- 全文配图不超过 {max_images} 张"
-
-    # 把段落原文嵌入提示词，让 LLM 感知内容
-    node_listing = "\n".join(
-        f"  {i} {_node_label(node)}: {_node_text(node)}" for i, node in text_nodes
-    )
-
-    return (
-        "你是文章正文排版助手，只处理正文顶层节点，不处理文章主标题。\n"
-        "输入格式：每行一个顶层节点，格式为\n"
-        "  <原始索引> [段落] 文本内容\n"
-        "  <原始索引> [小标题] 文本内容\n"
-        "\n"
-        "以下是文章所有顶层节点（供你判断内容主题）：\n"
-        f"{node_listing}\n"
-        "\n"
-        "你需要完成两项判断：\n"
-        "\n"
-        "【小标题判断】\n"
-        "找出应设为正文小标题（H1）的节点索引。\n"
-        "- 小标题特征：短句、章节引导语、概括性短语，通常不超过 20 字\n"
-        "- 不是小标题：完整叙述句、解释说明、数据陈述\n"
-        "- 宁少勿多，不确定就不选\n"
-        "- 不生成新标题，不改写任何文字\n"
-        "\n"
-        "【配图位置判断】\n"
-        "找出适合在其后插入图片的节点索引，同时提炼该段落的配图主题关键词（hint）。\n"
-        "- 只在段落节点后插图，不在小标题后插图\n"
-        f"- 相邻配图间距不少于 {min_spacing} 个节点\n"
-        f"{count_rule}\n"
-        "- 每个小标题段落最多一张配图\n"
-        "- 只有段落内容有明显可配图的主题时才插图，不确定就不插\n"
-        "- hint 为 1-5 个字的关键词，描述该配图应表达的内容主题（如：城市夜景、人物对话）\n"
-        "- 若无明显适合位置，image_positions 返回空数组\n"
-        "\n"
-        "返回：仅返回一行 JSON，不添加任何解释：\n"
-        '{"heading_indices": [2, 7], "image_positions": [{"index": 4, "hint": "环境描写"}, {"index": 10, "hint": "人物对话"}]}'
-    )
-
-
-def _fallback_prompt(include_images: bool, text_nodes: list[tuple[int, dict]] | None = None) -> str:
-    if include_images:
-        return _build_system_prompt_with_images(text_nodes or [])
-    return _SYSTEM_PROMPT_HEADINGS_ONLY
-
-
-def _load_ai_format_prompt(
-    db: Any,
-    *,
-    preset_id: int | None,
-    user_id: int | None,
-    include_images: bool,
-    text_nodes: list[tuple[int, dict]] | None = None,
-) -> str:
-    if preset_id is None or user_id is None:
-        return _fallback_prompt(include_images, text_nodes)
-
-    from server.app.modules.prompt_templates.service import get_visible_prompt_template
-
-    prompt = get_visible_prompt_template(db, preset_id, user_id=user_id, scope="ai_format")
-    if prompt is None or not prompt.is_enabled:
-        logger.info("ai_format preset %s unavailable; falling back to built-in prompt", preset_id)
-        return _fallback_prompt(include_images, text_nodes)
-
-    logger.info("ai_format using DB prompt template %s", preset_id)
-    return prompt.content
 
 
 def _extract_json(raw: str) -> str:
@@ -429,62 +354,6 @@ def _call_litellm_completion(
     )
 
 
-def _legacy_maybe_insert_images_old_unused(content_json: dict, parsed: dict, article: Any, db: Any) -> tuple[dict, int]:
-
-    if has_images_in_content(content_json):
-        return content_json, 0
-
-    # 收集所有关联栏目 ID（多对多优先，兼容旧的单栏目字段）
-    category_ids: list[int] = [sc.id for sc in (article.stock_categories or [])]
-    if not category_ids and article.stock_category_id is not None:
-        category_ids = [article.stock_category_id]
-    if not category_ids:
-        return content_json, 0
-
-    image_positions_raw = parsed.get("image_positions", [])
-    if not isinstance(image_positions_raw, list) or not image_positions_raw:
-        return content_json, 0
-
-    # 解析新旧两种格式
-    # 新格式：[{"index": 4, "hint": "环境描写"}, ...]
-    # 旧格式（纯整数数组）：[4, 10, ...]  → hint 全部为 None → 不插图
-    positions: list[int] = []
-    hints: list[str | None] = []
-    for item in image_positions_raw:
-        if isinstance(item, dict):
-            idx = item.get("index")
-            hint = item.get("hint") or None
-            if isinstance(idx, int):
-                positions.append(idx)
-                hints.append(hint)
-        elif isinstance(item, int):
-            # 旧格式：hint 为 None，后续会跳过
-            positions.append(item)
-            hints.append(None)
-
-    if not positions:
-        return content_json, 0
-
-    # 语义匹配选图；hint 为 None 或无匹配时返回 None（不降级随机）
-    image_ids = select_images_by_hints(category_ids, hints, db)
-
-    # 只保留有匹配图片的位置
-    matched_refs = []
-    matched_positions = []
-    for pos, image_id in zip(positions, image_ids):
-        if image_id is None:
-            continue
-        ref = fetch_image_by_id(image_id, db)
-        if ref is not None:
-            matched_refs.append(ref)
-            matched_positions.append(pos)
-
-    if not matched_refs:
-        return content_json, 0
-
-    return insert_images_at_positions(content_json, matched_refs, matched_positions), len(matched_refs)
-
-
 def _maybe_insert_images(content_json: dict, parsed: dict, article: Any, db: Any) -> tuple[dict, int]:
     if has_images_in_content(content_json):
         return content_json, 0
@@ -498,50 +367,36 @@ def _maybe_insert_images(content_json: dict, parsed: dict, article: Any, db: Any
         return content_json, 0
 
     positions: list[int] = []
-    hints: list[str | None] = []
     requested_category_ids: list[int | None] = []
     for item in image_positions_raw:
         if isinstance(item, dict):
             idx = item.get("index")
-            hint = item.get("hint") or None
             category_id = item.get("category_id")
             if isinstance(idx, int):
                 positions.append(idx)
-                hints.append(hint)
                 requested_category_ids.append(category_id if isinstance(category_id, int) else None)
         elif isinstance(item, int):
             positions.append(item)
-            hints.append(None)
             requested_category_ids.append(None)
 
     if not positions:
         return content_json, 0
 
+    valid_category_ids = set(category_ids)
     matched_refs = []
     matched_positions = []
-    if all(category_id is None for category_id in requested_category_ids):
-        image_ids = select_images_by_hints(category_ids, hints, db)
-        items = zip(positions, image_ids)
-    else:
-        picked: list[tuple[int, int | None]] = []
-        valid_category_ids = set(category_ids)
-        for pos, hint, requested_category_id in zip(positions, hints, requested_category_ids):
-            if requested_category_id is not None:
-                if requested_category_id not in valid_category_ids:
-                    picked.append((pos, None))
-                    continue
-                candidate_category_ids = [requested_category_id]
-            else:
-                candidate_category_ids = category_ids
-            image_ids = select_images_by_hints(candidate_category_ids, [hint], db)
-            picked.append((pos, image_ids[0] if image_ids else None))
-        items = picked
-
-    for pos, image_id in items:
+    used_ids: list[int] = []
+    for pos, requested_category_id in zip(positions, requested_category_ids):
+        if requested_category_id is None or requested_category_id not in valid_category_ids:
+            continue
+        image_id = pick_image_id(
+            ImageQuery(category_ids=[requested_category_id], excluded_ids=used_ids), db
+        )
         if image_id is None:
             continue
         ref = fetch_image_by_id(image_id, db)
         if ref is not None:
+            used_ids.append(image_id)
             matched_refs.append(ref)
             matched_positions.append(pos)
 
@@ -599,10 +454,6 @@ def run_ai_format(
             logger.info("ai_format skipped article %s: no non-empty paragraph/heading nodes", article_id)
             return
 
-        listing = "\n".join(
-            f"{i} {_node_label(node)}: {_node_text(node)}" for i, node in text_nodes
-        )
-
         get_settings.cache_clear()
         settings = get_settings()
         api_key = settings.ai_format_api_key or settings.ai_api_key or None
@@ -623,7 +474,7 @@ def run_ai_format(
             api_key=api_key,
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": listing},
+                {"role": "user", "content": "请按上述要求完成分析，仅返回 JSON。"},
             ],
             timeout_seconds=settings.ai_format_timeout_seconds,
         )

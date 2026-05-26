@@ -106,7 +106,7 @@ function AppShell() {
             )}
             <div style={{ display: activeNav === "content" ? undefined : "none" }}>
               <ErrorBoundary fallback={<p role="alert">内容管理出错，请刷新重试</p>}>
-                <ContentWorkspace dirtyCheckRef={contentDirtyRef} />
+                <ContentWorkspace dirtyCheckRef={contentDirtyRef} isActive={activeNav === "content"} />
               </ErrorBoundary>
             </div>
             {visitedTabs.has("prompts") && (
@@ -126,14 +126,14 @@ function AppShell() {
             {visitedTabs.has("media") && (
               <div style={{ display: activeNav === "media" ? undefined : "none" }}>
                 <ErrorBoundary fallback={<p role="alert">媒体矩阵出错，请刷新重试</p>}>
-                  <AccountsWorkspace />
+                  <AccountsWorkspace isActive={activeNav === "media"} />
                 </ErrorBoundary>
               </div>
             )}
             {visitedTabs.has("tasks") && (
               <div style={{ display: activeNav === "tasks" ? undefined : "none" }}>
                 <ErrorBoundary fallback={<p role="alert">分发引擎出错，请刷新重试</p>}>
-                  <TasksWorkspace />
+                  <TasksWorkspace isActive={activeNav === "tasks"} />
                 </ErrorBoundary>
               </div>
             )}

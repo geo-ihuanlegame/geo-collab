@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   deleteAccount,
   exportAccountPackage,
@@ -23,7 +23,7 @@ type ActiveLoginSession = {
   novncUrl: string;
 };
 
-export function AccountsWorkspace() {
+export function AccountsWorkspace({ isActive }: { isActive?: boolean } = {}) {
   const { toast } = useToast();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [platforms, setPlatforms] = useState<PlatformOption[]>([]);
@@ -42,6 +42,8 @@ export function AccountsWorkspace() {
   const filteredAccounts = selectedPlatform
     ? accounts.filter(a => a.platform_code === selectedPlatform)
     : accounts;
+
+  const isInitialMountRef = useRef(true);
 
   async function refreshAccounts() {
     const data = await listAccounts();
@@ -69,6 +71,22 @@ export function AccountsWorkspace() {
       setSelectedPlatform(savedPlatform);
     }
   }, []);
+
+  useEffect(() => {
+    if (isInitialMountRef.current) {
+      isInitialMountRef.current = false;
+      return;
+    }
+    if (!isActive) return;
+    void (async () => {
+      const [platformData, accountData] = await Promise.all([
+        listPlatforms(),
+        listAccounts(),
+      ]);
+      setPlatforms(platformData);
+      setAccounts(accountData);
+    })();
+  }, [isActive]);
 
   async function startNewRemoteLogin() {
     setLoading(true);
@@ -214,7 +232,9 @@ export function AccountsWorkspace() {
       formData.append("file", file);
       const result = await importAccountPackage(formData);
       await refreshAccounts();
-      const msg = `导入完成：${result.imported.length} 个新增${result.skipped.length ? `，${result.skipped.length} 个已存在跳过` : ""}`;
+      const importedN = result.imported.length;
+      const skippedN = result.skipped.length;
+      const msg = `导入成功 ${importedN} 个账号${skippedN ? `，${skippedN} 个已存在跳过` : ""}。账号有效性取决于平台 session 是否仍在线，请点击「校验」确认后再发布。`;
       toast(msg, "success");
     } catch (error) {
       toast(error instanceof Error ? error.message : "导入失败", "error");
