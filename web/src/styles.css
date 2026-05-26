@@ -2144,4 +2144,3 @@ input:focus, select:focus, textarea:focus {
   background: var(--accent-soft); color: var(--accent-deep);
   font-weight: 600; flex-shrink: 0; margin-left: 4px;
 }
-}
