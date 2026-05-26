@@ -367,6 +367,22 @@ def test_render_ai_format_prompt_injects_category_names_without_private_fields()
     assert "official_url" not in prompt
 
 
+def test_headings_only_prompt_includes_node_text():
+    """_SYSTEM_PROMPT_HEADINGS_ONLY 是 Jinja 模板，渲染后应包含实际文章节点文本。"""
+    from server.app.modules.articles.ai_format import _fallback_prompt
+
+    text_nodes = [
+        (0, {"type": "paragraph", "content": [{"type": "text", "text": "第一段正文内容"}]}),
+        (1, {"type": "paragraph", "content": [{"type": "text", "text": "第二段正文内容"}]}),
+    ]
+    prompt = _fallback_prompt(include_images=False, text_nodes=text_nodes)
+
+    assert "第一段正文内容" in prompt
+    assert "第二段正文内容" in prompt
+    assert "0 [段落]" in prompt
+    assert "1 [段落]" in prompt
+
+
 def test_render_ai_format_prompt_strict_undefined_raises():
     from jinja2 import UndefinedError
     from server.app.modules.articles.ai_format import render_ai_format_prompt

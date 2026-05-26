@@ -19,10 +19,9 @@ logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT_HEADINGS_ONLY = (
     "你是文章正文排版助手，只处理正文顶层节点，不处理文章主标题。\n"
-    "输入格式：每行一个顶层节点，格式为\n"
-    "  <原始索引> [段落] 文本内容\n"
-    "  <原始索引> [小标题] 文本内容\n"
     "\n"
+    "正文节点列表：\n"
+    "{% for node in text_nodes %}{{ node.index }} {{ node.label }} {{ node.text }}\n{% endfor %}\n"
     "找出应设为正文小标题（H1）的节点索引。\n"
     "- 小标题特征：短句、章节引导语、概括性短语，通常不超过 20 字\n"
     "- 不是小标题：完整叙述句、解释说明、数据陈述\n"
