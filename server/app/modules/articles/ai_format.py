@@ -8,6 +8,8 @@ from typing import Any
 
 from server.app.core.config import get_settings
 from server.app.modules.articles.parser import dumps_content_json, loads_content_json
+from server.app.modules.image_library.inserter import has_images_in_content, insert_images_at_positions
+from server.app.modules.image_library.selector import fetch_image_by_id, select_images_by_hints
 
 logger = logging.getLogger(__name__)
 
@@ -297,8 +299,6 @@ def _call_litellm_completion(
 
 
 def _maybe_insert_images(content_json: dict, parsed: dict, article: Any, db: Any) -> tuple[dict, int]:
-    from server.app.modules.image_library.inserter import has_images_in_content, insert_images_at_positions
-    from server.app.modules.image_library.selector import fetch_image_by_id, select_images_by_hints
 
     if has_images_in_content(content_json):
         return content_json, 0
