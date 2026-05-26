@@ -1991,7 +1991,14 @@ input:focus, select:focus, textarea:focus {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
   gap: 12px; align-content: start;
+  min-height: 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--hair-2) transparent;
 }
+.imageLibraryGrid::-webkit-scrollbar { width: 5px; }
+.imageLibraryGrid::-webkit-scrollbar-track { background: transparent; }
+.imageLibraryGrid::-webkit-scrollbar-thumb { background: var(--hair-2); border-radius: 3px; }
+.imageLibraryGrid::-webkit-scrollbar-thumb:hover { background: var(--fg-3); }
 .imageLibraryEmpty { color: var(--fg-3); font-size: 13px; grid-column: 1/-1; }
 .imageLibraryLoading { color: var(--fg-3); font-size: 13px; grid-column: 1/-1; }
 
