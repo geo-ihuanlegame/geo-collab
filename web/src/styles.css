@@ -2129,3 +2129,19 @@ input:focus, select:focus, textarea:focus {
   .lightboxImg { max-width: 90vw; max-height: 60vh; }
   .lightboxInfo { width: 100%; }
 }
+
+/* ── Image Library: Sidebar Upgrade ── */
+.imageLibraryCatBtn.active {
+  border-left: 3px solid var(--accent);
+  padding-left: 11px;
+}
+.imageLibraryCatBtnRow {
+  display: flex; align-items: center; justify-content: space-between;
+  width: 100%;
+}
+.imageLibraryCatCount {
+  font-size: 10px; padding: 1px 6px; border-radius: 10px;
+  background: var(--accent-soft); color: var(--accent-deep);
+  font-weight: 600; flex-shrink: 0; margin-left: 4px;
+}
+}

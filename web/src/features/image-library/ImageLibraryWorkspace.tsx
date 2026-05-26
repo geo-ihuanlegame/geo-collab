@@ -199,7 +199,12 @@ export function ImageLibraryWorkspace() {
               className={`imageLibraryCatBtn${selectedCategoryId === cat.id ? " active" : ""}`}
               onClick={() => setSelectedCategoryId(cat.id)}
             >
-              <span className="imageLibraryCatName">{cat.name}</span>
+              <div className="imageLibraryCatBtnRow">
+                <span className="imageLibraryCatName">{cat.name}</span>
+                {selectedCategoryId === cat.id && images.length > 0 && (
+                  <span className="imageLibraryCatCount">{images.length}</span>
+                )}
+              </div>
               <span className="imageLibraryCatBucket">{cat.bucket_name}</span>
             </button>
           ))}
