@@ -338,7 +338,7 @@ def _apply_headings(content_json: dict, heading_indices: set[int]) -> dict:
         if not isinstance(node, dict):
             continue
         if i in heading_indices and node.get("type") == "paragraph":
-            content[i] = _to_heading(node)
+            content[i] = _to_heading(node, level=2)
     return {**content_json, "content": content}
 
 

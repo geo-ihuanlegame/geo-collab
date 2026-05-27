@@ -204,7 +204,7 @@ def test_node_text_joins_text_and_hard_break_nodes():
     assert _node_text(node) == "Hello\nWorld"
 
 
-def test_apply_headings_converts_paragraph_to_h1():
+def test_apply_headings_converts_paragraph_to_h2():
     doc = {
         "type": "doc",
         "content": [
@@ -214,7 +214,7 @@ def test_apply_headings_converts_paragraph_to_h1():
     }
     result = _apply_headings(doc, heading_indices={0})
     assert result["content"][0]["type"] == "heading"
-    assert result["content"][0]["attrs"]["level"] == 1
+    assert result["content"][0]["attrs"]["level"] == 2
     assert result["content"][1]["type"] == "paragraph"
 
 
