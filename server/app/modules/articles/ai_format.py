@@ -20,14 +20,14 @@ logger = logging.getLogger(__name__)
 _SYSTEM_PROMPT_HEADINGS_ONLY = (
     "你是文章正文排版助手，只处理正文顶层节点，不处理文章主标题。\n"
     "\n"
-    "小标题判断标准：\n"
-    "- 小标题特征：短句、章节引导语、概括性短语，通常不超过 20 字\n"
-    "- 不是小标题：含动词的完整叙述句、解释说明、数据陈述、过渡句、总结句\n"
-    "- 含动词的完整句子几乎从不是小标题，超过 20 字的节点不要选\n"
-    "- 宁少勿多，不确定就不选\n"
+    "小标题功能判断（功能优先，长度其次）：\n"
+    "- IS 小标题：(a) 短标签/章节编号，通常 ≤ 20 字，如「英雄分类」「一、从焦虑到平静的转变」；"
+    "(b) 对比引入式修辞句，用于定性某核心特征，常见形式：「不是A，而是B」「A才是真正的B」\n"
+    "- NOT 小标题：事实描述句、解释说明句、数据句、过渡句、总结句\n"
+    "- 宁少勿多，不确定就不选；但符合上述两类的不要因句子稍长而漏选\n"
     "- 不生成新标题，不改写任何文字\n"
     "\n"
-    "【示例一】\n"
+    "【示例一：短标签型标题】\n"
     "节点列表：\n"
     "0 [段落] 《王者荣耀》是腾讯旗下一款多人在线竞技手游，上线以来长期占据手游下载榜首位。\n"
     "1 [段落] 英雄分类\n"
@@ -37,7 +37,17 @@ _SYSTEM_PROMPT_HEADINGS_ONLY = (
     "5 [段落] 排位赛分为青铜、白银、黄金、铂金、钻石、星耀和王者共7个大段位，每个大段位下设多个小段位。\n"
     '返回：{"heading_indices": [1, 4]}\n'
     "\n"
-    "【示例二】\n"
+    "【示例二：修辞对比型标题】\n"
+    "节点列表：\n"
+    "0 [段落] 这款游戏值得推荐的理由，不仅仅是玩法本身。\n"
+    "1 [段落] 它不是单纯开店，而是「合成—经营—剧情」三轮驱动。\n"
+    "2 [段落] 游戏初期，你需要收集原材料，通过合成系统将其加工成商品，再在小店里出售给顾客。\n"
+    "3 [段落] 它的故事不是点缀，而是真正的牵引力。\n"
+    "4 [段落] 随着经营推进，一条跨越多代人的家族叙事线会缓缓展开，每个 NPC 都有自己的命运弧线。\n"
+    "5 [段落] 总体来说，如果你喜欢有深度的经营类游戏，这款值得一试。\n"
+    '返回：{"heading_indices": [1, 3]}\n'
+    "\n"
+    "【示例三：无小标题（全叙述）】\n"
     "节点列表：\n"
     "0 [段落] 在开始正式内容之前，先来了解一下这款游戏的基本背景。\n"
     "1 [段落] 游戏于2022年正式上线，历经两年发展，目前注册用户已超过8000万。\n"
@@ -55,9 +65,9 @@ def _image_prompt_params(text_nodes: list[tuple[int, dict]]) -> tuple[int, int]:
     """Derive (max_images, min_spacing) from article structure.
 
     List-style articles (Top N, ranked items) typically have several headings or
-    many short paragraph nodes.  For those we allow one image per section and
-    relax the spacing constraint.  Narrative articles fall back to conservative
-    defaults (3 images, 3-node gap).
+    many short paragraph nodes.  For those we cap at 3 images total and require a
+    5-node gap to keep the article from feeling image-heavy.  Narrative articles
+    use the same 5-node spacing with a 3-image ceiling.
     """
     existing_headings = sum(1 for _, n in text_nodes if n.get("type") == "heading")
     short_paragraphs = sum(
@@ -70,8 +80,10 @@ def _image_prompt_params(text_nodes: list[tuple[int, dict]]) -> tuple[int, int]:
         short_paragraphs if short_paragraphs >= 3 else 0
     )
     if section_estimate >= 3:
-        return section_estimate, 3  # one image per section, min spacing 3
-    return 3, 3  # conservative defaults for narrative articles
+        # Cap at 3 images regardless of section count; require 5-node spacing
+        # to avoid images appearing after every few sentences.
+        return min(section_estimate, 3), 5
+    return 3, 5  # narrative articles: same spacing, 3-image ceiling
 
 
 def _extract_json(raw: str) -> str:
