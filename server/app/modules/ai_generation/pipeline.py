@@ -112,6 +112,7 @@ def _write_one_article(
             {"role": "user", "content": user_prompt},
         ],
         api_key=settings.ai_api_key or None,
+        timeout=180,
     )
     md_content = response.choices[0].message.content or ""
 
@@ -195,7 +196,13 @@ def finalize_node(state: PipelineState) -> dict:
     article_ids = state["article_ids"]
     errors = state["errors"]
     status = "done" if article_ids else "failed"
-    error_message = "; ".join(errors) if errors else None
+    if errors:
+        error_message: str | None = "; ".join(errors)
+    elif not article_ids:
+        # 没有 article、也没有 errors —— 通常是 task_specs 全被静默跳过，给个兜底文案
+        error_message = "全部任务都没有产出文章，请检查 Skill / 提示词 / 模型 API key"
+    else:
+        error_message = None
 
     db = state["session_factory"]()
     try:
@@ -329,6 +336,17 @@ def run_pipeline(db: Any, session_id: int, *, session_factory: Any) -> None:
 
     # 问题库模式：预构造 specs（跳过 planner 自由规划）；否则空数组走 planner。
     prebuilt_specs = _build_task_specs(db, gen_session, prompt.content)
+
+    if not prebuilt_specs:
+        # 常见原因：自动模式下池里 pending 全为空或 category 列全 NULL（飞书表没有"分类板块"列）。
+        # 不进图，直接写明确错误，避免前端只看到"生成失败，请重试"。
+        if gen_session.auto_count and gen_session.pool_id:
+            msg = "没有可生成的问题：问题池为空，或飞书表的「分类板块」列没有任何行（自动模式按板块轮转，需要至少一个非空板块）"
+        else:
+            msg = "没有可生成的问题：选中的问题单元已被消费或为空"
+        update_session_status(db, session_id, status="failed", error_message=msg)
+        db.commit()
+        return
 
     update_session_status(db, session_id, status="running")
     db.commit()

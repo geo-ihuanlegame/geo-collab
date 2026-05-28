@@ -56,12 +56,18 @@ def start_generation(
     item_ids = list(dict.fromkeys(payload.question_item_ids))  # 去重保序
 
     if item_ids:
-        # 手动模式：校验选中的问题单元存在 + 归属（admin 跳过）+ 同池一致
+        # 手动模式：校验选中的问题单元存在 + 归属（admin 跳过）+ 同池一致 + status=pending
         if len(item_ids) > BATCH_MAX:
             raise HTTPException(status_code=400, detail=f"单批最多 {BATCH_MAX} 条问题")
         items = qb.get_items(db, item_ids)
         if len(items) != len(set(item_ids)):
             raise HTTPException(status_code=400, detail="部分问题单元不存在")
+        consumed = [it.id for it in items if it.status != "pending"]
+        if consumed:
+            raise HTTPException(
+                status_code=400,
+                detail=f"选中的问题已生成过，请刷新列表后重新勾选（共 {len(consumed)} 条）",
+            )
         item_pool_ids = {it.pool_id for it in items}
         if len(item_pool_ids) > 1:
             raise HTTPException(status_code=400, detail="一次只能选同一个问题池的单元")
