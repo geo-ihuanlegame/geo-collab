@@ -93,7 +93,7 @@ mkdir -p "$BACKUP_DIR"
 SAFETY_BACKUP="$BACKUP_DIR/${DB_NAME}_$(date +%Y%m%d_%H%M%S).pre-restore.sql.gz"
 docker compose -f "$COMPOSE_FILE" exec -T mysql \
     mysqldump -u "$DB_USER" -p"$MYSQL_PASSWORD" \
-    --single-transaction --routines --triggers "$DB_NAME" \
+    --single-transaction --routines --triggers --no-tablespaces "$DB_NAME" \
     | gzip > "$SAFETY_BACKUP"
 echo "  ✓ 恢复点已存：$SAFETY_BACKUP"
 

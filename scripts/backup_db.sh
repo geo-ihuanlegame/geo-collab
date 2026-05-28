@@ -46,9 +46,11 @@ BACKUP_FILE="$BACKUP_DIR/${DB_NAME}_${TIMESTAMP}.sql.gz"
 # ── 执行备份 ──
 # --single-transaction: InnoDB 一致性快照，不锁表
 # --routines --triggers: 顺带导出存储过程和触发器
+# --no-tablespaces:      跳过表空间元数据（业务账号没有 PROCESS 权限；
+#                        对 InnoDB 恢复无影响，MySQL 自动重建）
 docker compose -f "$COMPOSE_FILE" exec -T mysql \
     mysqldump -u "$DB_USER" -p"$MYSQL_PASSWORD" \
-    --single-transaction --routines --triggers "$DB_NAME" \
+    --single-transaction --routines --triggers --no-tablespaces "$DB_NAME" \
     | gzip > "$BACKUP_FILE"
 
 # ── 验证产物 ──

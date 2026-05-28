@@ -342,13 +342,14 @@ mkdir -p ~/geo/backups
 BACKUP_FILE=~/geo/backups/geo_collab_$(date +%Y%m%d_%H%M%S).sql.gz
 docker compose -f ~/geo/docker-compose.yml exec -T mysql \
     mysqldump -u geo_user -p"${MYSQL_PASSWORD}" \
-    --single-transaction --routines --triggers geo_collab \
+    --single-transaction --routines --triggers --no-tablespaces geo_collab \
     | gzip > "$BACKUP_FILE"
 echo "✓ 备份完成：$BACKUP_FILE"
 ```
 
 > **说明：**
 > - `--single-transaction`：对 InnoDB 表做一致性快照，不锁表。
+> - `--no-tablespaces`：跳过表空间元数据。MySQL 8.0+ 默认会 dump 表空间，需要全局 `PROCESS` 权限；业务账号 `geo_user` 一般没这个权限。对 InnoDB 恢复无影响。
 > - `| gzip`：压缩输出，典型压缩率 80–90%。
 > - 备份文件统一存放在 `~/geo/backups/`，建议定期同步到云存储或异机。
 
