@@ -1,5 +1,7 @@
 # AGENTS.md — Geo 协作平台
 
+This file overlaps heavily with `CLAUDE.md` — when editing one, sync the other or fold them together.
+
 Always `conda activate geo_xzpt` before any Python command.
 
 ## Dev commands (PowerShell)
@@ -68,7 +70,7 @@ pnpm install
   - `tasks/` — engine + driver registry + Playwright publish pipeline
   - `accounts/` — CRUD, login session state machine, Xvfb + x11vnc + websockify → noVNC remote browser
   - `articles/` — CRUD, Tiptap JSON parsing, chunked upload, AI format helpers (`ai_format.py` tracks state via `Article.ai_checking`/`Article.ai_format_error`)
-  - `ai_generation/` — LangGraph pipeline, markdown→Tiptap converter
+  - `ai_generation/` — LangGraph pipeline, markdown→Tiptap converter, question-bank submodule (`question_bank.py`, exposed via `GET/POST /api/generation/question-pools/*`)
   - `skills/` / `prompt_templates/` — CRUD for Skill folders and prompt templates
   - `image_library/` — Stock image gallery CRUD. **Requires MinIO** (`GEO_MINIO_ENDPOINT`/`_ACCESS_KEY`/`_SECRET_KEY`). Images grouped into `StockCategory` buckets; articles link via `article_stock_categories` many-to-many.
 - **Shared** (`server/app/shared/`): `errors.py` (exception classes), `feishu.py` (webhook), `diagnostics.py`, `system_status.py`
@@ -145,5 +147,5 @@ Then import in `server/app/main.py:create_app()`: `import server.app.modules.tas
 - **`ArticleUpdate` `None` values**: `model_dump(exclude_unset=True)` includes `None`. Service code filters with `and update_data[field] is not None` before `setattr`.
 - **`ArticleCreate` has no stock category fields** — only `ArticleUpdate` accepts `stock_category_id`/`stock_category_ids`.
 - **Chunked upload errors**: `complete_chunked_upload` must re-raise `HTTPException` so 4xx status isn't wrapped as 500.
-- **Current migration head**: 0030 (`0030_browser_profile_locks_user_state_paths.py`).
+- **Current migration head**: 0033 (`0033_skill_content_column.py`). 0031/0032 added the question bank tables; 0033 added the skill content column.
 - **`docs/`**: `CHUNKED_UPLOAD.md`, `UPLOAD_OPTIMIZATION.md`. `scripts/deploy_check.py` for pre-deployment checks.

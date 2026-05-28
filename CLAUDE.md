@@ -76,8 +76,10 @@ docker-compose exec app python -m server.scripts.seed_users
 
 - Entry point: `server/app/main.py:create_app()`.
 - API routes: `auth`, `users`, `accounts`, `articles`, `article-groups`, `assets`, `chunked-assets`, `publish-records`, `system`, `tasks`, `skills`, `prompt-templates`, `generation`, `image-library`, `stock-images`. All except `auth`, `users`, `stock-images`, and `/api/bootstrap` require a JWT cookie. `/api/stock-images/*` serves image files publicly by design — do not add auth there without checking the image-library frontend.
-- Database: MySQL only. Runtime DB URL comes from `get_database_url()`; set `GEO_DATABASE_URL` or `GEO_DB_HOST/GEO_DB_USER/GEO_DB_NAME`.
-- Auth: `/api/auth/login` sets `access_token` as an httpOnly JWT cookie. Admin bootstrap is checked through `/api/bootstrap`.
+- Task SSE: `GET /api/tasks/{id}/stream` for live execution updates.
+- Database: MySQL only. Runtime DB URL comes from `get_database_url()`; set `GEO_DATABASE_URL` or `GEO_DB_HOST/GEO_DB_USER/GEO_DB_NAME`. `alembic.ini`'s `sqlalchemy.url` is a placeholder — it is overridden at runtime by `get_database_url()`.
+- Full-text search uses MySQL `FULLTEXT INDEX WITH PARSER ngram` (no Elasticsearch). Migrations covering FTS are exercised by `test_fts_and_migrations.py`.
+- Auth: `/api/auth/login` sets `access_token` as an httpOnly JWT cookie. TTL via `GEO_JWT_EXPIRE_HOURS` (default `8`). Admin bootstrap is checked through `/api/bootstrap`. `User.role` is `admin` | `operator`. `GEO_SEED_USERS` (JSON array) seeds users on Docker startup via `server/scripts/seed_users.py`. `require_local_token()` in `core/security.py` is dead code — do not model new auth flows on it.
 - CORS: pinned to `http://127.0.0.1:5173` and `http://localhost:5173`. The Vite dev server must run on port 5173 — other ports will be rejected.
 - Config: pydantic-settings with the `GEO_` prefix. `get_settings()` is cached; call `.cache_clear()` after env changes in tests.
 
@@ -146,6 +148,11 @@ Then import the module in `server/app/main.py:create_app()` to trigger registrat
 
 Drivers receive a prebuilt `PublishPayload`; they should not import ORM article/account/asset modules directly during browser automation.
 
+Driver-side exceptions (defined alongside the protocol):
+
+- `PublishError(message, screenshot=None)` — driver failure. Optional screenshot bytes are persisted with the publish record.
+- `UserInputRequired` — raised when the driver hits a captcha/login-state issue that needs the human-in-the-loop noVNC flow. **Do not** raise this for the `stop_before_publish=True` case; return a normal `PublishResult` instead. `UserInputRequired` is only for unexpected captcha/login interruptions.
+
 ## Toutiao Automation Notes
 
 - Toutiao uses ByteDance components such as `byte-btn`, `byte-btn-primary`, and `syl-toolbar-tool`; it is not Ant Design.
@@ -160,13 +167,18 @@ Drivers receive a prebuilt `PublishPayload`; they should not import ORM article/
 
 - `POST /api/tasks/{id}/execute` returns `202`.
 - Test/dev can run in a background thread through `bg_session_factory`, which tests monkeypatch to `TestingSessionLocal`.
-- Production uses `server/worker/executor.py` to poll, claim, and execute records with optimistic locking and leases.
-- Execution uses a per-task lock, per-account serialization, and `MAX_CONCURRENT_RECORDS=5`.
+- Production uses `server/worker/executor.py` to poll, claim, and execute records with optimistic locking on `worker_id` / `worker_lease_until`. Worker periodically (every ~60 iterations) re-runs `recover_stuck_records` and `recover_stuck_task_claims` to release expired leases.
+- The publish worker is **single-instance** — never `docker compose up --scale worker=N`. The optimistic locking covers publish records, but the account-login processor inside the same worker is not safe to multi-instance.
+- Concurrency: per-task lock → global semaphore (`MAX_CONCURRENT_RECORDS=5`, override via `GEO_PUBLISH_MAX_CONCURRENT_RECORDS`) → per-account serialization.
+- `_release_account_lock` runs in a `finally` block; never insert `return` or `raise` between the lock acquisition and that `finally`, or the account stays locked until restart.
+- DB session is **not thread-safe**. Inside `run_in_executor`, do all `db` ops (flush / commit / refresh) inside the executor thread — do not pass an open session across the boundary.
 - `bg_session_factory` is imported lazily inside route functions to avoid circular imports; do not toplevel-import it.
 
 ## Testing Notes
 
-- `build_test_app(monkeypatch)` requires `GEO_TEST_DATABASE_URL`, rebuilds a disposable MySQL schema, creates temp data dir, admin user, and JWT cookie.
+- `build_test_app(monkeypatch)` requires `GEO_TEST_DATABASE_URL`, rebuilds a disposable MySQL schema, creates temp data dir, admin user, and JWT cookie. It also calls `browser._reset_globals()` to prevent cross-test browser-session leaks.
+- The test DB name **must contain `"test"`** (safety check). Override with `GEO_ALLOW_NON_TEST_DATABASE_FOR_TESTS=1` if you really need to.
+- `conftest.py` registers a `@pytest.mark.mysql` marker and auto-skips MySQL-marked tests when `GEO_TEST_DATABASE_URL` is unset — so a bare `pytest server/tests/ -v` without the env var only runs the no-DB tests.
 - Tests using `build_test_app` must call `test_app.cleanup()` in `finally`.
 - Tests that execute tasks must pass `"stop_before_publish": false`, or records stay in `waiting_manual_publish`.
 - Mock publish runners with `monkeypatch.setattr("server.app.modules.tasks.executor.build_publish_runner_for_record", lambda r: stub_runner)`.
@@ -174,64 +186,17 @@ Drivers receive a prebuilt `PublishPayload`; they should not import ORM article/
 
 ## AI 生文模块
 
-### 设计概览
+Design rationale, roadmap, and the LangGraph diagram live in `AI_GENERATION.md`. Operational rules for editing this code:
 
-AI 生文是独立的新功能模块，计划路径：P1 平台搭配 skill 生文 → P1 标题拆分 → P1.5 飞书采集 → P2 自动配图 → P3 每日问题库生文。
-
-**交互 Demo**：`ai-generation-demo.html`（根目录），直接浏览器打开，覆盖一键生成、技能库、提示词库三个模块。
-
-### 技术栈
-
-- **模型抽象**：LiteLLM（100+ 模型统一接口，换模型只改配置，不改业务代码）
-- **流程编排**：LangGraph（多步 Agent 状态管理、fan-out/fan-in 并发、节点重试）
-- **任务调度**：当前实现走路由后台线程，不走 `server/worker/executor.py`。`create_app()` 在启动时把 `bg_session_factory = SessionLocal` 注入到 `ai_generation.router`；生文请求在路由内开 `Thread` 跑 LangGraph，session 用这个工厂创建。P3 每日定时生文计划复用 worker，但目前还没接。
-
-不要直接使用 `anthropic` SDK 或 `openai` SDK；所有模型调用走 LiteLLM。
-
-两套模型配置（均通过 LiteLLM 调用）：
-- `GEO_AI_MODEL` / `GEO_AI_API_KEY` — 生文主模型（默认 `claude-3-5-sonnet-20241022`）
-- `GEO_AI_FORMAT_MODEL` / `GEO_AI_FORMAT_API_KEY` — 格式调整专用模型（默认 `deepseek/deepseek-v4-flash`，用于标题识别和配图，低成本）
-
-### LangGraph 流程
-
-```
-规划 Agent（1次顺序调用）
-    ↓ 输出 N 份写作任务规格（已分配主题/陪衬/体例，避免并发共享文件冲突）
-fan-out → 写作 Agent × N（并发，max_workers=4）
-    ↓ 每个 Agent 调用 save_article tool 直接写库
-fan-in → 格式化标题 → 自动配图（P2）→ 完成
-```
-
-规划阶段顺序执行，负责读写 skill 的共享状态文件（`article-plan.md`、`companion-pool.md`）；写作阶段并行执行，不读写任何共享文件。
-
-### Skill 结构
-
-Skill 是文件夹形式（如 `geo-article-v2/`），包含：
-- `SKILL.md` — frontmatter（`name`、`description`）+ 指令
-- `references/` — 知识库文件（产品知识、写作规范等）
-- `skeletons/` — 文章骨架模板
-- `assets/` — 工作文件（`article-plan.md` 等）
-
-Skill 上传到服务器存储，通过 `/api/skills` 管理；提示词（Prompt）是独立资产，通过 `/api/prompt-templates` 管理，与 Skill 并列组合使用，不存在从属关系。
-
-### 数据库
-
-- 生成的文章直接 `INSERT` 进现有 `articles` 表，零 schema 改动
-- `create_article` 有 `client_request_id` 幂等保护，并发重试安全
-- 新增独立 `generation_sessions` 表记录批次元数据（`article_ids` JSON 数组），不影响现有数据
-- 无"占位文章"模式，不存在并发覆盖同一 slot 的问题
-
-### 格式转换
-
-现有代码有 Tiptap 序列化工具（`articles/parser.py`）但无 Markdown → Tiptap 转换。需新增：
-
-```python
-# server/app/modules/ai_generation/converter.py
-def markdown_to_tiptap(md: str) -> dict: ...   # 段落 + 标题节点
-def markdown_to_html(md: str) -> str: ...       # 用 python-markdown
-```
-
-`save_article` LangGraph tool 调用这两个函数后再调 `create_article()`。
+- **All model calls go through LiteLLM.** Do not import `anthropic` or `openai` SDKs directly anywhere in this module.
+- Two model configs (both LiteLLM):
+  - `GEO_AI_MODEL` / `GEO_AI_API_KEY` — main writing model (default `claude-3-5-sonnet-20241022`).
+  - `GEO_AI_FORMAT_MODEL` / `GEO_AI_FORMAT_API_KEY` — format-adjustment / heading detection / image insertion (default `deepseek/deepseek-v4-flash`).
+- Generation runs on background threads from the API server — there is no dedicated worker for it. `create_app()` injects `bg_session_factory = SessionLocal` into `ai_generation.router`; the route spawns a `Thread`, and that thread's LangGraph nodes create sessions from this factory. Do not assume the production `server/worker/executor.py` is involved.
+- Plan agent runs sequentially and is the only stage allowed to read/write the skill shared-state files (`article-plan.md`, `companion-pool.md`). Writing agents run concurrently (`max_workers=4`) and must not touch those shared files.
+- Generated articles go straight into the existing `articles` table via `create_article()`. `client_request_id` provides idempotency for concurrent retries. Batch metadata lives in a separate `generation_sessions` table (with `article_ids` as a JSON array).
+- Markdown → Tiptap / HTML conversion lives in `server/app/modules/ai_generation/converter.py` (`markdown_to_tiptap`, `markdown_to_html`); the `save_article` LangGraph tool calls these before `create_article()`.
+- Skill = folder containing `SKILL.md` + `references/` + `skeletons/` + `assets/`, managed via `/api/skills`. Prompt templates are independent assets via `/api/prompt-templates` — they compose with skills, they do not belong to them.
 
 ## Gotchas
 
@@ -242,7 +207,11 @@ def markdown_to_html(md: str) -> str: ...       # 用 python-markdown
 - `TaskCreate.platform_code` defaults to `"toutiao"`.
 - `build_publish_runner_for_record(record)` routes by `platform_code` extracted from account state path.
 - Retry is only for original records, not retry records.
+- `ArticleUpdate` patches drop explicit `null` values. `model_dump(exclude_unset=True)` includes them, but the service layer filters `None` before `setattr`, so `PATCH {"field": null}` does **not** clear the field — use a sentinel or a dedicated clear endpoint if you need that.
+- `ArticleCreate` does not accept `stock_category_id` / `stock_category_ids`; only `ArticleUpdate` does. Set the categories with a follow-up `PATCH` if you need them at creation time.
+- `complete_chunked_upload` must re-raise `HTTPException` (e.g. `415 Unsupported file type`) instead of wrapping into a generic `500`.
+- noVNC default binds to `127.0.0.1` only on the host (Docker compose). Remote operators access it through a VPN or SSH tunnel — do not expose it publicly without explicit auth in front.
 - Browser-automation publish flow requires `Xvfb`, `x11vnc`, `websockify`, and noVNC on PATH (or paths set via `GEO_PUBLISH_XVFB_PATH` etc.). These are present in the Docker image but absent on Windows local dev — publishing only works inside the container. Everything else (article CRUD, AI generation, asset upload) works locally.
 - AI keys (`GEO_AI_API_KEY`, `GEO_AI_FORMAT_API_KEY`) are not validated at boot — missing/invalid keys fail at request time when the LiteLLM call runs.
 
-See `README.md` "新手推荐阅读顺序" for a guided codebase tour.
+See `README.md` "新手推荐阅读顺序" for a guided codebase tour. `AGENTS.md` overlaps heavily with this file and is currently the more concise reference for some gotchas — when editing one, sync the other or fold them together.
