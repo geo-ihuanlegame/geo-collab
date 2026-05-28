@@ -112,7 +112,8 @@ def _write_one_article(
             {"role": "user", "content": user_prompt},
         ],
         api_key=settings.ai_api_key or None,
-        timeout=180,
+        timeout=300,
+        max_tokens=12000,
     )
     md_content = response.choices[0].message.content or ""
 
