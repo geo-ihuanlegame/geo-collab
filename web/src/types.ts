@@ -37,6 +37,33 @@ export type GenerationSession = {
   completed_at: string | null;
 };
 
+export type QuestionPool = {
+  id: number;
+  name: string;
+  feishu_app_token: string | null;
+  feishu_table_id: string | null;
+  last_synced_at: string | null;
+  created_at: string;
+  pending_count: number;
+};
+
+export type QuestionItem = {
+  id: number;
+  record_id: string;
+  fields: Record<string, unknown>;
+  question_text: string | null;
+  category: string | null;
+  status: string;
+  article_id: number | null;
+};
+
+export type QuestionSyncResult = {
+  total: number;
+  added: number;
+  updated: number;
+  skipped_consumed: number;
+};
+
 export type Asset = {
   id: string;
   filename: string;

@@ -36,6 +36,12 @@ def test_core_model_relationships_round_trip_in_mysql():
     engine = build_test_engine()
     try:
         with Session(engine) as session:
+            # 所有核心对象都用 user_id=1，需先建对应 User，否则 MySQL 外键约束失败
+            owner = User(id=1, username="owner1", role="operator", is_active=True, must_change_password=False)
+            owner.set_password("password1")
+            session.add(owner)
+            session.flush()
+
             platform = Platform(code="toutiao", name="Toutiao", base_url="https://mp.toutiao.com")
             cover = Asset(
                 id="asset-cover",

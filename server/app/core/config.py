@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     publish_remote_browser_idle_timeout_seconds: int = 300  # 5 分钟无操作自动清理
     secure_cookie: bool = False  # 生产 HTTPS 时设为 True（GEO_SECURE_COOKIE=true）
     feishu_webhook_url: str | None = None  # GEO_FEISHU_WEBHOOK_URL，不设则静默跳过
+    # 飞书自建应用凭据（问题库从多维表同步、以及未来发布采集写回 都用它换 tenant_access_token）
+    feishu_app_id: str | None = None  # GEO_FEISHU_APP_ID
+    feishu_app_secret: str | None = None  # GEO_FEISHU_APP_SECRET
     # AI 生文（LangGraph 写作 Agent）—— 保持 Claude
     ai_model: str = "claude-3-5-sonnet-20241022"  # GEO_AI_MODEL
     ai_api_key: str = ""  # GEO_AI_API_KEY

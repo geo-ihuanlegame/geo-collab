@@ -24,6 +24,8 @@ _tmp_*/
 *.log
 .claude/
 
+.devenv.sh
+.devdata/
 
 ai-generation-demo.html
 .codex-output/

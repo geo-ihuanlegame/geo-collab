@@ -13,6 +13,9 @@ def create_session(
     skill_id: int,
     prompt_template_id: int,
     extra_instruction: str | None = None,
+    pool_id: int | None = None,
+    question_item_ids: list[int] | None = None,
+    auto_count: int | None = None,
 ) -> GenerationSession:
     session = GenerationSession(
         user_id=user_id,
@@ -21,6 +24,9 @@ def create_session(
         extra_instruction=extra_instruction,
         status="pending",
         article_ids="[]",
+        question_item_ids=json.dumps(question_item_ids or []),
+        pool_id=pool_id,
+        auto_count=auto_count,
     )
     db.add(session)
     db.flush()

@@ -60,58 +60,9 @@ def _read_skill_files(skill_path: str) -> str:
 
 
 def planner_node(state: PipelineState) -> dict:
-    import litellm
-    from server.app.core.config import get_settings
-
-    settings = get_settings()
-    _inject_api_key(settings.ai_api_key)
-
-    skill_context = _read_skill_files(state["skill_path"])
-
-    system_prompt = (
-        "你是一位专业的内容规划师。根据下方的技能文档（SKILL）和用户的写作指令（Prompt），"
-        "规划出一批独立的文章写作任务。\n\n"
-        "## 技能文档\n\n" + skill_context
-    )
-
-    user_prompt = (
-        f"## 写作指令\n\n{state['prompt_content']}\n\n"
-        + (f"## 补充说明\n\n{state['extra_instruction']}\n\n" if state["extra_instruction"] else "")
-        + "请输出一个 JSON 数组，每个元素代表一篇文章的写作任务规格，字段：\n"
-        '{"title": "文章标题", "topic": "核心主题", "angle": "写作角度", "skeleton_hint": "骨架提示"}\n\n'
-        "只输出 JSON，不要有其他文字。"
-    )
-
-    response = litellm.completion(
-        model=settings.ai_model,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        api_key=settings.ai_api_key or None,
-    )
-    raw = response.choices[0].message.content or "[]"
-
-    # 提取 JSON（兼容 AI 在代码块里包裹的情况）
-    if "```" in raw:
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-
-    try:
-        task_specs = json.loads(raw.strip())
-        if not isinstance(task_specs, list):
-            logger.warning("Planner output is not a list: %s", raw[:200])
-            task_specs = []
-    except json.JSONDecodeError:
-        logger.warning("Planner output is not valid JSON: %s", raw[:200])
-        task_specs = []
-
-    errors: list[str] = []
-    if not task_specs:
-        errors = ["规划阶段未产出有效任务规格（LLM 输出为空或格式无效）"]
-
-    return {"task_specs": task_specs, "errors": errors}
+    """已废弃自由规划：task_specs 始终由 run_pipeline 在调用图前预构造好。
+    保留节点以维持图拓扑兼容，但内部什么也不做。"""
+    return {}
 
 
 # ── 节点：parallel_write ──────────────────────────────────────────────────────
@@ -138,14 +89,21 @@ def _write_one_article(
         "撰写一篇高质量的文章。使用 Markdown 格式输出正文，包含标题（# 一级标题）。\n\n"
         "## 技能文档\n\n" + skill_context
     )
-    user_prompt = (
-        f"## 写作任务\n\n"
-        f"标题：{spec.get('title', '无题')}\n"
-        f"主题：{spec.get('topic', '')}\n"
-        f"角度：{spec.get('angle', '')}\n"
-        f"骨架提示：{spec.get('skeleton_hint', '')}\n\n"
-        "请开始写作（只输出 Markdown 正文，不要解释）："
-    )
+    if spec.get("user_prompt"):
+        # 问题库模式：run_pipeline 已把"基础提示词 + 问题文本"渲染好
+        user_prompt = (
+            spec["user_prompt"]
+            + "\n\n请开始写作（只输出 Markdown 正文，含 # 一级标题，不要解释）："
+        )
+    else:
+        user_prompt = (
+            f"## 写作任务\n\n"
+            f"标题：{spec.get('title', '无题')}\n"
+            f"主题：{spec.get('topic', '')}\n"
+            f"角度：{spec.get('angle', '')}\n"
+            f"骨架提示：{spec.get('skeleton_hint', '')}\n\n"
+            "请开始写作（只输出 Markdown 正文，不要解释）："
+        )
 
     response = litellm.completion(
         model=settings.ai_model,
@@ -182,6 +140,16 @@ def _write_one_article(
     db = session_factory()
     try:
         article = create_article(db, user_id, article_payload)
+        # 成功才出队/记板块使用 —— 与入库同一事务
+        mode = spec.get("mode")
+        if mode == "manual" and spec.get("item_ids"):
+            from server.app.modules.ai_generation.question_bank import mark_items_consumed
+
+            mark_items_consumed(db, spec["item_ids"], article.id)
+        elif mode == "auto" and spec.get("category") and spec.get("pool_id"):
+            from server.app.modules.ai_generation.question_bank import mark_category_used
+
+            mark_category_used(db, spec["pool_id"], spec["category"])
         db.commit()
         return article.id
     except Exception:
@@ -272,6 +240,70 @@ def _inject_api_key(api_key: str) -> None:
         os.environ.setdefault("OPENAI_API_KEY", api_key)
 
 
+_QUESTION_PLACEHOLDER = "{{问题}}"
+
+
+def _render_question_prompt(prompt_content: str, question_text: str) -> str:
+    """把问题文本注入基础提示词：有 {{问题}} 占位符则替换，否则追加。"""
+    if _QUESTION_PLACEHOLDER in prompt_content:
+        return prompt_content.replace(_QUESTION_PLACEHOLDER, question_text)
+    return f"{prompt_content}\n\n## 用户问题\n\n{question_text}"
+
+
+def _build_task_specs(db: Any, gen_session: Any, prompt_content: str) -> list[dict]:
+    """构造写作任务列表（单一 pipeline，两种触发方式）：
+
+    - 手动模式（`question_item_ids` 非空）：按 category 分组 → 每组一篇，
+      该组所有问题词渲染成编号列表注入 user prompt。
+    - 自动模式（`auto_count > 0` + `pool_id`）：按板块优先级轮转选 N 次，
+      每次从该板块随机抽 K = randint(1, len(pending)) 条 → 一篇。
+
+    spec 字段：`{title, user_prompt, mode, category, pool_id, item_ids}`。
+    """
+    import json
+
+    from server.app.modules.ai_generation.question_bank import (
+        auto_pick_groups,
+        format_question_group,
+        get_items,
+        group_items_by_category,
+    )
+
+    specs: list[dict] = []
+    item_ids = json.loads(gen_session.question_item_ids or "[]")
+
+    if item_ids:
+        # 手动：把选中的 pending items 按 category 分组合并 → 每组一篇
+        selected = [it for it in get_items(db, item_ids) if it.status == "pending"]
+        for cat, group in group_items_by_category(selected):
+            question_text = format_question_group(group)
+            specs.append(
+                {
+                    "title": "",  # 由正文 # 一级标题推导
+                    "mode": "manual",
+                    "category": cat,
+                    "pool_id": group[0].pool_id if group else None,
+                    "item_ids": [it.id for it in group],
+                    "user_prompt": _render_question_prompt(prompt_content, question_text),
+                }
+            )
+    elif gen_session.auto_count and gen_session.pool_id:
+        # 自动：板块优先级轮转 + 随机抽题 → 每次一篇
+        for cat, group in auto_pick_groups(db, gen_session.pool_id, gen_session.auto_count):
+            question_text = format_question_group(group)
+            specs.append(
+                {
+                    "title": "",
+                    "mode": "auto",
+                    "category": cat,
+                    "pool_id": gen_session.pool_id,
+                    "item_ids": [it.id for it in group],  # 自动模式不消费,仅备查
+                    "user_prompt": _render_question_prompt(prompt_content, question_text),
+                }
+            )
+    return specs
+
+
 def run_pipeline(db: Any, session_id: int, *, session_factory: Any) -> None:
     """由后台线程调用；db 仅用于读取会话元数据和设置 running 状态。"""
     from server.app.modules.ai_generation.service import get_session, update_session_status
@@ -295,6 +327,9 @@ def run_pipeline(db: Any, session_id: int, *, session_factory: Any) -> None:
         db.commit()
         return
 
+    # 问题库模式：预构造 specs（跳过 planner 自由规划）；否则空数组走 planner。
+    prebuilt_specs = _build_task_specs(db, gen_session, prompt.content)
+
     update_session_status(db, session_id, status="running")
     db.commit()
 
@@ -306,7 +341,7 @@ def run_pipeline(db: Any, session_id: int, *, session_factory: Any) -> None:
                 "skill_path": skill.storage_path,
                 "prompt_content": prompt.content,
                 "extra_instruction": gen_session.extra_instruction or "",
-                "task_specs": [],
+                "task_specs": prebuilt_specs,
                 "article_ids": [],
                 "errors": [],
                 "session_factory": session_factory,

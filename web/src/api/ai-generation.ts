@@ -1,5 +1,5 @@
 import { api } from "./core";
-import type { GenerationSession, Skill } from "../types";
+import type { GenerationSession, QuestionItem, QuestionPool, QuestionSyncResult, Skill } from "../types";
 
 export {
   createPromptTemplate,
@@ -34,6 +34,9 @@ export function startGeneration(payload: {
   skill_id: number;
   prompt_template_id: number;
   extra_instruction?: string;
+  pool_id?: number;
+  question_item_ids?: number[];
+  auto_count?: number;
 }): Promise<{ session_id: number; status: string }> {
   return api<{ session_id: number; status: string }>("/api/generation/sessions", {
     method: "POST",
@@ -43,4 +46,31 @@ export function startGeneration(payload: {
 
 export function getGenerationSession(sessionId: number): Promise<GenerationSession> {
   return api<GenerationSession>(`/api/generation/sessions/${sessionId}`);
+}
+
+// ── 问题库 ───────────────────────────────────────────────────────────────────
+
+export function listQuestionPools(): Promise<QuestionPool[]> {
+  return api<QuestionPool[]>("/api/generation/question-pools");
+}
+
+export function createQuestionPool(payload: {
+  name: string;
+  feishu_app_token?: string;
+  feishu_table_id?: string;
+}): Promise<QuestionPool> {
+  return api<QuestionPool>("/api/generation/question-pools", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function syncQuestionPool(poolId: number): Promise<QuestionSyncResult> {
+  return api<QuestionSyncResult>(`/api/generation/question-pools/${poolId}/sync`, {
+    method: "POST",
+  });
+}
+
+export function listQuestionItems(poolId: number, status = "pending"): Promise<QuestionItem[]> {
+  return api<QuestionItem[]>(`/api/generation/question-pools/${poolId}/items?status=${status}`);
 }
