@@ -356,46 +356,17 @@ echo "✓ 备份完成：$BACKUP_FILE"
 
 ### 7.2 定期自动备份（cron）
 
-创建备份脚本 `~/geo/scripts/backup_db.sh`：
+仓库内已提供脚本 `scripts/backup_db.sh`（基于 7.1 的逻辑 + 旧备份自动清理 + gzip 完整性校验）。
+
+赋予执行权限（首次部署一次即可）：
 
 ```bash
-#!/bin/bash
-set -e
-
-BACKUP_DIR=~/geo/backups
-LOG_FILE=~/geo/backups/backup.log
-COMPOSE_FILE=~/geo/docker-compose.yml
-DB_NAME=geo_collab
-DB_USER=geo_user
-KEEP_DAYS=7
-
-mkdir -p "$BACKUP_DIR"
-
-BACKUP_FILE="$BACKUP_DIR/${DB_NAME}_$(date +%Y%m%d_%H%M%S).sql.gz"
-
-# 执行备份
-docker compose -f "$COMPOSE_FILE" exec -T mysql \
-    mysqldump -u "$DB_USER" -p"${MYSQL_PASSWORD}" \
-    --single-transaction --routines --triggers "$DB_NAME" \
-    | gzip > "$BACKUP_FILE"
-
-echo "$(date '+%Y-%m-%d %H:%M:%S') ✓ 备份完成：$BACKUP_FILE" >> "$LOG_FILE"
-
-# 清理超过 KEEP_DAYS 天的旧备份
-find "$BACKUP_DIR" -name "${DB_NAME}_*.sql.gz" -mtime +${KEEP_DAYS} -delete
-echo "$(date '+%Y-%m-%d %H:%M:%S') ✓ 已清理 ${KEEP_DAYS} 天前的旧备份" >> "$LOG_FILE"
-```
-
-赋予执行权限：
-
-```bash
-chmod +x ~/geo/scripts/backup_db.sh
+chmod +x ~/geo/scripts/backup_db.sh ~/geo/scripts/restore_db.sh
 ```
 
 注册 cron 任务（每天凌晨 3:00 执行）：
 
 ```bash
-# 编辑当前用户的 crontab
 crontab -e
 ```
 
@@ -403,7 +374,7 @@ crontab -e
 
 ```
 # 每天 03:00 备份 geo_collab 数据库，保留最近 7 天
-0 3 * * * MYSQL_PASSWORD=$(grep MYSQL_PASSWORD ~/geo/.env | cut -d= -f2) ~/geo/scripts/backup_db.sh >> ~/geo/backups/backup.log 2>&1
+0 3 * * * MYSQL_PASSWORD=$(grep MYSQL_PASSWORD ~/geo/.env | cut -d= -f2) bash ~/geo/scripts/backup_db.sh >> ~/geo/backups/backup.log 2>&1
 ```
 
 验证 cron 任务已注册：
@@ -412,38 +383,43 @@ crontab -e
 crontab -l
 ```
 
+> `>> backup.log 2>&1` 把 mysqldump/docker 的 stderr 也接进日志，否则连 MySQL 失败时只能去 `/var/mail/$USER` 找错误。
+> 默认保留 7 天，可在调用前覆盖：`BACKUP_KEEP_DAYS=30 bash ~/geo/scripts/backup_db.sh`
+
 ---
 
 ### 7.3 从备份恢复
 
-> **警告：** 恢复操作会覆盖数据库中的现有数据，请务必先确认备份文件完整性（见 7.4）。
+> **警告：** 恢复操作会覆盖数据库中的现有数据。`scripts/restore_db.sh` 会在恢复前自动做一份"恢复点"备份（`.pre-restore.sql.gz`）作为安全网。
 
-**完整恢复流程：**
+**推荐流程（用仓库内的脚本）：**
 
 ```bash
-# 1. 停止应用服务（保留 mysql 容器运行）
 cd ~/geo
-docker compose stop app worker
 
-# 2. 确认要恢复的备份文件
-ls -lh ~/geo/backups/*.sql.gz
+# 1. 先看一眼有哪些备份
+ls -lh backups/*.sql.gz
 
-# 3. 执行恢复（替换 <备份文件名> 为实际文件路径）
-BACKUP_FILE=~/geo/backups/<备份文件名>.sql.gz
-zcat "$BACKUP_FILE" | docker compose exec -T mysql \
-    mysql -u geo_user -p"${MYSQL_PASSWORD}" geo_collab
+# 2. 选一份备份，跑恢复脚本（会要求二次确认）
+MYSQL_PASSWORD=$(grep MYSQL_PASSWORD .env | cut -d= -f2) \
+    bash scripts/restore_db.sh backups/geo_collab_<时间戳>.sql.gz
 
-echo "✓ 数据库恢复完成"
+# 3. 如果备份来自旧版本，补跑迁移
+docker compose exec app alembic upgrade head
 
-# 4. 重新启动应用服务
-docker compose start app worker
-docker compose ps
+# 4. 验证服务
+curl http://127.0.0.1:8000/api/system/status
 ```
+
+脚本会依次：(1) 校验 gzip 完整性 → (2) 备份当前状态作为恢复点 → (3) 停 app+worker → (4) 灌入备份 → (5) 重启 app+worker。
+
+`--yes` 参数可以跳过交互确认（不推荐生产环境用）。
 
 **注意事项：**
 - 恢复前确认目标数据库 `geo_collab` 已存在（docker compose up 会自动创建）。
 - 如果备份来自不同版本，恢复后需运行 `docker compose exec app alembic upgrade head` 补跑迁移。
 - 生产环境恢复建议在维护窗口内操作，提前通知用户。
+- 如果新恢复出问题，可以用脚本生成的 `.pre-restore.sql.gz` 回滚到恢复前的状态。
 
 ---
 
@@ -476,4 +452,106 @@ done
 ```bash
 ls -lh ~/geo/backups/*.sql.gz
 cat ~/geo/backups/backup.log | tail -20
+```
+
+---
+
+### 7.5 文件系统数据备份（assets + browser_states + MinIO）
+
+MySQL 备份不包含三类同样重要的文件数据：
+
+| 数据 | 位置 | 丢失后果 |
+|---|---|---|
+| 上传图片 | `app_data` volume → `/app/data/assets/` | 文章封面、内联图全部 404 |
+| 浏览器登录态 | `app_data` volume → `/app/data/browser_states/` | 所有平台账号要重新登录 |
+| 素材图库 | `minio_data` volume | Stock image gallery 全部丢失 |
+
+仓库提供 `scripts/backup_files.sh` 备份这些 volume：
+
+```bash
+bash scripts/backup_files.sh
+# 产物：
+#   backups/app_data_20260528_030500.tar.gz   (assets + browser_states + exports)
+#   backups/minio_data_20260528_030500.tar.gz (素材图库)
+```
+
+**实现方式**：通过 `docker run --rm busybox` 临时容器挂载 named volume，tar 后写到 `backups/`。不依赖宿主机能直接看到数据，也不需要停服务（用 `:ro` 挂载）。
+
+**可调环境变量：**
+
+| 变量 | 默认 | 作用 |
+|---|---|---|
+| `BACKUP_SKIP_MINIO=1` | 不跳过 | 跳过 minio，只备份 app_data |
+| `BACKUP_SKIP_BROWSER_PROFILES=1` | 不跳过 | 跳过 `browser_states/*/*/profile/`，只保留登录态 `storage_state.json`。当 chromium profile 太大或发布期间可能被持有时建议开启 |
+| `BACKUP_KEEP_DAYS=N` | 7 | 自动清理超过 N 天的旧备份 |
+| `COMPOSE_PROJECT_NAME=xxx` | 仓库目录名 | 如果 compose 项目名和目录名不一致，必须设置 |
+
+**完整的每日自动备份 cron（MySQL + 文件）**
+
+```
+# 每天 03:00 备份 MySQL
+0 3 * * * MYSQL_PASSWORD=$(grep MYSQL_PASSWORD ~/geo/.env | cut -d= -f2) bash ~/geo/scripts/backup_db.sh >> ~/geo/backups/backup.log 2>&1
+
+# 每天 03:30 备份文件数据（错开 30 分钟，避免 IO 高峰叠加）
+30 3 * * * BACKUP_SKIP_BROWSER_PROFILES=1 bash ~/geo/scripts/backup_files.sh >> ~/geo/backups/backup.log 2>&1
+```
+
+> 建议生产环境**默认开启** `BACKUP_SKIP_BROWSER_PROFILES=1`：
+> - chromium profile 占用大（每个账号 ~100-500MB）
+> - 发布期间 Playwright 持有 profile 文件，tar 可能拿到不一致的快照
+> - `storage_state.json` 是真正的"登录态"载体，profile 丢了大不了缓存重建
+> 真要存 profile 时再手动跑一次无参数的脚本即可。
+
+---
+
+### 7.6 文件备份恢复
+
+用 `scripts/restore_files.sh` 恢复：
+
+```bash
+cd ~/geo
+
+# 看有哪些备份
+ls -lh backups/*.tar.gz
+
+# 恢复 app_data（脚本会自动停 app+worker）
+bash scripts/restore_files.sh backups/app_data_20260528_030500.tar.gz
+
+# 恢复 minio_data（脚本会自动停 app+worker+minio）
+bash scripts/restore_files.sh backups/minio_data_20260528_030500.tar.gz
+```
+
+脚本会：
+1. 校验 tar.gz 完整性
+2. 把 volume 当前内容打包为 `.pre-restore-<时间戳>.tar.gz` 留底
+3. 清空 volume 后解压备份
+4. 重启依赖该 volume 的服务
+
+恢复后如果出问题，用恢复点回滚：
+
+```bash
+bash scripts/restore_files.sh backups/app_data_*.pre-restore-*.tar.gz
+```
+
+---
+
+### 7.7 备份的异地同步
+
+**关键提醒**：以上备份都落在**同一台服务器**上。服务器整体挂掉（磁盘损坏、机房问题、勒索病毒）= 备份也丢。生产环境**必须**把 `backups/` 同步到异地存储。
+
+常见方案：
+
+```bash
+# 用 rclone 同步到云存储（S3/OSS/B2 等）
+# 安装：curl https://rclone.org/install.sh | sudo bash
+# 配置：rclone config
+
+# cron 加一行：每天 04:00 同步到云端（错开备份脚本结束时间）
+0 4 * * * rclone copy ~/geo/backups/ remote:geo-backups/ --max-age 24h
+```
+
+或者直接 `scp` 到另一台机器：
+
+```bash
+0 4 * * * rsync -az --delete ~/geo/backups/ backup-server:/backups/geo/
 ```
