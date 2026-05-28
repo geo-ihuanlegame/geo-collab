@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import frontmatter
+import yaml
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
@@ -45,7 +46,14 @@ def _parse_zip(data: bytes) -> tuple[str, str | None, dict[str, int], zipfile.Zi
     prefix = skill_md_path[: -len("SKILL.md")]  # e.g. "geo-article-v2/" or ""
 
     skill_md_content = zf.read(skill_md_path).decode("utf-8")
-    post = frontmatter.loads(skill_md_content)
+    try:
+        post = frontmatter.loads(skill_md_content)
+    except yaml.YAMLError as exc:
+        mark = getattr(exc, "problem_mark", None)
+        location = f"第 {mark.line + 1} 行" if mark is not None else "未知位置"
+        raise ClientError(
+            f"SKILL.md 的 frontmatter 不是合法的 YAML（{location}）：请检查冒号、缩进，含特殊字符的 description 用引号包起来"
+        )
     name: str = post.metadata.get("name") or Path(prefix.rstrip("/")).name or "未命名技能"
     description: str | None = post.metadata.get("description")
 
