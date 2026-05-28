@@ -9,7 +9,7 @@ export type Skill = {
   id: number;
   name: string;
   description: string | null;
-  file_stats: { references: number; skeletons: number; assets: number };
+  content: string;
   is_enabled: boolean;
   is_deleted: boolean;
   created_at: string;

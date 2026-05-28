@@ -3,16 +3,14 @@
 图结构：
   START → planner → parallel_write → finalize → END
 
-- planner：顺序调用 LiteLLM，读取 Skill 文件，输出 N 份 task_specs
+- planner：当前直接走预构造 specs，节点本身保留作图拓扑占位
 - parallel_write：ThreadPoolExecutor(max_workers=4)，每个 spec 独立写一篇文章
 - finalize：更新 GenerationSession 状态为 done/failed
 """
-import json
 import logging
 import os
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from pathlib import Path
 from typing import Any
 
 from langgraph.graph import END, StateGraph
@@ -26,7 +24,7 @@ logger = logging.getLogger(__name__)
 class PipelineState(TypedDict):
     session_id: int
     user_id: int
-    skill_path: str
+    skill_content: str
     prompt_content: str
     extra_instruction: str
     task_specs: list[dict]
@@ -36,27 +34,6 @@ class PipelineState(TypedDict):
 
 
 # ── 节点：planner ─────────────────────────────────────────────────────────────
-
-def _read_skill_files(skill_path: str) -> str:
-    """拼接 SKILL.md 和 references/ 下的所有 .md 文件为 system prompt 上下文。"""
-    root = Path(skill_path)
-    parts: list[str] = []
-
-    skill_md = root / "SKILL.md"
-    if skill_md.exists():
-        parts.append(f"# SKILL.md\n{skill_md.read_text(encoding='utf-8')}")
-
-    refs_dir = root / "references"
-    if refs_dir.is_dir():
-        for md_file in sorted(refs_dir.glob("**/*.md")):
-            parts.append(f"# {md_file.name}\n{md_file.read_text(encoding='utf-8')}")
-
-    skeletons_dir = root / "skeletons"
-    if skeletons_dir.is_dir():
-        for md_file in sorted(skeletons_dir.glob("**/*.md")):
-            parts.append(f"# skeleton:{md_file.name}\n{md_file.read_text(encoding='utf-8')}")
-
-    return "\n\n---\n\n".join(parts)
 
 
 def planner_node(state: PipelineState) -> dict:
@@ -70,7 +47,7 @@ def planner_node(state: PipelineState) -> dict:
 def _write_one_article(
     spec: dict,
     user_id: int,
-    skill_path: str,
+    skill_content: str,
     session_factory: Any,
 ) -> int | None:
     """在独立线程中生成一篇文章并写库，返回 article_id 或 None（失败）。"""
@@ -83,11 +60,10 @@ def _write_one_article(
     settings = get_settings()
     _inject_api_key(settings.ai_api_key)
 
-    skill_context = _read_skill_files(skill_path)
     system_prompt = (
         "你是一位专业的内容写作者。根据下方的技能文档和写作任务规格，"
         "撰写一篇高质量的文章。使用 Markdown 格式输出正文，包含标题（# 一级标题）。\n\n"
-        "## 技能文档\n\n" + skill_context
+        "## 技能文档\n\n" + skill_content
     )
     if spec.get("user_prompt"):
         # 问题库模式：run_pipeline 已把"基础提示词 + 问题文本"渲染好
@@ -172,7 +148,7 @@ def parallel_write_node(state: PipelineState) -> dict:
                 _write_one_article,
                 spec,
                 state["user_id"],
-                state["skill_path"],
+                state["skill_content"],
                 state["session_factory"],
             ): spec
             for spec in state["task_specs"]
@@ -357,7 +333,7 @@ def run_pipeline(db: Any, session_id: int, *, session_factory: Any) -> None:
             {
                 "session_id": session_id,
                 "user_id": gen_session.user_id,
-                "skill_path": skill.storage_path,
+                "skill_content": skill.content or "",
                 "prompt_content": prompt.content,
                 "extra_instruction": gen_session.extra_instruction or "",
                 "task_specs": prebuilt_specs,

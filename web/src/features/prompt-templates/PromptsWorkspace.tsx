@@ -79,6 +79,7 @@ function PromptModal({
     <Modal
       title={initial ? "编辑提示词" : "新建提示词"}
       onClose={onClose}
+      width={760}
       footer={
         <>
           <button className="secondaryButton" type="button" onClick={onClose}>
@@ -109,7 +110,7 @@ function PromptModal({
           <span className="aiFormLabel">内容</span>
           <textarea
             className="aiTextarea"
-            style={{ minHeight: 220 }}
+            style={{ minHeight: 420 }}
             placeholder={scope === "ai_format" ? "用于 AI 格式调整的系统提示词" : "用于 AI 生文的提示词"}
             value={content}
             onChange={(e) => setContent(e.target.value)}

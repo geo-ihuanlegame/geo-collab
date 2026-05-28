@@ -15,8 +15,9 @@ class Skill(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(200))
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    storage_path: Mapped[str] = mapped_column(String(500))
-    file_stats: Mapped[str] = mapped_column(Text, default="{}")  # JSON: {references,skeletons,assets}
+    content: Mapped[str] = mapped_column(Text, default="", server_default="")
+    storage_path: Mapped[str] = mapped_column(String(500), default="", server_default="")
+    file_stats: Mapped[str] = mapped_column(Text, default="{}", server_default="{}")  # 保留兼容老 row
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

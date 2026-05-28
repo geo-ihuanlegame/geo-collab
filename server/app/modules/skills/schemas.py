@@ -1,28 +1,32 @@
-"""技能模块 Pydantic schemas（原 schemas/skill.py）。"""
+"""技能模块 Pydantic schemas。"""
 
-import json
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class SkillRead(BaseModel):
     id: int
     name: str
     description: str | None
-    file_stats: dict
+    content: str
     is_enabled: bool
     is_deleted: bool
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
-    @field_validator("file_stats", mode="before")
-    @classmethod
-    def parse_file_stats(cls, v: object) -> dict:
-        if isinstance(v, str):
-            return json.loads(v)
-        return v  # type: ignore[return-value]
+
+class SkillCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    content: str = Field(min_length=1)
+    description: str | None = None
+
+
+class SkillUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    content: str = Field(min_length=1)
+    description: str | None = None
 
 
 class SkillPatch(BaseModel):

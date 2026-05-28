@@ -1,5 +1,3 @@
-import json
-
 from sqlalchemy.orm import Session
 
 from server.app.modules.skills.models import Skill
@@ -21,17 +19,26 @@ def create_skill(
     db: Session,
     *,
     name: str,
-    description: str | None,
-    storage_path: str,
-    file_stats: dict,
+    content: str,
+    description: str | None = None,
 ) -> Skill:
-    skill = Skill(
-        name=name,
-        description=description,
-        storage_path=storage_path,
-        file_stats=json.dumps(file_stats, ensure_ascii=False),
-    )
+    skill = Skill(name=name, content=content, description=description)
     db.add(skill)
+    db.flush()
+    return skill
+
+
+def update_skill(
+    db: Session,
+    skill: Skill,
+    *,
+    name: str,
+    content: str,
+    description: str | None,
+) -> Skill:
+    skill.name = name
+    skill.content = content
+    skill.description = description
     db.flush()
     return skill
 

@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
-import { Pencil, Plus, Trash2, Upload } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 import {
   listSkills,
-  uploadSkill,
+  createSkill,
+  updateSkill,
   patchSkill,
   deleteSkill as deleteSkillApi,
   listPromptTemplates,
@@ -48,6 +49,88 @@ function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void 
   );
 }
 
+// ── Skill modal ───────────────────────────────────────────────────────────
+
+function SkillModal({
+  initial,
+  onSave,
+  onClose,
+}: {
+  initial?: Skill;
+  onSave: (name: string, content: string, description: string | null) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState(initial?.name ?? "");
+  const [description, setDescription] = useState(initial?.description ?? "");
+  const [content, setContent] = useState(initial?.content ?? "");
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    if (!name.trim() || !content.trim()) return;
+    setSaving(true);
+    try {
+      await onSave(name.trim(), content, description.trim() || null);
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal
+      title={initial ? "编辑技能" : "新建技能"}
+      onClose={onClose}
+      width={760}
+      footer={
+        <>
+          <button className="secondaryButton" type="button" onClick={onClose}>
+            取消
+          </button>
+          <button
+            className="primaryButton"
+            type="button"
+            onClick={handleSave}
+            disabled={saving || !name.trim() || !content.trim()}
+          >
+            {saving ? "保存中…" : "保存"}
+          </button>
+        </>
+      }
+    >
+      <div className="aiFormGroup" style={{ marginBottom: 14 }}>
+        <label className="aiFormLabel">名称</label>
+        <input
+          className="aiSearchInput"
+          style={{ margin: 0, width: "100%" }}
+          placeholder="技能名称"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+      </div>
+      <div className="aiFormGroup" style={{ marginBottom: 14 }}>
+        <label className="aiFormLabel">简介（可选）</label>
+        <input
+          className="aiSearchInput"
+          style={{ margin: 0, width: "100%" }}
+          placeholder="一句话说明这个技能的用途"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+      </div>
+      <div className="aiFormGroup">
+        <label className="aiFormLabel">技能内容</label>
+        <textarea
+          className="aiTextarea"
+          style={{ minHeight: 420 }}
+          placeholder="粘贴技能正文（SKILL.md + 参考资料的合集，将整体作为 system prompt 注入）"
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+        />
+      </div>
+    </Modal>
+  );
+}
+
 // ── Prompt modal ──────────────────────────────────────────────────────────
 
 function PromptModal({
@@ -78,6 +161,7 @@ function PromptModal({
     <Modal
       title={initial ? "编辑提示词" : "新建提示词"}
       onClose={onClose}
+      width={760}
       footer={
         <>
           <button className="secondaryButton" type="button" onClick={onClose}>
@@ -108,7 +192,7 @@ function PromptModal({
         <label className="aiFormLabel">内容（支持 {"{{参数}}"} 占位符）</label>
         <textarea
           className="aiTextarea"
-          style={{ minHeight: 160 }}
+          style={{ minHeight: 420 }}
           placeholder="请输入提示词正文…"
           value={content}
           onChange={(e) => setContent(e.target.value)}
@@ -122,13 +206,12 @@ function PromptModal({
 
 export function SkillsPromptsTab() {
   const { toast } = useToast();
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [skills, setSkills] = useState<Skill[]>([]);
   const [prompts, setPrompts] = useState<PromptTemplate[]>([]);
   const [skillSearch, setSkillSearch] = useState("");
   const [promptSearch, setPromptSearch] = useState("");
-  const [uploading, setUploading] = useState(false);
+  const [skillModal, setSkillModal] = useState<{ editing?: Skill } | null>(null);
   const [promptModal, setPromptModal] = useState<{ editing?: PromptTemplate } | null>(null);
 
   async function reload() {
@@ -141,19 +224,15 @@ export function SkillsPromptsTab() {
 
   // ── Skill actions ──
 
-  async function handleSkillUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    e.target.value = "";
-    setUploading(true);
-    try {
-      await uploadSkill(file);
-      toast("技能导入成功", "success");
-      reload();
-    } catch (err) {
-      toast(err instanceof Error ? err.message : "导入失败", "error");
-    } finally {
-      setUploading(false);
+  async function handleSkillSave(name: string, content: string, description: string | null) {
+    if (skillModal?.editing) {
+      const updated = await updateSkill(skillModal.editing.id, { name, content, description });
+      setSkills((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+      toast("已更新", "success");
+    } else {
+      const created = await createSkill({ name, content, description });
+      setSkills((prev) => [...prev, created]);
+      toast("已创建", "success");
     }
   }
 
@@ -214,7 +293,8 @@ export function SkillsPromptsTab() {
   const filteredSkills = skills.filter(
     (s) =>
       s.name.toLowerCase().includes(skillSearch.toLowerCase()) ||
-      (s.description ?? "").toLowerCase().includes(skillSearch.toLowerCase()),
+      (s.description ?? "").toLowerCase().includes(skillSearch.toLowerCase()) ||
+      s.content.toLowerCase().includes(skillSearch.toLowerCase()),
   );
 
   const filteredPrompts = prompts.filter(
@@ -241,17 +321,16 @@ export function SkillsPromptsTab() {
           <div className="aiCardList">
             {filteredSkills.length === 0 && (
               <p style={{ color: "var(--fg-3)", fontSize: 13 }}>
-                {skills.length === 0 ? "暂无技能，请先导入" : "没有匹配的技能"}
+                {skills.length === 0 ? "暂无技能，请先创建" : "没有匹配的技能"}
               </p>
             )}
             {filteredSkills.map((skill) => (
               <div key={skill.id} className={`aiSkillCard${skill.is_enabled ? "" : " disabled"}`}>
                 <div className="aiCardName">{skill.name}</div>
                 {skill.description && <div className="aiCardDesc">{skill.description}</div>}
-                <div className="aiCardStats">
-                  <span>参考 {skill.file_stats.references}</span>
-                  <span>骨架 {skill.file_stats.skeletons}</span>
-                  <span>资产 {skill.file_stats.assets}</span>
+                <div className="aiPromptContent">
+                  {skill.content.slice(0, 160)}
+                  {skill.content.length > 160 && "…"}
                 </div>
                 <div className="aiCardActions">
                   <Toggle on={skill.is_enabled} onChange={() => handleSkillToggle(skill)} />
@@ -261,11 +340,20 @@ export function SkillsPromptsTab() {
                   <button
                     className="iconButton"
                     type="button"
-                    style={{ marginLeft: "auto", color: "var(--red)" }}
+                    style={{ marginLeft: "auto" }}
+                    onClick={() => setSkillModal({ editing: skill })}
+                    title="编辑"
+                  >
+                    <Pencil size={13} />
+                  </button>
+                  <button
+                    className="iconButton"
+                    type="button"
+                    style={{ color: "var(--red)" }}
                     onClick={() => handleSkillDelete(skill)}
                     title="删除"
                   >
-                    <Trash2 size={14} />
+                    <Trash2 size={13} />
                   </button>
                 </div>
               </div>
@@ -276,19 +364,11 @@ export function SkillsPromptsTab() {
               className="secondaryButton"
               type="button"
               style={{ width: "100%" }}
-              disabled={uploading}
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => setSkillModal({})}
             >
-              <Upload size={14} />
-              {uploading ? "导入中…" : "导入 Skill ZIP"}
+              <Plus size={14} />
+              新建技能
             </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".zip"
-              style={{ display: "none" }}
-              onChange={handleSkillUpload}
-            />
           </div>
         </div>
 
@@ -358,6 +438,13 @@ export function SkillsPromptsTab() {
         </div>
       </div>
 
+      {skillModal !== null && (
+        <SkillModal
+          initial={skillModal.editing}
+          onSave={handleSkillSave}
+          onClose={() => setSkillModal(null)}
+        />
+      )}
       {promptModal !== null && (
         <PromptModal
           initial={promptModal.editing}

@@ -13,10 +13,25 @@ export function listSkills(): Promise<Skill[]> {
   return api<Skill[]>("/api/skills");
 }
 
-export function uploadSkill(file: File): Promise<Skill> {
-  const form = new FormData();
-  form.append("file", file);
-  return api<Skill>("/api/skills", { method: "POST", body: form });
+export function createSkill(payload: {
+  name: string;
+  content: string;
+  description?: string | null;
+}): Promise<Skill> {
+  return api<Skill>("/api/skills", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateSkill(
+  id: number,
+  payload: { name: string; content: string; description?: string | null },
+): Promise<Skill> {
+  return api<Skill>(`/api/skills/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
 }
 
 export function patchSkill(id: number, payload: { is_enabled: boolean }): Promise<Skill> {
