@@ -1,5 +1,6 @@
 """技能模块路由。"""
 import io
+import re
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,37 @@ from server.app.shared.errors import ClientError
 router = APIRouter()
 
 
+_FRONTMATTER_RE = re.compile(r"\A---\s*\r?\n(.*?\r?\n)---\s*(?:\r?\n|\Z)", re.DOTALL)
+_FM_KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*)\s*:\s*(.*)$")
+
+
+def _loose_parse_frontmatter(content: str) -> dict[str, str]:
+    """YAML 严格解析失败时的兜底：逐行抓 top-level `key: value`，
+    缩进或非 key 行视为上一个值的续行。仅返回字符串值，够用于 name/description。"""
+    m = _FRONTMATTER_RE.match(content)
+    if not m:
+        return {}
+    result: dict[str, str] = {}
+    current_key: str | None = None
+    current_lines: list[str] = []
+    for line in m.group(1).splitlines():
+        is_indented = line.startswith((" ", "\t"))
+        key_match = None if is_indented else _FM_KEY_RE.match(line)
+        if key_match:
+            if current_key is not None:
+                result[current_key] = "\n".join(current_lines).strip()
+            current_key = key_match.group(1)
+            current_lines = [key_match.group(2)]
+        elif current_key is not None:
+            current_lines.append(line.strip())
+    if current_key is not None:
+        result[current_key] = "\n".join(current_lines).strip()
+    for k, v in list(result.items()):
+        if len(v) >= 2 and v[0] == v[-1] and v[0] in ('"', "'"):
+            result[k] = v[1:-1]
+    return result
+
+
 def _parse_zip(data: bytes) -> tuple[str, str | None, dict[str, int], zipfile.ZipFile, str]:
     """解析 ZIP 内容，返回 (name, description, file_stats, zf, prefix)。"""
     try:
@@ -47,15 +79,11 @@ def _parse_zip(data: bytes) -> tuple[str, str | None, dict[str, int], zipfile.Zi
 
     skill_md_content = zf.read(skill_md_path).decode("utf-8")
     try:
-        post = frontmatter.loads(skill_md_content)
-    except yaml.YAMLError as exc:
-        mark = getattr(exc, "problem_mark", None)
-        location = f"第 {mark.line + 1} 行" if mark is not None else "未知位置"
-        raise ClientError(
-            f"SKILL.md 的 frontmatter 不是合法的 YAML（{location}）：请检查冒号、缩进，含特殊字符的 description 用引号包起来"
-        )
-    name: str = post.metadata.get("name") or Path(prefix.rstrip("/")).name or "未命名技能"
-    description: str | None = post.metadata.get("description")
+        metadata: dict[str, Any] = frontmatter.loads(skill_md_content).metadata
+    except yaml.YAMLError:
+        metadata = _loose_parse_frontmatter(skill_md_content)
+    name: str = metadata.get("name") or Path(prefix.rstrip("/")).name or "未命名技能"
+    description: str | None = metadata.get("description")
 
     relative_paths = [
         entry[len(prefix):]
