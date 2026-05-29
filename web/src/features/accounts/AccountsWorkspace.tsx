@@ -13,7 +13,7 @@ import {
   updateAccountDisplayName,
 } from "../../api/accounts";
 import type { Account, AccountBrowserSession, AccountLoginSessionStatusResponse, PlatformLoginPayload, PlatformOption } from "../../types";
-import { CheckCircle2, Download, ExternalLink, Plus, RefreshCw, Trash2, Upload, UserPlus, X } from "lucide-react";
+import { CheckCircle2, Download, ExternalLink, RefreshCw, Trash2, Upload, UserPlus, X } from "lucide-react";
 import { useToast } from "../../components/Toast";
 
 const DEFAULT_PLATFORM_CODE = "toutiao";

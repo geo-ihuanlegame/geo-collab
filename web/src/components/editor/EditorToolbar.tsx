@@ -9,7 +9,6 @@ import {
 export function EditorToolbar({
   editor,
   onImageUpload,
-  articleId: _articleId,
   aiChecking,
   aiFormatRemainingSeconds,
   onAiFormat,
@@ -17,7 +16,6 @@ export function EditorToolbar({
 }: {
   editor: ReturnType<typeof useEditor>;
   onImageUpload: (files: File[]) => Promise<void>;
-  articleId: number;
   aiChecking: boolean;
   aiFormatRemainingSeconds?: number;
   onAiFormat: () => void;

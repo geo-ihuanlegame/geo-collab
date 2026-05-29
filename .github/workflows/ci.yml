@@ -1,0 +1,99 @@
+name: CI
+
+# 每次 push 和 PR 都触发。配合仓库的 branch protection（Settings → Branches）
+# 把本工作流设为 main 分支的 required check，即可实现"红了不准 merge"。
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# 同一分支新 push 进来时，取消上一次还在跑的 CI，省额度
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ───────────────────────── 后端 ─────────────────────────
+  backend:
+    runs-on: ubuntu-latest
+    env:
+      # 后端工具/测试输出含中文；统一 UTF-8 避免编码相关报错
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: "1"
+    services:
+      # CI 临时起一个 MySQL 8（含 ngram 全文检索支持），测试结束即销毁
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: testpw
+          MYSQL_DATABASE: geo_test   # 测试库名必须含 "test"（项目安全检查）
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -ptestpw"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      # ── 质量检查：首次落地设为「非阻塞」(continue-on-error) ──
+      # 存量告警清完后，把对应步骤的 continue-on-error 行删掉，即变成硬门禁。
+      - name: Ruff lint (non-blocking)
+        continue-on-error: true
+        run: ruff check server/
+
+      - name: Ruff format check (non-blocking)
+        continue-on-error: true
+        run: ruff format --check server/
+
+      - name: Mypy (non-blocking)
+        continue-on-error: true
+        run: mypy server/app
+
+      # ── 硬门禁：测试必须通过 ──
+      - name: Pytest
+        env:
+          GEO_TEST_DATABASE_URL: mysql+pymysql://root:testpw@127.0.0.1:3306/geo_test
+          GEO_JWT_SECRET: ci-test-secret-not-for-prod
+        run: pytest server/tests/ -q
+
+  # ───────────────────────── 前端 ─────────────────────────
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "10.4.0"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # 非阻塞：清掉当前 7 个 lint error 后，删掉 continue-on-error 即变硬门禁
+      - name: ESLint (non-blocking)
+        continue-on-error: true
+        run: pnpm --filter @geo/web lint
+
+      # ── 硬门禁：类型检查 + 构建必须通过（当前已验证通过）──
+      - name: Typecheck
+        run: pnpm --filter @geo/web typecheck
+
+      - name: Build
+        run: pnpm --filter @geo/web build

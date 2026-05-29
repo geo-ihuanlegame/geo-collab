@@ -1,0 +1,43 @@
+# Tooling configuration for the Geo backend (Python 3.12).
+# This file intentionally contains ONLY linting/formatting/type-checking config.
+# It is NOT a build/packaging manifest — runtime deps stay in requirements.txt.
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["server"]
+extend-exclude = [
+    "server/alembic/versions",  # auto-generated Alembic migrations — not hand-maintained
+    "**/__pycache__",
+]
+
+[tool.ruff.lint]
+# Curated, conservative starter set for a ~24k-line legacy codebase.
+#   E  pycodestyle errors
+#   F  pyflakes (unused imports/vars, undefined names — high signal)
+#   I  isort (import ordering)
+#   B  flake8-bugbear (likely-bug patterns)
+#   UP pyupgrade (modernize for the py312 target)
+select = ["E", "F", "I", "B", "UP"]
+
+ignore = [
+    # Line-too-long: the codebase has many long bilingual (CN/EN) comments and
+    # strings; enforcing this now would flood the report. Revisit once the
+    # high-signal rules are clean. `ruff format` still wraps code where it can.
+    "E501",
+    # Function call in argument defaults: FastAPI's `Depends()` / `Query()` /
+    # `File()` idiom legitimately uses callables as default args everywhere.
+    "B008",
+]
+
+[tool.mypy]
+# Lenient by design: this is the first introduction of type-checking to an
+# existing codebase. The goal is to surface obvious bugs (e.g. a function
+# annotated to return a model that can fall through to None), NOT to demand
+# full annotations. Tighten incrementally later.
+python_version = "3.12"
+files = ["server/app"]
+ignore_missing_imports = true   # most 3rd-party deps ship no stubs; don't drown in import errors
+warn_redundant_casts = true
+warn_unused_ignores = false
+# NOTE: disallow_untyped_defs / strict are intentionally NOT enabled.

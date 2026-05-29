@@ -108,9 +108,15 @@ def create_task_endpoint(
                 )
             ).scalar_one_or_none()
             if existing is not None:
+                # Idempotent retry: the concurrent request already created it.
                 refreshed = get_task(db, existing.id)
                 return to_task_read(refreshed or existing)
-            raise HTTPException(status_code=409, detail="请求冲突：client_request_id 已存在或数据异常")
+        # Any IntegrityError not resolved by the idempotency lookup above is a
+        # genuine constraint conflict — surface it as 409, never fall through to
+        # an implicit `return None` (which would serialize as an opaque 500).
+        raise HTTPException(
+            status_code=409, detail="请求冲突：client_request_id 已存在或数据完整性约束失败"
+        ) from exc
 
 
 @tasks_router.post("/preview", response_model=TaskAssignmentPreviewRead)
