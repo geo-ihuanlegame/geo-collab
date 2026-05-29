@@ -639,15 +639,30 @@ def test_group_task_runs_different_accounts_concurrently_with_cap(monkeypatch):
     client = test_app.client
     active = 0
     max_active = 0
+    entered = 0
+    cap = 5  # MAX_CONCURRENT_RECORDS
     lock = threading.Lock()
+    # Deterministically prove peak concurrency reaches `cap`: the first `cap`
+    # records to grab a slot rendezvous at a barrier that only trips once all
+    # `cap` are simultaneously in-flight. The old `sleep(0.25)` approach merely
+    # hoped the threads would overlap, which flaked under CI scheduling jitter.
+    barrier = threading.Barrier(cap)
 
     class SlowPublisher:
         def __call__(self, article, account, *, stop_before_publish=False):
-            nonlocal active, max_active
+            nonlocal active, max_active, entered
             with lock:
                 active += 1
                 max_active = max(max_active, active)
-            _time.sleep(0.25)
+                index = entered
+                entered += 1
+            if index < cap:
+                # A genuine cap regression (fewer than `cap` ever concurrent)
+                # makes this time out -> max_active stays < cap -> assert red.
+                try:
+                    barrier.wait(timeout=5)
+                except threading.BrokenBarrierError:
+                    pass
             with lock:
                 active -= 1
             return PublishFillResult(
