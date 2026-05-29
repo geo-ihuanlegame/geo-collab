@@ -223,6 +223,8 @@ async def store_upload(db: Session, user_id: int, upload: UploadFile) -> StoredA
         if total == 0:
             raise ClientError("Uploaded file is empty")
 
+        # total > 0 guarantees the loop ran at least once, so first_chunk is set.
+        assert first_chunk is not None
         digest = sha256.hexdigest()
         existing = db.query(Asset).filter(Asset.sha256 == digest).first()
         if existing:

@@ -29,7 +29,7 @@ import { listCategories } from "../../api/image-library";
 import { listPromptTemplates, updateUserAiFormatPreset } from "../../api/prompt-templates";
 import { uploadAsset as uploadAssetRequest } from "../../api/assets";
 import { assetSrc, assetThumbSrc, countWords, emptyDoc, newClientRequestId, singleFlight, withAssetToken } from "../../api/core";
-import type { Article, ArticleCreatePayload, ArticleGroup, ArticleGroupUpdateItemsPayload, ArticleSummary, ArticleUpdatePayload, Asset, Draft, PromptTemplate, StockCategory } from "../../types";
+import type { Article, ArticleCreatePayload, ArticleGroup, ArticleGroupUpdateItemsPayload, ArticleSummary, ArticleUpdatePayload, Draft, PromptTemplate, StockCategory } from "../../types";
 import { formatDateTime } from "../../utils/dateFormat";
 import { EditorToolbar } from "../../components/editor/EditorToolbar";
 import { ArticleListItem } from "../../components/ArticleListItem";
@@ -458,7 +458,7 @@ export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
       }
       setArticles(allArticles);
       setArticlePage(nextPage);
-    } catch (err) {
+    } catch {
       toast("加载文章列表失败", "error");
     }
   }
@@ -467,7 +467,7 @@ export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
     try {
       const data = await listArticleGroups();
       setGroups(data);
-    } catch (err) {
+    } catch {
       toast("加载分组列表失败", "error");
     }
   }
@@ -1236,7 +1236,6 @@ export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
           <EditorToolbar
             editor={editor}
             onImageUpload={handleBodyImageUpload}
-            articleId={draft.id ?? 0}
             aiChecking={aiChecking}
             aiFormatRemainingSeconds={aiFormatRemainingSeconds}
             onAiFormat={handleAiFormat}
