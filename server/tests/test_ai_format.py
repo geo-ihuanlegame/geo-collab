@@ -311,6 +311,10 @@ def test_ai_format_button_path_triggers_image_insertion_when_categories_selected
             lambda **_: _fake_completion('{"heading_indices": [0], "image_positions": [{"index": 0, "hint": "风景描写"}]}'),
         )
         monkeypatch.setattr("server.app.modules.articles.ai_format._maybe_insert_images", fake_maybe_insert_images)
+        # The flow re-reads settings from the env (get_settings.cache_clear) and
+        # requires an API key before the (mocked) model call. Set it here so the
+        # test is hermetic instead of depending on the dev's ambient GEO_AI_* env.
+        monkeypatch.setenv("GEO_AI_FORMAT_API_KEY", "test-key")
 
         response = client.post(f"/api/articles/{article_id}/ai-format")
         assert response.status_code == 202

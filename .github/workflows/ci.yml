@@ -66,6 +66,9 @@ jobs:
         env:
           GEO_TEST_DATABASE_URL: mysql+pymysql://root:testpw@127.0.0.1:3306/geo_test
           GEO_JWT_SECRET: ci-test-secret-not-for-prod
+          # Some code paths read GEO_DATA_DIR from the environment directly
+          # (e.g. background threads that don't see the test's patched settings).
+          GEO_DATA_DIR: ${{ runner.temp }}/geo-data
         run: pytest server/tests/ -q
 
   # ───────────────────────── 前端 ─────────────────────────

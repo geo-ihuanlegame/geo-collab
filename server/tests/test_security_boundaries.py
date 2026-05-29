@@ -83,7 +83,7 @@ class TestAccountExportAdminOnly:
             op_client, _ = _make_operator_client(test_app)
             resp = op_client.post("/api/accounts/export", json={})
             assert resp.status_code == 403
-            assert resp.json()["detail"] == "Admin required"
+            assert resp.json()["detail"] == "需要管理员权限"
         finally:
             test_app.cleanup()
 
@@ -216,7 +216,7 @@ class TestOperatorCannotDeleteArticle:
             op_client, _ = _make_operator_client(test_app)
             resp = op_client.delete(f"/api/articles/{article_id}")
             assert resp.status_code == 403
-            assert resp.json()["detail"] == "Admin required"
+            assert resp.json()["detail"] == "需要管理员权限"
         finally:
             test_app.cleanup()
 
@@ -240,7 +240,7 @@ class TestOperatorCannotDeleteArticleGroup:
             op_client, _ = _make_operator_client(test_app)
             resp = op_client.delete(f"/api/article-groups/{group_id}")
             assert resp.status_code == 403
-            assert resp.json()["detail"] == "Admin required"
+            assert resp.json()["detail"] == "需要管理员权限"
         finally:
             test_app.cleanup()
 
@@ -264,7 +264,7 @@ class TestOperatorCannotDeleteAccount:
             op_client, _ = _make_operator_client(test_app)
             resp = op_client.delete(f"/api/accounts/{account_id}")
             assert resp.status_code == 403
-            assert resp.json()["detail"] == "Admin required"
+            assert resp.json()["detail"] == "需要管理员权限"
         finally:
             test_app.cleanup()
 
@@ -287,7 +287,7 @@ class TestOperatorCannotAccessSystemStatus:
             op_client, _ = _make_operator_client(test_app)
             resp = op_client.get("/api/system/status")
             assert resp.status_code == 403
-            assert resp.json()["detail"] == "Admin required"
+            assert resp.json()["detail"] == "需要管理员权限"
         finally:
             test_app.cleanup()
 

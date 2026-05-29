@@ -222,8 +222,7 @@ class TestDeleteAccountGuard:
             resp = client.delete(f"/api/accounts/{account_id}")
             assert resp.status_code == 204
 
-            assert client.get(f"/api/accounts/{account_id}").status_code == 404
-
+            # There is no GET /api/accounts/{id} route; verify soft-deletion via the DB.
             db = test_app.session_factory()
             try:
                 deleted_account = db.get(Account, account_id)

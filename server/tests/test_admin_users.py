@@ -197,7 +197,9 @@ class TestResetPassword:
     def test_nonexistent_user_404(self, monkeypatch):
         test_app = build_test_app(monkeypatch)
         try:
-            resp = test_app.client.post("/api/auth/users/99999/reset-password", json={"new_password": "x"})
+            # Use a valid-length password so request-body validation (min_length)
+            # passes and we actually reach the user-lookup 404 path.
+            resp = test_app.client.post("/api/auth/users/99999/reset-password", json={"new_password": "validpass123"})
             assert resp.status_code == 404
         finally:
             test_app.cleanup()
