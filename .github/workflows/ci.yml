@@ -69,7 +69,9 @@ jobs:
           # Some code paths read GEO_DATA_DIR from the environment directly
           # (e.g. background threads that don't see the test's patched settings).
           GEO_DATA_DIR: ${{ runner.temp }}/geo-data
-        run: pytest server/tests/ -q
+        # --timeout: any test hung >120s fails fast (safety net for thread tests).
+        # --cov: report coverage (informational; does not fail the build yet).
+        run: pytest server/tests/ -q --timeout=120 --cov=server/app --cov-report=term-missing
 
   # ───────────────────────── 前端 ─────────────────────────
   frontend:
