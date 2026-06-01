@@ -1,0 +1,11 @@
+{
+  "name": "geo-collab",
+  "private": true,
+  "packageManager": "pnpm@10.4.0",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @geo/web dev",
+    "build": "pnpm --filter @geo/web build",
+    "typecheck": "pnpm --filter @geo/web typecheck"
+  },
+  "devDependencies": {}
+}

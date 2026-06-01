@@ -1,0 +1,7 @@
+# Dev-only tooling (linting / formatting / type-checking / test plugins).
+# Production dependencies live in requirements.txt — do NOT merge these in.
+# Install:  pip install -r requirements-dev.txt
+ruff==0.15.15
+mypy==2.1.0
+pytest-cov==6.0.0       # coverage measurement (pytest --cov)
+pytest-timeout==2.3.1   # fail a hung test after N seconds instead of burning CI for hours

@@ -1,0 +1,76 @@
+stages:
+  - network-test
+  - backend
+  - frontend
+
+variables:
+  PYTHONIOENCODING: utf-8
+  PYTHONUTF8: "1"
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+
+# ──────────────── 网络连通性测试（临时）────────────────
+network-test:
+  stage: network-test
+  image: python:3.12
+  script:
+    - echo === DNS ===
+    - python -c 'import socket; print(socket.gethostbyname("github.com"))' 2>&1 || echo DNS FAIL
+    - echo === GitHub ===
+    - curl -sI --connect-timeout 10 https://github.com 2>&1 || echo FAIL github.com
+    - echo === Docker Hub ===
+    - curl -sI --connect-timeout 10 https://registry-1.docker.io/v2/ 2>&1 || echo FAIL docker.io
+    - echo === GitLab ===
+    - curl -sI --connect-timeout 10 https://hlgit.5518game.com 2>&1 || echo FAIL hlgit
+    - echo === Done ===
+
+# ───────────────────────── 后端 ─────────────────────────
+backend:
+  stage: backend
+  image: python:3.12
+  services:
+    - name: mysql:8.0
+      alias: mysql
+      variables:
+        MYSQL_ROOT_PASSWORD: testpw
+        MYSQL_DATABASE: geo_test
+  variables:
+    FF_NETWORK_PER_BUILD: 1
+    GEO_TEST_DATABASE_URL: mysql+pymysql://root:testpw@mysql:3306/geo_test
+    GEO_JWT_SECRET: ci-test-secret-not-for-prod
+    GEO_DATA_DIR: $CI_PROJECT_DIR/tmp/geo-data
+  cache:
+    key: pip-$CI_COMMIT_REF_SLUG
+    paths:
+      - .cache/pip
+  before_script:
+    - mkdir -p $GEO_DATA_DIR
+    - pip install --upgrade pip
+    - pip install -r requirements.txt -r requirements-dev.txt
+  script:
+    - ruff check server/ || true
+    - ruff format --check server/ || true
+    - mypy server/app || true
+    - >
+      pytest server/tests/ -q --timeout=120
+      --cov=server/app --cov-report=term-missing
+
+# ───────────────────────── 前端 ─────────────────────────
+frontend:
+  stage: frontend
+  image: node:24
+  cache:
+    key: pnpm-$CI_COMMIT_REF_SLUG
+    paths:
+      - .pnpm-store
+  before_script:
+    - corepack enable && corepack prepare pnpm@10.4.0 --activate
+    - pnpm config set store-dir .pnpm-store
+    - pnpm install --frozen-lockfile
+  script:
+    - pnpm --filter @geo/web lint || true
+    - pnpm --filter @geo/web typecheck
+    - pnpm --filter @geo/web build

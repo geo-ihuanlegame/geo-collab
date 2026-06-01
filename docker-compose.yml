@@ -1,0 +1,98 @@
+services:
+  minio:
+    image: minio/minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?required}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?required}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-geo_collab}
+      MYSQL_USER: ${MYSQL_USER:-geo_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?required}
+    # ports:  # 不需要 — app/worker 通过内部网络连 mysql:3306
+    #   - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    env_file:
+      - .env
+    environment:
+      GEO_DB_HOST: mysql
+      GEO_DB_PORT: 3306
+      GEO_DB_USER: ${MYSQL_USER:-geo_user}
+      GEO_DB_PASS: ${MYSQL_PASSWORD}
+      GEO_DB_NAME: ${MYSQL_DATABASE:-geo_collab}
+      GEO_DATA_DIR: /app/data
+      GEO_NGINX_ACCEL: "1"
+    volumes:
+      - app_data:/app/data
+
+  worker:
+    build: .
+    restart: unless-stopped
+    command: sh -c "alembic upgrade head && python -m server.worker.executor"
+    # ports:  # noVNC now proxied through nginx, no direct port exposure needed
+    #   - "127.0.0.1:6080-6090:6080-6090"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    env_file:
+      - .env
+    environment:
+      GEO_DB_HOST: mysql
+      GEO_DB_PORT: 3306
+      GEO_DB_USER: ${MYSQL_USER:-geo_user}
+      GEO_DB_PASS: ${MYSQL_PASSWORD}
+      GEO_DB_NAME: ${MYSQL_DATABASE:-geo_collab}
+      GEO_DATA_DIR: /app/data
+      GEO_PUBLISH_NOVNC_WEB_DIR: /usr/share/novnc
+      GEO_PUBLISH_REMOTE_BROWSER_HOST: 0.0.0.0
+      GEO_PUBLISH_XVFB_PATH: Xvfb
+      GEO_PUBLISH_X11VNC_PATH: x11vnc
+      GEO_PUBLISH_WEBSOCKIFY_PATH: websockify
+    volumes:
+      - app_data:/app/data
+
+  nginx:
+    build:
+      context: .
+      dockerfile: Dockerfile.nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - app
+      - worker
+    volumes:
+      - app_data:/app_data:ro
+
+volumes:
+  mysql_data:
+  app_data:
+  minio_data:
