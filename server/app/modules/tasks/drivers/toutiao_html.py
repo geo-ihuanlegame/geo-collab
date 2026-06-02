@@ -47,6 +47,4 @@ def body_segments_to_toutiao_html(segments: list[BodySegment]) -> str:
 
     if not paragraphs:
         raise ToutiaoBodyError("正文为空")
-    return "".join(
-        f'<p data-track="{i + 1}">{p}</p>' for i, p in enumerate(paragraphs)
-    )
+    return "".join(f'<p data-track="{i + 1}">{p}</p>' for i, p in enumerate(paragraphs))

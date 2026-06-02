@@ -30,16 +30,12 @@ def test_bold_run_wrapped_in_strong():
 
 def test_heading_becomes_bold_paragraph():
     segs = [BodySegment(kind="text", text="小标题", heading_level=1)]
-    assert body_segments_to_toutiao_html(segs) == (
-        '<p data-track="1"><strong>小标题</strong></p>'
-    )
+    assert body_segments_to_toutiao_html(segs) == ('<p data-track="1"><strong>小标题</strong></p>')
 
 
 def test_html_special_chars_escaped():
     segs = [BodySegment(kind="text", text="a<b>&c")]
-    assert body_segments_to_toutiao_html(segs) == (
-        '<p data-track="1">a&lt;b&gt;&amp;c</p>'
-    )
+    assert body_segments_to_toutiao_html(segs) == ('<p data-track="1">a&lt;b&gt;&amp;c</p>')
 
 
 def test_empty_body_raises():
