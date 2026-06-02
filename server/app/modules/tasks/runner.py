@@ -27,7 +27,7 @@ from server.app.modules.accounts.service import (
 from server.app.modules.articles.models import Article
 from server.app.modules.articles.parser import BodySegment, parse_body_segments
 from server.app.modules.articles.store import resolve_asset_path
-from server.app.modules.tasks.drivers import get_driver
+from server.app.modules.tasks.drivers import resolve_driver
 from server.app.modules.tasks.drivers.base import (
     PublishError,
     PublishPayload,
@@ -267,7 +267,7 @@ def run_publish(
     if not state_path.exists():
         raise PublishError(f"账号授权状态文件不存在: {account.state_path}")
 
-    driver = get_driver(platform_code)
+    driver = resolve_driver(platform_code)
 
     # Resolve all asset paths before entering the browser session — ORM objects
     # may become detached once we hand control to Playwright threads.

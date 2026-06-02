@@ -11,6 +11,9 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "mysql: mark test as requiring the disposable MySQL test database"
     )
+    config.addinivalue_line(
+        "markers", "live: hits a real external site; skipped unless explicitly enabled"
+    )
 
 
 def pytest_collection_modifyitems(config, items):

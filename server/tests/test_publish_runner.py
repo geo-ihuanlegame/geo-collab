@@ -187,7 +187,7 @@ def test_run_publish_routes_by_platform_code(monkeypatch, tmp_path):
     stub_driver = _StubDriver()
 
     monkeypatch.setattr(
-        "server.app.modules.tasks.runner.get_driver",
+        "server.app.modules.tasks.runner.resolve_driver",
         lambda platform_code: stub_driver,
     )
 
@@ -229,7 +229,7 @@ def test_run_publish_keeps_session_on_user_input_required(monkeypatch, tmp_path)
     stub_driver = _StubDriver()
 
     monkeypatch.setattr(
-        "server.app.modules.tasks.runner.get_driver",
+        "server.app.modules.tasks.runner.resolve_driver",
         lambda platform_code: stub_driver,
     )
 
@@ -283,7 +283,7 @@ def test_run_publish_stops_session_after_auto_publish(monkeypatch, tmp_path):
     stopped = []
     kept_alive = []
     monkeypatch.setattr(
-        "server.app.modules.tasks.runner.get_driver", lambda platform_code: _StubDriver()
+        "server.app.modules.tasks.runner.resolve_driver", lambda platform_code: _StubDriver()
     )
     monkeypatch.setattr(
         "server.app.modules.tasks.runner.stop_remote_browser_session",
@@ -326,7 +326,7 @@ def test_run_publish_keeps_session_for_manual_publish(monkeypatch, tmp_path):
     stopped = []
     kept_alive = []
     monkeypatch.setattr(
-        "server.app.modules.tasks.runner.get_driver", lambda platform_code: _StubDriver()
+        "server.app.modules.tasks.runner.resolve_driver", lambda platform_code: _StubDriver()
     )
     monkeypatch.setattr(
         "server.app.modules.tasks.runner.stop_remote_browser_session",
