@@ -38,7 +38,9 @@ _ADAPTER_JS = (Path(__file__).parent / "adapters" / "toutiao_publish.js").read_t
 # Confirmed logout redirect target is mp.toutiao.com/auth/page/login (spike 2026-06-02);
 # the others are defensive. Avoid a bare "login" substring — it false-positives.
 _LOGIN_HINTS = ("/auth/page/login", "passport", "sso.toutiao.com")
-_SECSDK_SETTLE_MS = 2500  # let acrawler/secsdk load + hook the request layer
+# Editor title box placeholder — its presence is our "logged-in + editor ready"
+# signal (also implies the acrawler/secsdk request hook has loaded).
+_EDITOR_TITLE_PLACEHOLDER = "请输入文章标题"
 
 
 def _word_count(content_html: str) -> int:
@@ -92,6 +94,26 @@ def _is_logged_out(url: str) -> bool:
     return any(hint in url for hint in _LOGIN_HINTS)
 
 
+def _wait_editor_ready(page: Any, timeout_ms: int = 15000) -> bool:
+    """True once the editor (title box) is present; False if a login wall persists.
+
+    Tolerates a transient post-goto redirect: poll for the editor title box
+    instead of judging login state from the URL in a single shot (which caught
+    a momentary redirect and wrongly raised UserInputRequired). Only concludes
+    logged-out if the login URL is still showing after the timeout.
+    """
+    waited, step = 0, 500
+    while waited < timeout_ms:
+        try:
+            if page.get_by_role("textbox", name=_EDITOR_TITLE_PLACEHOLDER).count() > 0:
+                return True
+        except Exception:
+            pass
+        page.wait_for_timeout(step)
+        waited += step
+    return not _is_logged_out(page.url)
+
+
 def _map_publish_response(result: dict[str, Any], title: str) -> PublishResult:
     """Map the in-page XHR result into a PublishResult, or raise.
 
@@ -140,8 +162,7 @@ class ToutiaoInPageDriver:
     ) -> PublishResult:
         content_html = body_segments_to_toutiao_html(payload.body_segments)
         page.goto(PUBLISH_URL, wait_until="domcontentloaded", timeout=60000)
-        page.wait_for_timeout(_SECSDK_SETTLE_MS)
-        if _is_logged_out(page.url):
+        if not _wait_editor_ready(page):
             raise UserInputRequired(
                 "头条账号未登录或登录态失效，需要人工接管",
                 error_type="login_required",

@@ -9,7 +9,11 @@ from server.app.modules.tasks.drivers.base import (
     PublishPayload,
     UserInputRequired,
 )
-from server.app.modules.tasks.drivers.toutiao_inpage import ToutiaoInPageDriver, build_publish_form
+from server.app.modules.tasks.drivers.toutiao_inpage import (
+    ToutiaoInPageDriver,
+    _is_logged_out,
+    build_publish_form,
+)
 
 
 def test_build_publish_form_minimal_draft():
@@ -59,6 +63,17 @@ class _FakePage:
             raise self._evaluate_result
         return self._evaluate_result
 
+    def get_by_role(self, role, name=None):
+        # Default page: the editor title box is present unless we are on a
+        # login wall. Subclasses override this to simulate slow-render / walls.
+        page = self
+
+        class _Loc:
+            def count(self_inner):
+                return 0 if _is_logged_out(page._url) else 1
+
+        return _Loc()
+
 
 def _payload():
     return PublishPayload(
@@ -107,3 +122,57 @@ def test_publish_api_error_raises_publish_error():
     driver = ToutiaoInPageDriver()
     with pytest.raises(PublishError):
         driver.publish(page=page, context=None, payload=_payload(), stop_before_publish=True)
+
+
+def test_publish_waits_for_editor_then_proceeds():
+    """Editor title box appears after a couple polls -> no false UserInputRequired."""
+
+    class _SlowReadyPage(_FakePage):
+        def __init__(self):
+            super().__init__(
+                url="https://mp.toutiao.com/profile_v4/graphic/publish",
+                evaluate_result={
+                    "httpStatus": 200,
+                    "data": {"code": 0, "data": {"pgc_id": "7"}},
+                    "raw": "{}",
+                },
+            )
+            self._title_polls = 0
+
+        def get_by_role(self, role, name=None):
+            page = self
+
+            class _Loc:
+                def count(self_inner):
+                    page._title_polls += 1
+                    return 1 if page._title_polls >= 3 else 0
+
+            return _Loc()
+
+    page = _SlowReadyPage()
+    result = ToutiaoInPageDriver().publish(
+        page=page, context=None, payload=_payload(), stop_before_publish=True
+    )
+    # The driver must actually poll for the editor (not proceed blindly),
+    # then proceed once it is ready.
+    assert page._title_polls >= 3
+    assert "7" in result.message
+
+
+def test_publish_persistent_login_wall_raises():
+    class _LoginPage(_FakePage):
+        def __init__(self):
+            super().__init__(url="https://mp.toutiao.com/auth/page/login?x=1", evaluate_result=None)
+
+        def get_by_role(self, role, name=None):
+            class _Loc:
+                def count(self_inner):
+                    return 0
+
+            return _Loc()
+
+    page = _LoginPage()
+    with pytest.raises(UserInputRequired):
+        ToutiaoInPageDriver().publish(
+            page=page, context=None, payload=_payload(), stop_before_publish=True
+        )
