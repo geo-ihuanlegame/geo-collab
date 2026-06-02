@@ -1,12 +1,19 @@
 """Tests for AI format lock handling and正文小标题 conversion."""
+
 from __future__ import annotations
 
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
 
+from server.app.modules.articles.ai_format import (
+    _apply_headings,
+    _derive_html_and_text,
+    _node_text,
+    _top_level_text_nodes,
+)
 from server.tests.utils import build_test_app
 
 
@@ -16,7 +23,10 @@ def _create_article(client, content_json: dict | None = None) -> dict:
         json={
             "title": "AI format test article",
             "content_json": content_json
-            or {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "hello"}]}]},
+            or {
+                "type": "doc",
+                "content": [{"type": "paragraph", "content": [{"type": "text", "text": "hello"}]}],
+            },
         },
     )
     assert response.status_code == 200
@@ -24,9 +34,7 @@ def _create_article(client, content_json: dict | None = None) -> dict:
 
 
 def _fake_completion(content: str):
-    return SimpleNamespace(
-        choices=[SimpleNamespace(message=SimpleNamespace(content=content))]
-    )
+    return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
 
 
 def _wait_until_unlocked(test_app, article_id: int, timeout: float = 3.0) -> None:
@@ -56,7 +64,7 @@ def test_edit_locked_article_returns_409(monkeypatch):
         with test_app.session_factory() as db:
             db_article = db.get(Article, article_id)
             db_article.ai_checking = True
-            db_article.ai_checking_started_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            db_article.ai_checking_started_at = datetime.now(UTC).replace(tzinfo=None)
             db.commit()
 
         response = client.put(
@@ -83,7 +91,7 @@ def test_delete_locked_article_returns_409(monkeypatch):
         with test_app.session_factory() as db:
             db_article = db.get(Article, article_id)
             db_article.ai_checking = True
-            db_article.ai_checking_started_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            db_article.ai_checking_started_at = datetime.now(UTC).replace(tzinfo=None)
             db.commit()
 
         response = client.delete(f"/api/articles/{article_id}")
@@ -104,7 +112,7 @@ def test_edit_expired_lock_allows_update(monkeypatch):
 
         from server.app.modules.articles.models import Article
 
-        expired_time = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=121)
+        expired_time = datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=121)
 
         with test_app.session_factory() as db:
             db_article = db.get(Article, article_id)
@@ -133,7 +141,7 @@ def test_read_expired_lock_clears_ai_checking(monkeypatch):
 
         from server.app.modules.articles.models import Article
 
-        expired_time = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=121)
+        expired_time = datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=121)
         with test_app.session_factory() as db:
             db_article = db.get(Article, article_id)
             db_article.ai_checking = True
@@ -169,14 +177,6 @@ def test_edit_unlocked_article_succeeds(monkeypatch):
         assert response.json()["title"] == "normal update"
     finally:
         test_app.cleanup()
-
-
-from server.app.modules.articles.ai_format import (
-    _apply_headings,
-    _derive_html_and_text,
-    _node_text,
-    _top_level_text_nodes,
-)
 
 
 def test_top_level_text_nodes_returns_paragraphs_and_headings():
@@ -222,7 +222,11 @@ def test_apply_headings_preserves_unselected_heading():
     doc = {
         "type": "doc",
         "content": [
-            {"type": "heading", "attrs": {"level": 1}, "content": [{"type": "text", "text": "Too long sentence."}]},
+            {
+                "type": "heading",
+                "attrs": {"level": 1},
+                "content": [{"type": "text", "text": "Too long sentence."}],
+            },
         ],
     }
     result = _apply_headings(doc, heading_indices=set())
@@ -234,7 +238,11 @@ def test_derive_html_and_text_generates_correct_output():
     doc = {
         "type": "doc",
         "content": [
-            {"type": "heading", "attrs": {"level": 1}, "content": [{"type": "text", "text": "Title"}]},
+            {
+                "type": "heading",
+                "attrs": {"level": 1},
+                "content": [{"type": "text", "text": "Title"}],
+            },
             {"type": "paragraph", "content": [{"type": "text", "text": "Body"}]},
         ],
     }
@@ -252,10 +260,10 @@ def test_ai_format_empty_indices_releases_lock_without_changing_content(monkeypa
         article = _create_article(test_app.client)
         article_id = article["id"]
 
-        from server.app.modules.articles.models import Article
         from server.app.modules.articles.ai_format import run_ai_format
+        from server.app.modules.articles.models import Article
 
-        lock_started_at = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
+        lock_started_at = datetime.now(UTC).replace(tzinfo=None, microsecond=0)
         with test_app.session_factory() as db:
             db_article = db.get(Article, article_id)
             original_content = db_article.content_json
@@ -308,9 +316,13 @@ def test_ai_format_button_path_triggers_image_insertion_when_categories_selected
 
         monkeypatch.setattr(
             "server.app.modules.articles.ai_format._call_litellm_completion",
-            lambda **_: _fake_completion('{"heading_indices": [0], "image_positions": [{"index": 0, "hint": "风景描写"}]}'),
+            lambda **_: _fake_completion(
+                '{"heading_indices": [0], "image_positions": [{"index": 0, "hint": "风景描写"}]}'
+            ),
         )
-        monkeypatch.setattr("server.app.modules.articles.ai_format._maybe_insert_images", fake_maybe_insert_images)
+        monkeypatch.setattr(
+            "server.app.modules.articles.ai_format._maybe_insert_images", fake_maybe_insert_images
+        )
         # The flow re-reads settings from the env (get_settings.cache_clear) and
         # requires an API key before the (mocked) model call. Set it here so the
         # test is hermetic instead of depending on the dev's ambient GEO_AI_* env.
@@ -329,6 +341,7 @@ def test_ai_format_button_path_triggers_image_insertion_when_categories_selected
 
 
 # ── _maybe_insert_images 单元测试（不依赖数据库）────────────────────────────
+
 
 def _make_article_stub(stock_category_id=None, stock_categories=None):
     """构造 Article stub，模拟 ORM 对象的关键属性。"""
@@ -352,7 +365,9 @@ def _simple_content():
 def test_render_ai_format_prompt_injects_category_names_without_private_fields():
     from server.app.modules.articles.ai_format import render_ai_format_prompt
 
-    text_nodes = [(0, {"type": "paragraph", "content": [{"type": "text", "text": "原神战斗画面很好看"}]})]
+    text_nodes = [
+        (0, {"type": "paragraph", "content": [{"type": "text", "text": "原神战斗画面很好看"}]})
+    ]
     template = (
         "{% for category in available_categories %}"
         "{{ category.id }} {{ category.name }} {{ category.description }} "
@@ -389,6 +404,7 @@ def test_headings_only_prompt_includes_node_text():
 
 def test_render_ai_format_prompt_strict_undefined_raises():
     from jinja2 import UndefinedError
+
     from server.app.modules.articles.ai_format import render_ai_format_prompt
 
     with pytest.raises(UndefinedError):
@@ -469,7 +485,9 @@ def test_maybe_insert_images_inserts_when_category_id_matches(monkeypatch):
     """category_id 有效，pick_image_id 返回图片 ID → 插入图片，count=1。"""
     from server.app.modules.articles.ai_format import _maybe_insert_images
 
-    fake_ref = SimpleNamespace(id=42, url="/api/stock-images/42/file", filename="test.jpg", width=800, height=600)
+    fake_ref = SimpleNamespace(
+        id=42, url="/api/stock-images/42/file", filename="test.jpg", width=800, height=600
+    )
 
     monkeypatch.setattr(
         "server.app.modules.articles.ai_format.pick_image_id",
@@ -485,6 +503,7 @@ def test_maybe_insert_images_inserts_when_category_id_matches(monkeypatch):
     )
 
     inserted_positions = []
+
     def fake_insert(content_json, refs, positions):
         inserted_positions.extend(positions)
         return content_json
@@ -514,15 +533,19 @@ def test_maybe_insert_images_uses_requested_category_id_from_position(monkeypatc
         return None
 
     monkeypatch.setattr("server.app.modules.articles.ai_format.pick_image_id", fake_pick)
-    monkeypatch.setattr("server.app.modules.articles.ai_format.fetch_image_by_id", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        "server.app.modules.articles.ai_format.fetch_image_by_id", lambda *a, **kw: None
+    )
 
     cats = [SimpleNamespace(id=10), SimpleNamespace(id=20), SimpleNamespace(id=30)]
     article = _make_article_stub(stock_categories=cats)
     # 两个位置分别指定不同 category
-    parsed = {"image_positions": [
-        {"index": 0, "category_id": 10},
-        {"index": 1, "category_id": 20},
-    ]}
+    parsed = {
+        "image_positions": [
+            {"index": 0, "category_id": 10},
+            {"index": 1, "category_id": 20},
+        ]
+    }
     _maybe_insert_images(_simple_content(), parsed, article, db=None)
 
     assert received_queries == [[10], [20]]
@@ -538,10 +561,16 @@ def test_maybe_insert_images_uses_requested_category_id(monkeypatch):
         received.append(list(query.category_ids))
         return 42
 
-    fake_ref = SimpleNamespace(id=42, url="/api/stock-images/42/file", filename="test.jpg", width=800, height=600)
+    fake_ref = SimpleNamespace(
+        id=42, url="/api/stock-images/42/file", filename="test.jpg", width=800, height=600
+    )
     monkeypatch.setattr("server.app.modules.articles.ai_format.pick_image_id", fake_pick)
-    monkeypatch.setattr("server.app.modules.articles.ai_format.fetch_image_by_id", lambda image_id, db: fake_ref)
-    monkeypatch.setattr("server.app.modules.articles.ai_format.has_images_in_content", lambda content: False)
+    monkeypatch.setattr(
+        "server.app.modules.articles.ai_format.fetch_image_by_id", lambda image_id, db: fake_ref
+    )
+    monkeypatch.setattr(
+        "server.app.modules.articles.ai_format.has_images_in_content", lambda content: False
+    )
     monkeypatch.setattr(
         "server.app.modules.articles.ai_format.insert_images_at_positions",
         lambda content_json, refs, positions: content_json,
@@ -565,7 +594,9 @@ def test_maybe_insert_images_skips_unavailable_requested_category(monkeypatch):
         "server.app.modules.articles.ai_format.pick_image_id",
         lambda *args, **kwargs: pick_called.append(args) or None,
     )
-    monkeypatch.setattr("server.app.modules.articles.ai_format.fetch_image_by_id", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        "server.app.modules.articles.ai_format.fetch_image_by_id", lambda *a, **kw: None
+    )
 
     article = _make_article_stub(stock_categories=[SimpleNamespace(id=10)])
     parsed = {"image_positions": [{"index": 0, "category_id": 99}]}
@@ -584,7 +615,9 @@ def test_maybe_insert_images_old_format_integers_skipped(monkeypatch):
         "server.app.modules.articles.ai_format.pick_image_id",
         lambda *a, **kw: pick_called.append(1) or None,
     )
-    monkeypatch.setattr("server.app.modules.articles.ai_format.fetch_image_by_id", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        "server.app.modules.articles.ai_format.fetch_image_by_id", lambda *a, **kw: None
+    )
 
     cat = SimpleNamespace(id=1)
     article = _make_article_stub(stock_categories=[cat])
@@ -605,10 +638,16 @@ def test_maybe_insert_images_fallback_to_old_stock_category_id(monkeypatch):
         received_ids.extend(query.category_ids)
         return 99
 
-    fake_ref = SimpleNamespace(id=99, url="/api/stock-images/99/file", filename="test.jpg", width=800, height=600)
+    fake_ref = SimpleNamespace(
+        id=99, url="/api/stock-images/99/file", filename="test.jpg", width=800, height=600
+    )
     monkeypatch.setattr("server.app.modules.articles.ai_format.pick_image_id", fake_pick)
-    monkeypatch.setattr("server.app.modules.articles.ai_format.fetch_image_by_id", lambda image_id, db: fake_ref)
-    monkeypatch.setattr("server.app.modules.articles.ai_format.has_images_in_content", lambda content: False)
+    monkeypatch.setattr(
+        "server.app.modules.articles.ai_format.fetch_image_by_id", lambda image_id, db: fake_ref
+    )
+    monkeypatch.setattr(
+        "server.app.modules.articles.ai_format.has_images_in_content", lambda content: False
+    )
     monkeypatch.setattr(
         "server.app.modules.articles.ai_format.insert_images_at_positions",
         lambda content_json, refs, positions: content_json,

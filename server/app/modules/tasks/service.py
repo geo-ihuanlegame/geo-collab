@@ -3,7 +3,8 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from sqlalchemy import select, update as sa_update
+from sqlalchemy import select
+from sqlalchemy import update as sa_update
 from sqlalchemy.orm import Session, selectinload
 
 from server.app.core.time import utcnow
@@ -11,13 +12,13 @@ from server.app.modules.accounts.models import Account
 from server.app.modules.articles.models import Article, ArticleGroup, ArticleGroupItem
 from server.app.modules.system.models import Platform
 from server.app.modules.tasks.models import PublishRecord, PublishTask, PublishTaskAccount, TaskLog
-from server.app.shared.errors import AccountError, ClientError, ConflictError, ValidationError
 from server.app.modules.tasks.schemas import (
     TaskAccountInput,
     TaskAssignmentPreviewItemRead,
     TaskAssignmentPreviewRead,
     TaskCreate,
 )
+from server.app.shared.errors import AccountError, ClientError, ValidationError
 
 _logger = logging.getLogger(__name__)
 
@@ -43,7 +44,9 @@ class AssignmentItem:
     account: Account
 
 
-def list_tasks(db: Session, skip: int = 0, limit: int = 100, user_id: int | None = None) -> list[PublishTask]:
+def list_tasks(
+    db: Session, skip: int = 0, limit: int = 100, user_id: int | None = None
+) -> list[PublishTask]:
     stmt = (
         select(PublishTask)
         .options(
@@ -100,7 +103,9 @@ def delete_all_tasks(db: Session) -> None:
     db.flush()
 
 
-def create_task(db: Session, user_id: int, payload: TaskCreate, role: str = "operator") -> PublishTask:
+def create_task(
+    db: Session, user_id: int, payload: TaskCreate, role: str = "operator"
+) -> PublishTask:
     if payload.client_request_id:
         existing = db.execute(
             select(PublishTask).where(
@@ -265,7 +270,9 @@ def retry_record(db: Session, record: PublishRecord) -> PublishRecord:
     if record.status != "failed":
         raise ClientError(f"Only failed records can be retried: {record.status}")
     if record.retry_of_record_id is not None:
-        raise ClientError("Retry records cannot be retried again; create a new task after checking the platform result")
+        raise ClientError(
+            "Retry records cannot be retried again; create a new task after checking the platform result"
+        )
 
     existing_retry = db.execute(
         select(PublishRecord).where(
@@ -284,7 +291,9 @@ def retry_record(db: Session, record: PublishRecord) -> PublishRecord:
             PublishRecord.account_id == record.account_id,
             PublishRecord.id != record.id,
             PublishRecord.is_deleted == False,  # noqa: E712
-            PublishRecord.status.in_(["pending", "running", "waiting_manual_publish", "waiting_user_input", "succeeded"]),
+            PublishRecord.status.in_(
+                ["pending", "running", "waiting_manual_publish", "waiting_user_input", "succeeded"]
+            ),
         )
         .order_by(PublishRecord.id.asc())
     ).scalar_one_or_none()
@@ -324,17 +333,21 @@ def recover_stuck_records(db: Session) -> None:
                 PublishRecord.lease_until < now,
                 PublishRecord.is_deleted == False,  # noqa: E712
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     for record in records:
         record.status = "pending"
         record.lease_until = None
-        db.add(TaskLog(
-            task_id=record.task_id,
-            record_id=record.id,
-            level="warn",
-            message="进程重启：记录在上次运行中意外中断，已重置为等待状态",
-        ))
+        db.add(
+            TaskLog(
+                task_id=record.task_id,
+                record_id=record.id,
+                level="warn",
+                message="进程重启：记录在上次运行中意外中断，已重置为等待状态",
+            )
+        )
     if records:
         _logger.warning("Recovered %d stuck records: %s", len(records), [r.id for r in records])
         db.commit()
@@ -343,7 +356,7 @@ def recover_stuck_records(db: Session) -> None:
 def recover_stuck_task_claims(db: Session) -> None:
     """Worker 启动时释放过期的 worker 认领（worker 崩溃导致 lease 过期）。"""
     now = utcnow()
-    rows = db.execute(
+    result = db.execute(
         sa_update(PublishTask)
         .where(
             PublishTask.worker_id.is_not(None),
@@ -351,7 +364,8 @@ def recover_stuck_task_claims(db: Session) -> None:
             PublishTask.is_deleted == False,  # noqa: E712
         )
         .values(worker_id=None, worker_lease_until=None, worker_heartbeat_at=None)
-    ).rowcount
+    )
+    rows = result.rowcount  # type: ignore[attr-defined]  # DML execute returns CursorResult
     if rows:
         _logger.warning("Released %d expired worker task claims", rows)
         db.commit()
@@ -366,7 +380,10 @@ def aggregate_task_status(db: Session, task: PublishTask, records: list[PublishR
         task.finished_at = now
         add_log(db, task.id, None, "warn", "Task finished with status: failed")
         return
-    if any(r.status in {"pending", "running", "waiting_manual_publish", "waiting_user_input"} for r in records):
+    if any(
+        r.status in {"pending", "running", "waiting_manual_publish", "waiting_user_input"}
+        for r in records
+    ):
         return
     if task.cancel_requested or any(r.status == "cancelled" for r in records):
         task.status = "cancelled"
@@ -375,11 +392,15 @@ def aggregate_task_status(db: Session, task: PublishTask, records: list[PublishR
         task.status = "succeeded"
         task.finished_at = now
     elif any(r.status == "failed" for r in records):
-        task.status = "partial_failed" if any(r.status == "succeeded" for r in records) else "failed"
+        task.status = (
+            "partial_failed" if any(r.status == "succeeded" for r in records) else "failed"
+        )
         task.finished_at = now
     if task.status in TERMINAL_TASK_STATUSES:
         add_log(
-            db, task.id, None,
+            db,
+            task.id,
+            None,
             "info" if task.status == "succeeded" else "warn",
             f"Task finished with status: {task.status}",
         )
@@ -415,11 +436,15 @@ def add_log(
     )
 
 
-def _validated_task_inputs(db: Session, payload: TaskCreate, user_id: int | None = None) -> TaskInputs:
+def _validated_task_inputs(
+    db: Session, payload: TaskCreate, user_id: int | None = None
+) -> TaskInputs:
     if payload.task_type not in VALID_TASK_TYPES:
         raise ValidationError(f"Invalid task_type: {payload.task_type}")
 
-    platform = db.execute(select(Platform).where(Platform.code == payload.platform_code)).scalar_one_or_none()
+    platform = db.execute(
+        select(Platform).where(Platform.code == payload.platform_code)
+    ).scalar_one_or_none()
     if platform is None:
         raise ClientError(f"Platform not found: {payload.platform_code}")
 
@@ -433,7 +458,9 @@ def _validated_task_inputs(db: Session, payload: TaskCreate, user_id: int | None
     return TaskInputs(platform=platform, accounts=ordered_accounts, article_ids=article_ids)
 
 
-def _build_assignments(article_ids: list[int], accounts: list[tuple[int, Account]]) -> list[AssignmentItem]:
+def _build_assignments(
+    article_ids: list[int], accounts: list[tuple[int, Account]]
+) -> list[AssignmentItem]:
     return [
         AssignmentItem(
             position=index,
@@ -460,13 +487,19 @@ def _validated_accounts(
         if item.account_id in seen:
             raise ValidationError(f"Duplicate account_id: {item.account_id}")
         seen.add(item.account_id)
-        ordered_inputs.append((item.sort_order if item.sort_order is not None else index, item.account_id))
+        ordered_inputs.append(
+            (item.sort_order if item.sort_order is not None else index, item.account_id)
+        )
     ordered_inputs.sort(key=lambda item: item[0])
 
     account_ids = [account_id for _, account_id in ordered_inputs]
     accounts = {
         account.id: account
-        for account in db.execute(select(Account).where(Account.id.in_(account_ids), Account.is_deleted == False)).scalars().all()
+        for account in db.execute(
+            select(Account).where(Account.id.in_(account_ids), Account.is_deleted == False)  # noqa: E712
+        )
+        .scalars()
+        .all()
     }
     ordered_accounts: list[tuple[int, Account]] = []
     for sort_order, account_id in ordered_inputs:
@@ -476,7 +509,9 @@ def _validated_accounts(
         if account.platform_id != platform_id:
             raise AccountError(f"Account platform mismatch: {account_id}")
         if account.status != "valid":
-            raise AccountError(f"Account {account_id} is {account.status}: please re-verify the account authorization")
+            raise AccountError(
+                f"Account {account_id} is {account.status}: please re-verify the account authorization"
+            )
         ordered_accounts.append((sort_order, account))
     return ordered_accounts
 
@@ -486,7 +521,9 @@ def _validate_unique_articles(article_ids: list[int]) -> None:
         raise ValidationError("Duplicate article_id in task assignment")
 
 
-def _article_ids_for_task(db: Session, payload: TaskCreate, user_id: int | None = None) -> list[int]:
+def _article_ids_for_task(
+    db: Session, payload: TaskCreate, user_id: int | None = None
+) -> list[int]:
     if payload.task_type == "single":
         if payload.article_id is None:
             raise ClientError("article_id is required for single task")
@@ -528,7 +565,9 @@ def _article_ids_for_task(db: Session, payload: TaskCreate, user_id: int | None 
                 Article.id.in_(article_ids),
                 Article.is_deleted == False,  # noqa: E712
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     missing_ids = [article_id for article_id in article_ids if article_id not in active_article_ids]
     if missing_ids:

@@ -8,6 +8,7 @@
 - PATCH  /api/skills/{id}         切换 is_enabled
 - DELETE /api/skills/{id}         软删除（204）
 """
+
 from fastapi.testclient import TestClient
 
 from server.app.core.security import create_access_token
@@ -50,7 +51,15 @@ class TestCreateSkill:
             assert skill["is_enabled"] is True
             assert skill["is_deleted"] is False
             assert isinstance(skill["id"], int)
-            for field in ("id", "name", "description", "content", "is_enabled", "is_deleted", "created_at"):
+            for field in (
+                "id",
+                "name",
+                "description",
+                "content",
+                "is_enabled",
+                "is_deleted",
+                "created_at",
+            ):
                 assert field in skill, f"Missing field: {field}"
         finally:
             test_app.cleanup()
@@ -374,13 +383,17 @@ class TestAuthBoundaries:
             skill_id = created.json()["id"]
 
             assert op_client.get("/api/skills").status_code == 200
-            assert op_client.put(
-                f"/api/skills/{skill_id}",
-                json={"name": "运营技能改", "content": "正文2"},
-            ).status_code == 200
-            assert op_client.patch(
-                f"/api/skills/{skill_id}", json={"is_enabled": False}
-            ).status_code == 200
+            assert (
+                op_client.put(
+                    f"/api/skills/{skill_id}",
+                    json={"name": "运营技能改", "content": "正文2"},
+                ).status_code
+                == 200
+            )
+            assert (
+                op_client.patch(f"/api/skills/{skill_id}", json={"is_enabled": False}).status_code
+                == 200
+            )
             assert op_client.delete(f"/api/skills/{skill_id}").status_code == 204
         finally:
             test_app.cleanup()

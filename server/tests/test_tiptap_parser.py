@@ -1,6 +1,8 @@
 from __future__ import annotations
+
 import types
-from server.app.modules.articles.parser import parse_body_segments, BodySegment
+
+from server.app.modules.articles.parser import BodySegment, parse_body_segments
 
 
 def _article(content_json="", plain_text="", html="", body_assets=None):
@@ -13,7 +15,9 @@ def _article(content_json="", plain_text="", html="", body_assets=None):
 
 
 def test_text_paragraph():
-    content = '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Hello"}]}]}'
+    content = (
+        '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Hello"}]}]}'
+    )
     segs = parse_body_segments(_article(content_json=content))
     texts = [s.text for s in segs if s.kind == "text"]
     assert any("Hello" in t for t in texts)
@@ -38,7 +42,9 @@ def test_stock_image_segment_has_stock_image_id_from_attr():
 
 
 def test_stock_image_segment_has_stock_image_id_from_src():
-    content = '{"type":"doc","content":[{"type":"image","attrs":{"src":"/api/stock-images/99/file"}}]}'
+    content = (
+        '{"type":"doc","content":[{"type":"image","attrs":{"src":"/api/stock-images/99/file"}}]}'
+    )
     segs = parse_body_segments(_article(content_json=content))
     img_segs = [s for s in segs if s.kind == "image"]
     assert len(img_segs) == 1
@@ -52,7 +58,7 @@ def test_body_segments_preserve_text_image_order_and_duplicate_images():
         '{"type":"image","attrs":{"assetId":"repeat-asset"}},'
         '{"type":"paragraph","content":[{"type":"text","text":"after"}]},'
         '{"type":"image","attrs":{"assetId":"repeat-asset"}}'
-        ']}'
+        "]}"
     )
 
     segs = parse_body_segments(_article(content_json=content))
@@ -91,6 +97,7 @@ def test_hard_break_produces_newline():
 
 def test_heading_segment_has_heading_level():
     import json
+
     doc = {
         "type": "doc",
         "content": [
@@ -108,6 +115,7 @@ def test_heading_segment_has_heading_level():
 
 def test_bold_mark_sets_bold_true():
     import json
+
     doc = {
         "type": "doc",
         "content": [
@@ -131,6 +139,7 @@ def test_compact_does_not_merge_across_bold_boundary():
         BodySegment(kind="text", text="c", bold=False),
     ]
     from server.app.modules.articles.parser import _compact
+
     result = _compact(segs)
     assert len(result) == 3
 
@@ -141,6 +150,7 @@ def test_compact_merges_same_bold_adjacent():
         BodySegment(kind="text", text="b", bold=True),
     ]
     from server.app.modules.articles.parser import _compact
+
     result = _compact(segs)
     assert len(result) == 1
     assert result[0].text == "ab"
@@ -153,5 +163,6 @@ def test_compact_does_not_merge_across_heading_level_boundary():
         BodySegment(kind="text", text="b", heading_level=None),
     ]
     from server.app.modules.articles.parser import _compact
+
     result = _compact(segs)
     assert len(result) == 2

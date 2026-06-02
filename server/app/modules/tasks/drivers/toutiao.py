@@ -3,16 +3,22 @@ from __future__ import annotations
 import logging
 import re
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator
-
-logger = logging.getLogger(__name__)
+from typing import Any
 
 from server.app.modules.articles.parser import BodySegment
-from server.app.modules.tasks.drivers.base import PublishError, PublishPayload, PublishResult, UserInputRequired
+from server.app.modules.tasks.drivers.base import (
+    PublishError,
+    PublishPayload,
+    PublishResult,
+    UserInputRequired,
+)
 from server.app.shared.diagnostics import publish_step, record_publish_diagnostic
+
+logger = logging.getLogger(__name__)
 
 TOUTIAO_PUBLISH_URL = "https://mp.toutiao.com/profile_v4/graphic/publish"
 _MAX_UPLOAD_WIDTH = 1920
@@ -30,7 +36,7 @@ PublishFillResult = PublishResult
 @dataclass(frozen=True)
 class BodyParagraph:
     kind: str  # "text" | "heading" | "image"
-    runs: tuple[tuple[str, bool], ...] = ()   # (text, is_bold)
+    runs: tuple[tuple[str, bool], ...] = ()  # (text, is_bold)
     heading_level: int | None = None
     image_path: Path | None = None
     image_asset_id: str | None = None
@@ -60,7 +66,9 @@ def _group_paragraphs(segments: list[BodySegment]) -> list[BodyParagraph]:
             _flush()
             current_hlevel = None
             paragraphs.append(
-                BodyParagraph(kind="image", image_path=seg.image_path, image_asset_id=seg.image_asset_id)
+                BodyParagraph(
+                    kind="image", image_path=seg.image_path, image_asset_id=seg.image_asset_id
+                )
             )
         elif seg.kind == "text" and seg.text == "\n":
             _flush()
@@ -269,6 +277,10 @@ def _fill_body(page: Any, segments: list[BodySegment]) -> None:
         _focus_body_editor_end(page)
 
         if para.kind == "image":
+            if para.image_path is None:
+                raise ToutiaoPublishError(
+                    f"正文图片未解析出文件路径: asset_id={para.image_asset_id}"
+                )
             _dismiss_blocking_popups(page)
             record_publish_diagnostic(f"body image upload: asset_id={para.image_asset_id}")
             _paste_body_image_path(page, para.image_path, para.image_asset_id)
@@ -329,7 +341,9 @@ def _verify_body_text_complete(page: Any, paragraphs: list[BodyParagraph]) -> No
             )
             raise ToutiaoPublishError(f"正文写入不完整，缺失片段: {chunk[:80]}", _screenshot(page))
         cursor = index + len(chunk)
-    record_publish_diagnostic(f"body verify ok: expected_chunks={len(expected_chunks)} actual_len={len(actual)}")
+    record_publish_diagnostic(
+        f"body verify ok: expected_chunks={len(expected_chunks)} actual_len={len(actual)}"
+    )
 
 
 def _clear_body_editor(page: Any) -> None:
@@ -365,11 +379,15 @@ def _clear_body_editor(page: Any) -> None:
 
         logger.warning(
             "Body editor not fully cleared (attempt %d/3): text_len=%d images=%d",
-            attempt + 1, len(text_left), images_left,
+            attempt + 1,
+            len(text_left),
+            images_left,
         )
         page.wait_for_timeout(300)
 
-    logger.warning("Body editor may still contain residual content after 3 clear attempts; proceeding anyway")
+    logger.warning(
+        "Body editor may still contain residual content after 3 clear attempts; proceeding anyway"
+    )
 
 
 def _select_body_editor_contents(page: Any) -> bool:
@@ -471,12 +489,14 @@ def _maybe_resize_for_upload(image_path: Path) -> Iterator[Path]:
                 tmp_path = Path(tmp.name)
                 tmp.close()
                 with _PILImage.open(image_path) as _img:
+                    out_img: _PILImage.Image = _img
                     if orig_width > _MAX_UPLOAD_WIDTH:
                         ratio = _MAX_UPLOAD_WIDTH / orig_width
-                        _img = _img.resize(
-                            (_MAX_UPLOAD_WIDTH, int(orig_height * ratio)), _PILImage.LANCZOS
+                        out_img = _img.resize(
+                            (_MAX_UPLOAD_WIDTH, int(orig_height * ratio)),
+                            _PILImage.Resampling.LANCZOS,
                         )
-                    _img.convert("RGB").save(tmp_path, "JPEG", quality=85)
+                    out_img.convert("RGB").save(tmp_path, "JPEG", quality=85)
                 record_publish_diagnostic(
                     f"image resized for upload: {image_path.name} "
                     f"({orig_width}px / {stat_size // 1024}KB) → JPEG 1920px"
@@ -497,7 +517,9 @@ def _paste_body_image_path(page: Any, image_path: Path, asset_id: str | None) ->
         raise ToutiaoPublishError(f"正文图片文件不存在: {asset_id or image_path}")
 
     before_count = _body_image_count(page)
-    record_publish_diagnostic(f"body image upload start: asset_id={asset_id}; before_count={before_count}")
+    record_publish_diagnostic(
+        f"body image upload start: asset_id={asset_id}; before_count={before_count}"
+    )
 
     try:
         with _maybe_resize_for_upload(image_path) as upload_path:
@@ -505,7 +527,9 @@ def _paste_body_image_path(page: Any, image_path: Path, asset_id: str | None) ->
             _upload_body_image_in_drawer(page, upload_path)
             _confirm_body_image_drawer(page)
             _wait_body_image_inserted(page, before_count)
-        record_publish_diagnostic(f"body image inserted: asset_id={asset_id}; after_count={_body_image_count(page)}")
+        record_publish_diagnostic(
+            f"body image inserted: asset_id={asset_id}; after_count={_body_image_count(page)}"
+        )
     except Exception as exc:
         after_count = _body_image_count(page)
         page_closed = _page_is_closed(page)
@@ -636,7 +660,7 @@ def _wait_publish_images_ready(page: Any, timeout_ms: int = 60000) -> None:
 def _publish_image_state(page: Any) -> dict[str, Any]:
     try:
         return page.evaluate(
-        """
+            """
         () => {
           const editables = Array.from(document.querySelectorAll("[contenteditable='true']"));
           const images = editables.flatMap((node) => Array.from(node.querySelectorAll("img")));
@@ -712,7 +736,9 @@ def _handle_cover(page: Any, cover_path: Path, cover_asset_id: str | None) -> No
     """上传封面图片。封面图是必填项，路径已由 runner 预先解析。"""
     if not cover_path.exists():
         raise ToutiaoPublishError(f"Cover asset file not found: {cover_asset_id or cover_path}")
-    record_publish_diagnostic(f"cover upload start: asset_id={cover_asset_id}; path={cover_path.name}")
+    record_publish_diagnostic(
+        f"cover upload start: asset_id={cover_asset_id}; path={cover_path.name}"
+    )
 
     try:
         _click_cover_upload_entry(page)
@@ -830,7 +856,9 @@ def _click_publish_and_wait(page: Any, stop_before_publish: bool = False) -> str
     except Exception as exc:
         body_hint = _body_text_hint(page)
         screenshot = _screenshot(page)
-        raise ToutiaoPublishError(f"无法点击「确认发布」按钮: {exc}\n页面内容摘要: {body_hint}", screenshot) from exc
+        raise ToutiaoPublishError(
+            f"无法点击「确认发布」按钮: {exc}\n页面内容摘要: {body_hint}", screenshot
+        ) from exc
 
     page.wait_for_timeout(500)
 
@@ -953,7 +981,9 @@ def _install_draft_cleanup_script(page: Any) -> None:
         logger.warning("Failed to install draft cleanup init_script", exc_info=True)
 
 
-def _do_publish(page: Any, context: Any, payload: PublishPayload, stop_before_publish: bool) -> PublishResult:
+def _do_publish(
+    page: Any, context: Any, payload: PublishPayload, stop_before_publish: bool
+) -> PublishResult:
     """
     核心发布逻辑。
 
@@ -1024,5 +1054,7 @@ class ToutiaoDriver:
         return _do_publish(page, context, payload, stop_before_publish)
 
 
-from server.app.modules.tasks.drivers import register
+# register() 需在 ToutiaoDriver 定义之后调用，故 import 置于文件末尾
+from server.app.modules.tasks.drivers import register  # noqa: E402
+
 register(ToutiaoDriver())

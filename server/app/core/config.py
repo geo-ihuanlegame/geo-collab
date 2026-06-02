@@ -16,6 +16,7 @@
   GEO_PUBLISH_NOVNC_WEB_DIR           noVNC 静态文件目录
   GEO_PUBLISH_REMOTE_BROWSER_HOST     对外暴露的 host（默认 127.0.0.1）
 """
+
 from functools import lru_cache
 from pathlib import Path
 
@@ -64,9 +65,9 @@ class Settings(BaseSettings):
 
     # MinIO 图片库存储
     minio_endpoint: str = "localhost:9000"  # GEO_MINIO_ENDPOINT
-    minio_access_key: str = ""             # GEO_MINIO_ACCESS_KEY
-    minio_secret_key: str = ""             # GEO_MINIO_SECRET_KEY
-    minio_secure: bool = False             # GEO_MINIO_SECURE
+    minio_access_key: str = ""  # GEO_MINIO_ACCESS_KEY
+    minio_secret_key: str = ""  # GEO_MINIO_SECRET_KEY
+    minio_secure: bool = False  # GEO_MINIO_SECURE
 
     model_config = SettingsConfigDict(env_prefix="GEO_", env_file=".env", extra="ignore")
 
@@ -83,9 +84,8 @@ MAX_ZIP_BYTES: int = 50 * 1024 * 1024  # 50 MB
 # Allowed magic bytes for image uploads
 ALLOWED_MAGIC: list[bytes] = [
     b"\x89PNG\r\n\x1a\n",  # PNG
-    b"\xff\xd8",            # JPEG
-    b"RIFF",                # WebP (also check bytes 8:12 == b"WEBP")
-    b"GIF87a",              # GIF
-    b"GIF89a",              # GIF
+    b"\xff\xd8",  # JPEG
+    b"RIFF",  # WebP (also check bytes 8:12 == b"WEBP")
+    b"GIF87a",  # GIF
+    b"GIF89a",  # GIF
 ]
-

@@ -6,6 +6,7 @@ Run as: python -m server.worker.executor
 Each worker registers itself with a unique WORKER_ID (hostname + PID).
 Tasks are claimed atomically via optimistic locking on the worker_id column.
 """
+
 from __future__ import annotations
 
 import logging
@@ -16,12 +17,12 @@ import threading
 import time
 from datetime import timedelta
 
-from sqlalchemy import select, update as sa_update
+from sqlalchemy import select
+from sqlalchemy import update as sa_update
 
+import server.app.modules.image_library.models  # noqa: F401  # 确保 StockCategory 注册到 mapper registry（Article.stock_category 关系依赖它）
 from server.app.core.time import utcnow
 from server.app.db.session import SessionLocal
-from server.app.modules.tasks.models import PublishRecord, PublishTask
-from server.app.modules.system.models import WorkerHeartbeat
 from server.app.modules.accounts import process_account_login_session_requests
 from server.app.modules.accounts.models import (
     Account,
@@ -31,14 +32,14 @@ from server.app.modules.accounts.models import (
     RecordBrowserSession,
 )
 from server.app.modules.accounts.service import profile_key_from_state_path
-import server.app.modules.image_library.models  # noqa: F401  # 确保 StockCategory 注册到 mapper registry（Article.stock_category 关系依赖它）
+from server.app.modules.system.models import WorkerHeartbeat
 from server.app.modules.tasks import (
-    TERMINAL_TASK_STATUSES,
     execute_task,
     get_task,
     recover_stuck_records,
     recover_stuck_task_claims,
 )
+from server.app.modules.tasks.models import PublishRecord, PublishTask
 
 _logger = logging.getLogger(__name__)
 
@@ -63,6 +64,7 @@ def _handle_signal(signum, frame) -> None:
 def _claim_next_task(db) -> PublishTask | None:
     """Claim a pending task with pending records via optimistic locking. Returns the task or None."""
     from sqlalchemy import exists
+
     from server.app.modules.tasks.models import PublishRecord
 
     # Find a task with at least one pending record and no active worker claim
@@ -222,20 +224,21 @@ def _check_stuck_tasks(db) -> None:
         list_task_records,
     )
 
-    stuck_tasks = db.execute(
-        select(PublishTask).where(
-            PublishTask.status == "running",
-            PublishTask.worker_id.is_(None),
-            PublishTask.is_deleted == False,
+    stuck_tasks = (
+        db.execute(
+            select(PublishTask).where(
+                PublishTask.status == "running",
+                PublishTask.worker_id.is_(None),
+                PublishTask.is_deleted == False,  # noqa: E712
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     for t in stuck_tasks:
         records = list_task_records(db, t.id)
-        all_terminal = all(
-            r.status in TERMINAL_TASK_STATUSES
-            for r in records
-        ) if records else True
+        all_terminal = all(r.status in TERMINAL_TASK_STATUSES for r in records) if records else True
         if all_terminal:
             _logger.warning("Recovering stuck task %d (running but all records terminal)", t.id)
             aggregate_task_status(db, t, records)
@@ -265,7 +268,9 @@ def main() -> None:
         db.close()
 
     _logger.info("Worker %s entering main loop", WORKER_ID)
-    login_thread = threading.Thread(target=_account_login_loop, daemon=True, name="account-login-worker")
+    login_thread = threading.Thread(
+        target=_account_login_loop, daemon=True, name="account-login-worker"
+    )
     login_thread.start()
 
     _recovery_cycle = 0

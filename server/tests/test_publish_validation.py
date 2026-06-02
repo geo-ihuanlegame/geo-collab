@@ -21,6 +21,7 @@ def _execute_and_wait(client, task_id: int, max_wait: float = 5.0) -> dict:
     assert resp.status_code == 202
     assert resp.json() == {"queued": True}
     import time as _time
+
     deadline = _time.time() + max_wait
     while _time.time() < deadline:
         task = client.get(f"/api/tasks/{task_id}").json()
@@ -28,7 +29,9 @@ def _execute_and_wait(client, task_id: int, max_wait: float = 5.0) -> dict:
             if task["status"] in ("succeeded", "failed", "partial_failed", "cancelled"):
                 return task
         _time.sleep(0.05)
-    raise AssertionError(f"Task {task_id} did not complete within {max_wait}s (last status: {task.get('status', '?')})")
+    raise AssertionError(
+        f"Task {task_id} did not complete within {max_wait}s (last status: {task.get('status', '?')})"
+    )
 
 
 def _write_storage_state(data_dir, account_key: str) -> None:
@@ -178,7 +181,9 @@ def test_no_cover_fails_publish(monkeypatch):
             "server.app.modules.tasks.executor.build_publish_runner_for_record",
             lambda record: FakePublisher(),
         )
-        article_id = _create_article(client, "Test Article", plain_text="Some body text", cover_asset_id=None)
+        article_id = _create_article(
+            client, "Test Article", plain_text="Some body text", cover_asset_id=None
+        )
         account_id = _create_account(client, test_app.data_dir, "account-y", "Account Y")
 
         task = client.post(
@@ -213,11 +218,14 @@ def test_empty_title_fails_publish(monkeypatch):
             lambda record: FakePublisher(),
         )
         cover_id = _upload_cover_image(client)
-        article_id = _create_article(client, "Will Be Cleared", plain_text="Some body text", cover_asset_id=cover_id)
+        article_id = _create_article(
+            client, "Will Be Cleared", plain_text="Some body text", cover_asset_id=cover_id
+        )
         account_id = _create_account(client, test_app.data_dir, "account-z", "Account Z")
 
         with test_app.session_factory() as db:
             from server.app.modules.articles.models import Article
+
             article = db.get(Article, article_id)
             assert article is not None
             article.title = ""

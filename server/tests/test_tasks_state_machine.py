@@ -1,11 +1,14 @@
 import threading
 import time as _time
-from unittest.mock import patch
 
 import pytest
 
+from server.app.modules.tasks.drivers.toutiao import (
+    PublishFillResult,
+    ToutiaoPublishError,
+    ToutiaoUserInputRequired,
+)
 from server.app.modules.tasks.models import PublishRecord
-from server.app.modules.tasks.drivers.toutiao import PublishFillResult, ToutiaoPublishError, ToutiaoUserInputRequired
 from server.tests.utils import build_test_app
 
 
@@ -20,7 +23,9 @@ def _execute_and_wait(client, task_id: int, max_wait: float = 5.0) -> dict:
             if task["status"] in ("succeeded", "failed", "partial_failed", "cancelled"):
                 return task
         _time.sleep(0.05)
-    raise AssertionError(f"Task {task_id} did not complete within {max_wait}s (last status: {task.get('status', '?')})")
+    raise AssertionError(
+        f"Task {task_id} did not complete within {max_wait}s (last status: {task.get('status', '?')})"
+    )
 
 
 class FakePublisher:
@@ -38,19 +43,25 @@ class FakePublisher:
         return self.result
 
 
-def _create_article(client, title: str, *, plain_text: str = "", cover_asset_id: str | None = None) -> int:
-    resp = client.post("/api/articles", json={
-        "title": title,
-        "content_json": {"type": "doc", "content": []},
-        "plain_text": plain_text,
-        "cover_asset_id": cover_asset_id,
-    })
+def _create_article(
+    client, title: str, *, plain_text: str = "", cover_asset_id: str | None = None
+) -> int:
+    resp = client.post(
+        "/api/articles",
+        json={
+            "title": title,
+            "content_json": {"type": "doc", "content": []},
+            "plain_text": plain_text,
+            "cover_asset_id": cover_asset_id,
+        },
+    )
     assert resp.status_code == 200
     return resp.json()["id"]
 
 
 def _upload_cover_image(client) -> str:
     from io import BytesIO
+
     png_bytes = (
         b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
         b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\x0f"
@@ -94,7 +105,9 @@ def test_stop_before_publish_enters_waiting_state(monkeypatch):
             lambda record: FakePublisher(),
         )
         cover_id = _upload_cover_image(client)
-        article_id = _create_article(client, "Article A", plain_text="Body A", cover_asset_id=cover_id)
+        article_id = _create_article(
+            client, "Article A", plain_text="Body A", cover_asset_id=cover_id
+        )
         account_id = _create_account(client, test_app.data_dir, "account-a", "Account A")
         task = client.post(
             "/api/tasks",
@@ -147,8 +160,12 @@ def test_user_input_required_pauses_record(monkeypatch):
             lambda record: publisher,
         )
         cover_id = _upload_cover_image(client)
-        article_id = _create_article(client, "Article Needs Input", plain_text="Body", cover_asset_id=cover_id)
-        account_id = _create_account(client, test_app.data_dir, "account-needs-input", "Needs Input")
+        article_id = _create_article(
+            client, "Article Needs Input", plain_text="Body", cover_asset_id=cover_id
+        )
+        account_id = _create_account(
+            client, test_app.data_dir, "account-needs-input", "Needs Input"
+        )
         task = client.post(
             "/api/tasks",
             json={
@@ -205,7 +222,9 @@ def test_resolve_user_input_requeues_and_continues(monkeypatch):
             lambda record: LoginThenSuccessPublisher(),
         )
         cover_id = _upload_cover_image(client)
-        article_id = _create_article(client, "Article Resume", plain_text="Body", cover_asset_id=cover_id)
+        article_id = _create_article(
+            client, "Article Resume", plain_text="Body", cover_asset_id=cover_id
+        )
         account_id = _create_account(client, test_app.data_dir, "account-resume", "Resume Account")
         task = client.post(
             "/api/tasks",
@@ -265,7 +284,9 @@ def test_manual_confirm_succeeded(monkeypatch):
             lambda record: FakePublisher(),
         )
         cover_id = _upload_cover_image(client)
-        article_id = _create_article(client, "Article A", plain_text="Body A", cover_asset_id=cover_id)
+        article_id = _create_article(
+            client, "Article A", plain_text="Body A", cover_asset_id=cover_id
+        )
         account_id = _create_account(client, test_app.data_dir, "account-a", "Account A")
         task = client.post(
             "/api/tasks",
@@ -319,7 +340,9 @@ def test_manual_confirm_failed(monkeypatch):
             lambda record: FakePublisher(),
         )
         cover_id = _upload_cover_image(client)
-        article_id = _create_article(client, "Article A", plain_text="Body A", cover_asset_id=cover_id)
+        article_id = _create_article(
+            client, "Article A", plain_text="Body A", cover_asset_id=cover_id
+        )
         account_id = _create_account(client, test_app.data_dir, "account-a", "Account A")
         task = client.post(
             "/api/tasks",
@@ -373,8 +396,12 @@ def test_manual_confirm_does_not_block_with_next_record(monkeypatch):
             lambda record: FakePublisher(),
         )
         cover_id = _upload_cover_image(client)
-        article_1 = _create_article(client, "Article 1", plain_text="Body 1", cover_asset_id=cover_id)
-        article_2 = _create_article(client, "Article 2", plain_text="Body 2", cover_asset_id=cover_id)
+        article_1 = _create_article(
+            client, "Article 1", plain_text="Body 1", cover_asset_id=cover_id
+        )
+        article_2 = _create_article(
+            client, "Article 2", plain_text="Body 2", cover_asset_id=cover_id
+        )
         account_id = _create_account(client, test_app.data_dir, "account-a", "Account A")
 
         group = client.post("/api/article-groups", json={"name": "Group"}).json()
@@ -416,6 +443,7 @@ def test_manual_confirm_does_not_block_with_next_record(monkeypatch):
 
         # Direct unit test: manual_confirm_record service function
         from server.app.modules.tasks import manual_confirm_record
+
         db2 = test_app.session_factory()
         try:
             rec1 = db2.get(PublishRecord, records[0]["id"])
@@ -445,7 +473,9 @@ def test_unexpected_exception_marks_record_failed(monkeypatch):
             lambda record: FakePublisher(error=ValueError("Something unexpected broke")),
         )
         cover_id = _upload_cover_image(client)
-        article_id = _create_article(client, "Article A", plain_text="Article body", cover_asset_id=cover_id)
+        article_id = _create_article(
+            client, "Article A", plain_text="Article body", cover_asset_id=cover_id
+        )
         account_id = _create_account(client, test_app.data_dir, "account-a", "Account A")
         task = client.post(
             "/api/tasks",
@@ -489,7 +519,9 @@ def test_execute_terminal_task_returns_409(monkeypatch):
             lambda record: FakePublisher(),
         )
         cover_id = _upload_cover_image(client)
-        article_id = _create_article(client, "Article A", plain_text="Body A", cover_asset_id=cover_id)
+        article_id = _create_article(
+            client, "Article A", plain_text="Body A", cover_asset_id=cover_id
+        )
         account_id = _create_account(client, test_app.data_dir, "account-a", "Account A")
         task = client.post(
             "/api/tasks",
@@ -565,7 +597,9 @@ def test_concurrent_execute_only_one_succeeds(monkeypatch):
         from server.app.modules.tasks import executor as tasks_mod
 
         cover_id = _upload_cover_image(client)
-        article_id = _create_article(client, "Concurrent Article", plain_text="Body", cover_asset_id=cover_id)
+        article_id = _create_article(
+            client, "Concurrent Article", plain_text="Body", cover_asset_id=cover_id
+        )
         account_id = _create_account(client, test_app.data_dir, "account-c", "Concurrent Account")
         task = client.post(
             "/api/tasks",
@@ -616,11 +650,23 @@ def test_concurrent_execute_only_one_succeeds(monkeypatch):
         test_app.cleanup()
 
 
-def _create_group_task(client, name: str, article_ids: list[int], account_ids: list[int], *, stop_before_publish: bool = False) -> dict:
+def _create_group_task(
+    client,
+    name: str,
+    article_ids: list[int],
+    account_ids: list[int],
+    *,
+    stop_before_publish: bool = False,
+) -> dict:
     group = client.post("/api/article-groups", json={"name": name}).json()
     client.put(
         f"/api/article-groups/{group['id']}/items",
-        json={"items": [{"article_id": article_id, "sort_order": index} for index, article_id in enumerate(article_ids)]},
+        json={
+            "items": [
+                {"article_id": article_id, "sort_order": index}
+                for index, article_id in enumerate(article_ids)
+            ]
+        },
     )
     return client.post(
         "/api/tasks",
@@ -628,7 +674,10 @@ def _create_group_task(client, name: str, article_ids: list[int], account_ids: l
             "name": name,
             "task_type": "group_round_robin",
             "group_id": group["id"],
-            "accounts": [{"account_id": account_id, "sort_order": index} for index, account_id in enumerate(account_ids)],
+            "accounts": [
+                {"account_id": account_id, "sort_order": index}
+                for index, account_id in enumerate(account_ids)
+            ],
             "stop_before_publish": stop_before_publish,
         },
     ).json()
@@ -672,10 +721,15 @@ def test_group_task_runs_different_accounts_concurrently_with_cap(monkeypatch):
             )
 
     try:
-        monkeypatch.setattr("server.app.modules.tasks.executor.build_publish_runner_for_record", lambda record: SlowPublisher())
+        monkeypatch.setattr(
+            "server.app.modules.tasks.executor.build_publish_runner_for_record",
+            lambda record: SlowPublisher(),
+        )
         cover_id = _upload_cover_image(client)
         article_ids = [
-            _create_article(client, f"Article {index}", plain_text=f"Body {index}", cover_asset_id=cover_id)
+            _create_article(
+                client, f"Article {index}", plain_text=f"Body {index}", cover_asset_id=cover_id
+            )
             for index in range(6)
         ]
         account_ids = [
@@ -688,7 +742,10 @@ def test_group_task_runs_different_accounts_concurrently_with_cap(monkeypatch):
 
         assert task_detail["status"] == "succeeded"
         assert max_active == 5
-        assert all(record["status"] == "succeeded" for record in client.get(f"/api/tasks/{task['id']}/records").json())
+        assert all(
+            record["status"] == "succeeded"
+            for record in client.get(f"/api/tasks/{task['id']}/records").json()
+        )
     finally:
         test_app.cleanup()
 
@@ -704,7 +761,9 @@ def test_group_task_serializes_records_for_same_account(monkeypatch):
         def __call__(self, article, account, *, stop_before_publish=False):
             with lock:
                 active_by_account[account.id] = active_by_account.get(account.id, 0) + 1
-                max_for_account[account.id] = max(max_for_account.get(account.id, 0), active_by_account[account.id])
+                max_for_account[account.id] = max(
+                    max_for_account.get(account.id, 0), active_by_account[account.id]
+                )
             _time.sleep(0.15)
             with lock:
                 active_by_account[account.id] -= 1
@@ -715,10 +774,18 @@ def test_group_task_serializes_records_for_same_account(monkeypatch):
             )
 
     try:
-        monkeypatch.setattr("server.app.modules.tasks.executor.build_publish_runner_for_record", lambda record: SlowPublisher())
+        monkeypatch.setattr(
+            "server.app.modules.tasks.executor.build_publish_runner_for_record",
+            lambda record: SlowPublisher(),
+        )
         cover_id = _upload_cover_image(client)
         article_ids = [
-            _create_article(client, f"Serial Article {index}", plain_text=f"Body {index}", cover_asset_id=cover_id)
+            _create_article(
+                client,
+                f"Serial Article {index}",
+                plain_text=f"Body {index}",
+                cover_asset_id=cover_id,
+            )
             for index in range(3)
         ]
         account_id = _create_account(client, test_app.data_dir, "serial-account", "Serial Account")
@@ -747,11 +814,18 @@ def test_failed_record_does_not_block_next_record(monkeypatch):
             )
 
     try:
-        monkeypatch.setattr("server.app.modules.tasks.executor.build_publish_runner_for_record", lambda record: MixedPublisher())
+        monkeypatch.setattr(
+            "server.app.modules.tasks.executor.build_publish_runner_for_record",
+            lambda record: MixedPublisher(),
+        )
         cover_id = _upload_cover_image(client)
         first = _create_article(client, "fail first", plain_text="Body 1", cover_asset_id=cover_id)
-        second = _create_article(client, "publish second", plain_text="Body 2", cover_asset_id=cover_id)
-        account_id = _create_account(client, test_app.data_dir, "continue-account", "Continue Account")
+        second = _create_article(
+            client, "publish second", plain_text="Body 2", cover_asset_id=cover_id
+        )
+        account_id = _create_account(
+            client, test_app.data_dir, "continue-account", "Continue Account"
+        )
         task = _create_group_task(client, "continue after failure", [first, second], [account_id])
 
         task_detail = _execute_and_wait(client, task["id"], max_wait=10.0)
@@ -787,12 +861,20 @@ def test_execute_and_cancel_race_does_not_leave_corrupt_state(monkeypatch):
             lambda record: SlowFakePublisher(),
         )
         cover_id = _upload_cover_image(client)
-        article_id = _create_article(client, "Race Test", plain_text="body", cover_asset_id=cover_id)
+        article_id = _create_article(
+            client, "Race Test", plain_text="body", cover_asset_id=cover_id
+        )
         account_id = _create_account(client, test_app.data_dir, "race-acct", "Race Acct")
-        task = client.post("/api/tasks", json={
-            "name": "race task", "task_type": "single", "article_id": article_id,
-            "accounts": [{"account_id": account_id}], "stop_before_publish": False,
-        }).json()
+        task = client.post(
+            "/api/tasks",
+            json={
+                "name": "race task",
+                "task_type": "single",
+                "article_id": article_id,
+                "accounts": [{"account_id": account_id}],
+                "stop_before_publish": False,
+            },
+        ).json()
 
         execute_resp = client.post(f"/api/tasks/{task['id']}/execute")
         assert execute_resp.status_code == 202

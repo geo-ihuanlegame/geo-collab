@@ -6,10 +6,10 @@ import uuid
 from pathlib import Path
 
 import pytest
-from alembic import command
 from alembic.config import Config as AlembicConfig
 from sqlalchemy import create_engine, inspect, text
 
+from alembic import command
 from server.app.core.config import get_settings
 from server.tests.utils import build_test_app, get_test_database_url, reset_test_database
 
@@ -19,7 +19,10 @@ def _new_temp_data_dir() -> Path:
 
 
 def _tiptap_doc() -> dict:
-    return {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "hello"}]}]}
+    return {
+        "type": "doc",
+        "content": [{"type": "paragraph", "content": [{"type": "text", "text": "hello"}]}],
+    }
 
 
 @pytest.mark.mysql
@@ -88,7 +91,9 @@ def test_alembic_upgrade_from_empty_mysql_to_head(monkeypatch):
         assert expected_tables.issubset(tables), f"Missing tables: {expected_tables - tables}"
 
         with engine.connect() as conn:
-            rows = conn.execute(text("SHOW INDEX FROM articles WHERE Key_name = 'ft_articles'")).fetchall()
+            rows = conn.execute(
+                text("SHOW INDEX FROM articles WHERE Key_name = 'ft_articles'")
+            ).fetchall()
         assert rows, "MySQL FULLTEXT index ft_articles was not created"
     finally:
         reset_test_database(engine, create_schema=False)
@@ -112,7 +117,11 @@ def test_mysql_fulltext_index_contains_plain_text(monkeypatch):
         command.upgrade(cfg, "head")
 
         with engine.connect() as conn:
-            rows = conn.execute(text("SHOW INDEX FROM articles WHERE Key_name = 'ft_articles'")).mappings().all()
+            rows = (
+                conn.execute(text("SHOW INDEX FROM articles WHERE Key_name = 'ft_articles'"))
+                .mappings()
+                .all()
+            )
         indexed_columns = {row["Column_name"] for row in rows}
         assert {"title", "author", "plain_text"}.issubset(indexed_columns)
     finally:

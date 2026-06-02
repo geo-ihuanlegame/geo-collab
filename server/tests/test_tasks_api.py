@@ -9,6 +9,7 @@ def _execute_and_wait(client, task_id: int, max_wait: float = 5.0) -> dict:
     assert resp.status_code == 202
     assert resp.json() == {"queued": True}
     import time as _time
+
     deadline = _time.time() + max_wait
     while _time.time() < deadline:
         task = client.get(f"/api/tasks/{task_id}").json()
@@ -16,11 +17,15 @@ def _execute_and_wait(client, task_id: int, max_wait: float = 5.0) -> dict:
             if task["status"] in ("succeeded", "failed", "partial_failed", "cancelled"):
                 return task
         _time.sleep(0.05)
-    raise AssertionError(f"Task {task_id} did not complete within {max_wait}s (last status: {task.get('status', '?')})")
+    raise AssertionError(
+        f"Task {task_id} did not complete within {max_wait}s (last status: {task.get('status', '?')})"
+    )
 
 
 class FakePublisher:
-    def __init__(self, result: PublishFillResult | None = None, error: ToutiaoPublishError | None = None):
+    def __init__(
+        self, result: PublishFillResult | None = None, error: ToutiaoPublishError | None = None
+    ):
         self.result = result or PublishFillResult(
             url="https://mp.toutiao.com/article/123456",
             title="test article",
@@ -50,7 +55,9 @@ def create_account(client, data_dir, account_key: str, display_name: str) -> int
     return response.json()["id"]
 
 
-def create_article(client, title: str, *, plain_text: str = "", cover_asset_id: str | None = None) -> int:
+def create_article(
+    client, title: str, *, plain_text: str = "", cover_asset_id: str | None = None
+) -> int:
     response = client.post(
         "/api/articles",
         json={
@@ -66,6 +73,7 @@ def create_article(client, title: str, *, plain_text: str = "", cover_asset_id: 
 
 def _upload_cover_image(client) -> str:
     from io import BytesIO
+
     png_bytes = (
         b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
         b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\x0f"
@@ -106,7 +114,12 @@ def test_create_single_task_generates_one_publish_record(monkeypatch):
         assert task["group_id"] is None
         assert task["record_count"] == 1
         assert task["accounts"] == [
-            {"account_id": account_id, "sort_order": 0, "display_name": "Account A", "status": "valid"}
+            {
+                "account_id": account_id,
+                "sort_order": 0,
+                "display_name": "Account A",
+                "status": "valid",
+            }
         ]
 
         detail = client.get(f"/api/tasks/{task['id']}")
@@ -303,7 +316,9 @@ def test_execute_single_task_auto_succeeds(monkeypatch):
             lambda record: FakePublisher()._runner,
         )
         cover_id = _upload_cover_image(client)
-        article_id = create_article(client, "Article A", plain_text="Article body text", cover_asset_id=cover_id)
+        article_id = create_article(
+            client, "Article A", plain_text="Article body text", cover_asset_id=cover_id
+        )
         account_id = create_account(client, test_app.data_dir, "account-a", "Account A")
         task = client.post(
             "/api/tasks",
@@ -316,7 +331,7 @@ def test_execute_single_task_auto_succeeds(monkeypatch):
         ).json()
         assert task["stop_before_publish"] is False
 
-        executed = _execute_and_wait(client, task['id'])
+        executed = _execute_and_wait(client, task["id"])
 
         assert executed["status"] == "succeeded"
         assert executed["started_at"] is not None
@@ -348,10 +363,17 @@ def test_execute_task_records_publish_diagnostics(monkeypatch):
         )
 
     try:
-        monkeypatch.setattr("server.app.modules.tasks.executor.build_publish_runner_for_record", lambda record: runner)
+        monkeypatch.setattr(
+            "server.app.modules.tasks.executor.build_publish_runner_for_record",
+            lambda record: runner,
+        )
         cover_id = _upload_cover_image(client)
-        article_id = create_article(client, "Diagnostic Article", plain_text="Article body", cover_asset_id=cover_id)
-        account_id = create_account(client, test_app.data_dir, "account-diagnostic", "Account Diagnostic")
+        article_id = create_article(
+            client, "Diagnostic Article", plain_text="Article body", cover_asset_id=cover_id
+        )
+        account_id = create_account(
+            client, test_app.data_dir, "account-diagnostic", "Account Diagnostic"
+        )
         task = client.post(
             "/api/tasks",
             json={
@@ -366,7 +388,9 @@ def test_execute_task_records_publish_diagnostics(monkeypatch):
 
         assert executed["status"] == "succeeded"
         logs = client.get(f"/api/tasks/{task['id']}/logs").json()
-        assert any("[publish diagnostic] probe step elapsed_ms=12" in log["message"] for log in logs)
+        assert any(
+            "[publish diagnostic] probe step elapsed_ms=12" in log["message"] for log in logs
+        )
     finally:
         test_app.cleanup()
 
@@ -381,9 +405,15 @@ def test_execute_group_task_auto_completes_all_records(monkeypatch):
             lambda record: FakePublisher()._runner,
         )
         cover_id = _upload_cover_image(client)
-        article_1 = create_article(client, "Article A", plain_text="Body A", cover_asset_id=cover_id)
-        article_2 = create_article(client, "Article B", plain_text="Body B", cover_asset_id=cover_id)
-        article_3 = create_article(client, "Article C", plain_text="Body C", cover_asset_id=cover_id)
+        article_1 = create_article(
+            client, "Article A", plain_text="Body A", cover_asset_id=cover_id
+        )
+        article_2 = create_article(
+            client, "Article B", plain_text="Body B", cover_asset_id=cover_id
+        )
+        article_3 = create_article(
+            client, "Article C", plain_text="Body C", cover_asset_id=cover_id
+        )
         account_id = create_account(client, test_app.data_dir, "account-a", "Account A")
 
         group = client.post("/api/article-groups", json={"name": "Batch"}).json()
@@ -408,7 +438,7 @@ def test_execute_group_task_auto_completes_all_records(monkeypatch):
             },
         ).json()
 
-        executed = _execute_and_wait(client, task['id'])
+        executed = _execute_and_wait(client, task["id"])
 
         assert executed["status"] == "succeeded"
 
@@ -455,10 +485,16 @@ def test_execute_task_records_publisher_failure_with_screenshot(monkeypatch):
     try:
         monkeypatch.setattr(
             "server.app.modules.tasks.executor.build_publish_runner_for_record",
-            lambda record: FakePublisher(error=ToutiaoPublishError("Toutiao title field not found", screenshot=b"png"))._runner,
+            lambda record: (
+                FakePublisher(
+                    error=ToutiaoPublishError("Toutiao title field not found", screenshot=b"png")
+                )._runner
+            ),
         )
         cover_id = _upload_cover_image(client)
-        article_id = create_article(client, "Article A", plain_text="Article body", cover_asset_id=cover_id)
+        article_id = create_article(
+            client, "Article A", plain_text="Article body", cover_asset_id=cover_id
+        )
         account_id = create_account(client, test_app.data_dir, "account-a", "Account A")
         task = client.post(
             "/api/tasks",
@@ -471,7 +507,7 @@ def test_execute_task_records_publisher_failure_with_screenshot(monkeypatch):
             },
         ).json()
 
-        executed = _execute_and_wait(client, task['id'])
+        executed = _execute_and_wait(client, task["id"])
 
         assert executed["status"] == "failed"
         records = client.get(f"/api/tasks/{task['id']}/records").json()
@@ -499,17 +535,28 @@ def test_publisher_failure_in_group_task_auto_advances_to_next_record(monkeypatc
                 return FakePublisher(error=ToutiaoPublishError("Fill failed"))._runner
             return FakePublisher()._runner
 
-        monkeypatch.setattr("server.app.modules.tasks.executor.build_publish_runner_for_record", make_publisher)
+        monkeypatch.setattr(
+            "server.app.modules.tasks.executor.build_publish_runner_for_record", make_publisher
+        )
 
         cover_id = _upload_cover_image(client)
-        article_1 = create_article(client, "Article A", plain_text="Body A", cover_asset_id=cover_id)
-        article_2 = create_article(client, "Article B", plain_text="Body B", cover_asset_id=cover_id)
+        article_1 = create_article(
+            client, "Article A", plain_text="Body A", cover_asset_id=cover_id
+        )
+        article_2 = create_article(
+            client, "Article B", plain_text="Body B", cover_asset_id=cover_id
+        )
         account_id = create_account(client, test_app.data_dir, "account-a", "Account A")
 
         group = client.post("/api/article-groups", json={"name": "G"}).json()
         client.put(
             f"/api/article-groups/{group['id']}/items",
-            json={"items": [{"article_id": article_1, "sort_order": 10}, {"article_id": article_2, "sort_order": 20}]},
+            json={
+                "items": [
+                    {"article_id": article_1, "sort_order": 10},
+                    {"article_id": article_2, "sort_order": 20},
+                ]
+            },
         )
 
         task = client.post(
@@ -523,7 +570,7 @@ def test_publisher_failure_in_group_task_auto_advances_to_next_record(monkeypatc
             },
         ).json()
 
-        executed = _execute_and_wait(client, task['id'])
+        executed = _execute_and_wait(client, task["id"])
         assert executed["status"] == "partial_failed"
 
         records = client.get(f"/api/tasks/{task['id']}/records").json()
@@ -554,7 +601,7 @@ def test_retry_failed_record_creates_pending_record_and_resets_task(monkeypatch)
                 "stop_before_publish": False,
             },
         ).json()
-        _execute_and_wait(client, task['id'])
+        _execute_and_wait(client, task["id"])
 
         task_before = client.get(f"/api/tasks/{task['id']}").json()
         assert task_before["status"] == "failed"
@@ -567,6 +614,7 @@ def test_retry_failed_record_creates_pending_record_and_resets_task(monkeypatch)
 
         # Wait for auto-execute to complete (FakePublisher always fails)
         import time as _time
+
         deadline = _time.time() + 5.0
         while _time.time() < deadline:
             task_status = client.get(f"/api/tasks/{task['id']}").json()
@@ -618,6 +666,7 @@ def test_retry_record_cannot_create_duplicate_retry_chain(monkeypatch):
 
         # Poll for auto-execute completion instead of POST execute
         import time as _time
+
         deadline = _time.time() + 5.0
         while _time.time() < deadline:
             task_status = client.get(f"/api/tasks/{task['id']}").json()

@@ -2,20 +2,21 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 
 @dataclass(frozen=True)
 class BodySegment:
-    kind: str                           # "text" | "image"
-    text: str = ""                      # populated for kind="text"
-    bold: bool = False                  # text 节点有 bold mark
-    heading_level: int | None = None    # 来自 heading 节点时为 1 或 2
-    image_path: Path | None = None      # populated after resolution in publish_Runner
-    image_asset_id: str | None = None   # populated by parser; used for tracing
-    stock_image_id: int | None = None   # populated for image-library images
+    kind: str  # "text" | "image"
+    text: str = ""  # populated for kind="text"
+    bold: bool = False  # text 节点有 bold mark
+    heading_level: int | None = None  # 来自 heading 节点时为 1 或 2
+    image_path: Path | None = None  # populated after resolution in publish_Runner
+    image_asset_id: str | None = None  # populated by parser; used for tracing
+    stock_image_id: int | None = None  # populated for image-library images
 
 
 def _iter_nodes(node: Any) -> Iterable[dict[str, Any]]:
@@ -82,7 +83,8 @@ def extract_body_image_nodes(content_json: dict[str, Any]) -> list[tuple[str, st
         asset_id = _asset_id_from_image_node(node)
         if not asset_id:
             continue
-        attrs = node.get("attrs") if isinstance(node.get("attrs"), dict) else {}
+        raw_attrs = node.get("attrs")
+        attrs = raw_attrs if isinstance(raw_attrs, dict) else {}
         editor_node_id = attrs.get("id") or attrs.get("nodeId")
         result.append((asset_id, editor_node_id))
     return result
@@ -105,7 +107,9 @@ def has_publishable_body(article: Any) -> bool:
     if re.sub(r"<[^>]+>", "", article.content_html or "").strip():
         return True
     content_json = loads_content_json(article.content_json)
-    return bool(extract_body_image_nodes(content_json) or extract_body_stock_image_nodes(content_json))
+    return bool(
+        extract_body_image_nodes(content_json) or extract_body_stock_image_nodes(content_json)
+    )
 
 
 def _append_segments(
@@ -125,7 +129,9 @@ def _append_segments(
         if isinstance(text, str) and text:
             marks = node.get("marks") or []
             is_bold = any(isinstance(m, dict) and m.get("type") == "bold" for m in marks)
-            segments.append(BodySegment(kind="text", text=text, bold=is_bold, heading_level=_hlevel))
+            segments.append(
+                BodySegment(kind="text", text=text, bold=is_bold, heading_level=_hlevel)
+            )
         return
 
     if node_type == "hardBreak":

@@ -1,6 +1,7 @@
 from pathlib import Path
+
 from server.app.modules.articles.parser import BodySegment
-from server.app.modules.tasks.drivers.toutiao import BodyParagraph, _group_paragraphs
+from server.app.modules.tasks.drivers.toutiao import _group_paragraphs
 
 
 def test_heading_becomes_heading_paragraph():

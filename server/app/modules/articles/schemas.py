@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 
 # ── Asset ────────────────────────────────────────────────────────────────────
 
+
 class AssetRead(BaseModel):
     id: str
     filename: str
@@ -37,6 +38,7 @@ class AssetRead(BaseModel):
 
 
 # ── Article ──────────────────────────────────────────────────────────────────
+
 
 class ArticleBodyAssetRead(BaseModel):
     asset_id: str
@@ -130,6 +132,7 @@ class ArticleRead(BaseModel):
 
 # ── ArticleGroup ─────────────────────────────────────────────────────────────
 
+
 class ArticleGroupBase(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     description: str | None = None
@@ -171,6 +174,7 @@ class ArticleGroupRead(BaseModel):
 
 
 # ── 序列化函数（原 api/serializers.py）──────────────────────────────────────
+
 
 def to_article_read(article: "Article", published_count: int = 0) -> ArticleRead:
     from server.app.modules.articles.parser import loads_content_json  # 避免循环 import

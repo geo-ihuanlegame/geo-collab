@@ -28,7 +28,7 @@ class ImageQuery:
 @dataclass
 class StockImageRef:
     id: int
-    url: str        # /api/stock-images/{id}/file
+    url: str  # /api/stock-images/{id}/file
     filename: str
     width: int | None
     height: int | None
@@ -56,6 +56,7 @@ def pick_image_id(query: ImageQuery, db: Session) -> int | None:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
+
 
 def fetch_image_by_id(image_id: int, db: Session) -> StockImageRef | None:
     from server.app.modules.image_library.models import StockImage
@@ -90,6 +91,7 @@ def select_images(query: ImageQuery, db: Session) -> list[StockImageRef]:
 
 
 # ══ 语义匹配选图（新增）════════════════════════════════════════════════════════
+
 
 def _fetch_candidates(
     category_ids: list[int],

@@ -1,18 +1,18 @@
 from logging.config import fileConfig
 
-from alembic import context
-from sqlalchemy import engine_from_config, pool
-
+import server.app.modules.accounts.models  # noqa: F401
+import server.app.modules.ai_generation.models  # noqa: F401
+import server.app.modules.articles.models  # noqa: F401
+import server.app.modules.image_library.models  # noqa: F401
+import server.app.modules.prompt_templates.models  # noqa: F401
+import server.app.modules.skills.models  # noqa: F401
+import server.app.modules.system.models  # noqa: F401
+import server.app.modules.tasks.models  # noqa: F401
 from server.app.core.paths import ensure_data_dirs, get_database_url
 from server.app.db.base import Base
-import server.app.modules.system.models        # noqa: F401
-import server.app.modules.accounts.models      # noqa: F401
-import server.app.modules.articles.models      # noqa: F401
-import server.app.modules.tasks.models         # noqa: F401
-import server.app.modules.ai_generation.models # noqa: F401
-import server.app.modules.image_library.models # noqa: F401
-import server.app.modules.skills.models        # noqa: F401
-import server.app.modules.prompt_templates.models  # noqa: F401
+from sqlalchemy import engine_from_config
+
+from alembic import context
 
 config = context.config
 config.set_main_option("sqlalchemy.url", get_database_url())
@@ -50,4 +50,3 @@ if context.is_offline_mode():
     run_migrations_offline()
 else:
     run_migrations_online()
-

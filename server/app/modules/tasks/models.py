@@ -11,7 +11,16 @@
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from server.app.core.time import utcnow
@@ -21,12 +30,16 @@ from server.app.db.base import Base
 class PublishTask(Base):
     __tablename__ = "publish_tasks"
     __table_args__ = (
-        CheckConstraint("task_type in ('single', 'group_round_robin')", name="ck_publish_tasks_task_type"),
+        CheckConstraint(
+            "task_type in ('single', 'group_round_robin')", name="ck_publish_tasks_task_type"
+        ),
         CheckConstraint(
             "status in ('pending', 'running', 'succeeded', 'partial_failed', 'failed', 'cancelled')",
             name="ck_publish_tasks_status",
         ),
-        UniqueConstraint("user_id", "client_request_id", name="uq_publish_tasks_user_client_request_id"),
+        UniqueConstraint(
+            "user_id", "client_request_id", name="uq_publish_tasks_user_client_request_id"
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -34,7 +47,9 @@ class PublishTask(Base):
     name: Mapped[str] = mapped_column(String(300))
     task_type: Mapped[str] = mapped_column(String(40), index=True)  # single / group_round_robin
     status: Mapped[str] = mapped_column(String(40), default="pending", index=True)
-    platform_id: Mapped[int | None] = mapped_column(ForeignKey("platforms.id"), nullable=True, index=True)
+    platform_id: Mapped[int | None] = mapped_column(
+        ForeignKey("platforms.id"), nullable=True, index=True
+    )
     article_id: Mapped[int | None] = mapped_column(ForeignKey("articles.id"), nullable=True)
     group_id: Mapped[int | None] = mapped_column(ForeignKey("article_groups.id"), nullable=True)
     stop_before_publish: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -53,14 +68,18 @@ class PublishTask(Base):
     platform = relationship("Platform", back_populates="publish_tasks")
     article = relationship("Article")
     group = relationship("ArticleGroup", back_populates="publish_tasks")
-    accounts = relationship("PublishTaskAccount", back_populates="task", cascade="all, delete-orphan")
+    accounts = relationship(
+        "PublishTaskAccount", back_populates="task", cascade="all, delete-orphan"
+    )
     records = relationship("PublishRecord", back_populates="task")
     logs = relationship("TaskLog", back_populates="task")
 
 
 class PublishTaskAccount(Base):
     __tablename__ = "publish_task_accounts"
-    __table_args__ = (UniqueConstraint("task_id", "account_id", name="uq_publish_task_accounts_task_account"),)
+    __table_args__ = (
+        UniqueConstraint("task_id", "account_id", name="uq_publish_task_accounts_task_account"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     task_id: Mapped[int] = mapped_column(ForeignKey("publish_tasks.id"), index=True)
@@ -91,7 +110,9 @@ class PublishRecord(Base):
     queue_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     snapshot_title: Mapped[str | None] = mapped_column(String(300), nullable=True)
     snapshot_content_json: Mapped[str | None] = mapped_column(Text, nullable=True)
-    retry_of_record_id: Mapped[int | None] = mapped_column(ForeignKey("publish_records.id"), nullable=True)
+    retry_of_record_id: Mapped[int | None] = mapped_column(
+        ForeignKey("publish_records.id"), nullable=True
+    )
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     lease_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -108,7 +129,9 @@ class PublishRecord(Base):
 
 class TaskLog(Base):
     __tablename__ = "task_logs"
-    __table_args__ = (CheckConstraint("level in ('info', 'warn', 'error')", name="ck_task_logs_level"),)
+    __table_args__ = (
+        CheckConstraint("level in ('info', 'warn', 'error')", name="ck_task_logs_level"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     task_id: Mapped[int] = mapped_column(ForeignKey("publish_tasks.id"), index=True)

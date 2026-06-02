@@ -20,13 +20,29 @@ def parse_args() -> argparse.Namespace:
         )
     )
     parser.add_argument("--account-key", default="spike", help="Isolated browser profile key.")
-    parser.add_argument("--data-dir", default=None, help="Override GEO_DATA_DIR for browser state/log output.")
-    parser.add_argument("--image", default="scripts/test_cover.png", help="Image path to upload during the spike.")
-    parser.add_argument("--channel", default="chrome", help="Playwright browser channel, e.g. chrome/msedge/chromium.")
+    parser.add_argument(
+        "--data-dir", default=None, help="Override GEO_DATA_DIR for browser state/log output."
+    )
+    parser.add_argument(
+        "--image", default="scripts/test_cover.png", help="Image path to upload during the spike."
+    )
+    parser.add_argument(
+        "--channel",
+        default="chrome",
+        help="Playwright browser channel, e.g. chrome/msedge/chromium.",
+    )
     parser.add_argument("--executable-path", default=None, help="Explicit browser executable path.")
-    parser.add_argument("--wait-seconds", type=int, default=300, help="Seconds to wait for a file chooser.")
-    parser.add_argument("--scan-only", action="store_true", help="Only open the page and dump upload candidates.")
-    parser.add_argument("--pause", action="store_true", help="Call page.pause() before scanning for Playwright Inspector.")
+    parser.add_argument(
+        "--wait-seconds", type=int, default=300, help="Seconds to wait for a file chooser."
+    )
+    parser.add_argument(
+        "--scan-only", action="store_true", help="Only open the page and dump upload candidates."
+    )
+    parser.add_argument(
+        "--pause",
+        action="store_true",
+        help="Call page.pause() before scanning for Playwright Inspector.",
+    )
     parser.add_argument(
         "--auto-click-toolbar-image",
         action="store_true",
@@ -220,7 +236,9 @@ def auto_capture_body_image_chooser(page: Any, wait_seconds: int) -> Any | None:
                     return chooser
 
                 try:
-                    if candidate.evaluate("node => node.tagName && node.tagName.toLowerCase() === 'input'"):
+                    if candidate.evaluate(
+                        "node => node.tagName && node.tagName.toLowerCase() === 'input'"
+                    ):
                         return candidate
                 except Exception:
                     pass
@@ -253,7 +271,9 @@ def main() -> int:
         print(f"Image not found: {image_path}", file=sys.stderr)
         return 2
 
-    ensure_data_dirs, get_data_dir, launch_options, profile_dir_for_key, state_path_for_key = import_app_helpers(args.data_dir)
+    ensure_data_dirs, get_data_dir, launch_options, profile_dir_for_key, state_path_for_key = (
+        import_app_helpers(args.data_dir)
+    )
     data_dir = ensure_data_dirs()
     logs_dir = data_dir / "logs"
     run_id = time.strftime("%Y%m%d-%H%M%S")
@@ -282,18 +302,27 @@ def main() -> int:
         before = editor_image_state(page)
         candidates = upload_candidates(page)
         write_json(logs_dir / f"toutiao-body-image-candidates-{run_id}.json", candidates)
-        page.screenshot(path=str(logs_dir / f"toutiao-body-image-before-{run_id}.png"), full_page=True)
+        page.screenshot(
+            path=str(logs_dir / f"toutiao-body-image-before-{run_id}.png"), full_page=True
+        )
 
         print(f"Current URL: {page.url}")
-        print(f"Editable count: {before['editableCount']}; body image count: {before['imageCount']}")
-        print(f"Found {len(candidates['inputFiles'])} file inputs and {len(candidates['clickableNodes'])} clickable candidates.")
+        print(
+            f"Editable count: {before['editableCount']}; body image count: {before['imageCount']}"
+        )
+        print(
+            f"Found {len(candidates['inputFiles'])} file inputs and {len(candidates['clickableNodes'])} clickable candidates."
+        )
         for item in candidates["inputFiles"][:20]:
             print(
                 "FILE",
                 item["index"],
-                "visible=", item["visible"],
-                "accept=", item["accept"],
-                "text=", item["nearbyText"][:80],
+                "visible=",
+                item["visible"],
+                "accept=",
+                item["accept"],
+                "text=",
+                item["nearbyText"][:80],
             )
         for item in candidates["clickableNodes"][:20]:
             label = item["text"] or item["ariaLabel"] or item["title"] or item["className"]
@@ -315,7 +344,9 @@ def main() -> int:
             chooser = auto_capture_body_image_chooser(page, args.wait_seconds)
         else:
             print("3. Click the BODY image upload entry yourself.")
-            print("4. Do not choose a local file manually; this script is waiting for the file chooser.")
+            print(
+                "4. Do not choose a local file manually; this script is waiting for the file chooser."
+            )
             chooser = None
 
         if chooser is None:
@@ -328,8 +359,12 @@ def main() -> int:
 
         if chooser is None:
             candidates = upload_candidates(page)
-            write_json(logs_dir / f"toutiao-body-image-timeout-candidates-{run_id}.json", candidates)
-            page.screenshot(path=str(logs_dir / f"toutiao-body-image-timeout-{run_id}.png"), full_page=True)
+            write_json(
+                logs_dir / f"toutiao-body-image-timeout-candidates-{run_id}.json", candidates
+            )
+            page.screenshot(
+                path=str(logs_dir / f"toutiao-body-image-timeout-{run_id}.png"), full_page=True
+            )
             print(f"Timed out waiting for file chooser after {args.wait_seconds}s.")
             print(f"Wrote candidate dump to: {logs_dir}")
             context.storage_state(path=str(state_path_for_key(args.account_key)))
@@ -367,15 +402,21 @@ def main() -> int:
                 "candidatesAfter": candidates_after,
             },
         )
-        page.screenshot(path=str(logs_dir / f"toutiao-body-image-after-{run_id}.png"), full_page=True)
+        page.screenshot(
+            path=str(logs_dir / f"toutiao-body-image-after-{run_id}.png"), full_page=True
+        )
         context.storage_state(path=str(state_path_for_key(args.account_key)))
 
-        print(f"After upload: editable count={after['editableCount']}; body image count={after['imageCount']}")
+        print(
+            f"After upload: editable count={after['editableCount']}; body image count={after['imageCount']}"
+        )
         if after["imageCount"] > before["imageCount"]:
             print("SUCCESS: body editor image count increased.")
             result = 0
         else:
-            print("UNKNOWN: body editor image count did not increase. Check screenshots/result JSON.")
+            print(
+                "UNKNOWN: body editor image count did not increase. Check screenshots/result JSON."
+            )
             result = 1
         print(f"Artifacts written to: {logs_dir}")
         print("Browser remains open for 20 seconds for visual inspection.")

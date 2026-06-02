@@ -1,4 +1,5 @@
 """任务模块路由。"""
+
 import logging
 import threading
 import time
@@ -7,26 +8,15 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import select, update as _upd
+from sqlalchemy import select
+from sqlalchemy import update as _upd
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from server.app.core.security import get_current_user
 from server.app.db.session import get_db
 from server.app.modules.audit.service import add_audit_entry
-from server.app.modules.tasks.models import PublishRecord, PublishTask
 from server.app.modules.system.models import User
-from server.app.modules.tasks.schemas import (
-    ManualConfirmInput,
-    PublishRecordRead,
-    TaskAssignmentPreviewRead,
-    TaskCreate,
-    TaskLogRead,
-    TaskRead,
-    to_log_read,
-    to_record_read,
-    to_task_read,
-)
 from server.app.modules.tasks import (
     TERMINAL_TASK_STATUSES,
     cancel_task,
@@ -42,6 +32,18 @@ from server.app.modules.tasks import (
     resolve_user_input_record,
     retry_record,
 )
+from server.app.modules.tasks.models import PublishRecord, PublishTask
+from server.app.modules.tasks.schemas import (
+    ManualConfirmInput,
+    PublishRecordRead,
+    TaskAssignmentPreviewRead,
+    TaskCreate,
+    TaskLogRead,
+    TaskRead,
+    to_log_read,
+    to_record_read,
+    to_task_read,
+)
 
 tasks_router = APIRouter()
 publish_records_router = APIRouter()
@@ -52,6 +54,7 @@ bg_session_factory: Any = None
 
 # ── Task helpers ──────────────────────────────────────────────────────────────
 
+
 def _verify_task_ownership(task: PublishTask | None, current_user: User) -> PublishTask:
     if task is None:
         raise HTTPException(status_code=404, detail="任务不存在")
@@ -61,6 +64,7 @@ def _verify_task_ownership(task: PublishTask | None, current_user: User) -> Publ
 
 
 # ── Task routes ───────────────────────────────────────────────────────────────
+
 
 @tasks_router.get("", response_model=list[TaskRead])
 def read_tasks(
@@ -140,6 +144,7 @@ def start_task_execution(
     current_user: User = Depends(get_current_user),
 ) -> _ExecuteResponse:
     from server.app.core.time import utcnow as _utcnow
+
     task = _verify_task_ownership(get_task(db, task_id), current_user)
     if task.status in TERMINAL_TASK_STATUSES:
         raise HTTPException(status_code=409, detail=f"Task is already terminal: {task.status}")
@@ -283,7 +288,9 @@ def stream_task_events(
                         last_id = max(log.id for log in new_logs)
 
                     records = list_task_records(sess, task_id)
-                    records_json = "[" + ",".join(to_record_read(r).model_dump_json() for r in records) + "]"
+                    records_json = (
+                        "[" + ",".join(to_record_read(r).model_dump_json() for r in records) + "]"
+                    )
                     if records_json != prev_records:
                         yield f"event: records\ndata: {records_json}\n\n"
                         prev_records = records_json
@@ -315,7 +322,10 @@ def stream_task_events(
 
 # ── Publish record helpers ────────────────────────────────────────────────────
 
-def _verify_record_ownership(record: PublishRecord | None, current_user: User, db: Session) -> PublishRecord:
+
+def _verify_record_ownership(
+    record: PublishRecord | None, current_user: User, db: Session
+) -> PublishRecord:
     if record is None:
         raise HTTPException(status_code=404, detail="发布记录不存在")
     task = get_task(db, record.task_id)
@@ -340,7 +350,9 @@ def _start_background_execute(task_id: int) -> None:
             bg_db.commit()
         except Exception:
             bg_db.rollback()
-            logging.getLogger(__name__).exception("Background execute after user action failed for task %s", task_id)
+            logging.getLogger(__name__).exception(
+                "Background execute after user action failed for task %s", task_id
+            )
         finally:
             bg_db.close()
 
@@ -348,6 +360,7 @@ def _start_background_execute(task_id: int) -> None:
 
 
 # ── Publish record routes ─────────────────────────────────────────────────────
+
 
 @publish_records_router.post("/{record_id}/manual-confirm", response_model=PublishRecordRead)
 def manual_confirm_record_endpoint(
@@ -358,7 +371,8 @@ def manual_confirm_record_endpoint(
     current_user: User = Depends(get_current_user),
 ) -> PublishRecordRead:
     record = _verify_record_ownership(get_record(db, record_id), current_user, db)
-    result = manual_confirm_record(db, record, payload.outcome, payload.publish_url, payload.error_message)
+    publish_url = str(payload.publish_url) if payload.publish_url else None
+    result = manual_confirm_record(db, record, payload.outcome, publish_url, payload.error_message)
     db.commit()
 
     add_audit_entry(

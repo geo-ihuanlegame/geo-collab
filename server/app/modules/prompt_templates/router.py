@@ -1,4 +1,5 @@
 """Prompt template routes."""
+
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -36,7 +37,9 @@ def _ensure_can_modify(template: Any, current_user: User) -> None:
 
 def _ensure_system_allowed(is_system: bool | None, current_user: User) -> None:
     if is_system and current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="Only admin can create or manage system prompt templates")
+        raise HTTPException(
+            status_code=403, detail="Only admin can create or manage system prompt templates"
+        )
 
 
 @router.get("", response_model=list[PromptTemplateRead])

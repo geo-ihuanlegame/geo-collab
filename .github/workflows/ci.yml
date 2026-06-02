@@ -47,18 +47,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt -r requirements-dev.txt
 
-      # ── 质量检查：首次落地设为「非阻塞」(continue-on-error) ──
-      # 存量告警清完后，把对应步骤的 continue-on-error 行删掉，即变成硬门禁。
-      - name: Ruff lint (non-blocking)
-        continue-on-error: true
+      # ── 质量检查：存量告警已清零，现为硬门禁（红了即 fail，不准 merge）──
+      - name: Ruff lint
         run: ruff check server/
 
-      - name: Ruff format check (non-blocking)
-        continue-on-error: true
+      - name: Ruff format check
         run: ruff format --check server/
 
-      - name: Mypy (non-blocking)
-        continue-on-error: true
+      - name: Mypy
         run: mypy server/app
 
       # ── 硬门禁：测试必须通过 ──

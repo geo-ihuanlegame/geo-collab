@@ -5,18 +5,17 @@
 - 生成成功后 mark_consumed 出队并记 article_id；失败保持 pending 可重试。
 - extract_question_text 是"记录→提示词"的**默认取法**，做成单一可替换函数（精确取法后置讨论）。
 """
+
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy.orm import Session
 
-from datetime import datetime
-
 from server.app.core.time import utcnow
 from server.app.modules.ai_generation.models import CategoryUsage, QuestionItem, QuestionPool
 from server.app.shared.errors import ClientError, ValidationError
-
 
 # 飞书表里的字段名（同步时按这些名抽进专用列；如表头变了改这里即可）
 FIELD_QUESTION = "提问词"
@@ -24,6 +23,7 @@ FIELD_CATEGORY = "分类板块"
 
 
 # ── 池 CRUD ─────────────────────────────────────────────────────────────────
+
 
 def list_pools(db: Session, *, user_id: int, is_admin: bool) -> list[QuestionPool]:
     q = db.query(QuestionPool).filter(QuestionPool.is_deleted == False)  # noqa: E712
@@ -62,6 +62,7 @@ def create_pool(
 
 
 # ── 同步（飞书 → 队列）──────────────────────────────────────────────────────
+
 
 def sync_pool(db: Session, pool: QuestionPool) -> dict[str, int]:
     """从飞书多维表拉取记录，upsert 进队列。已消费的单元不复活。"""
@@ -126,6 +127,7 @@ def sync_pool(db: Session, pool: QuestionPool) -> dict[str, int]:
 
 # ── 队列读取 / 出队 ──────────────────────────────────────────────────────────
 
+
 def list_items(db: Session, pool_id: int, *, status: str | None = "pending") -> list[QuestionItem]:
     q = db.query(QuestionItem).filter(QuestionItem.pool_id == pool_id)
     if status is not None:
@@ -150,6 +152,7 @@ def mark_consumed(db: Session, item_id: int, article_id: int) -> None:
 
 
 # ── 默认取法（记录 → 提示词文本，可替换）─────────────────────────────────────
+
 
 def _stringify_field_value(value: Any) -> str:
     """把飞书字段值（可能是 str / list[段] / dict / 数字）转成可读文本。"""
@@ -186,6 +189,7 @@ def extract_question_text(fields: dict) -> str:
 
 # ── 取问题文本 / 多问题合并 ────────────────────────────────────────────────
 
+
 def question_text_of(item: QuestionItem) -> str:
     """单条 item 的问题文本：优先 question_text 列，回退 fields 拍平。"""
     if item.question_text:
@@ -204,6 +208,7 @@ def format_question_group(items: list[QuestionItem]) -> str:
 
 
 # ── 手动模式：按 category 分组 + 出队 ───────────────────────────────────────
+
 
 def group_items_by_category(
     items: list[QuestionItem],
@@ -232,6 +237,7 @@ def mark_items_consumed(db: Session, item_ids: list[int], article_id: int) -> No
 
 # ── 自动模式：板块优先级 + 随机抽题 ─────────────────────────────────────────
 
+
 def list_categories_for_auto(db: Session, pool_id: int) -> list[str]:
     """返回该池里"还有 pending 行的板块"，按
     (last_used_at ASC NULLS FIRST, 表内位置 ASC) 排序。
@@ -252,8 +258,7 @@ def list_categories_for_auto(db: Session, pool_id: int) -> list[str]:
         .subquery()
     )
     rows = db.execute(
-        select(pos_subq.c.category, pos_subq.c.first_id, CategoryUsage.last_used_at)
-        .select_from(
+        select(pos_subq.c.category, pos_subq.c.first_id, CategoryUsage.last_used_at).select_from(
             pos_subq.outerjoin(
                 CategoryUsage,
                 (CategoryUsage.pool_id == pool_id)

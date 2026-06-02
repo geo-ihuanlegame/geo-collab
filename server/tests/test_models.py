@@ -5,7 +5,13 @@ from sqlalchemy.orm import Session
 from server.app.core.time import utcnow
 from server.app.db.base import Base
 from server.app.modules.accounts.models import Account
-from server.app.modules.articles.models import Article, ArticleBodyAsset, ArticleGroup, ArticleGroupItem, Asset
+from server.app.modules.articles.models import (
+    Article,
+    ArticleBodyAsset,
+    ArticleGroup,
+    ArticleGroupItem,
+    Asset,
+)
 from server.app.modules.system.models import Platform, User
 from server.app.modules.tasks.models import PublishRecord, PublishTask, PublishTaskAccount, TaskLog
 from server.tests.utils import build_test_engine
@@ -37,7 +43,9 @@ def test_core_model_relationships_round_trip_in_mysql():
     try:
         with Session(engine) as session:
             # 所有核心对象都用 user_id=1，需先建对应 User，否则 MySQL 外键约束失败
-            owner = User(id=1, username="owner1", role="operator", is_active=True, must_change_password=False)
+            owner = User(
+                id=1, username="owner1", role="operator", is_active=True, must_change_password=False
+            )
             owner.set_password("password1")
             session.add(owner)
             session.flush()
@@ -73,7 +81,9 @@ def test_core_model_relationships_round_trip_in_mysql():
                 plain_text="Body",
                 word_count=2,
                 status="ready",
-                body_assets=[ArticleBodyAsset(asset=body_image, position=0, editor_node_id="node-1")],
+                body_assets=[
+                    ArticleBodyAsset(asset=body_image, position=0, editor_node_id="node-1")
+                ],
             )
             group = ArticleGroup(
                 user_id=1,
@@ -99,7 +109,9 @@ def test_core_model_relationships_round_trip_in_mysql():
                 group=None,
                 accounts=[PublishTaskAccount(account=account, sort_order=0)],
             )
-            record = PublishRecord(task=task, article=article, platform=platform, account=account, status="pending")
+            record = PublishRecord(
+                task=task, article=article, platform=platform, account=account, status="pending"
+            )
             task.records.append(record)
             task.logs.append(TaskLog(record=record, level="info", message="created"))
 
@@ -144,10 +156,18 @@ def test_database_constraints_exist_in_mysql():
     try:
         inspector = inspect(engine)
 
-        account_checks = {constraint["name"] for constraint in inspector.get_check_constraints("accounts")}
-        article_checks = {constraint["name"] for constraint in inspector.get_check_constraints("articles")}
-        task_checks = {constraint["name"] for constraint in inspector.get_check_constraints("publish_tasks")}
-        record_checks = {constraint["name"] for constraint in inspector.get_check_constraints("publish_records")}
+        account_checks = {
+            constraint["name"] for constraint in inspector.get_check_constraints("accounts")
+        }
+        article_checks = {
+            constraint["name"] for constraint in inspector.get_check_constraints("articles")
+        }
+        task_checks = {
+            constraint["name"] for constraint in inspector.get_check_constraints("publish_tasks")
+        }
+        record_checks = {
+            constraint["name"] for constraint in inspector.get_check_constraints("publish_records")
+        }
 
         assert "ck_accounts_status" in account_checks
         assert "ck_articles_status" in article_checks

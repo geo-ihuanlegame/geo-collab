@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import threading
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Iterator
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -38,7 +39,9 @@ def capture_publish_diagnostics(events: list[PublishDiagnosticEvent]) -> Iterato
             _local.events = previous
 
 
-def record_publish_diagnostic(message: str, *, level: str = "info", screenshot: bytes | None = None) -> None:
+def record_publish_diagnostic(
+    message: str, *, level: str = "info", screenshot: bytes | None = None
+) -> None:
     events = _current_events()
     if events is not None:
         events.append(PublishDiagnosticEvent(level=level, message=message, screenshot=screenshot))

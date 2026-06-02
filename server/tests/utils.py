@@ -18,7 +18,13 @@ from server.app.db.base import Base
 
 
 class TestApp:
-    def __init__(self, client: TestClient, data_dir: Path, session_factory: sessionmaker[Session], engine: Engine):
+    def __init__(
+        self,
+        client: TestClient,
+        data_dir: Path,
+        session_factory: sessionmaker[Session],
+        engine: Engine,
+    ):
         self.client = client
         self.data_dir = data_dir
         self.session_factory = session_factory
@@ -34,12 +40,17 @@ class TestApp:
 def get_test_database_url() -> str:
     url = os.environ.get("GEO_TEST_DATABASE_URL")
     if not url:
-        pytest.skip("Set GEO_TEST_DATABASE_URL to a disposable MySQL database before running DB tests")
+        pytest.skip(
+            "Set GEO_TEST_DATABASE_URL to a disposable MySQL database before running DB tests"
+        )
     parsed = urlparse(url)
     if parsed.scheme != "mysql+pymysql":
         raise RuntimeError("GEO_TEST_DATABASE_URL must use mysql+pymysql://")
     database_name = parsed.path.lstrip("/")
-    if "test" not in database_name.lower() and os.environ.get("GEO_ALLOW_NON_TEST_DATABASE_FOR_TESTS") != "1":
+    if (
+        "test" not in database_name.lower()
+        and os.environ.get("GEO_ALLOW_NON_TEST_DATABASE_FOR_TESTS") != "1"
+    ):
         raise RuntimeError("Refusing to run tests unless the MySQL database name contains 'test'")
     return url
 
@@ -55,15 +66,15 @@ def build_test_engine() -> Engine:
 
 
 def reset_test_database(engine: Engine, *, create_schema: bool = True) -> None:
-    import server.app.modules.system.models            # noqa: F401
-    import server.app.modules.accounts.models          # noqa: F401
-    import server.app.modules.articles.models          # noqa: F401
-    import server.app.modules.tasks.models             # noqa: F401
-    import server.app.modules.ai_generation.models     # noqa: F401
-    import server.app.modules.image_library.models     # noqa: F401
-    import server.app.modules.skills.models            # noqa: F401
+    import server.app.modules.accounts.models  # noqa: F401
+    import server.app.modules.ai_generation.models  # noqa: F401
+    import server.app.modules.articles.models  # noqa: F401
+    import server.app.modules.audit.models  # noqa: F401
+    import server.app.modules.image_library.models  # noqa: F401
     import server.app.modules.prompt_templates.models  # noqa: F401
-    import server.app.modules.audit.models             # noqa: F401
+    import server.app.modules.skills.models  # noqa: F401
+    import server.app.modules.system.models  # noqa: F401
+    import server.app.modules.tasks.models  # noqa: F401
 
     with engine.connect() as conn:
         conn.execute(sa.text("SET FOREIGN_KEY_CHECKS=0"))
@@ -93,15 +104,18 @@ def build_test_app(monkeypatch) -> TestApp:
     get_settings.cache_clear()
 
     from server.app.modules.tasks import executor as _tasks_mod
+
     _tasks_mod._task_locks.clear()
     _tasks_mod._account_locks.clear()
     _tasks_mod._account_locks_lock = threading.Lock()
     _tasks_mod._task_cancel.clear()
 
     from server.app.modules.accounts import browser as _bs_mod
+
     _bs_mod._reset_globals()
 
     from server.app.core import security as _security_mod
+
     _security_mod._reset_user_cache()
 
     engine = build_test_engine()
@@ -147,4 +161,6 @@ def build_test_app(monkeypatch) -> TestApp:
         token = create_access_token(user.id, user.role)
         client.cookies["access_token"] = token
 
-    return TestApp(client=client, data_dir=data_dir, session_factory=TestingSessionLocal, engine=engine)
+    return TestApp(
+        client=client, data_dir=data_dir, session_factory=TestingSessionLocal, engine=engine
+    )

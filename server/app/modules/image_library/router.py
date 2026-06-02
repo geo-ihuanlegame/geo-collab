@@ -1,4 +1,5 @@
 """图片库模块路由。"""
+
 from __future__ import annotations
 
 import struct
@@ -15,15 +16,16 @@ from sqlalchemy.orm import Session
 from server.app.core.security import get_current_user
 from server.app.db.session import get_db
 from server.app.modules.audit.service import add_audit_entry
+from server.app.modules.image_library import store as minio_store
 from server.app.modules.image_library.models import StockCategory, StockImage
 from server.app.modules.system.models import User
-from server.app.modules.image_library import store as minio_store
 
-router = APIRouter()          # /api/image-library/* — 需要登录
-files_router = APIRouter()   # /api/stock-images/*  — 公开（图片嵌入文章）
+router = APIRouter()  # /api/image-library/* — 需要登录
+files_router = APIRouter()  # /api/stock-images/*  — 公开（图片嵌入文章）
 
 
 # ── Pydantic schemas ──────────────────────────────────────────────────────────
+
 
 class CategoryCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
@@ -72,6 +74,7 @@ class StockImageRead(BaseModel):
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+
 def _guess_image_size(data: bytes) -> tuple[int | None, int | None]:
     if data.startswith(b"\x89PNG\r\n\x1a\n") and len(data) >= 24:
         w, h = struct.unpack(">II", data[16:24])
@@ -89,9 +92,9 @@ def _guess_image_size(data: bytes) -> tuple[int | None, int | None]:
                 continue
             if idx + 2 > len(data):
                 break
-            seg_len = struct.unpack(">H", data[idx: idx + 2])[0]
+            seg_len = struct.unpack(">H", data[idx : idx + 2])[0]
             if marker in range(0xC0, 0xC4) and idx + 7 <= len(data):
-                h, w = struct.unpack(">HH", data[idx + 3: idx + 7])
+                h, w = struct.unpack(">HH", data[idx + 3 : idx + 7])
                 return w, h
             idx += seg_len
     return None, None
@@ -139,6 +142,7 @@ def _to_image_read(img: StockImage) -> StockImageRead:
 
 # ── Category routes ───────────────────────────────────────────────────────────
 
+
 @router.post("/categories", response_model=CategoryRead, status_code=201)
 def create_category(
     payload: CategoryCreate,
@@ -146,7 +150,9 @@ def create_category(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Any:
-    existing = db.query(StockCategory).filter(StockCategory.bucket_name == payload.bucket_name).first()
+    existing = (
+        db.query(StockCategory).filter(StockCategory.bucket_name == payload.bucket_name).first()
+    )
     if existing:
         raise HTTPException(status_code=409, detail="bucket_name 已存在")
     try:
@@ -313,7 +319,13 @@ def serve_image_file(
         raise HTTPException(status_code=502, detail=f"MinIO 读取失败: {exc}") from exc
 
     ext = img.minio_key.rsplit(".", 1)[-1].lower() if "." in img.minio_key else ""
-    mime_map = {"png": "image/png", "webp": "image/webp", "gif": "image/gif", "jpg": "image/jpeg", "jpeg": "image/jpeg"}
+    mime_map = {
+        "png": "image/png",
+        "webp": "image/webp",
+        "gif": "image/gif",
+        "jpg": "image/jpeg",
+        "jpeg": "image/jpeg",
+    }
     content_type = mime_map.get(ext, "image/jpeg")
 
     return Response(content=data, media_type=content_type)

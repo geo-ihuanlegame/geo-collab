@@ -3,8 +3,8 @@ import threading
 import zipfile
 from io import BytesIO
 
-from server.app.modules.accounts.models import Account
 from server.app.modules.accounts import RemoteBrowserSession
+from server.app.modules.accounts.models import Account
 from server.tests.utils import build_test_app
 
 
@@ -23,8 +23,12 @@ class FakeDriver:
 
 def install_fake_driver(monkeypatch) -> None:
     monkeypatch.setattr("server.app.modules.accounts.router.all_driver_codes", lambda: ["toutiao"])
-    monkeypatch.setattr("server.app.modules.accounts.auth._get_driver", lambda platform_code: FakeDriver())
-    monkeypatch.setattr("server.app.modules.accounts.service._get_driver", lambda platform_code: FakeDriver())
+    monkeypatch.setattr(
+        "server.app.modules.accounts.auth._get_driver", lambda platform_code: FakeDriver()
+    )
+    monkeypatch.setattr(
+        "server.app.modules.accounts.service._get_driver", lambda platform_code: FakeDriver()
+    )
 
 
 def write_storage_state(data_dir, account_key: str = "demo") -> None:
@@ -70,7 +74,8 @@ def test_login_page_loader_runs_in_background(monkeypatch):
             return None
 
     try:
-        from server.app.modules.accounts import auth as accounts, browser as browser_sessions
+        from server.app.modules.accounts import auth as accounts
+        from server.app.modules.accounts import browser as browser_sessions
 
         session = RemoteBrowserSession(
             id="loader-session",
@@ -110,7 +115,9 @@ def test_worker_start_login_session_uses_existing_thread(monkeypatch):
         assert threading.get_ident() == owner_thread
         return FakeSession()
 
-    monkeypatch.setattr("server.app.modules.accounts.auth._start_login_browser_impl", fake_start_impl)
+    monkeypatch.setattr(
+        "server.app.modules.accounts.auth._start_login_browser_impl", fake_start_impl
+    )
 
     try:
         write_storage_state(test_app.data_dir, "demo")
@@ -119,8 +126,8 @@ def test_worker_start_login_session_uses_existing_thread(monkeypatch):
             json={"display_name": "worker-start-demo", "account_key": "demo", "use_browser": False},
         ).json()
 
-        from server.app.modules.accounts.models import AccountLoginSession
         from server.app.modules.accounts import auth as accounts
+        from server.app.modules.accounts.models import AccountLoginSession
 
         db = test_app.session_factory()
         try:
@@ -193,11 +200,16 @@ def test_worker_finish_login_session_uses_existing_thread(monkeypatch):
         write_storage_state(test_app.data_dir, "demo")
         account = client.post(
             "/api/accounts/toutiao/login",
-            json={"display_name": "worker-finish-demo", "account_key": "demo", "use_browser": False},
+            json={
+                "display_name": "worker-finish-demo",
+                "account_key": "demo",
+                "use_browser": False,
+            },
         ).json()
 
+        from server.app.modules.accounts import auth as accounts
+        from server.app.modules.accounts import browser as browser_sessions
         from server.app.modules.accounts.models import AccountLoginSession
-        from server.app.modules.accounts import auth as accounts, browser as browser_sessions
 
         db = test_app.session_factory()
         try:
@@ -302,7 +314,9 @@ def test_account_check_relogin_and_delete(monkeypatch):
         assert expired.json()["status"] == "expired"
 
         write_storage_state(test_app.data_dir, "demo-missing")
-        relogged = client.post(f"/api/accounts/{account['id']}/relogin", json={"use_browser": False})
+        relogged = client.post(
+            f"/api/accounts/{account['id']}/relogin", json={"use_browser": False}
+        )
         assert relogged.status_code == 200
         assert relogged.json()["status"] == "valid"
 
@@ -354,7 +368,10 @@ def test_toutiao_remote_login_session_creates_unknown_account(monkeypatch):
         assert payload["novnc_url"] is None
         assert payload["account"]["display_name"] == "remote-demo"
         assert payload["account"]["status"] == "unknown"
-        assert payload["account"]["state_path"] == "browser_states/users/1/toutiao/remote-demo/storage_state.json"
+        assert (
+            payload["account"]["state_path"]
+            == "browser_states/users/1/toutiao/remote-demo/storage_state.json"
+        )
     finally:
         test_app.cleanup()
 
@@ -437,7 +454,15 @@ def test_finish_remote_login_session_saves_state_and_stops_session(monkeypatch):
         assert context.closed is True
         assert playwright.stopped is True
         assert browser_sessions.get_session("finish-session") is None
-        state_file = test_app.data_dir / "browser_states" / "users" / "1" / "toutiao" / "demo" / "storage_state.json"
+        state_file = (
+            test_app.data_dir
+            / "browser_states"
+            / "users"
+            / "1"
+            / "toutiao"
+            / "demo"
+            / "storage_state.json"
+        )
         assert json.loads(state_file.read_text(encoding="utf-8"))["cookies"][0]["name"] == "session"
     finally:
         test_app.cleanup()
@@ -468,12 +493,20 @@ def test_export_accounts_auth_package_contains_manifest_and_state(monkeypatch):
 
             manifest = json.loads(archive.read("manifest.json"))
             assert manifest["schema_version"] == 1
-            assert manifest["excluded_scopes"] == ["articles", "assets", "publish_tasks", "task_logs", "database"]
+            assert manifest["excluded_scopes"] == [
+                "articles",
+                "assets",
+                "publish_tasks",
+                "task_logs",
+                "database",
+            ]
             assert manifest["accounts"][0]["id"] == account["id"]
 
             account_payload = json.loads(archive.read(f"{account_dir}/account.json"))
             assert account_payload["display_name"] == "export-demo"
-            assert archive.read(f"{account_dir}/storage_state.json") == b'{"cookies":[],"origins":[]}'
+            assert (
+                archive.read(f"{account_dir}/storage_state.json") == b'{"cookies":[],"origins":[]}'
+            )
     finally:
         test_app.cleanup()
 

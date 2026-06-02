@@ -1,21 +1,33 @@
 from __future__ import annotations
 
 import logging
-import re
 
-from sqlalchemy import delete as sa_delete, func, select
+from sqlalchemy import delete as sa_delete
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from server.app.core.time import utcnow
-from server.app.modules.articles.models import Article, ArticleBodyAsset, ArticleGroup, ArticleGroupItem, Asset
-from server.app.modules.tasks.models import PublishRecord, PublishTask
-from server.app.modules.articles.schemas import ArticleCreate, ArticleUpdate, ArticleGroupCreate, ArticleGroupItemsUpdate, ArticleGroupUpdate
-from server.app.shared.errors import ClientError, ConflictError
+from server.app.modules.articles.models import (
+    Article,
+    ArticleBodyAsset,
+    ArticleGroup,
+    ArticleGroupItem,
+    Asset,
+)
 from server.app.modules.articles.parser import (
+    dumps_content_json,
     extract_body_image_nodes,
     loads_content_json,
-    dumps_content_json,
 )
+from server.app.modules.articles.schemas import (
+    ArticleCreate,
+    ArticleGroupCreate,
+    ArticleGroupItemsUpdate,
+    ArticleGroupUpdate,
+    ArticleUpdate,
+)
+from server.app.modules.tasks.models import PublishRecord, PublishTask
+from server.app.shared.errors import ClientError, ConflictError
 
 _logger = logging.getLogger(__name__)
 
@@ -63,12 +75,9 @@ def get_article(db: Session, article_id: int) -> Article | None:
 
 
 def _search_articles(db: Session, query: str, user_id: int | None = None) -> list[Article]:
-    stmt = (
-        select(Article)
-        .where(
-            Article.is_deleted == False,  # noqa: E712
-            func.match(Article.title, Article.author, Article.plain_text).against(query, "boolean") > 0,
-        )
+    stmt = select(Article).where(
+        Article.is_deleted == False,  # noqa: E712
+        func.match(Article.title, Article.author, Article.plain_text).against(query, "boolean") > 0,
     )
 
     if user_id is not None:
@@ -90,7 +99,7 @@ def list_articles(
             if not matching:
                 return []
             matching.sort(key=lambda a: a.updated_at, reverse=True)
-            ids = [a.id for a in matching[skip:skip + limit]]
+            ids = [a.id for a in matching[skip : skip + limit]]
             if not ids:
                 return []
             stmt = (
@@ -118,7 +127,9 @@ def list_articles(
     if query:
         like = f"%{query}%"
         stmt = stmt.where(
-            (Article.title.like(like)) | (Article.author.like(like)) | (Article.plain_text.like(like))
+            (Article.title.like(like))
+            | (Article.author.like(like))
+            | (Article.plain_text.like(like))
         )
 
     stmt = stmt.offset(skip).limit(limit)
@@ -171,7 +182,15 @@ def update_article(db: Session, article: Article, payload: ArticleUpdate) -> Art
     if "content_json" in update_data and update_data["content_json"] is not None:
         content_json = update_data["content_json"]
 
-    for field in ("title", "author", "cover_asset_id", "content_html", "plain_text", "word_count", "status"):
+    for field in (
+        "title",
+        "author",
+        "cover_asset_id",
+        "content_html",
+        "plain_text",
+        "word_count",
+        "status",
+    ):
         if field in update_data and update_data[field] is not None:
             setattr(article, field, update_data[field])
     # stock_category_id 允许显式置 None（移除关联）
@@ -181,17 +200,21 @@ def update_article(db: Session, article: Article, payload: ArticleUpdate) -> Art
     # 多对多栏目：如果传了 stock_category_ids，更新关联表
     if "stock_category_ids" in update_data:
         from server.app.modules.image_library.models import StockCategory as _StockCategory
+
         cat_ids = update_data["stock_category_ids"] or []
         if cat_ids:
-            cats = list(db.execute(
-                select(_StockCategory).where(_StockCategory.id.in_(cat_ids))
-            ).scalars().all())
+            cats = list(
+                db.execute(select(_StockCategory).where(_StockCategory.id.in_(cat_ids)))
+                .scalars()
+                .all()
+            )
         else:
             cats = []
         article.stock_categories = cats
     elif "stock_category_id" in update_data and update_data["stock_category_id"] is not None:
         # 兼容旧字段：如果只传了 stock_category_id 且多对多列表为空，把旧值塞进多对多
         from server.app.modules.image_library.models import StockCategory as _StockCategory
+
         if not article.stock_categories:
             cat = db.get(_StockCategory, update_data["stock_category_id"])
             if cat is not None:
@@ -219,12 +242,18 @@ def set_article_cover(db: Session, article: Article, cover_asset_id: str | None)
 def delete_article(db: Session, article: Article) -> None:
     article_id = article.id
 
-    active = db.execute(
-        select(PublishRecord.id).where(
-            PublishRecord.article_id == article_id,
-            PublishRecord.status.in_(["pending", "running", "waiting_manual_publish", "waiting_user_input"]),
+    active = (
+        db.execute(
+            select(PublishRecord.id).where(
+                PublishRecord.article_id == article_id,
+                PublishRecord.status.in_(
+                    ["pending", "running", "waiting_manual_publish", "waiting_user_input"]
+                ),
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     if active:
         raise ClientError("存在未完成发布记录，无法删除文章")
 
@@ -236,6 +265,7 @@ def delete_article(db: Session, article: Article) -> None:
 
 
 # --- Article Group CRUD ---
+
 
 def get_group(db: Session, group_id: int) -> ArticleGroup | None:
     stmt = (
@@ -258,7 +288,9 @@ def list_groups(db: Session) -> list[ArticleGroup]:
 
 def create_group(db: Session, user_id: int, payload: ArticleGroupCreate) -> ArticleGroup:
     existing = db.execute(
-        select(ArticleGroup).where(ArticleGroup.user_id == user_id, ArticleGroup.name == payload.name)
+        select(ArticleGroup).where(
+            ArticleGroup.user_id == user_id, ArticleGroup.name == payload.name
+        )
     ).scalar_one_or_none()
     if existing is not None and existing.is_deleted:
         existing.description = payload.description
@@ -291,7 +323,9 @@ def update_group(db: Session, group: ArticleGroup, payload: ArticleGroupUpdate) 
     return get_group(db, group.id) or group
 
 
-def replace_group_items(db: Session, group: ArticleGroup, payload: ArticleGroupItemsUpdate) -> ArticleGroup:
+def replace_group_items(
+    db: Session, group: ArticleGroup, payload: ArticleGroupItemsUpdate
+) -> ArticleGroup:
     if payload.version is not None and group.version != payload.version:
         raise ConflictError("Article group has been modified; refresh before saving")
 
@@ -310,7 +344,9 @@ def replace_group_items(db: Session, group: ArticleGroup, payload: ArticleGroupI
                     Article.id.in_(article_ids),
                     Article.is_deleted == False,  # noqa: E712
                 )
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
         )
         missing_ids = [aid for aid in article_ids if aid not in existing_ids]
         if missing_ids:

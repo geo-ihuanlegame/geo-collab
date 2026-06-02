@@ -18,4 +18,3 @@ def test_system_status_returns_runtime_info(monkeypatch):
         assert "browser_ready" in payload
     finally:
         test_app.cleanup()
-

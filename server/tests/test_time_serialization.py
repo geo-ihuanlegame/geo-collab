@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -10,6 +10,7 @@ def test_naive_datetime_in_app_response_has_z(monkeypatch):
     test_app = build_test_app(monkeypatch)
     client = test_app.client
     try:
+
         class TmpModel(BaseModel):
             t: datetime
 
@@ -21,7 +22,7 @@ def test_naive_datetime_in_app_response_has_z(monkeypatch):
 
         @router.get("/test/dt-aware", response_model=TmpModel)
         def _():
-            return TmpModel(t=datetime(2026, 5, 11, 14, 30, 0, tzinfo=timezone.utc))
+            return TmpModel(t=datetime(2026, 5, 11, 14, 30, 0, tzinfo=UTC))
 
         @router.get("/test/dt-dict")
         def _():

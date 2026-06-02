@@ -6,6 +6,7 @@
 
 调用方不感知选图实现细节（随机 / AI 语义 / AI 生图均透明）。
 """
+
 from __future__ import annotations
 
 import logging
@@ -29,11 +30,11 @@ def insert_images_for_article(
     if not image_positions:
         return
 
+    from server.app.core.time import utcnow
+    from server.app.modules.articles.parser import dumps_content_json, loads_content_json
     from server.app.modules.articles.service import get_article
-    from server.app.modules.articles.parser import loads_content_json, dumps_content_json
     from server.app.modules.image_library.inserter import insert_images_at_positions
     from server.app.modules.image_library.selector import ImageQuery, select_images
-    from server.app.core.time import utcnow
 
     article = get_article(db, article_id)
     if article is None or article.is_deleted:

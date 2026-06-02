@@ -90,9 +90,7 @@ class QuestionItem(Base):
     # 专用字段：飞书"分类板块"列 → category（手动/自动分组键）
     category: Mapped[str | None] = mapped_column(String(200), index=True, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
-    article_id: Mapped[int | None] = mapped_column(
-        ForeignKey("articles.id"), nullable=True
-    )
+    article_id: Mapped[int | None] = mapped_column(ForeignKey("articles.id"), nullable=True)
     synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 

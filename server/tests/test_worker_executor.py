@@ -2,7 +2,6 @@ from io import BytesIO
 
 from server.tests.utils import build_test_app
 
-
 _PNG = (
     b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
     b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\x0f"
@@ -12,7 +11,9 @@ _PNG = (
 
 def _create_publishable_task(test_app) -> int:
     client = test_app.client
-    cover = client.post("/api/assets", files={"file": ("cover.png", BytesIO(_PNG), "image/png")}).json()["id"]
+    cover = client.post(
+        "/api/assets", files={"file": ("cover.png", BytesIO(_PNG), "image/png")}
+    ).json()["id"]
     article = client.post(
         "/api/articles",
         json={

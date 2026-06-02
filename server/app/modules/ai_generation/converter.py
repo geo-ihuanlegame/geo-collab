@@ -4,6 +4,7 @@ Tiptap 支持的节点类型（本模块覆盖范围）：
   doc, paragraph, heading(level 1-6), bulletList, orderedList, listItem
   text marks: bold, italic, code
 """
+
 from html.parser import HTMLParser
 from typing import Any
 

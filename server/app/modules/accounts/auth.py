@@ -11,36 +11,41 @@ import threading
 import time
 import uuid
 import zipfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
-from sqlalchemy import and_, delete as sa_delete, or_, select, update as sa_update
+from sqlalchemy import and_, or_, select
+from sqlalchemy import update as sa_update
 from sqlalchemy.orm import Session
 
 from server.app.core.config import get_settings
 from server.app.core.paths import ensure_data_dirs, get_data_dir
 from server.app.core.time import utcnow
 from server.app.modules.accounts.models import Account, AccountLoginSession
-from server.app.modules.tasks.models import PublishRecord
-from server.app.modules.accounts.schemas import AccountCheckRequest, AccountExportRequest, PlatformLoginRequest
-from server.app.shared.errors import ClientError
+from server.app.modules.accounts.schemas import (
+    AccountCheckRequest,
+    AccountExportRequest,
+    PlatformLoginRequest,
+)
 from server.app.modules.accounts.service import (
-    normalize_account_key,
-    state_path_for_key,
-    state_dir_for_key,
-    state_dir_from_state_path,
-    profile_dir_from_state_path,
-    profile_key_from_state_path,
-    clear_profile_locks,
-    relative_to_data_dir,
+    _get_driver,
     account_key_from_state_path,
+    clear_profile_locks,
+    get_account,
     get_or_create_platform,
     launch_options,
-    get_account,
-    _get_driver,
+    normalize_account_key,
+    profile_dir_from_state_path,
+    profile_key_from_state_path,
+    relative_to_data_dir,
+    state_dir_for_key,
+    state_dir_from_state_path,
+    state_path_for_key,
 )
+from server.app.shared.errors import ClientError
 
 _logger = logging.getLogger(__name__)
 
@@ -99,6 +104,7 @@ def _run_in_plain_thread(fn: Callable[[], Any]) -> Any:
         # Playwright's sync-API guard fires. Reset it before any Playwright call.
         try:
             import asyncio.events as _ae
+
             if hasattr(_ae, "_set_running_loop"):
                 _ae._set_running_loop(None)
         except Exception:
@@ -139,7 +145,9 @@ def register_account_from_storage_state(
         raise ClientError(f"Storage state not found: {state_path}")
 
     relative_state_path = relative_to_data_dir(state_path)
-    legacy_relative_state_path = relative_to_data_dir(state_path_for_key(platform_code, account_key))
+    legacy_relative_state_path = relative_to_data_dir(
+        state_path_for_key(platform_code, account_key)
+    )
     account = db.execute(
         select(Account).where(
             Account.user_id == user_id,
@@ -189,7 +197,9 @@ def start_login_session(
     state_path.parent.mkdir(parents=True, exist_ok=True)
 
     relative_state_path = relative_to_data_dir(state_path)
-    legacy_relative_state_path = relative_to_data_dir(state_path_for_key(platform_code, account_key))
+    legacy_relative_state_path = relative_to_data_dir(
+        state_path_for_key(platform_code, account_key)
+    )
     account = db.execute(
         select(Account).where(
             Account.user_id == user_id,
@@ -242,7 +252,9 @@ def start_login_session(
     )
 
 
-def _copy_legacy_state_if_needed(platform_code: str, account_key: str, user_state_path: Path) -> None:
+def _copy_legacy_state_if_needed(
+    platform_code: str, account_key: str, user_state_path: Path
+) -> None:
     if user_state_path.exists():
         return
     legacy_dir = state_dir_for_key(platform_code, account_key)
@@ -260,7 +272,9 @@ def _copy_legacy_state_if_needed(platform_code: str, account_key: str, user_stat
             shutil.copy2(child, dest)
 
 
-def start_account_login_session(db: Session, account: Account, payload: AccountCheckRequest) -> AccountBrowserSessionResult:
+def start_account_login_session(
+    db: Session, account: Account, payload: AccountCheckRequest
+) -> AccountBrowserSessionResult:
     platform_code, account_key = account_key_from_state_path(account.state_path)
     previous_status = account.status
     account.status = "unknown"
@@ -287,7 +301,9 @@ def start_account_login_session(db: Session, account: Account, payload: AccountC
     )
 
 
-def finish_account_login_session(db: Session, account: Account, session_id: str) -> tuple[Account, BrowserCheckResult]:
+def finish_account_login_session(
+    db: Session, account: Account, session_id: str
+) -> tuple[Account, BrowserCheckResult]:
     request = _find_account_login_request(db, account.id, session_id)
     if request is not None:
         return _finish_login_browser_via_worker(db, account, request)
@@ -317,7 +333,9 @@ def _touch_login_request(request: AccountLoginSession) -> None:
     request.updated_at = utcnow()
 
 
-def _find_account_login_request(db: Session, account_id: int, session_id: str) -> AccountLoginSession | None:
+def _find_account_login_request(
+    db: Session, account_id: int, session_id: str
+) -> AccountLoginSession | None:
     return db.execute(
         select(AccountLoginSession)
         .where(
@@ -332,7 +350,9 @@ def _find_account_login_request(db: Session, account_id: int, session_id: str) -
     ).scalar_one_or_none()
 
 
-def get_login_session_status(db: Session, account: Account, session_id: str) -> "AccountLoginSession | None":
+def get_login_session_status(
+    db: Session, account: Account, session_id: str
+) -> AccountLoginSession | None:
     """Return the AccountLoginSession row for status polling."""
     return _find_account_login_request(db, account.id, session_id)
 
@@ -400,7 +420,11 @@ def _finish_login_browser_via_worker(
         request.status = LOGIN_STATUS_FINISH_REQUESTED
         _touch_login_request(request)
         db.commit()
-    elif request.status not in {LOGIN_STATUS_FINISH_REQUESTED, LOGIN_STATUS_FINISHING, LOGIN_STATUS_FINISHED}:
+    elif request.status not in {
+        LOGIN_STATUS_FINISH_REQUESTED,
+        LOGIN_STATUS_FINISHING,
+        LOGIN_STATUS_FINISHED,
+    }:
         raise ClientError(f"Account login session is {request.status}")
 
     request = _wait_for_account_login_request(
@@ -442,7 +466,9 @@ def _cancel_login_browser_via_worker(db: Session, request: AccountLoginSession) 
             "Worker did not cancel the account login session in time",
         )
     except ClientError:
-        _logger.warning("Account login session cancel is still pending: %s", request.id, exc_info=True)
+        _logger.warning(
+            "Account login session cancel is still pending: %s", request.id, exc_info=True
+        )
 
 
 def process_account_login_session_requests(db: Session, worker_id: str) -> bool:
@@ -488,11 +514,12 @@ def process_account_login_session_requests(db: Session, worker_id: str) -> bool:
     else:
         where_clause.append(AccountLoginSession.worker_id == worker_id)
 
-    rows = db.execute(
+    result = db.execute(
         sa_update(AccountLoginSession)
         .where(*where_clause)
         .values(status=next_status, worker_id=worker_id, queue_reason=None, updated_at=utcnow())
-    ).rowcount
+    )
+    rows = result.rowcount  # type: ignore[attr-defined]  # DML execute returns CursorResult
     db.commit()
     if rows == 0:
         return False
@@ -523,7 +550,9 @@ def _try_acquire_login_profile_lock(db: Session, request: AccountLoginSession) -
 
     profile_key = profile_key_from_state_path(account.state_path)
     reason = "账号正在执行发布或登录操作，登录请求已排队"
-    if try_acquire_profile_lock(profile_key, owner_kind="login", owner_id=request.id, queue_reason=reason):
+    if try_acquire_profile_lock(
+        profile_key, owner_kind="login", owner_id=request.id, queue_reason=reason
+    ):
         return True
 
     request.status = LOGIN_STATUS_QUEUED
@@ -556,7 +585,9 @@ def _worker_start_login_session(db: Session, request: AccountLoginSession) -> No
         request.queue_reason = None
         _touch_login_request(request)
         db.commit()
-        _load_login_page_for_session(session, platform_code, account_key, _get_driver(platform_code).home_url)
+        _load_login_page_for_session(
+            session, platform_code, account_key, _get_driver(platform_code).home_url
+        )
         return
     except Exception as exc:
         request.status = LOGIN_STATUS_FAILED
@@ -634,9 +665,13 @@ def _release_login_profile_lock(db: Session, request: AccountLoginSession) -> No
     if account is None:
         return
     try:
-        release_profile_lock(profile_key_from_state_path(account.state_path), owner_kind="login", owner_id=request.id)
+        release_profile_lock(
+            profile_key_from_state_path(account.state_path), owner_kind="login", owner_id=request.id
+        )
     except Exception:
-        _logger.warning("Failed to release login profile lock for request %s", request.id, exc_info=True)
+        _logger.warning(
+            "Failed to release login profile lock for request %s", request.id, exc_info=True
+        )
 
 
 def _apply_login_result(account: Account, result: BrowserCheckResult) -> None:
@@ -654,10 +689,14 @@ def _finish_login_browser_local(
     state_path: str,
     session_id: str,
 ) -> BrowserCheckResult:
-    return _run_in_plain_thread(lambda: _finish_login_browser_impl(platform_code, account_key, state_path, session_id))
+    return _run_in_plain_thread(
+        lambda: _finish_login_browser_impl(platform_code, account_key, state_path, session_id)
+    )
 
 
-def _finish_login_browser_impl(platform_code: str, account_key: str, state_path: str, session_id: str) -> BrowserCheckResult:
+def _finish_login_browser_impl(
+    platform_code: str, account_key: str, state_path: str, session_id: str
+) -> BrowserCheckResult:
     from server.app.modules.accounts.browser import get_session, stop_remote_browser_session
 
     session = get_session(session_id)
@@ -693,9 +732,15 @@ def _stop_login_browser_impl(account_key: str, session_id: str) -> None:
     stop_remote_browser_session(session_id)
 
 
-def _start_login_browser(platform_code: str, account_key: str, channel: str, executable_path: str | None):
+def _start_login_browser(
+    platform_code: str, account_key: str, channel: str, executable_path: str | None
+):
     state_path = relative_to_data_dir(state_path_for_key(platform_code, account_key))
-    return _run_in_plain_thread(lambda: _start_login_browser_impl(platform_code, account_key, state_path, channel, executable_path))
+    return _run_in_plain_thread(
+        lambda: _start_login_browser_impl(
+            platform_code, account_key, state_path, channel, executable_path
+        )
+    )
 
 
 def _start_login_browser_impl(
@@ -739,10 +784,14 @@ def _start_login_browser_impl(
         )
         context.set_default_navigation_timeout(30000)
         page = _primary_page_for_context(context)
-        attach_browser_handles(session.id, pw, context, page, context_thread_id=threading.get_ident())
+        attach_browser_handles(
+            session.id, pw, context, page, context_thread_id=threading.get_ident()
+        )
         keep_session_alive(session.id)
         if load_login_page:
-            _load_login_page_for_session(session, platform_code, account_key, driver.home_url, raise_on_error=True)
+            _load_login_page_for_session(
+                session, platform_code, account_key, driver.home_url, raise_on_error=True
+            )
         return session
     except Exception:
         try:
@@ -780,14 +829,14 @@ def _load_login_page(page, platform_code: str, account_key: str, home_url: str) 
                 account_key,
                 exc_info=True,
             )
-    except Exception:
+    except Exception as exc:
         _logger.warning(
             "Remote login page load failed for %s account %s",
             platform_code,
             account_key,
             exc_info=True,
         )
-        raise ClientError(f"Remote login page load failed: {home_url}")
+        raise ClientError(f"Remote login page load failed: {home_url}") from exc
 
 
 def _load_login_page_for_session(
@@ -807,12 +856,16 @@ def _load_login_page_for_session(
         try:
             _load_login_page(page, platform_code, account_key, home_url)
         except Exception:
-            _logger.warning("Login page load failed for %s/%s", platform_code, account_key, exc_info=True)
+            _logger.warning(
+                "Login page load failed for %s/%s", platform_code, account_key, exc_info=True
+            )
             if raise_on_error:
                 raise
 
 
-def _start_login_page_loader(session_id: str, platform_code: str, account_key: str, home_url: str) -> None:
+def _start_login_page_loader(
+    session_id: str, platform_code: str, account_key: str, home_url: str
+) -> None:
     def _load() -> None:
         from server.app.modules.accounts.browser import get_session
 
@@ -826,7 +879,12 @@ def _start_login_page_loader(session_id: str, platform_code: str, account_key: s
             try:
                 _load_login_page(page, platform_code, account_key, home_url)
             except Exception:
-                _logger.warning("Async login page load failed for %s/%s", platform_code, account_key, exc_info=True)
+                _logger.warning(
+                    "Async login page load failed for %s/%s",
+                    platform_code,
+                    account_key,
+                    exc_info=True,
+                )
 
     worker = threading.Thread(
         target=_load,
@@ -836,7 +894,9 @@ def _start_login_page_loader(session_id: str, platform_code: str, account_key: s
     worker.start()
 
 
-def _read_and_save_login_state_from_remote_session(session, platform_code: str, state_path: Path) -> BrowserCheckResult:
+def _read_and_save_login_state_from_remote_session(
+    session, platform_code: str, state_path: Path
+) -> BrowserCheckResult:
     with session.operation_lock:
         result = _read_login_state_from_remote_session(session, platform_code)
         session.browser_context.storage_state(path=str(state_path))
@@ -880,7 +940,10 @@ def check_account(db: Session, account: Account, payload: AccountCheckRequest) -
     abs_state_path = get_data_dir() / account.state_path
 
     if payload.use_browser and abs_state_path.exists():
-        from server.app.modules.accounts.browser import release_profile_lock, try_acquire_profile_lock
+        from server.app.modules.accounts.browser import (
+            release_profile_lock,
+            try_acquire_profile_lock,
+        )
 
         profile_key = profile_key_from_state_path(account.state_path)
         if not try_acquire_profile_lock(
@@ -891,7 +954,9 @@ def check_account(db: Session, account: Account, payload: AccountCheckRequest) -
         ):
             raise ClientError("账号正在执行发布或登录操作，请稍后再检查授权状态")
         try:
-            logged_in = _run_in_plain_thread(lambda: _check_account_in_browser(driver, abs_state_path, payload))
+            logged_in = _run_in_plain_thread(
+                lambda: _check_account_in_browser(driver, abs_state_path, payload)
+            )
         finally:
             release_profile_lock(profile_key, owner_kind="account_check", owner_id=account.id)
     else:
@@ -956,7 +1021,7 @@ def export_accounts_auth_package(db: Session, payload: AccountExportRequest) -> 
 
     now = utcnow()
     export_path = _new_export_path(now)
-    manifest = {
+    manifest: dict[str, Any] = {
         "schema_version": 1,
         "app_version": get_settings().app_version,
         "exported_at": now.isoformat(),
@@ -1002,6 +1067,7 @@ def _assess_imported_status(state_path: Path) -> str:
       "unknown" — 文件无法解析
     """
     import time as _time
+
     try:
         data = json.loads(state_path.read_text(encoding="utf-8"))
     except Exception:
@@ -1020,7 +1086,9 @@ def _assess_imported_status(state_path: Path) -> str:
     return "expired"
 
 
-def import_accounts_auth_package(db: Session, user_id: int, zip_bytes: bytes) -> dict[str, list[str]]:
+def import_accounts_auth_package(
+    db: Session, user_id: int, zip_bytes: bytes
+) -> dict[str, list[str]]:
     ensure_data_dirs()
     imported: list[str] = []
     skipped: list[str] = []
@@ -1048,13 +1116,17 @@ def import_accounts_auth_package(db: Session, user_id: int, zip_bytes: bytes) ->
             new_state_path_rel = relative_to_data_dir(dest)
 
             existing = db.execute(
-                select(Account).where(Account.user_id == user_id, Account.state_path == new_state_path_rel)
+                select(Account).where(
+                    Account.user_id == user_id, Account.state_path == new_state_path_rel
+                )
             ).scalar_one_or_none()
             if existing is not None and not existing.is_deleted:
                 skipped.append(display_name)
                 continue
 
-            account_dir_in_zip = f"accounts/{entry.get('platform_code', platform_code)}-{entry['id']}"
+            account_dir_in_zip = (
+                f"accounts/{entry.get('platform_code', platform_code)}-{entry['id']}"
+            )
             archive_state_path = f"{account_dir_in_zip}/storage_state.json"
             if archive_state_path not in archive.namelist():
                 skipped.append(f"{display_name}（ZIP 中缺少 storage_state.json）")
@@ -1128,6 +1200,7 @@ def _new_export_path(now) -> Path:
 
 def _accounts_for_export(db: Session, account_ids: list[int] | None) -> list[Account]:
     from sqlalchemy.orm import selectinload
+
     stmt = select(Account).options(selectinload(Account.platform))
     if account_ids:
         unique_ids = sorted(set(account_ids))
@@ -1139,7 +1212,9 @@ def _accounts_for_export(db: Session, account_ids: list[int] | None) -> list[Acc
         found_ids = {account.id for account in accounts}
         missing_ids = [account_id for account_id in unique_ids if account_id not in found_ids]
         if missing_ids:
-            raise ClientError(f"Accounts not found: {', '.join(str(account_id) for account_id in missing_ids)}")
+            raise ClientError(
+                f"Accounts not found: {', '.join(str(account_id) for account_id in missing_ids)}"
+            )
     return accounts
 
 

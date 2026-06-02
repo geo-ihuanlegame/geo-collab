@@ -7,11 +7,10 @@
 3. 发布抛异常时 semaphore 被正确释放（无泄漏）
 4. 多任务并发执行时状态不互相污染
 """
+
 import threading
 import time
 from io import BytesIO
-
-import pytest
 
 from server.app.modules.tasks.executor import MAX_CONCURRENT_RECORDS, _global_publish_sem
 from server.tests.utils import build_test_app
@@ -24,11 +23,18 @@ _PNG = (
 
 
 def _create_article(client, title="Test Article") -> int:
-    cover = client.post("/api/assets", files={"file": ("c.png", BytesIO(_PNG), "image/png")}).json()["id"]
-    return client.post("/api/articles", json={
-        "title": title, "content_json": {"type": "doc", "content": []},
-        "plain_text": "body content", "cover_asset_id": cover,
-    }).json()["id"]
+    cover = client.post(
+        "/api/assets", files={"file": ("c.png", BytesIO(_PNG), "image/png")}
+    ).json()["id"]
+    return client.post(
+        "/api/articles",
+        json={
+            "title": title,
+            "content_json": {"type": "doc", "content": []},
+            "plain_text": "body content",
+            "cover_asset_id": cover,
+        },
+    ).json()["id"]
 
 
 def _create_account(test_app, key: str) -> int:
@@ -42,12 +48,15 @@ def _create_account(test_app, key: str) -> int:
 
 
 def _create_single_task(client, article_id: int, account_id: int, name: str = "task") -> dict:
-    return client.post("/api/tasks", json={
-        "name": name,
-        "task_type": "single",
-        "article_id": article_id,
-        "accounts": [{"account_id": account_id}],
-    }).json()
+    return client.post(
+        "/api/tasks",
+        json={
+            "name": name,
+            "task_type": "single",
+            "article_id": article_id,
+            "accounts": [{"account_id": account_id}],
+        },
+    ).json()
 
 
 class TestSemaphoreIntegrity:
@@ -70,7 +79,6 @@ class TestSemaphoreIntegrity:
         from server.app.modules.tasks import executor as tasks_mod
 
         call_count = 0
-        barrier = threading.Barrier(2)
 
         def raise_publisher(_record):
             nonlocal call_count
@@ -125,6 +133,7 @@ class TestSemaphoreIntegrity:
         def ok_publisher(_record):
             def _runner(article, account, *, stop_before_publish=False):
                 return FakeResult()
+
             return _runner
 
         monkeypatch.setattr(tasks_mod, "build_publish_runner_for_record", ok_publisher)
@@ -194,7 +203,9 @@ def test_same_account_across_tasks_is_serialized(monkeypatch):
             class R:
                 url = None
                 message = "ok"
+
             return R()
+
         return _runner
 
     monkeypatch.setattr(tasks_mod, "build_publish_runner_for_record", counting_publisher)
@@ -209,7 +220,9 @@ def test_same_account_across_tasks_is_serialized(monkeypatch):
 
         threading.Timer(0.3, release_event.set).start()
         threads = [
-            threading.Thread(target=lambda tid=tid: test_app.client.post(f"/api/tasks/{tid}/execute"))
+            threading.Thread(
+                target=lambda tid=tid: test_app.client.post(f"/api/tasks/{tid}/execute")
+            )
             for tid in (task1["id"], task2["id"])
         ]
         for thread in threads:
@@ -240,6 +253,7 @@ class TestConcurrentTaskIsolation:
             def _runner(article, account, *, stop_before_publish=False):
                 time.sleep(0.05)
                 return FakeResult()
+
             return _runner
 
         monkeypatch.setattr(tasks_mod, "build_publish_runner_for_record", ok_publisher)
@@ -265,8 +279,10 @@ class TestConcurrentTaskIsolation:
 
             t1 = threading.Thread(target=run_task, args=(task1["id"],))
             t2 = threading.Thread(target=run_task, args=(task2["id"],))
-            t1.start(); t2.start()
-            t1.join(timeout=10); t2.join(timeout=10)
+            t1.start()
+            t2.start()
+            t1.join(timeout=10)
+            t2.join(timeout=10)
             assert not errors, f"Concurrent task errors: {errors}"
 
             # 等待两个任务都到达终态
@@ -307,7 +323,9 @@ class TestConcurrentTaskIsolation:
                 class R:
                     url = None
                     message = "ok"
+
                 return R()
+
             return _runner
 
         monkeypatch.setattr(tasks_mod, "build_publish_runner_for_record", counting_publisher)

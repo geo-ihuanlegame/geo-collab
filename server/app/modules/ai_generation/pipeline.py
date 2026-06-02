@@ -7,6 +7,7 @@
 - parallel_write：ThreadPoolExecutor(max_workers=4)，每个 spec 独立写一篇文章
 - finalize：更新 GenerationSession 状态为 done/failed
 """
+
 import logging
 import os
 import uuid
@@ -20,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 # ── State ────────────────────────────────────────────────────────────────────
+
 
 class PipelineState(TypedDict):
     session_id: int
@@ -44,6 +46,7 @@ def planner_node(state: PipelineState) -> dict:
 
 # ── 节点：parallel_write ──────────────────────────────────────────────────────
 
+
 def _write_one_article(
     spec: dict,
     user_id: int,
@@ -52,10 +55,11 @@ def _write_one_article(
 ) -> int | None:
     """在独立线程中生成一篇文章并写库，返回 article_id 或 None（失败）。"""
     import litellm
+
     from server.app.core.config import get_settings
     from server.app.modules.ai_generation.converter import markdown_to_html, markdown_to_tiptap
-    from server.app.modules.articles.service import create_article
     from server.app.modules.articles.schemas import ArticleCreate
+    from server.app.modules.articles.service import create_article
 
     settings = get_settings()
     _inject_api_key(settings.ai_api_key)
@@ -167,6 +171,7 @@ def parallel_write_node(state: PipelineState) -> dict:
 
 # ── 节点：finalize ────────────────────────────────────────────────────────────
 
+
 def finalize_node(state: PipelineState) -> dict:
     from server.app.modules.ai_generation.service import update_session_status
 
@@ -201,6 +206,7 @@ def finalize_node(state: PipelineState) -> dict:
 
 # ── 图构建 ────────────────────────────────────────────────────────────────────
 
+
 def _build_graph():
     builder: StateGraph = StateGraph(PipelineState)
     builder.add_node("planner", planner_node)
@@ -217,6 +223,7 @@ _graph = _build_graph()
 
 
 # ── 公开入口 ──────────────────────────────────────────────────────────────────
+
 
 def _inject_api_key(api_key: str) -> None:
     if api_key:
@@ -291,8 +298,8 @@ def _build_task_specs(db: Any, gen_session: Any, prompt_content: str) -> list[di
 def run_pipeline(db: Any, session_id: int, *, session_factory: Any) -> None:
     """由后台线程调用；db 仅用于读取会话元数据和设置 running 状态。"""
     from server.app.modules.ai_generation.service import get_session, update_session_status
-    from server.app.modules.skills.service import get_skill
     from server.app.modules.prompt_templates.models import PromptTemplate
+    from server.app.modules.skills.service import get_skill
 
     gen_session = get_session(db, session_id)
     if gen_session is None:
@@ -307,7 +314,9 @@ def run_pipeline(db: Any, session_id: int, *, session_factory: Any) -> None:
     )
 
     if skill is None or prompt is None:
-        update_session_status(db, session_id, status="failed", error_message="Skill 或 Prompt 不存在")
+        update_session_status(
+            db, session_id, status="failed", error_message="Skill 或 Prompt 不存在"
+        )
         db.commit()
         return
 

@@ -108,7 +108,8 @@ def _map_publish_response(result: dict[str, Any], title: str) -> PublishResult:
         message = data.get("message") or data.get("msg") or result.get("raw")
         raise PublishError(f"头条发布被拒: code={code}; message={message}")
 
-    inner = data.get("data") if isinstance(data.get("data"), dict) else {}
+    raw_inner = data.get("data")
+    inner: dict[str, Any] = raw_inner if isinstance(raw_inner, dict) else {}
     pgc_id = str(inner.get("pgc_id") or inner.get("id") or "") or None
     url = inner.get("article_url") or inner.get("url")
     return PublishResult(

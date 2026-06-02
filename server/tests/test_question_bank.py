@@ -4,6 +4,7 @@
 按板块分组、自动选题板块优先级/轮转/K 随机/不消费、管线两种模式集成、API。
 LiteLLM 与飞书均 mock。
 """
+
 import json
 import random
 from datetime import datetime, timedelta
@@ -34,6 +35,7 @@ def _admin_id(session_factory) -> int:
 
 # ── 纯单元：默认取法 + converter ─────────────────────────────────────────────
 
+
 def test_extract_question_text_flattens_fields_and_rich_text():
     fields = {
         "问题": "1.有没有无广告的游戏、2.有没有不肝不氪的良心游戏",
@@ -60,6 +62,7 @@ def test_converter_markdown_to_tiptap_and_html():
 
 # ── 同步：upsert 语义（消费不复活）──────────────────────────────────────────
 
+
 def test_sync_pool_upsert_does_not_resurrect_consumed(monkeypatch):
     app = build_test_app(monkeypatch)
     try:
@@ -67,11 +70,21 @@ def test_sync_pool_upsert_does_not_resurrect_consumed(monkeypatch):
 
         uid = _admin_id(app.session_factory)
         with app.session_factory() as db:
-            pool = QuestionPool(user_id=uid, name="p", feishu_app_token="app", feishu_table_id="tbl")
+            pool = QuestionPool(
+                user_id=uid, name="p", feishu_app_token="app", feishu_table_id="tbl"
+            )
             db.add(pool)
             db.flush()
             # 已消费的 rec1（应被同步跳过、不复活、不覆盖）
-            db.add(QuestionItem(pool_id=pool.id, record_id="rec1", fields={"q": "old"}, status="consumed", article_id=None))
+            db.add(
+                QuestionItem(
+                    pool_id=pool.id,
+                    record_id="rec1",
+                    fields={"q": "old"},
+                    status="consumed",
+                    article_id=None,
+                )
+            )
             db.commit()
             pool_id = pool.id
 
@@ -87,18 +100,19 @@ def test_sync_pool_upsert_does_not_resurrect_consumed(monkeypatch):
             res = qb.sync_pool(db, pool)
             db.commit()
 
-        assert res["added"] == 1            # rec2 新增
+        assert res["added"] == 1  # rec2 新增
         assert res["skipped_consumed"] == 1  # rec1 不复活
         with app.session_factory() as db:
             items = {it.record_id: it for it in db.query(QuestionItem).filter_by(pool_id=pool_id)}
             assert items["rec1"].status == "consumed"
-            assert items["rec1"].fields["q"] == "old"   # 未被覆盖
+            assert items["rec1"].fields["q"] == "old"  # 未被覆盖
             assert items["rec2"].status == "pending"
     finally:
         app.cleanup()
 
 
 # ── 管线：问题库模式 成功出队 / 失败保留 ────────────────────────────────────
+
 
 def _seed_generation(app, *, fields):
     from server.app.modules.ai_generation.models import QuestionItem, QuestionPool
@@ -111,7 +125,9 @@ def _seed_generation(app, *, fields):
     with app.session_factory() as db:
         skill = Skill(name="s", description="", storage_path=skill_path, is_enabled=True)
         db.add(skill)
-        prompt = PromptTemplate(name="p", content="写一篇：{{问题}}", scope="generation", user_id=uid, is_enabled=True)
+        prompt = PromptTemplate(
+            name="p", content="写一篇：{{问题}}", scope="generation", user_id=uid, is_enabled=True
+        )
         db.add(prompt)
         pool = QuestionPool(user_id=uid, name="pool")
         db.add(pool)
@@ -120,7 +136,11 @@ def _seed_generation(app, *, fields):
         db.add(item)
         db.flush()
         session = create_session(
-            db, user_id=uid, skill_id=skill.id, prompt_template_id=prompt.id, question_item_ids=[item.id]
+            db,
+            user_id=uid,
+            skill_id=skill.id,
+            prompt_template_id=prompt.id,
+            question_item_ids=[item.id],
         )
         db.commit()
         return session.id, item.id
@@ -133,7 +153,9 @@ def test_question_bank_pipeline_consumes_on_success(monkeypatch):
         from server.app.modules.ai_generation.pipeline import run_pipeline
 
         session_id, item_id = _seed_generation(app, fields={"问题": "1.a、2.b、3.c"})
-        monkeypatch.setattr("litellm.completion", lambda **kw: _fake_completion("# 标题\n\n融合正文。"))
+        monkeypatch.setattr(
+            "litellm.completion", lambda **kw: _fake_completion("# 标题\n\n融合正文。")
+        )
 
         with app.session_factory() as db:
             run_pipeline(db, session_id, session_factory=app.session_factory)
@@ -169,13 +191,14 @@ def test_question_bank_pipeline_keeps_pending_on_failure(monkeypatch):
             s = db.get(GenerationSession, session_id)
             it = db.get(QuestionItem, item_id)
             assert s.status == "failed"
-            assert it.status == "pending"      # 未出队，可重试
+            assert it.status == "pending"  # 未出队，可重试
             assert it.article_id is None
     finally:
         app.cleanup()
 
 
 # ── API ─────────────────────────────────────────────────────────────────────
+
 
 def test_pool_create_sync_list_via_api(monkeypatch):
     app = build_test_app(monkeypatch)
@@ -206,7 +229,11 @@ def test_pool_create_sync_list_via_api(monkeypatch):
 def test_start_generation_accepts_question_items(monkeypatch):
     app = build_test_app(monkeypatch)
     try:
-        from server.app.modules.ai_generation.models import GenerationSession, QuestionItem, QuestionPool
+        from server.app.modules.ai_generation.models import (
+            GenerationSession,
+            QuestionItem,
+            QuestionPool,
+        )
         from server.app.modules.prompt_templates.models import PromptTemplate
         from server.app.modules.skills.models import Skill
 
@@ -214,12 +241,16 @@ def test_start_generation_accepts_question_items(monkeypatch):
         with app.session_factory() as db:
             skill = Skill(name="s", description="", storage_path="x", is_enabled=True)
             db.add(skill)
-            prompt = PromptTemplate(name="p", content="{{问题}}", scope="generation", user_id=uid, is_enabled=True)
+            prompt = PromptTemplate(
+                name="p", content="{{问题}}", scope="generation", user_id=uid, is_enabled=True
+            )
             db.add(prompt)
             pool = QuestionPool(user_id=uid, name="pool")
             db.add(pool)
             db.flush()
-            item = QuestionItem(pool_id=pool.id, record_id="r1", fields={"问题": "q"}, status="pending")
+            item = QuestionItem(
+                pool_id=pool.id, record_id="r1", fields={"问题": "q"}, status="pending"
+            )
             db.add(item)
             db.flush()
             db.commit()
@@ -227,7 +258,11 @@ def test_start_generation_accepts_question_items(monkeypatch):
 
         r = app.client.post(
             "/api/generation/sessions",
-            json={"skill_id": skill_id, "prompt_template_id": prompt_id, "question_item_ids": [item_id]},
+            json={
+                "skill_id": skill_id,
+                "prompt_template_id": prompt_id,
+                "question_item_ids": [item_id],
+            },
         )
         assert r.status_code == 202, r.text
         session_id = r.json()["session_id"]
@@ -240,6 +275,7 @@ def test_start_generation_accepts_question_items(monkeypatch):
 
 # ── 同步抽专用字段：提问词 + 分类板块 ──────────────────────────────────────
 
+
 def test_sync_extracts_question_text_and_category(monkeypatch):
     app = build_test_app(monkeypatch)
     try:
@@ -248,22 +284,29 @@ def test_sync_extracts_question_text_and_category(monkeypatch):
         uid = _admin_id(app.session_factory)
         with app.session_factory() as db:
             pool = QuestionPool(user_id=uid, name="p", feishu_app_token="a", feishu_table_id="t")
-            db.add(pool); db.flush()
+            db.add(pool)
+            db.flush()
             db.commit()
             pool_id = pool.id
 
         monkeypatch.setattr(
             "server.app.shared.feishu_bitable.list_bitable_records",
             lambda a, t: [
-                {"record_id": "r1", "fields": {
-                    "提问词": [{"type": "text", "text": "有没有无广告的游戏"}],
-                    "分类板块": "无广告 / 不肝不氪",
-                    "蒋纪缘": 2,
-                }},
-                {"record_id": "r2", "fields": {
-                    "提问词": "口碑好的游戏推荐",
-                    "分类板块": "综合通用推荐",
-                }},
+                {
+                    "record_id": "r1",
+                    "fields": {
+                        "提问词": [{"type": "text", "text": "有没有无广告的游戏"}],
+                        "分类板块": "无广告 / 不肝不氪",
+                        "蒋纪缘": 2,
+                    },
+                },
+                {
+                    "record_id": "r2",
+                    "fields": {
+                        "提问词": "口碑好的游戏推荐",
+                        "分类板块": "综合通用推荐",
+                    },
+                },
             ],
         )
         with app.session_factory() as db:
@@ -279,6 +322,7 @@ def test_sync_extracts_question_text_and_category(monkeypatch):
 
 
 # ── 手动分组：按 category 合并 ───────────────────────────────────────────────
+
 
 def test_group_items_by_category_preserves_first_seen_order():
     from server.app.modules.ai_generation.models import QuestionItem as QI
@@ -308,20 +352,35 @@ def test_format_question_group_numbers_questions():
 
 # ── 自动选题：板块优先级 + 轮转 + 随机 K + 不消费 ───────────────────────────
 
+
 def _seed_multi_category_pool(app):
     """seed 一个池，3 个板块：A(2行) B(3行) C(1行)。返回 (pool_id, items by category)."""
     from server.app.modules.ai_generation.models import QuestionItem, QuestionPool
 
     uid = _admin_id(app.session_factory)
     rows = [
-        ("A", "a1"), ("A", "a2"),
-        ("B", "b1"), ("B", "b2"), ("B", "b3"),
+        ("A", "a1"),
+        ("A", "a2"),
+        ("B", "b1"),
+        ("B", "b2"),
+        ("B", "b3"),
         ("C", "c1"),
     ]
     with app.session_factory() as db:
-        pool = QuestionPool(user_id=uid, name="multi"); db.add(pool); db.flush()
+        pool = QuestionPool(user_id=uid, name="multi")
+        db.add(pool)
+        db.flush()
         for cat, q in rows:
-            db.add(QuestionItem(pool_id=pool.id, record_id=q, fields={}, question_text=q, category=cat, status="pending"))
+            db.add(
+                QuestionItem(
+                    pool_id=pool.id,
+                    record_id=q,
+                    fields={},
+                    question_text=q,
+                    category=cat,
+                    status="pending",
+                )
+            )
         db.commit()
         return pool.id
 
@@ -336,7 +395,9 @@ def test_list_categories_for_auto_unused_first_then_position(monkeypatch):
         with app.session_factory() as db:
             now = datetime.utcnow()
             db.add(CategoryUsage(pool_id=pool_id, category="A", last_used_at=now))
-            db.add(CategoryUsage(pool_id=pool_id, category="B", last_used_at=now - timedelta(days=1)))
+            db.add(
+                CategoryUsage(pool_id=pool_id, category="B", last_used_at=now - timedelta(days=1))
+            )
             db.commit()
 
         with app.session_factory() as db:
@@ -350,7 +411,9 @@ def test_list_categories_for_auto_unused_first_then_position(monkeypatch):
 def test_auto_pick_groups_round_robin_and_K_random(monkeypatch):
     app = build_test_app(monkeypatch)
     try:
-        pool_id = _seed_multi_category_pool(app)  # A=2, B=3, C=1，全部 unused → 按 first_id 顺序 A B C
+        pool_id = _seed_multi_category_pool(
+            app
+        )  # A=2, B=3, C=1，全部 unused → 按 first_id 顺序 A B C
         rng = random.Random(42)  # 固定种子保证可复现
 
         with app.session_factory() as db:
@@ -376,13 +439,15 @@ def test_mark_category_used_upserts_last_used_at(monkeypatch):
 
         pool_id = _seed_multi_category_pool(app)
         with app.session_factory() as db:
-            qb.mark_category_used(db, pool_id, "A"); db.commit()
+            qb.mark_category_used(db, pool_id, "A")
+            db.commit()
             usage = db.get(CategoryUsage, {"pool_id": pool_id, "category": "A"})
             assert usage is not None
             first_ts = usage.last_used_at
 
         with app.session_factory() as db:
-            qb.mark_category_used(db, pool_id, "A"); db.commit()
+            qb.mark_category_used(db, pool_id, "A")
+            db.commit()
             usage = db.get(CategoryUsage, {"pool_id": pool_id, "category": "A"})
             assert usage.last_used_at >= first_ts
     finally:
@@ -390,6 +455,7 @@ def test_mark_category_used_upserts_last_used_at(monkeypatch):
 
 
 # ── 管线集成：手动多板块、自动模式 ───────────────────────────────────────
+
 
 def _seed_session(app, *, pool_id, item_ids=None, auto_count=None):
     """造一个 session + 必需的 skill/prompt。返回 (session_id, skill_id, prompt_id)."""
@@ -400,13 +466,27 @@ def _seed_session(app, *, pool_id, item_ids=None, auto_count=None):
     uid = _admin_id(app.session_factory)
     skill_path = _seed_skill(app.data_dir)
     with app.session_factory() as db:
-        skill = Skill(name=f"sk-{auto_count or 'm'}", description="", storage_path=skill_path, is_enabled=True)
+        skill = Skill(
+            name=f"sk-{auto_count or 'm'}", description="", storage_path=skill_path, is_enabled=True
+        )
         db.add(skill)
-        prompt = PromptTemplate(name=f"pp-{auto_count or 'm'}", content="写一篇：{{问题}}", scope="generation", user_id=uid, is_enabled=True)
-        db.add(prompt); db.flush()
+        prompt = PromptTemplate(
+            name=f"pp-{auto_count or 'm'}",
+            content="写一篇：{{问题}}",
+            scope="generation",
+            user_id=uid,
+            is_enabled=True,
+        )
+        db.add(prompt)
+        db.flush()
         s = create_session(
-            db, user_id=uid, skill_id=skill.id, prompt_template_id=prompt.id,
-            pool_id=pool_id, question_item_ids=item_ids or [], auto_count=auto_count,
+            db,
+            user_id=uid,
+            skill_id=skill.id,
+            prompt_template_id=prompt.id,
+            pool_id=pool_id,
+            question_item_ids=item_ids or [],
+            auto_count=auto_count,
         )
         db.commit()
         return s.id
@@ -421,8 +501,13 @@ def test_pipeline_manual_groups_by_category_into_one_article_per_category(monkey
         pool_id = _seed_multi_category_pool(app)
         # 勾选 A 的 2 条 + B 的 1 条 → 期望出 2 篇
         with app.session_factory() as db:
-            a_ids = [it.id for it in db.query(QuestionItem).filter_by(pool_id=pool_id, category="A")]
-            b_ids = [it.id for it in db.query(QuestionItem).filter_by(pool_id=pool_id, category="B").limit(1)]
+            a_ids = [
+                it.id for it in db.query(QuestionItem).filter_by(pool_id=pool_id, category="A")
+            ]
+            b_ids = [
+                it.id
+                for it in db.query(QuestionItem).filter_by(pool_id=pool_id, category="B").limit(1)
+            ]
         selected = a_ids + b_ids
         session_id = _seed_session(app, pool_id=pool_id, item_ids=selected)
 
@@ -446,7 +531,11 @@ def test_pipeline_manual_groups_by_category_into_one_article_per_category(monkey
 def test_pipeline_auto_picks_and_marks_category_without_consuming_items(monkeypatch):
     app = build_test_app(monkeypatch)
     try:
-        from server.app.modules.ai_generation.models import CategoryUsage, GenerationSession, QuestionItem
+        from server.app.modules.ai_generation.models import (
+            CategoryUsage,
+            GenerationSession,
+            QuestionItem,
+        )
         from server.app.modules.ai_generation.pipeline import run_pipeline
 
         pool_id = _seed_multi_category_pool(app)  # A=2, B=3, C=1

@@ -1,4 +1,5 @@
 """MySQL engine and Session factory."""
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -31,4 +32,3 @@ def get_db():
         raise
     finally:
         db.close()
-

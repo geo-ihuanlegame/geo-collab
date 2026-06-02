@@ -14,16 +14,12 @@ def test_ai_format_error_message_for_missing_key():
 
 
 def test_ai_format_error_message_for_insufficient_balance():
-    message = _describe_ai_format_error(
-        RuntimeError("402 Payment Required: Insufficient Balance")
-    )
+    message = _describe_ai_format_error(RuntimeError("402 Payment Required: Insufficient Balance"))
     assert "余额不足" in message
 
 
 def test_ai_format_error_message_for_invalid_model():
-    message = _describe_ai_format_error(
-        RuntimeError("404 model deepseek/foo does not exist")
-    )
+    message = _describe_ai_format_error(RuntimeError("404 model deepseek/foo does not exist"))
     assert "GEO_AI_FORMAT_MODEL" in message
 
 

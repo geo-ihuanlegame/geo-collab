@@ -7,16 +7,17 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
-_logger = logging.getLogger(__name__)
-
 from fastapi import UploadFile
-from sqlalchemy import exists, func, select, update as sa_update
+from sqlalchemy import exists, func, select
+from sqlalchemy import update as sa_update
 from sqlalchemy.orm import Session
 
 from server.app.core.paths import get_data_dir
 from server.app.core.time import utcnow
 from server.app.modules.articles.models import Article, ArticleBodyAsset, Asset
 from server.app.shared.errors import ClientError
+
+_logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -58,6 +59,7 @@ def _generate_derivatives(asset: Asset, src_path: Path) -> None:
         return
     try:
         from PIL import Image
+
         img = Image.open(src_path)
         # WebP 全尺寸
         webp_path = src_path.with_suffix(".webp")
@@ -74,7 +76,9 @@ def _generate_derivatives(asset: Asset, src_path: Path) -> None:
         asset.thumb_storage_key = thumb_rel.as_posix()
         asset.thumb_size = thumb_path.stat().st_size
     except Exception:
-        _logger.warning("Failed to generate image derivatives for asset %s", asset.id, exc_info=True)
+        _logger.warning(
+            "Failed to generate image derivatives for asset %s", asset.id, exc_info=True
+        )
 
 
 def normalize_ext(filename: str, content_type: str | None, data: bytes) -> str:
@@ -109,7 +113,9 @@ def resolve_asset_path(asset: Asset) -> Path:
     return path
 
 
-def _create_asset(db: Session, user_id: int, data: bytes, filename: str, content_type: str) -> StoredAsset:
+def _create_asset(
+    db: Session, user_id: int, data: bytes, filename: str, content_type: str
+) -> StoredAsset:
     now = utcnow()
     asset_id = uuid.uuid4().hex
     ext = normalize_ext(filename, content_type, data)
@@ -139,15 +145,25 @@ def _create_asset(db: Session, user_id: int, data: bytes, filename: str, content
     return StoredAsset(asset=asset, path=path)
 
 
-def store_bytes(db: Session, user_id: int, data: bytes, filename: str, content_type: str) -> StoredAsset:
+def store_bytes(
+    db: Session, user_id: int, data: bytes, filename: str, content_type: str
+) -> StoredAsset:
     if not data:
         raise ValueError("Stored file is empty")
     return _create_asset(db, user_id, data, filename, content_type)
 
 
 def _create_asset_from_path(
-    db: Session, user_id: int, filepath: Path, filename: str, content_type: str,
-    sha256_hash: str, size: int, ext: str, width: int | None, height: int | None,
+    db: Session,
+    user_id: int,
+    filepath: Path,
+    filename: str,
+    content_type: str,
+    sha256_hash: str,
+    size: int,
+    ext: str,
+    width: int | None,
+    height: int | None,
     do_commit: bool = False,
 ) -> StoredAsset:
     now = utcnow()
@@ -172,6 +188,7 @@ def _create_asset_from_path(
 
     dest.parent.mkdir(parents=True, exist_ok=True)
     import shutil
+
     shutil.move(str(filepath), str(dest))
     _generate_derivatives(asset, dest)
     if do_commit:
@@ -212,7 +229,11 @@ async def store_upload(db: Session, user_id: int, upload: UploadFile) -> StoredA
                 if first_chunk is None:
                     first_chunk = chunk
                     ok = any(chunk.startswith(m) for m in ALLOWED_MAGIC)
-                    if ok and chunk.startswith(b"RIFF") and (len(chunk) < 12 or chunk[8:12] != b"WEBP"):
+                    if (
+                        ok
+                        and chunk.startswith(b"RIFF")
+                        and (len(chunk) < 12 or chunk[8:12] != b"WEBP")
+                    ):
                         ok = False
                     if not ok:
                         raise HTTPException(status_code=415, detail="不支持的文件类型")
@@ -236,11 +257,21 @@ async def store_upload(db: Session, user_id: int, upload: UploadFile) -> StoredA
         width, height = guess_image_size(first_chunk)
 
         import asyncio
+
         loop = asyncio.get_event_loop()
         stored = await loop.run_in_executor(
-            None, _create_asset_from_path,
-            db, user_id, tmp_path, filename, content_type, digest, total,
-            ext, width, height,
+            None,
+            _create_asset_from_path,
+            db,
+            user_id,
+            tmp_path,
+            filename,
+            content_type,
+            digest,
+            total,
+            ext,
+            width,
+            height,
             True,
         )
         return stored
@@ -255,17 +286,16 @@ async def store_upload(db: Session, user_id: int, upload: UploadFile) -> StoredA
 
 # ── 孤儿资产管理 ──────────────────────────────────────────────────────────────
 
+
 def find_orphan_asset_ids(db: Session) -> list[str]:
     """返回未被任何文章（封面/正文）或任务日志截图引用的 asset id 列表。"""
     from server.app.modules.tasks.models import TaskLog  # lazy import to avoid circular dependency
-    stmt = (
-        select(Asset.id)
-        .where(
-            Asset.is_deleted == False,  # noqa: E712
-            ~exists(select(Article.id).where(Article.cover_asset_id == Asset.id)),
-            ~exists(select(ArticleBodyAsset.id).where(ArticleBodyAsset.asset_id == Asset.id)),
-            ~exists(select(TaskLog.id).where(TaskLog.screenshot_asset_id == Asset.id)),
-        )
+
+    stmt = select(Asset.id).where(
+        Asset.is_deleted == False,  # noqa: E712
+        ~exists(select(Article.id).where(Article.cover_asset_id == Asset.id)),
+        ~exists(select(ArticleBodyAsset.id).where(ArticleBodyAsset.asset_id == Asset.id)),
+        ~exists(select(TaskLog.id).where(TaskLog.screenshot_asset_id == Asset.id)),
     )
     return list(db.execute(stmt).scalars().all())
 
@@ -281,7 +311,7 @@ def soft_delete_assets(db: Session, asset_ids: list[str]) -> int:
         .values(is_deleted=True, deleted_at=now)
     )
     db.flush()
-    return result.rowcount
+    return result.rowcount  # type: ignore[attr-defined]  # DML execute returns CursorResult
 
 
 def get_asset_stats(db: Session) -> dict:

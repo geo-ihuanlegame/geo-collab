@@ -1,14 +1,18 @@
 import os
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-
-from server.app.core.config import get_settings
-from server.app.core.time import utcnow
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from server.app.core.config import get_settings
 from server.app.core.limiter import limiter
-from server.app.core.security import create_access_token, get_current_user, invalidate_user_cache, require_admin, verify_token
+from server.app.core.security import (
+    create_access_token,
+    invalidate_user_cache,
+    require_admin,
+    verify_token,
+)
+from server.app.core.time import utcnow
 from server.app.db.session import get_db
 from server.app.modules.audit.service import add_audit_entry
 from server.app.modules.system.models import User
@@ -61,7 +65,9 @@ def _user_dict(u: User) -> dict:
 
 @router.post("/login")
 @limiter.limit("5/minute")
-def login(request: Request, payload: LoginRequest, response: Response, db: Session = Depends(get_db)) -> dict:
+def login(
+    request: Request, payload: LoginRequest, response: Response, db: Session = Depends(get_db)
+) -> dict:
     user = db.query(User).filter(User.username == payload.username).first()
     if not user or not user.check_password(payload.password):
         try:

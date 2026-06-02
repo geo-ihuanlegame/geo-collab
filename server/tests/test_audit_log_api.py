@@ -1,4 +1,5 @@
 """审计日志：helper + 查询 API + 端到端 hook 测试（对应 plan.md A.8 八用例）。"""
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -51,6 +52,7 @@ def _seed_test_account(test_app, *, display_name: str = "测试账号") -> int:
 
 # ============== 1. helper 直接写入 ==============
 
+
 def test_add_audit_entry_writes_row(monkeypatch):
     test_app = build_test_app(monkeypatch)
     try:
@@ -79,6 +81,7 @@ def test_add_audit_entry_writes_row(monkeypatch):
 
 
 # ============== 2. _redact 脱敏 ==============
+
 
 def test_audit_helper_redacts_password_payload(monkeypatch):
     test_app = build_test_app(monkeypatch)
@@ -126,6 +129,7 @@ def test_audit_helper_redacts_password_payload(monkeypatch):
 
 # ============== 3. 故障注入：audit 失败不影响主流程 ==============
 
+
 def test_audit_failure_does_not_break_main_flow(monkeypatch):
     test_app = build_test_app(monkeypatch)
     try:
@@ -151,6 +155,7 @@ def test_audit_failure_does_not_break_main_flow(monkeypatch):
 
             # 账号确实软删了（业务流程不受影响）
             from server.app.modules.accounts.models import Account
+
             acc = db.query(Account).filter(Account.id == account_id).one()
             assert acc.is_deleted is True
     finally:
@@ -158,6 +163,7 @@ def test_audit_failure_does_not_break_main_flow(monkeypatch):
 
 
 # ============== 4. 登录走真实端点 → audit 行 ==============
+
 
 def test_login_creates_audit_entry(monkeypatch):
     test_app = build_test_app(monkeypatch)
@@ -198,6 +204,7 @@ def test_login_creates_audit_entry(monkeypatch):
 
 # ============== 5. DELETE /accounts → audit 行 ==============
 
+
 def test_account_delete_creates_audit_entry(monkeypatch):
     test_app = build_test_app(monkeypatch)
     try:
@@ -225,23 +232,27 @@ def _seed_audit_rows(test_app) -> None:
         admin = db.query(User).filter(User.username == "testadmin").one()
         base = datetime(2026, 1, 1, 12, 0, 0)
         for i in range(5):
-            db.add(AuditLog(
-                user_id=admin.id,
-                username="testadmin",
-                action=f"account.test{i}",
-                target_type="account",
-                target_id=str(100 + i),
-                created_at=base + timedelta(seconds=i),
-            ))
+            db.add(
+                AuditLog(
+                    user_id=admin.id,
+                    username="testadmin",
+                    action=f"account.test{i}",
+                    target_type="account",
+                    target_id=str(100 + i),
+                    created_at=base + timedelta(seconds=i),
+                )
+            )
         for i in range(3):
-            db.add(AuditLog(
-                user_id=admin.id,
-                username="testadmin",
-                action=f"user.test{i}",
-                target_type="user",
-                target_id=str(200 + i),
-                created_at=base + timedelta(seconds=10 + i),
-            ))
+            db.add(
+                AuditLog(
+                    user_id=admin.id,
+                    username="testadmin",
+                    action=f"user.test{i}",
+                    target_type="user",
+                    target_id=str(200 + i),
+                    created_at=base + timedelta(seconds=10 + i),
+                )
+            )
         db.commit()
 
 

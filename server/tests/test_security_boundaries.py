@@ -10,14 +10,15 @@ Security boundary tests covering:
 - P4:    operator cannot delete accounts
 - P6:    operator cannot access system status
 """
+
 from fastapi.testclient import TestClient
 
 from server.app.core.security import create_access_token
 from server.app.modules.system.models import User
 from server.tests.utils import build_test_app
 
-
 # ── helpers ──────────────────────────────────────────────────────────────────
+
 
 def _make_operator_client(test_app, username="testoperator") -> tuple[TestClient, int]:
     with test_app.session_factory() as db:
@@ -76,6 +77,7 @@ def _create_group(client, name="Test Group") -> int:
 
 # ── R1/P4: export admin-only ──────────────────────────────────────────────────
 
+
 class TestAccountExportAdminOnly:
     def test_operator_cannot_export(self, monkeypatch):
         test_app = build_test_app(monkeypatch)
@@ -99,6 +101,7 @@ class TestAccountExportAdminOnly:
 
 # ── R2: article client_request_id idempotency (same user) ────────────────────
 
+
 class TestArticleClientRequestIdIdempotency:
     def test_same_user_duplicate_returns_existing(self, monkeypatch):
         """Same user sending the same client_request_id twice gets the same article back."""
@@ -111,7 +114,11 @@ class TestArticleClientRequestIdIdempotency:
             # Second request with same crid from same user → idempotent
             resp2 = client.post(
                 "/api/articles",
-                json={"title": "Duplicate", "content_json": {"type": "doc", "content": []}, "client_request_id": crid},
+                json={
+                    "title": "Duplicate",
+                    "content_json": {"type": "doc", "content": []},
+                    "client_request_id": crid,
+                },
             )
             assert resp2.status_code == 200
             assert resp2.json()["id"] == article_id
@@ -120,6 +127,7 @@ class TestArticleClientRequestIdIdempotency:
 
 
 # ── R4: /api/tasks/preview requires authentication ────────────────────────────
+
 
 class TestTasksPreviewAuth:
     def test_unauthenticated_preview_returns_401(self, monkeypatch):
@@ -149,6 +157,7 @@ class TestTasksPreviewAuth:
 
 
 # ── R5: must_change_password blocks protected endpoints ───────────────────────
+
 
 class TestMustChangePasswordBlocking:
     def test_blocks_articles_list(self, monkeypatch):
@@ -208,6 +217,7 @@ class TestMustChangePasswordBlocking:
 
 # ── P1: operator cannot delete articles ──────────────────────────────────────
 
+
 class TestOperatorCannotDeleteArticle:
     def test_operator_delete_returns_403(self, monkeypatch):
         test_app = build_test_app(monkeypatch)
@@ -231,6 +241,7 @@ class TestOperatorCannotDeleteArticle:
 
 
 # ── P2: operator cannot delete article groups ─────────────────────────────────
+
 
 class TestOperatorCannotDeleteArticleGroup:
     def test_operator_delete_returns_403(self, monkeypatch):
@@ -256,6 +267,7 @@ class TestOperatorCannotDeleteArticleGroup:
 
 # ── P4: operator cannot delete accounts ──────────────────────────────────────
 
+
 class TestOperatorCannotDeleteAccount:
     def test_operator_delete_returns_403(self, monkeypatch):
         test_app = build_test_app(monkeypatch)
@@ -279,6 +291,7 @@ class TestOperatorCannotDeleteAccount:
 
 
 # ── P6: operator cannot access system status ──────────────────────────────────
+
 
 class TestOperatorCannotAccessSystemStatus:
     def test_operator_returns_403(self, monkeypatch):
@@ -310,6 +323,7 @@ class TestOperatorCannotAccessSystemStatus:
 
 
 # ── R9: task ownership validation ─────────────────────────────────────────────
+
 
 class TestTaskOwnershipValidation:
     def test_operator_cannot_use_admin_account(self, monkeypatch):

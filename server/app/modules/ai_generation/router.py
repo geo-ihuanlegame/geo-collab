@@ -1,4 +1,5 @@
 """AI 生文模块路由。"""
+
 import logging
 import threading
 from typing import Any
@@ -9,12 +10,7 @@ from sqlalchemy.orm import Session
 
 from server.app.core.security import get_current_user
 from server.app.db.session import get_db
-from server.app.modules.audit.service import add_audit_entry
-from server.app.modules.system.models import User
 from server.app.modules.ai_generation import question_bank as qb
-from server.app.modules.ai_generation.service import create_session, get_session
-from server.app.modules.prompt_templates.service import get_visible_prompt_template
-from server.app.modules.skills.service import get_skill
 from server.app.modules.ai_generation.schemas import (
     GenerationSessionCreate,
     GenerationSessionRead,
@@ -23,6 +19,11 @@ from server.app.modules.ai_generation.schemas import (
     QuestionPoolRead,
     SyncResult,
 )
+from server.app.modules.ai_generation.service import create_session, get_session
+from server.app.modules.audit.service import add_audit_entry
+from server.app.modules.prompt_templates.service import get_visible_prompt_template
+from server.app.modules.skills.service import get_skill
+from server.app.modules.system.models import User
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

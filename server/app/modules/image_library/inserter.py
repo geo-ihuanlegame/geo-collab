@@ -46,7 +46,7 @@ def insert_images_at_positions(
         return content_json
 
     content = list(content_json.get("content") or [])
-    pairs = list(zip(positions, image_refs))
+    pairs = list(zip(positions, image_refs, strict=False))
     # 按位置从大到小插入，避免正向插入时索引偏移问题
     pairs.sort(key=lambda p: p[0], reverse=True)
 

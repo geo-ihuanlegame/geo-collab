@@ -58,7 +58,9 @@ def _attach_page_network_diagnostics(page: Any) -> None:
                 level="warn",
             )
         except Exception:
-            record_publish_diagnostic("network request failed: unable to read request details", level="warn")
+            record_publish_diagnostic(
+                "network request failed: unable to read request details", level="warn"
+            )
 
     def on_response(response: Any) -> None:
         try:
@@ -74,7 +76,9 @@ def _attach_page_network_diagnostics(page: Any) -> None:
                 level="warn",
             )
         except Exception:
-            record_publish_diagnostic(f"network response status={status}: unable to read response details", level="warn")
+            record_publish_diagnostic(
+                f"network response status={status}: unable to read response details", level="warn"
+            )
 
     page.on("requestfailed", on_request_failed)
     page.on("response", on_response)
@@ -111,7 +115,9 @@ def _resolve_stock_image_path(stock_image_id: int) -> Path:
     finally:
         db.close()
 
-    tmp = tempfile.NamedTemporaryFile(prefix=f"geo_stock_{stock_image_id}_", suffix=suffix, delete=False)
+    tmp = tempfile.NamedTemporaryFile(
+        prefix=f"geo_stock_{stock_image_id}_", suffix=suffix, delete=False
+    )
     tmp_path = Path(tmp.name)
     try:
         tmp.write(data)
@@ -121,7 +127,6 @@ def _resolve_stock_image_path(stock_image_id: int) -> Path:
         tmp_path.unlink(missing_ok=True)
         raise
     return tmp_path
-
 
 
 def _build_payload(
@@ -279,16 +284,15 @@ def run_publish(
     # down that session and start fresh; attempting context.new_page() from
     # the wrong thread raises greenlet.error.
     current_thread_id = threading.get_ident()
-    if (
-        session.browser_context is not None
-        and session.context_thread_id != current_thread_id
-    ):
+    if session.browser_context is not None and session.context_thread_id != current_thread_id:
         # stop_remote_browser_session kills the Chromium process via OS signals
         # and wraps all Playwright API calls in try/except, so it is safe to
         # call from any thread even when the original greenlet thread has exited.
         stop_remote_browser_session(session.id)
         with publish_step("remote browser session (re-acquire after thread switch)"):
-            session = get_or_create_account_session(platform_code, account_key, profile_key=profile_key)
+            session = get_or_create_account_session(
+                platform_code, account_key, profile_key=profile_key
+            )
             if record_id is not None:
                 associate_record_with_session(record_id, session.id)
 
@@ -309,7 +313,9 @@ def run_publish(
                 grant_permissions = getattr(context, "grant_permissions", None)
                 if callable(grant_permissions):
                     grant_permissions(["clipboard-read", "clipboard-write"])
-                attach_browser_handles(session.id, pw, context, None, context_thread_id=current_thread_id)
+                attach_browser_handles(
+                    session.id, pw, context, None, context_thread_id=current_thread_id
+                )
         except Exception:
             if pw is not None:
                 try:
