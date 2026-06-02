@@ -197,6 +197,27 @@ worker 抢占记录 → 构建 `PublishPayload` → runner 启动浏览器、导
 - 现有 manual-confirm 机制细节（规划阶段核实）。
 - `@wechatsync/drivers/toutiao` 具体文件许可证（照抄任何字面代码前确认；当前按只参考不照抄处理）。
 
+## M2 调查记录（2026-06-02 capture）
+
+工具：`spike_toutiao_m2_capture.py`（抓编辑器加载链路 req+resp）、`spike_toutiao_probe_outgoing.py`（抓我们自己 XHR 的出参/请求头）。
+
+编辑器加载链路（均 GET / 200）：
+
+- `/mp/agw/article/new?article_type=0&format=json&compat=1` → 返回账号/权限上下文（`media.id=1837538131248139` = `title_id` 第二段），**不返回 pgc_id**（不是建稿接口）。
+- `/mp/agw/creator_center/draft_list` → 已有草稿列表；样本草稿 `pgc_id=7644385158866551348` 的 `pgc_feed_covers:"[]"`（**空封面**）、`is_draft:true` → **草稿不需要封面**。
+- `/mp/agw/article/edit?pgc_id=…` → 打开已有草稿（编辑器加载时自动载入最近草稿，故我的合成打字没触发"新建"自动保存）。
+- `/mp/agw/diversity/publish/strategy/v1/check/`、`publish_suppression_tip`、`fan_article_count_remained` → 权限/提示。
+
+7050 排查（逐一实证排除）：
+
+- ❌ 字段完整度：补齐完整字段集（含 `title_id` 等 8 个缺失字段）仍 7050。
+- ❌ 封面：草稿允许空封面（draft_list 实证）。
+- ❌ CSRF / 签名：`spike_toutiao_probe_outgoing.py` 实测我们的 `POST /article/publish` 出参带 `a_bogus`+`msToken`、请求头带 `x-secsdk-csrf-token`（全局 hook 已全加）。`_signature` 仅终发布才有，`save=0` 不需要。
+- **🔎 仍开放**：我们的 `save=0` **不带 pgc_id**（尝试新建），返回 `pgc_id:"0"` 未建出草稿。主假设：新建走的是另一条草稿生命周期（某前置调用建稿取 pgc_id，或 save 必须带已有 pgc_id），而非编辑器"加载已有草稿"那条路径。
+
+**下一个决定性诊断**：抓编辑器**自己**成功的 `POST /article/publish?save=0` 请求体（用户手动在编辑器输入触发自动保存 + 抓包），与我们的请求体逐字段 diff。自动化合成打字未能在窗口内触发自动保存，故最可靠是人工驱动。
+（注：直接测「save 带已有 pgc_id」会覆盖用户现有草稿，未擅自做。）
+
 ## 15. 不在本期范围（YAGNI）
 
 - 头条以外的平台适配器（知乎/掘金/小红书/公众号/百家号…）——本期只做头条验证架构。
