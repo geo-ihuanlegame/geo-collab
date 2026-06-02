@@ -3,8 +3,6 @@ from __future__ import annotations
 import logging
 import re
 import time
-from collections.abc import Iterator
-from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -16,13 +14,12 @@ from server.app.modules.tasks.drivers.base import (
     PublishResult,
     UserInputRequired,
 )
+from server.app.modules.tasks.drivers.image_upload import _maybe_resize_for_upload
 from server.app.shared.diagnostics import publish_step, record_publish_diagnostic
 
 logger = logging.getLogger(__name__)
 
 TOUTIAO_PUBLISH_URL = "https://mp.toutiao.com/profile_v4/graphic/publish"
-_MAX_UPLOAD_WIDTH = 1920
-_MAX_UPLOAD_BYTES = 2 * 1024 * 1024  # 2 MB
 QR_HINTS = ("扫码", "扫一扫", "二维码")
 CAPTCHA_HINTS = ("验证码", "安全验证", "图形验证")
 LOGIN_REDIRECT_HINTS = ("login", "passport", "sso", "登录")
@@ -462,54 +459,6 @@ def _body_image_count(page: Any) -> int:
         return page.locator("[contenteditable='true'] img").count()
     except Exception:
         return 0
-
-
-@contextmanager
-def _maybe_resize_for_upload(image_path: Path) -> Iterator[Path]:
-    """Yield a possibly-resized copy of image_path for Toutiao upload.
-
-    If the image exceeds 1920 px wide or 2 MB, a downscaled JPEG temp file is
-    yielded and cleaned up on exit.  Falls back to the original path silently
-    on any PIL error so as not to block the publish flow.
-    """
-    tmp_path: Path | None = None
-    try:
-        try:
-            from PIL import Image as _PILImage
-
-            stat_size = image_path.stat().st_size
-            with _PILImage.open(image_path) as _probe:
-                orig_width, orig_height = _probe.width, _probe.height
-            needs_resize = orig_width > _MAX_UPLOAD_WIDTH or stat_size > _MAX_UPLOAD_BYTES
-
-            if needs_resize:
-                import tempfile as _tempfile
-
-                tmp = _tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
-                tmp_path = Path(tmp.name)
-                tmp.close()
-                with _PILImage.open(image_path) as _img:
-                    out_img: _PILImage.Image = _img
-                    if orig_width > _MAX_UPLOAD_WIDTH:
-                        ratio = _MAX_UPLOAD_WIDTH / orig_width
-                        out_img = _img.resize(
-                            (_MAX_UPLOAD_WIDTH, int(orig_height * ratio)),
-                            _PILImage.Resampling.LANCZOS,
-                        )
-                    out_img.convert("RGB").save(tmp_path, "JPEG", quality=85)
-                record_publish_diagnostic(
-                    f"image resized for upload: {image_path.name} "
-                    f"({orig_width}px / {stat_size // 1024}KB) → JPEG 1920px"
-                )
-                yield tmp_path
-                return
-        except Exception:
-            logger.warning("Image resize failed, uploading original: %s", image_path, exc_info=True)
-
-        yield image_path
-    finally:
-        if tmp_path is not None:
-            tmp_path.unlink(missing_ok=True)
 
 
 def _paste_body_image_path(page: Any, image_path: Path, asset_id: str | None) -> None:
