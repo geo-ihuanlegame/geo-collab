@@ -215,7 +215,11 @@ worker 抢占记录 → 构建 `PublishPayload` → runner 启动浏览器、导
 - ❌ CSRF / 签名：`spike_toutiao_probe_outgoing.py` 实测我们的 `POST /article/publish` 出参带 `a_bogus`+`msToken`、请求头带 `x-secsdk-csrf-token`（全局 hook 已全加）。`_signature` 仅终发布才有，`save=0` 不需要。
 - **✅ 根因已定位 = 环境性，不是我们的请求**：驱动编辑器触发其**原生自动保存**（`spike_toutiao_editor_save.py`），编辑器**自己**的 `POST /article/publish?save=0` **同样返回 7050**，且请求体与我们逐字段等价（同 endpoint/参数、`save=0`、**无 pgc_id**、`pgc_feed_covers=[]` 空封面）。**冒烟证据**：编辑器自己的请求头 `x-secsdk-csrf-token: DOWNGRADE` —— secsdk 在本机环境**无法完成安全握手、退化为占位 CSRF**，服务端因此拒绝所有保存（编辑器自身也中招）。代理开/关均 7050（`spike_noproxy_probe.py`）。
 
-**结论**：页内适配器构造的 save 请求**是正确的**（与编辑器原生请求等价），无 payload / 生命周期 bug；7050 由本机 secsdk 退化（`DOWNGRADE`）造成，对**编辑器原生流程与 DOM 驱动一视同仁**——不是 in-page 特有问题。**修复在环境层**：在 secsdk 能正常握手的**干净网络**（生产 / Docker，非被标记 IP）上验证，期望 `x-secsdk-csrf-token` 是真实 token 而非 `DOWNGRADE`，保存即通。可先试的低成本动作：**重新扫码登录刷新 secsdk 状态**（phase-2 全新登录时保存/发布成功过）。
+**结论**：页内适配器构造的 save 请求**是正确的**（与编辑器原生请求等价），无 payload / 生命周期 bug；7050 由本机 secsdk 退化（`DOWNGRADE`）造成，对**编辑器原生流程与 DOM 驱动一视同仁**——不是 in-page 特有问题。**修复在环境层**：在 secsdk 能正常握手的**干净网络**（生产 / Docker，非被标记 IP）上验证。
+
+**已验证（2026-06-02，`spike_toutiao_fresh_login_save.py`）**：用**全新 profile 扫码重登**后，save **仍 7050** —— 排除"会话过期/secsdk 状态陈旧"，确认是**本机网络/secsdk 环境层**问题，**本地无法绕过**（代理开/关、旧/新登录都一样）。→ **M2 的保存验证必须在生产/干净网络进行。**
+
+附带发现（M2 polish）：适配器 `goto` 后立即 `_is_logged_out(page.url)` 偶发误报"需人工接管"（goto 后短暂重定向的时序问题）。M2 应改为"等编辑器标题框就绪 / 短重试后再判定登出"，而非 goto 后一次性判定。
 
 ## 15. 不在本期范围（YAGNI）
 
