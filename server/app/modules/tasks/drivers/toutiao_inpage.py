@@ -182,12 +182,20 @@ def _wait_editor_ready(page: Any, timeout_ms: int = 15000) -> bool:
     return not _is_logged_out(page.url)
 
 
-def _map_publish_response(result: dict[str, Any], title: str) -> PublishResult:
+def _map_publish_response(
+    result: dict[str, Any], title: str, *, is_draft: bool = False
+) -> PublishResult:
     """Map the in-page XHR result into a PublishResult, or raise.
 
-    Defensive against the exact success shape (the spike captured requests only;
-    the live test in Task 6 confirms it). Success predicate: HTTP 200 AND a
-    truthy/zero ``code`` with no error message.
+    The publish *response* shape is medium-confidence (the M1 spike captured
+    requests only). Success predicate: HTTP 200 AND ``code in (0, None)`` with no
+    error message. URL extraction falls back ``article_url`` → ``url`` →
+    ``display_url``; pgc_id falls back ``pgc_id`` → ``id``. Never crashes when
+    ``data.data`` is missing or non-dict — a missing inner payload yields a
+    graceful result (url None / pgc_id-less) rather than an exception.
+
+    ``is_draft`` selects the message wording (draft saved vs. real publish); it
+    does NOT affect the success predicate or URL extraction.
     """
     http_status = result.get("httpStatus")
     data = result.get("data")
@@ -201,20 +209,27 @@ def _map_publish_response(result: dict[str, Any], title: str) -> PublishResult:
     raw_inner = data.get("data")
     inner: dict[str, Any] = raw_inner if isinstance(raw_inner, dict) else {}
     pgc_id = str(inner.get("pgc_id") or inner.get("id") or "") or None
-    url = inner.get("article_url") or inner.get("url")
+    url = inner.get("article_url") or inner.get("url") or inner.get("display_url")
+    if is_draft:
+        message = f"头条草稿已保存（待手动确认发布）: pgc_id={pgc_id}"
+    else:
+        message = f"头条发布成功: pgc_id={pgc_id}"
     return PublishResult(
         url=url or (f"pgc_id={pgc_id}" if pgc_id else None),
         title=title,
-        message=f"头条草稿/发布成功: pgc_id={pgc_id}",
+        message=message,
     )
 
 
-def _map_full_response(result: Any, title: str) -> PublishResult:
+def _map_full_response(result: Any, title: str, *, is_draft: bool = False) -> PublishResult:
     """Map the single-round-trip envelope into a PublishResult, or raise.
 
     Envelope (from adapters/toutiao_publish.js):
       success:     {ok:true,  step:"publish", uploads:[...], publish:{...}}
       upload fail: {ok:false, step:"upload", index, httpStatus, raw}
+
+    ``is_draft`` is threaded through to ``_map_publish_response`` so the success
+    message reflects draft-vs-publish.
     """
     if not isinstance(result, dict):
         raise PublishError(f"头条页内驱动返回意外结果: {result!r}")
@@ -226,7 +241,7 @@ def _map_full_response(result: Any, title: str) -> PublishResult:
     publish = result.get("publish")
     if not isinstance(publish, dict):
         raise PublishError(f"头条页内驱动缺少发布结果: {result!r}")
-    return _map_publish_response(publish, title)
+    return _map_publish_response(publish, title, is_draft=is_draft)
 
 
 class ToutiaoInPageDriver:
@@ -248,6 +263,21 @@ class ToutiaoInPageDriver:
         payload: PublishPayload,
         stop_before_publish: bool,
     ) -> PublishResult:
+        """Publish (or draft) an article via the in-page adapter.
+
+        Default (``stop_before_publish=False``) is a full-auto ``save=1`` real
+        publish; a cover image is required and a non-zero API code raises
+        ``PublishError``. With ``stop_before_publish=True`` the adapter sends
+        ``save=0`` (draft only) and the result message says a draft was saved
+        awaiting manual confirm; the executor then parks the record at
+        ``waiting_manual_publish`` on its own — this driver does NOT set record
+        status, it just returns normally. Cover + body images upload regardless
+        of ``save``; ``save`` only controls the publish call's save/entrance
+        fields.
+
+        NOTE: making manual-confirm actually re-publish the saved draft (design
+        §10 option A/B) is a LATER, out-of-M2 task — today a draft is just saved.
+        """
         content_html, image_order = body_segments_to_toutiao_html(payload.body_segments)
         page.goto(PUBLISH_URL, wait_until="domcontentloaded", timeout=60000)
         if not _wait_editor_ready(page):
@@ -259,6 +289,7 @@ class ToutiaoInPageDriver:
         # Cover + body images upload REGARDLESS of save; save only controls the
         # publish call's save/entrance fields.
         save = 0 if stop_before_publish else 1
+        is_draft = save == 0
         if save == 1 and payload.cover_asset_path is None:
             raise PublishError("头条发布需要封面图片")
         arg = _build_evaluate_arg(payload, content_html, image_order, save)
@@ -271,7 +302,7 @@ class ToutiaoInPageDriver:
                 if isinstance(result.get("publish"), dict)
                 else None,
             )
-        return _map_full_response(result, payload.title)
+        return _map_full_response(result, payload.title, is_draft=is_draft)
 
 
 register_variant("toutiao", "inpage", ToutiaoInPageDriver())
