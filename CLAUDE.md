@@ -163,6 +163,7 @@ register(MyDriver())
 - 发布两步：点 "预览并发布" → 点 "确认发布"。`stop_before_publish=True` 时停在预览，等待 `POST /api/publish-records/{id}/manual-confirm`。
 - 关闭发布后浮窗（"作品同步授权"、"加入创作者计划"）。
 - 编辑正文前先关 AI 助手抽屉。
+- 头条发布驱动可切换：`GEO_TOUTIAO_DRIVER=inpage` 走页内 API 适配器（`drivers/toutiao_inpage.py`，调头条官方发布接口），未设或其它值走默认的 Playwright DOM 驱动（`drivers/toutiao.py`）。两者都注册，便于灰度与回滚。
 
 ## Task Execution
 
