@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Protocol, runtime_checkable
 
 from playwright.sync_api import BrowserContext, Page
@@ -45,3 +46,25 @@ def get_driver(platform_code: str) -> PlatformDriver:
 
 def all_driver_codes() -> list[str]:
     return sorted(_REGISTRY.keys())
+
+
+_VARIANTS: dict[tuple[str, str], PlatformDriver] = {}
+
+
+def register_variant(
+    platform_code: str, variant: str, driver: PlatformDriver, *, replace: bool = False
+) -> None:
+    key = (platform_code, variant)
+    if key in _VARIANTS and not replace:
+        raise ValueError(f"Driver variant already registered: {platform_code}/{variant}")
+    _VARIANTS[key] = driver
+
+
+def resolve_driver(platform_code: str) -> PlatformDriver:
+    """Pick a driver honoring GEO_<PLATFORM>_DRIVER; fall back to the registry."""
+    variant = os.environ.get(f"GEO_{platform_code.upper()}_DRIVER", "").strip()
+    if variant:
+        chosen = _VARIANTS.get((platform_code, variant))
+        if chosen is not None:
+            return chosen
+    return get_driver(platform_code)

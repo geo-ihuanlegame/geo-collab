@@ -9,11 +9,6 @@ from typing import Any
 from playwright.sync_api import sync_playwright
 
 from server.app.core.paths import get_data_dir
-from server.app.modules.accounts.models import Account
-from server.app.modules.articles.models import Article
-from server.app.modules.articles.store import resolve_asset_path
-from server.app.modules.articles.parser import BodySegment, parse_body_segments
-from server.app.modules.tasks.drivers.base import PublishPayload
 from server.app.modules.accounts.browser import (
     associate_record_with_session,
     attach_browser_handles,
@@ -21,6 +16,7 @@ from server.app.modules.accounts.browser import (
     keep_session_alive,
     stop_remote_browser_session,
 )
+from server.app.modules.accounts.models import Account
 from server.app.modules.accounts.service import (
     account_key_from_state_path,
     clear_profile_locks,
@@ -28,8 +24,16 @@ from server.app.modules.accounts.service import (
     profile_dir_from_state_path,
     profile_key_from_state_path,
 )
-from server.app.modules.tasks.drivers import get_driver
-from server.app.modules.tasks.drivers.base import PublishError, PublishResult, UserInputRequired
+from server.app.modules.articles.models import Article
+from server.app.modules.articles.parser import BodySegment, parse_body_segments
+from server.app.modules.articles.store import resolve_asset_path
+from server.app.modules.tasks.drivers import resolve_driver
+from server.app.modules.tasks.drivers.base import (
+    PublishError,
+    PublishPayload,
+    PublishResult,
+    UserInputRequired,
+)
 from server.app.shared.diagnostics import publish_step, record_publish_diagnostic
 
 
@@ -258,7 +262,7 @@ def run_publish(
     if not state_path.exists():
         raise PublishError(f"账号授权状态文件不存在: {account.state_path}")
 
-    driver = get_driver(platform_code)
+    driver = resolve_driver(platform_code)
 
     # Resolve all asset paths before entering the browser session — ORM objects
     # may become detached once we hand control to Playwright threads.
