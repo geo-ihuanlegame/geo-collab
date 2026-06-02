@@ -1,9 +1,20 @@
+import pytest
+
+import server.app.modules.tasks.drivers as _drivers_mod
 import server.app.modules.tasks.drivers.toutiao  # noqa: F401  (registers the real driver)
 from server.app.modules.tasks.drivers import (
     get_driver,
     register_variant,
     resolve_driver,
 )
+
+
+@pytest.fixture(autouse=True)
+def _restore_variants():
+    snapshot = dict(_drivers_mod._VARIANTS)
+    yield
+    _drivers_mod._VARIANTS.clear()
+    _drivers_mod._VARIANTS.update(snapshot)
 
 
 class _StubDriver:

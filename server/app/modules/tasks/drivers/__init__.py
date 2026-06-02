@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from typing import Protocol, runtime_checkable
 
@@ -28,6 +29,8 @@ class PlatformDriver(Protocol):
     ) -> PublishResult:
         """Fill form, upload assets, click publish. Does not manage browser lifecycle."""
 
+
+logger = logging.getLogger(__name__)
 
 _REGISTRY: dict[str, PlatformDriver] = {}
 
@@ -67,4 +70,9 @@ def resolve_driver(platform_code: str) -> PlatformDriver:
         chosen = _VARIANTS.get((platform_code, variant))
         if chosen is not None:
             return chosen
+        logger.warning(
+            "GEO_%s_DRIVER=%r is set but no such variant is registered; using default driver",
+            platform_code.upper(),
+            variant,
+        )
     return get_driver(platform_code)
