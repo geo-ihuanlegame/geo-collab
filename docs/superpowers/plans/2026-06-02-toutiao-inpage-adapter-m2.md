@@ -130,8 +130,8 @@ Replace the check in `publish()`:
 ## Phase 2 — Cover + body image upload (CAPTURE-GATED)
 
 ### Task 2.0: Capture the image-upload API (concrete; do on a clean network)
-- [ ] Extend `spike_toutiao_m2_capture.py` to capture image-upload traffic: broaden the matcher to imagex/`vcloud`/`/upload/` hosts and **any request whose response body contains `tos-cn-i-`**; record request bodies (multipart/binary noted) **and** response bodies. Keep the existing `/article_material/photo/info` capture.
-- [ ] In the editor, upload a **cover** + one **body image**; let autosave/preview fire.
+- [x] **Capture script ready: `spike_toutiao_image_capture.py`** (new sibling, not an edit to `spike_toutiao_m2_capture.py`, per repo convention "each spike is its own file / 别删 spike_*.py"). Fixes the gap the recon found: m2_capture's matcher requires a `toutiao.com`/`bytedance.com` host and would **miss** the ByteDance ImageX upload CDN hosts. New script broadens the host matcher (imagex/byteimg/vcloud/volces…) + sniffs any JSON/text response containing `tos-cn-i-`, summarizes multipart request bodies, keeps the `/article_material/photo/info` capture. Output → `E:/geo/spike_image_capture.json`.
+- [ ] **(clean network)** Run it with a logged-in profile, then in the editor upload a **cover** + one **body image**; let autosave/preview fire.
 - [ ] Distill into design doc `§M2`: the get-upload-token call (if any), the upload endpoint + method, the returned `tos-cn-i-…` uri shape, and how it is referenced in `pgc_feed_covers` (cover) and body `<img>` (body image).
 
 ### Tasks 2.1+ — authored AFTER 2.0 (capture-gated, NOT pre-written)
@@ -145,7 +145,13 @@ Replace the check in `publish()`:
 `build_publish_form` already supports `save=1` (→ `entrance="main"`). When NOT `stop_before_publish` **and** a cover is set (Phase 2), send `save=1`; the global hook adds `_signature` for the publish action (confirmed by the phase-2 capture's final publish request). Map the success response to a real article URL. TDD with the fake page.
 
 ### Task 3.2: `stop_before_publish` / manual-confirm wiring
-Per design `§10`: `stop_before_publish=True` → `save=0` draft → record sits at `waiting_manual_publish`. On `POST /api/publish-records/{id}/manual-confirm` → re-issue the save as `save=1` (re-publish the saved draft — robust against the paused session being gone). **First verify the current manual-confirm mechanics** (how the DOM driver's pause/resume is wired) before implementing.
+**Mechanics VERIFIED (2026-06-02, see design doc "M2 调查记录 · Phase 1 窗口").** Design `§10`'s "re-issue `save=1` to re-publish the saved draft" is **NOT how manual-confirm currently works**: `manual_confirm_record()` (`server/app/modules/tasks/service.py:190-231`) only stops the browser session, releases the lock, and writes the operator-supplied `outcome` (`succeeded`+`publish_url` / `failed`+`error_message`) — it does **not** call any driver. The DOM driver's `stop_before_publish=True` stops at the live preview (`drivers/toutiao.py:836-897`) and the operator finishes **manually** via noVNC, then reports the outcome.
+
+→ **DECISION REQUIRED before implementing** (in-page driver is pure XHR, no live "确认发布" UI):
+- **A (operator-manual, mirrors DOM, ~zero backend change):** `stop_before_publish=True` → `save=0` draft (with cover); leave the page on that draft's edit/preview URL so the operator can publish in noVNC and call manual-confirm. Relies on the live session staying up.
+- **B (code re-publish, §10 vision):** extend `manual_confirm_record` to re-invoke the in-page driver and fire `save=1` on the saved `pgc_id`. More robust; touches backend orchestration beyond the driver layer.
+
+Both are gated on Phase 2 (cover) + Phase 0 (clean network); pick A vs B when entering Phase 3.
 
 ---
 

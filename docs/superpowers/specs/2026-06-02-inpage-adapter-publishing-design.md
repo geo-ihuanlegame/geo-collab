@@ -221,6 +221,30 @@ worker 抢占记录 → 构建 `PublishPayload` → runner 启动浏览器、导
 
 附带发现（M2 polish）：适配器 `goto` 后立即 `_is_logged_out(page.url)` 偶发误报"需人工接管"（goto 后短暂重定向的时序问题）。M2 应改为"等编辑器标题框就绪 / 短重试后再判定登出"，而非 goto 后一次性判定。
 
+## M2 调查记录 · Phase 1 窗口（2026-06-02，子代理并行调研）
+
+本窗口只做环境无关的 Phase 1 + 为后续 phase 做调研（Phase 0/2 仍门控于干净网络/抓包）。
+
+**Phase 1 已落地（Task 1.1）**：上面的 polish 已实现 —— `toutiao_inpage.py` 新增 `_wait_editor_ready()` 轮询编辑器标题框 `请输入文章标题`，只有登录墙超时仍在才判登出，替换 goto 后那次一锤定音的 URL 判断；删掉被取代的 `_SECSDK_SETTLE_MS`。新增 2 个单测，全绿（commit `fix(toutiao): wait for editor-ready before declaring logout`）。
+
+**manual-confirm 机制核实（Phase 3.2 的明文前置，已读源码确认）**：当前 `POST /api/publish-records/{id}/manual-confirm` **不会**代为发布。`manual_confirm_record()`（`server/app/modules/tasks/service.py:190-231`）只做三件事：(1) `stop_remote_browser_session` 停掉浏览器会话 + 释放 profile 锁；(2) 按运营者传入的 `outcome`(`succeeded`/`failed`) + `publish_url`/`error_message` 写记录终态；(3) 聚合任务状态。router（`router.py:365-392`）随后 `_start_background_execute` 只为**其它 pending 记录**续跑，不重发本条。DOM 驱动的 `stop_before_publish=True` 是在 `_click_publish_and_wait`（`drivers/toutiao.py:836-897`）点完"预览并发布"后 `return None` **停在预览**，靠运营者在 noVNC 活会话里**人工**点"确认发布"、再回调 manual-confirm 报结果。
+
+→ **设计 §10「手动确认时重新导航并发布已存草稿」目前并未实现**，是个待落地的设想。这给页内驱动的 Phase 3.2 留了一个**真决策**（页内驱动是纯 XHR，没有给运营者点"确认发布"的活 UI）：
+
+- **方案 A（运营者手动，对齐 DOM）**：`stop_before_publish=True` → `save=0` 草稿（带封面，Phase 2）；驱动把页面停在该草稿的编辑/预览 URL，运营者在 noVNC 里人工发布、回调 manual-confirm。后端零改动，但依赖活会话。
+- **方案 B（代码重发，§10 愿景）**：改 `manual_confirm_record` 让它在确认时**重新拉起页内驱动**对已存 `pgc_id` 打 `save=1`。更健壮（不依赖暂停会话），但要动驱动层之外的后端编排。
+
+两者都门控于 Phase 2（封面）与 Phase 0（干净网络），非当前阻塞；进入 Phase 3 前需拍板。
+
+**图片/封面上传侦察（Phase 2/4，已读源码确认）**：
+
+- 现有 DOM 驱动 `drivers/toutiao.py` **只用 Playwright 文件选择器**（`_handle_cover` 行 735-773：`expect_file_chooser()`+`set_files()`，等 `已上传 1 张图片`；正文图 `_paste_body_image_path` 行 515-544）—— 代码里**没有任何上传 endpoint / `tos-cn-i-` / `/article_material/photo/info` 引用**。→ 确认上传契约**只能靠抓包**得到（Phase 2.0 必做）。
+- 图片字节对驱动是现成的：`PublishPayload.cover_asset_path: Path`（封面）、`body_segments[].image_path: Path`（正文图，由 runner 在 `runner.py` 用 `resolve_asset_path` 提前解析好；stock 图下载成临时文件）。`base.py` 的 `PublishPayload`、`articles/parser.py` 的 `BodySegment`(kind text/image, `image_path`/`image_asset_id`/`stock_image_id`) 已支持。
+- 复用 `_maybe_resize_for_upload`（`drivers/toutiao.py:468-512`，contextmanager）：超 1920px 或 2MB 即降采样为 JPEG q85；页内驱动只需 `path → (resize) → bytes → base64`。
+- 当前正文图被 `toutiao_html.py:35-38` 的 `ToutiaoBodyError("正文图片暂不支持（Milestone 2）")` 直接拒。Phase 2(c) 抓包后扩展该序列化器接收解析好的 tos-uri，替换成 `<img src="tos-uri">` 即解禁。
+
+**Phase 2.0 抓包脚本已就绪**：新增 `spike_toutiao_image_capture.py`（复用 `spike_toutiao_m2_capture.py` 结构）。关键修正：m2_capture 的匹配器**只认 toutiao.com/bytedance.com 主机**，会**漏掉 ByteDance ImageX 上传 CDN 主机**（imagex/byteimg/vcloud/volces…）；新脚本扩到这些主机 + 对任何含 `tos-cn-i-` 的 JSON/text 响应做 body 嗅探，并对 multipart 请求体做安全摘要。**待干净网络上跑**：登录 profile → 手动传一张封面 + 一张正文图 → 蒸馏出上传 endpoint/method、tos-uri 形态、`photo/info` 调用、`pgc_feed_covers`/正文 `<img>` 接法，回填本节。
+
 ## 15. 不在本期范围（YAGNI）
 
 - 头条以外的平台适配器（知乎/掘金/小红书/公众号/百家号…）——本期只做头条验证架构。
