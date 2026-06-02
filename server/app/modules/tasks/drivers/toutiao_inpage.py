@@ -35,7 +35,10 @@ PUBLISH_URL = "https://mp.toutiao.com/profile_v4/graphic/publish"
 _ADAPTER_JS = (Path(__file__).parent / "adapters" / "toutiao_publish.js").read_text(
     encoding="utf-8"
 )
-_LOGIN_HINTS = ("/auth/page/login", "passport", "/sso", "login")
+# Confirmed logout redirect target is mp.toutiao.com/auth/page/login (spike 2026-06-02);
+# the others are defensive. Avoid a bare "login" substring — it false-positives.
+_LOGIN_HINTS = ("/auth/page/login", "passport", "sso.toutiao.com")
+_SECSDK_SETTLE_MS = 2500  # let acrawler/secsdk load + hook the request layer
 
 
 def _word_count(content_html: str) -> int:
@@ -136,15 +139,20 @@ class ToutiaoInPageDriver:
     ) -> PublishResult:
         content_html = body_segments_to_toutiao_html(payload.body_segments)
         page.goto(PUBLISH_URL, wait_until="domcontentloaded", timeout=60000)
-        page.wait_for_timeout(2500)  # let acrawler/secsdk load + hook the request layer
+        page.wait_for_timeout(_SECSDK_SETTLE_MS)
         if _is_logged_out(page.url):
             raise UserInputRequired(
                 "头条账号未登录或登录态失效，需要人工接管",
                 error_type="login_required",
             )
-        # M1: draft save (save=0); M2 flips to save=1 after cover upload.
+        # Milestone 1 always saves a DRAFT (save=0), which is already a
+        # non-publish state, so `stop_before_publish` is intentionally a no-op
+        # here. Milestone 2 will flip save=1 and honor the flag by pausing at
+        # the preview for manual-confirm.
         form = build_publish_form(title=payload.title, content_html=content_html, save=0)
         result = page.evaluate(_ADAPTER_JS, {"form": form})
+        if not isinstance(result, dict):
+            raise PublishError(f"头条页内驱动返回意外结果: {result!r}")
         logger.info("toutiao in-page publish raw response: %s", result.get("raw"))
         return _map_publish_response(result, payload.title)
 

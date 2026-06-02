@@ -31,7 +31,10 @@ def test_build_publish_form_reuses_pgc_id():
 
 
 class _FakePage:
-    """Minimal stand-in for a Playwright Page used in driver.publish()."""
+    """Minimal stand-in for a Playwright Page used in driver.publish().
+
+    # NOTE: url is fixed at construction; does not simulate a post-goto redirect.
+    """
 
     def __init__(self, *, url, evaluate_result):
         self._url = url
@@ -82,6 +85,7 @@ def test_publish_success_maps_to_result():
     result = driver.publish(page=page, context=None, payload=_payload(), stop_before_publish=True)
     assert result.title == "今天是周二"
     assert "999" in (result.url or "") or "999" in result.message
+    assert page.goto_calls == ["https://mp.toutiao.com/profile_v4/graphic/publish"]
 
 
 def test_publish_login_redirect_raises_user_input_required():
