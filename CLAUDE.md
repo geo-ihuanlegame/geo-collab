@@ -65,7 +65,7 @@ pnpm --filter @geo/web lint       # eslint src
 pnpm --filter @geo/web typecheck  # tsc -b
 ```
 
-CI（`.github/workflows/ci.yml`，push 到 main 和所有 PR 触发）：**pytest（后端）、typecheck + build（前端）是硬门禁**；ruff / ruff format / mypy / eslint 当前是 `continue-on-error` 的非阻塞步骤（存量告警清完后再删掉 `continue-on-error` 变硬门禁）。CI 用 `mysql:8.0` service 起临时测试库 `geo_test`。
+CI（`.github/workflows/ci.yml`，push 到 main 和所有 PR 触发）：**后端 ruff check / ruff format / mypy / pytest、前端 typecheck + build 都是硬门禁**；只剩前端 eslint 仍是 `continue-on-error` 的非阻塞步骤（存量 lint error 清完后再删掉 `continue-on-error` 变硬门禁）。CI 用 `mysql:8.0` service 起临时测试库 `geo_test`。
 
 ## Architecture
 

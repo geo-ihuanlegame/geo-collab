@@ -11,7 +11,7 @@ Geo Collab API 应用工厂与全局配置。
   3. modules/tasks/executor.py → 任务执行引擎
   4. modules/tasks/drivers/toutiao.py → 头条浏览器自动化
 """
-import os
+
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -20,7 +20,6 @@ from pathlib import Path
 # 在 Pydantic 模型定义之前安装，确保所有 naive datetime 输出带 "Z" 后缀
 # 这样前端 new Date("2026-05-12T14:00:00Z") 能正确识别为 UTC
 # 涉及三个层级：Pydantic 模型、FastAPI 内置编码器、FastAPI 构造函数
-
 from pydantic import BaseModel
 
 # ── datetime 序列化：在 BaseModel.model_config 上设置，所有子类自动继承 ──
@@ -30,34 +29,37 @@ BaseModel.model_config["json_encoders"] = {
 
 import fastapi.encoders
 
-fastapi.encoders.ENCODERS_BY_TYPE[datetime] = lambda dt: dt.isoformat() + ("Z" if dt.tzinfo is None else "")
+fastapi.encoders.ENCODERS_BY_TYPE[datetime] = lambda dt: (
+    dt.isoformat() + ("Z" if dt.tzinfo is None else "")
+)
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from server.app.modules.system.auth_router import router as auth_router
-from server.app.modules.system.system_router import router as system_router
-from server.app.modules.system.users_router import router as users_router
+from server.app.core.config import get_settings
+from server.app.core.limiter import limiter
+from server.app.core.paths import ensure_data_dirs
+from server.app.core.security import get_current_user
 from server.app.modules.accounts.router import router as accounts_router
+from server.app.modules.ai_generation.router import router as generation_router
 from server.app.modules.articles.router import (
-    articles_router,
     article_groups_router,
+    articles_router,
     assets_router,
     chunked_assets_router,
 )
-from server.app.modules.tasks.router import tasks_router, publish_records_router
-from server.app.modules.ai_generation.router import router as generation_router
-from server.app.modules.image_library.router import router as stock_images_router, files_router as stock_files_router
-from server.app.modules.skills.router import router as skills_router
-from server.app.modules.prompt_templates.router import router as prompt_templates_router
 from server.app.modules.audit.router import router as audit_router
-from server.app.core.config import get_settings
-from server.app.core.paths import ensure_data_dirs
-from server.app.core.security import get_current_user
+from server.app.modules.image_library.router import files_router as stock_files_router
+from server.app.modules.image_library.router import router as stock_images_router
+from server.app.modules.prompt_templates.router import router as prompt_templates_router
+from server.app.modules.skills.router import router as skills_router
+from server.app.modules.system.auth_router import router as auth_router
 from server.app.modules.system.models import User
-from server.app.core.limiter import limiter
+from server.app.modules.system.system_router import router as system_router
+from server.app.modules.system.users_router import router as users_router
+from server.app.modules.tasks.router import publish_records_router, tasks_router
 from server.app.shared.errors import AccountError, ClientError, ConflictError, ValidationError
 
 # PyInstaller 打包后 sys._MEIPASS 指向解压目录
@@ -82,9 +84,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Geo Collab API",
         version="0.1.0",
-        json_encoders={
-            datetime: lambda dt: dt.isoformat() + ("Z" if dt.tzinfo is None else "")
-        },
+        json_encoders={datetime: lambda dt: dt.isoformat() + ("Z" if dt.tzinfo is None else "")},
     )
     # CORS 仅允许本地开发服务器（桌面应用无跨域风险）
     app.add_middleware(
@@ -97,11 +97,13 @@ def create_app() -> FastAPI:
     # 速率限制
     from slowapi import _rate_limit_exceeded_handler
     from slowapi.errors import RateLimitExceeded
+
     app.state.limiter = limiter
-    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]  # slowapi handler is typed for its own exc
     # 启动时恢复卡住的记录（上次运行时 crash 导致 status='running' 的记录）
     from server.app.db.session import SessionLocal
     from server.app.modules.tasks import recover_stuck_records
+
     try:
         recover_db = SessionLocal()
         try:
@@ -110,6 +112,7 @@ def create_app() -> FastAPI:
             recover_db.close()
     except Exception:
         import logging as _logging
+
         _logging.getLogger(__name__).exception(
             "Startup recovery failed — stuck records may not have been reset"
         )
@@ -136,6 +139,7 @@ def create_app() -> FastAPI:
     @app.exception_handler(Exception)
     async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         import logging as _logging
+
         _logging.getLogger(__name__).exception(
             "Unhandled exception at %s %s", request.method, request.url.path
         )
@@ -159,24 +163,87 @@ def create_app() -> FastAPI:
     app.include_router(users_router, prefix="/api/users", tags=["users"])
 
     # 注册 API 路由模块（全部需要 JWT cookie 鉴权）
-    app.include_router(accounts_router, prefix="/api/accounts", tags=["accounts"], dependencies=[Depends(get_current_user)])
-    app.include_router(article_groups_router, prefix="/api/article-groups", tags=["article-groups"], dependencies=[Depends(get_current_user)])
-    app.include_router(articles_router, prefix="/api/articles", tags=["articles"], dependencies=[Depends(get_current_user)])
-    app.include_router(assets_router, prefix="/api/assets", tags=["assets"], dependencies=[Depends(get_current_user)])
-    app.include_router(chunked_assets_router, prefix="/api/chunked-assets", tags=["chunked-assets"], dependencies=[Depends(get_current_user)])
-    app.include_router(publish_records_router, prefix="/api/publish-records", tags=["publish-records"], dependencies=[Depends(get_current_user)])
-    app.include_router(system_router, prefix="/api/system", tags=["system"], dependencies=[Depends(get_current_user)])
-    app.include_router(tasks_router, prefix="/api/tasks", tags=["tasks"], dependencies=[Depends(get_current_user)])
-    app.include_router(skills_router, prefix="/api/skills", tags=["skills"], dependencies=[Depends(get_current_user)])
-    app.include_router(prompt_templates_router, prefix="/api/prompt-templates", tags=["prompt-templates"], dependencies=[Depends(get_current_user)])
-    app.include_router(generation_router, prefix="/api/generation", tags=["generation"], dependencies=[Depends(get_current_user)])
-    app.include_router(stock_images_router, prefix="/api/image-library", tags=["image-library"], dependencies=[Depends(get_current_user)])
+    app.include_router(
+        accounts_router,
+        prefix="/api/accounts",
+        tags=["accounts"],
+        dependencies=[Depends(get_current_user)],
+    )
+    app.include_router(
+        article_groups_router,
+        prefix="/api/article-groups",
+        tags=["article-groups"],
+        dependencies=[Depends(get_current_user)],
+    )
+    app.include_router(
+        articles_router,
+        prefix="/api/articles",
+        tags=["articles"],
+        dependencies=[Depends(get_current_user)],
+    )
+    app.include_router(
+        assets_router,
+        prefix="/api/assets",
+        tags=["assets"],
+        dependencies=[Depends(get_current_user)],
+    )
+    app.include_router(
+        chunked_assets_router,
+        prefix="/api/chunked-assets",
+        tags=["chunked-assets"],
+        dependencies=[Depends(get_current_user)],
+    )
+    app.include_router(
+        publish_records_router,
+        prefix="/api/publish-records",
+        tags=["publish-records"],
+        dependencies=[Depends(get_current_user)],
+    )
+    app.include_router(
+        system_router,
+        prefix="/api/system",
+        tags=["system"],
+        dependencies=[Depends(get_current_user)],
+    )
+    app.include_router(
+        tasks_router, prefix="/api/tasks", tags=["tasks"], dependencies=[Depends(get_current_user)]
+    )
+    app.include_router(
+        skills_router,
+        prefix="/api/skills",
+        tags=["skills"],
+        dependencies=[Depends(get_current_user)],
+    )
+    app.include_router(
+        prompt_templates_router,
+        prefix="/api/prompt-templates",
+        tags=["prompt-templates"],
+        dependencies=[Depends(get_current_user)],
+    )
+    app.include_router(
+        generation_router,
+        prefix="/api/generation",
+        tags=["generation"],
+        dependencies=[Depends(get_current_user)],
+    )
+    app.include_router(
+        stock_images_router,
+        prefix="/api/image-library",
+        tags=["image-library"],
+        dependencies=[Depends(get_current_user)],
+    )
     app.include_router(stock_files_router, prefix="/api/stock-images", tags=["stock-images"])
-    app.include_router(audit_router, prefix="/api/audit-logs", tags=["audit-logs"], dependencies=[Depends(get_current_user)])
+    app.include_router(
+        audit_router,
+        prefix="/api/audit-logs",
+        tags=["audit-logs"],
+        dependencies=[Depends(get_current_user)],
+    )
 
     # 为 AI 生文后台线程提供 SessionLocal（tasks 的生产路径走 executor.py 轮询，不需要；
     # generation 没有对应的 worker，只能靠路由内后台线程，因此必须在此处初始化）
     import server.app.modules.ai_generation.router as _gen_routes
+
     _gen_routes.bg_session_factory = SessionLocal
 
     try:

@@ -6,6 +6,7 @@
 - PATCH  /api/auth/users/{id}    更新用户（启用/禁用/改角色）
 - POST   /api/auth/users/{id}/reset-password  重置密码
 """
+
 from fastapi.testclient import TestClient
 
 from server.app.core.security import create_access_token
@@ -78,7 +79,15 @@ class TestListUsers:
             resp = test_app.client.get("/api/auth/users")
             assert resp.status_code == 200
             user = resp.json()[0]
-            for field in ("id", "username", "role", "is_active", "must_change_password", "created_at", "last_login_at"):
+            for field in (
+                "id",
+                "username",
+                "role",
+                "is_active",
+                "must_change_password",
+                "created_at",
+                "last_login_at",
+            ):
                 assert field in user, f"Missing field: {field}"
         finally:
             test_app.cleanup()
@@ -93,7 +102,9 @@ class TestUpdateUser:
             assert resp.status_code == 200
             assert resp.json()["is_active"] is False
 
-            login_resp = test_app.client.post("/api/auth/login", json={"username": "victim", "password": "pass1234"})
+            login_resp = test_app.client.post(
+                "/api/auth/login", json={"username": "victim", "password": "pass1234"}
+            )
             assert login_resp.status_code == 403
         finally:
             test_app.cleanup()
@@ -153,10 +164,14 @@ class TestResetPassword:
         test_app = build_test_app(monkeypatch)
         try:
             uid = _make_extra_user(test_app, "resetme")
-            resp = test_app.client.post(f"/api/auth/users/{uid}/reset-password", json={"new_password": "newpass999"})
+            resp = test_app.client.post(
+                f"/api/auth/users/{uid}/reset-password", json={"new_password": "newpass999"}
+            )
             assert resp.status_code == 200
 
-            login_resp = test_app.client.post("/api/auth/login", json={"username": "resetme", "password": "newpass999"})
+            login_resp = test_app.client.post(
+                "/api/auth/login", json={"username": "resetme", "password": "newpass999"}
+            )
             assert login_resp.status_code == 200
         finally:
             test_app.cleanup()
@@ -165,9 +180,13 @@ class TestResetPassword:
         test_app = build_test_app(monkeypatch)
         try:
             uid = _make_extra_user(test_app, "oldpass")
-            test_app.client.post(f"/api/auth/users/{uid}/reset-password", json={"new_password": "newpass999"})
+            test_app.client.post(
+                f"/api/auth/users/{uid}/reset-password", json={"new_password": "newpass999"}
+            )
 
-            login_resp = test_app.client.post("/api/auth/login", json={"username": "oldpass", "password": "pass1234"})
+            login_resp = test_app.client.post(
+                "/api/auth/login", json={"username": "oldpass", "password": "pass1234"}
+            )
             assert login_resp.status_code == 401
         finally:
             test_app.cleanup()
@@ -176,7 +195,9 @@ class TestResetPassword:
         test_app = build_test_app(monkeypatch)
         try:
             uid = _make_extra_user(test_app, "flagme")
-            test_app.client.post(f"/api/auth/users/{uid}/reset-password", json={"new_password": "newpass999"})
+            test_app.client.post(
+                f"/api/auth/users/{uid}/reset-password", json={"new_password": "newpass999"}
+            )
 
             users = test_app.client.get("/api/auth/users").json()
             flagme = next(u for u in users if u["username"] == "flagme")
@@ -189,7 +210,9 @@ class TestResetPassword:
         try:
             uid = _make_extra_user(test_app, "target2")
             op_client, _ = _make_operator_client(test_app)
-            resp = op_client.post(f"/api/auth/users/{uid}/reset-password", json={"new_password": "hack"})
+            resp = op_client.post(
+                f"/api/auth/users/{uid}/reset-password", json={"new_password": "hack"}
+            )
             assert resp.status_code == 403
         finally:
             test_app.cleanup()
@@ -199,7 +222,9 @@ class TestResetPassword:
         try:
             # Use a valid-length password so request-body validation (min_length)
             # passes and we actually reach the user-lookup 404 path.
-            resp = test_app.client.post("/api/auth/users/99999/reset-password", json={"new_password": "validpass123"})
+            resp = test_app.client.post(
+                "/api/auth/users/99999/reset-password", json={"new_password": "validpass123"}
+            )
             assert resp.status_code == 404
         finally:
             test_app.cleanup()

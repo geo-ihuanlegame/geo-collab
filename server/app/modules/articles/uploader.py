@@ -1,4 +1,5 @@
 """分块上传管理器 — 支持上传大文件到临时位置，然后合并。"""
+
 from __future__ import annotations
 
 import hashlib
@@ -9,13 +10,12 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
-_logger = logging.getLogger(__name__)
-
 import aiofiles
 
-from server.app.core.paths import get_data_dir
 from server.app.core.config import ALLOWED_MAGIC
+from server.app.core.paths import get_data_dir
 
+_logger = logging.getLogger(__name__)
 
 CHUNK_SIZE = 3 * 1024 * 1024  # 3MB
 STREAM_BUFFER_SIZE = 64 * 1024  # 64KB buffer for streaming I/O
@@ -25,6 +25,7 @@ MAGIC_BYTES_CHECK_SIZE = 512  # bytes to check for format validation
 @dataclass
 class UploadSession:
     """分块上传会话信息。"""
+
     upload_id: str
     total_size: int
     chunk_count: int
@@ -76,6 +77,7 @@ class ChunkedUploadManager:
         if not self.sessions_dir.exists():
             return
         import shutil
+
         now = time.time()
         max_age = 86400  # 24 hours
         for entry in self.sessions_dir.iterdir():
@@ -183,8 +185,7 @@ class ChunkedUploadManager:
                             )
                             if will_have_checked:
                                 is_valid_format = any(
-                                    bytes(magic_bytes_buffer).startswith(m)
-                                    for m in ALLOWED_MAGIC
+                                    bytes(magic_bytes_buffer).startswith(m) for m in ALLOWED_MAGIC
                                 )
                                 if not is_valid_format:
                                     format_error = "Unsupported file type"

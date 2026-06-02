@@ -1,10 +1,9 @@
-import os
 import hmac
+import os
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import Depends, HTTPException, Request
-
 from jose import jwt
 
 from server.app.modules.system.models import User
@@ -36,6 +35,7 @@ def _reset_user_cache() -> None:
 
 def _get_jwt_secret() -> str:
     from server.app.core.config import get_settings
+
     return get_settings().jwt_secret
 
 
@@ -44,7 +44,7 @@ def _get_jwt_expire_hours() -> int:
 
 
 def create_access_token(user_id: int, role: str) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(hours=_get_jwt_expire_hours())
+    expire = datetime.now(UTC) + timedelta(hours=_get_jwt_expire_hours())
     payload = {"sub": str(user_id), "role": role, "exp": expire}
     return jwt.encode(payload, _get_jwt_secret(), algorithm=JWT_ALGORITHM)
 

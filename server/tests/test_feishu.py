@@ -8,19 +8,15 @@ Phase 5 tests: 飞书通知功能
 4. 任务完成后飞书通知被触发（monkeypatch notify_task_finished，
    在 _aggregate_task_status 调用结束后可观察到）
 """
+
 import json
-import threading
 import time
 from io import BytesIO
-from unittest.mock import MagicMock, patch
-
-
-import pytest
+from unittest.mock import patch
 
 from server.app.core.config import get_settings
 from server.app.shared.feishu import _send, notify_task_finished
 from server.tests.utils import build_test_app
-
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -32,11 +28,18 @@ _PNG = (
 
 
 def _create_article(client, title="Test") -> int:
-    cover = client.post("/api/assets", files={"file": ("c.png", BytesIO(_PNG), "image/png")}).json()["id"]
-    return client.post("/api/articles", json={
-        "title": title, "content_json": {"type": "doc", "content": []},
-        "plain_text": "body", "cover_asset_id": cover,
-    }).json()["id"]
+    cover = client.post(
+        "/api/assets", files={"file": ("c.png", BytesIO(_PNG), "image/png")}
+    ).json()["id"]
+    return client.post(
+        "/api/articles",
+        json={
+            "title": title,
+            "content_json": {"type": "doc", "content": []},
+            "plain_text": "body",
+            "cover_asset_id": cover,
+        },
+    ).json()["id"]
 
 
 def _create_account(test_app, key="acc-feishu") -> int:
@@ -50,15 +53,19 @@ def _create_account(test_app, key="acc-feishu") -> int:
 
 
 def _create_task(client, article_id: int, account_id: int, name: str = "Feishu task") -> dict:
-    return client.post("/api/tasks", json={
-        "name": name,
-        "task_type": "single",
-        "article_id": article_id,
-        "accounts": [{"account_id": account_id}],
-    }).json()
+    return client.post(
+        "/api/tasks",
+        json={
+            "name": name,
+            "task_type": "single",
+            "article_id": article_id,
+            "accounts": [{"account_id": account_id}],
+        },
+    ).json()
 
 
 # ── 场景 1: webhook url 为 None 时不报错、不发送 ──────────────────────────────
+
 
 class TestNotifyNoWebhook:
     def test_returns_immediately_without_sending(self, monkeypatch):
@@ -104,6 +111,7 @@ class TestNotifyNoWebhook:
 
 # ── 场景 2: _send 发送正确的 JSON payload ─────────────────────────────────────
 
+
 class TestSendPayload:
     def test_sends_correct_json(self):
         """_send 应发送包含正确字段的 JSON payload 到 webhook URL。"""
@@ -112,8 +120,10 @@ class TestSendPayload:
         class FakeResponse:
             def read(self):
                 return b'{"StatusCode":0}'
+
             def __enter__(self):
                 return self
+
             def __exit__(self, *args):
                 pass
 
@@ -158,13 +168,15 @@ class TestSendPayload:
 
             class FakeResp:
                 def read(self):
-                    return b'{}'
+                    return b"{}"
+
                 def __enter__(self):
                     return self
+
                 def __exit__(self, *args):
                     pass
 
-            def fake_urlopen(req, timeout=None):
+            def fake_urlopen(req, timeout=None, captured=captured):
                 captured.append(req)
                 return FakeResp()
 
@@ -172,8 +184,9 @@ class TestSendPayload:
                 _send("http://example.com", "task", 1, status, 1, 0, 0)
 
             body = json.loads(captured[0].data.decode())
-            assert expected_emoji in body["content"]["text"], \
+            assert expected_emoji in body["content"]["text"], (
                 f"Expected {expected_emoji} for status {status}"
+            )
 
     def test_payload_contains_failed_count(self):
         """_send 的 payload 中应包含失败数量。"""
@@ -181,9 +194,11 @@ class TestSendPayload:
 
         class FakeResp:
             def read(self):
-                return b'{}'
+                return b"{}"
+
             def __enter__(self):
                 return self
+
             def __exit__(self, *args):
                 pass
 
@@ -203,9 +218,11 @@ class TestSendPayload:
 
 # ── 场景 3: 发送失败时静默 warning，不抛出 ────────────────────────────────────
 
+
 class TestSendFailureSilent:
     def test_does_not_raise_on_network_error(self):
         """urlopen 抛出异常时，_send 应静默处理，不向上抛出。"""
+
         def fake_urlopen(req, timeout=None):
             raise OSError("Connection refused")
 
@@ -216,6 +233,7 @@ class TestSendFailureSilent:
     def test_does_not_raise_on_http_error(self):
         """HTTP 错误（4xx/5xx）时，_send 应静默处理，不向上抛出。"""
         import urllib.error
+
         def fake_urlopen(req, timeout=None):
             raise urllib.error.HTTPError(
                 url="http://example.com",
@@ -239,11 +257,13 @@ class TestSendFailureSilent:
             with caplog.at_level(logging.WARNING, logger="server.app.shared.feishu"):
                 _send("http://example.com", "mytask", 3, "failed", 1, 0, 1)
 
-        assert any("3" in r.message or "Feishu" in r.message for r in caplog.records), \
+        assert any("3" in r.message or "Feishu" in r.message for r in caplog.records), (
             f"Expected warning log, got: {[r.message for r in caplog.records]}"
+        )
 
 
 # ── 场景 4: 任务完成后飞书通知被触发 ──────────────────────────────────────────
+
 
 class TestNotifyTriggeredOnTaskCompletion:
     def test_notify_called_when_task_succeeds(self, monkeypatch):
@@ -255,14 +275,16 @@ class TestNotifyTriggeredOnTaskCompletion:
         notify_calls = []
 
         def fake_notify(task_name, task_id, status, total, succeeded, failed):
-            notify_calls.append({
-                "task_name": task_name,
-                "task_id": task_id,
-                "status": status,
-                "total": total,
-                "succeeded": succeeded,
-                "failed": failed,
-            })
+            notify_calls.append(
+                {
+                    "task_name": task_name,
+                    "task_id": task_id,
+                    "status": status,
+                    "total": total,
+                    "succeeded": succeeded,
+                    "failed": failed,
+                }
+            )
 
         monkeypatch.setattr("server.app.shared.feishu.notify_task_finished", fake_notify)
 
@@ -278,7 +300,7 @@ class TestNotifyTriggeredOnTaskCompletion:
 
             monkeypatch.setattr(
                 "server.app.modules.tasks.executor.build_publish_runner_for_record",
-                lambda _r: (lambda article, account, *, stop_before_publish=False: FakeResult()),
+                lambda _r: lambda article, account, *, stop_before_publish=False: FakeResult(),
             )
 
             test_app.client.post(f"/api/tasks/{task_id}/execute")
@@ -311,12 +333,14 @@ class TestNotifyTriggeredOnTaskCompletion:
         notify_calls = []
 
         def fake_notify(task_name, task_id, status, total, succeeded, failed):
-            notify_calls.append({
-                "status": status,
-                "total": total,
-                "succeeded": succeeded,
-                "failed": failed,
-            })
+            notify_calls.append(
+                {
+                    "status": status,
+                    "total": total,
+                    "succeeded": succeeded,
+                    "failed": failed,
+                }
+            )
 
         monkeypatch.setattr("server.app.shared.feishu.notify_task_finished", fake_notify)
 
@@ -330,9 +354,11 @@ class TestNotifyTriggeredOnTaskCompletion:
 
             monkeypatch.setattr(
                 "server.app.modules.tasks.executor.build_publish_runner_for_record",
-                lambda _r: (lambda article, account, *, stop_before_publish=False: (_ for _ in ()).throw(
-                    ToutiaoPublishError("publish failed", screenshot=None)
-                )),
+                lambda _r: (
+                    lambda article, account, *, stop_before_publish=False: (_ for _ in ()).throw(
+                        ToutiaoPublishError("publish failed", screenshot=None)
+                    )
+                ),
             )
 
             test_app.client.post(f"/api/tasks/{task_id}/execute")
@@ -381,7 +407,7 @@ class TestNotifyTriggeredOnTaskCompletion:
 
             monkeypatch.setattr(
                 "server.app.modules.tasks.executor.build_publish_runner_for_record",
-                lambda _r: (lambda article, account, *, stop_before_publish=False: FakeResult()),
+                lambda _r: lambda article, account, *, stop_before_publish=False: FakeResult(),
             )
 
             test_app.client.post(f"/api/tasks/{task_id}/execute")

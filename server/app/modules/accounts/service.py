@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import re
 import hashlib
+import re
 import uuid
 from pathlib import Path
 from typing import Any
@@ -107,12 +107,21 @@ def launch_options(channel: str, executable_path: str | None) -> dict[str, Any]:
 
 
 def list_accounts(db: Session) -> list[Account]:
-    stmt = select(Account).where(Account.is_deleted == False).options(selectinload(Account.platform)).order_by(Account.updated_at.desc())
+    stmt = (
+        select(Account)
+        .where(Account.is_deleted == False)  # noqa: E712
+        .options(selectinload(Account.platform))
+        .order_by(Account.updated_at.desc())
+    )
     return list(db.execute(stmt).scalars().all())
 
 
 def get_account(db: Session, account_id: int) -> Account | None:
-    stmt = select(Account).where(Account.id == account_id, Account.is_deleted == False).options(selectinload(Account.platform))
+    stmt = (
+        select(Account)
+        .where(Account.id == account_id, Account.is_deleted == False)  # noqa: E712
+        .options(selectinload(Account.platform))
+    )
     return db.execute(stmt).scalar_one_or_none()
 
 
@@ -126,12 +135,18 @@ def rename_account(db: Session, account: Account, display_name: str) -> Account:
 def delete_account(db: Session, account: Account) -> None:
     account_id = account.id
 
-    active = db.execute(
-        select(PublishRecord.id).where(
-            PublishRecord.account_id == account_id,
-            PublishRecord.status.in_(["pending", "running", "waiting_manual_publish", "waiting_user_input"]),
+    active = (
+        db.execute(
+            select(PublishRecord.id).where(
+                PublishRecord.account_id == account_id,
+                PublishRecord.status.in_(
+                    ["pending", "running", "waiting_manual_publish", "waiting_user_input"]
+                ),
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     if active:
         raise ClientError("存在未完成发布记录，无法删除账号")
 
@@ -143,4 +158,5 @@ def delete_account(db: Session, account: Account) -> None:
 
 def _get_driver(platform_code: str):
     from server.app.modules.tasks.drivers import get_driver
+
     return get_driver(platform_code)

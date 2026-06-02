@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
@@ -54,5 +54,5 @@ def update_session_status(
     if error_message is not None:
         session.error_message = error_message
     if status in ("done", "failed"):
-        session.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        session.completed_at = datetime.now(UTC).replace(tzinfo=None)
     db.flush()

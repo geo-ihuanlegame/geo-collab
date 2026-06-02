@@ -30,6 +30,12 @@ ignore = [
     "B008",
 ]
 
+[tool.ruff.lint.per-file-ignores]
+# main.py 必须在导入 Pydantic 模型 / 路由模块之前安装 datetime 序列化补丁
+# （BaseModel.model_config + fastapi.encoders），因此模块级 import 无法全部置顶。
+# 这是有意的初始化顺序，豁免 E402。
+"server/app/main.py" = ["E402"]
+
 [tool.mypy]
 # Lenient by design: this is the first introduction of type-checking to an
 # existing codebase. The goal is to surface obvious bugs (e.g. a function

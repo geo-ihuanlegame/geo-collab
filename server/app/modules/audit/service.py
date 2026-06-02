@@ -6,6 +6,7 @@
   - target_id 统一转 str，兼容 int / UUID 主键。
   - helper 内 db.add + db.commit，调用者无需额外 commit；如果 commit 失败，rollback 并继续。
 """
+
 from __future__ import annotations
 
 import logging
@@ -83,7 +84,9 @@ def add_audit_entry(
         db.add(entry)
         db.commit()
     except Exception:
-        _logger.warning("audit log write failed: action=%s target=%s", action, target_type, exc_info=True)
+        _logger.warning(
+            "audit log write failed: action=%s target=%s", action, target_type, exc_info=True
+        )
         try:
             db.rollback()
         except Exception:

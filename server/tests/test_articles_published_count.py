@@ -7,7 +7,10 @@ from server.tests.utils import build_test_app
 
 
 def _tiptap_doc() -> dict:
-    return {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "hello"}]}]}
+    return {
+        "type": "doc",
+        "content": [{"type": "paragraph", "content": [{"type": "text", "text": "hello"}]}],
+    }
 
 
 def _setup_platform_and_account(session) -> tuple[int, int]:
@@ -39,7 +42,9 @@ def _create_article(client) -> dict:
     return resp.json()
 
 
-def _create_task_with_record(session, article_id: int, platform_id: int, account_id: int, record_status: str) -> None:
+def _create_task_with_record(
+    session, article_id: int, platform_id: int, account_id: int, record_status: str
+) -> None:
     task = PublishTask(
         user_id=1,
         name="统计任务",

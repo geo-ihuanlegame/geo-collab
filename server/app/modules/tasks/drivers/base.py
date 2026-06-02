@@ -13,6 +13,7 @@ class PublishPayload:
     All asset paths are pre-resolved from the DB before launching the browser,
     so drivers never need to access ORM relationships or call resolve_asset_path.
     """
+
     title: str
     cover_asset_path: Path
     body_segments: list[BodySegment]

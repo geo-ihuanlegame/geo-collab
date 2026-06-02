@@ -1,5 +1,5 @@
-from sqlalchemy.orm import Session
 from sqlalchemy import or_
+from sqlalchemy.orm import Session
 
 from server.app.modules.prompt_templates.models import PromptTemplate
 from server.app.shared.errors import ValidationError
@@ -31,7 +31,9 @@ def list_prompt_templates(db: Session, *, scope: str | None = None) -> list[Prom
     return query.order_by(PromptTemplate.id).all()
 
 
-def list_visible_prompts(db: Session, *, user_id: int, scope: str | None = None) -> list[PromptTemplate]:
+def list_visible_prompts(
+    db: Session, *, user_id: int, scope: str | None = None
+) -> list[PromptTemplate]:
     return (
         _visible_query(db, user_id=user_id, scope=scope)
         .order_by(PromptTemplate.is_system.desc(), PromptTemplate.id)
@@ -54,7 +56,11 @@ def get_visible_prompt_template(
     user_id: int,
     scope: str | None = None,
 ) -> PromptTemplate | None:
-    return _visible_query(db, user_id=user_id, scope=scope).filter(PromptTemplate.id == template_id).first()
+    return (
+        _visible_query(db, user_id=user_id, scope=scope)
+        .filter(PromptTemplate.id == template_id)
+        .first()
+    )
 
 
 def create_prompt_template(

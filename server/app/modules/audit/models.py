@@ -7,7 +7,7 @@ payload_json 用于存放变更摘要，敏感字段（password/token/secret 等
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, JSON, String
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from server.app.core.time import utcnow
@@ -23,9 +23,7 @@ class AuditLog(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id"), nullable=True, index=True
-    )
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     # 冗余存一份用户名，用户被删后日志不丢归属；同时容纳登录失败时的"提交的用户名"。
     username: Mapped[str | None] = mapped_column(String(80), nullable=True)
     action: Mapped[str] = mapped_column(String(80), index=True)

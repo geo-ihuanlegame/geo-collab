@@ -1,7 +1,7 @@
+from server.app.modules.accounts import get_or_create_platform
 from server.app.modules.accounts.models import Account
 from server.app.modules.articles.models import Article
 from server.app.modules.tasks.models import PublishRecord, PublishTask, PublishTaskAccount, TaskLog
-from server.app.modules.accounts import get_or_create_platform
 from server.tests.utils import build_test_app
 
 ACTIVE_STATUSES = ["pending", "running", "waiting_manual_publish", "waiting_user_input"]
@@ -141,7 +141,9 @@ class TestDeleteArticleGuard:
             db = test_app.session_factory()
             try:
                 remaining = db.get(PublishRecord, record_id)
-                assert remaining is not None, "Historical succeeded records are retained after article soft delete"
+                assert remaining is not None, (
+                    "Historical succeeded records are retained after article soft delete"
+                )
             finally:
                 db.close()
         finally:
@@ -161,7 +163,9 @@ class TestDeleteArticleGuard:
             db = test_app.session_factory()
             try:
                 remaining = db.get(PublishRecord, record_id)
-                assert remaining is not None, "Historical failed records are retained after article soft delete"
+                assert remaining is not None, (
+                    "Historical failed records are retained after article soft delete"
+                )
             finally:
                 db.close()
         finally:
@@ -248,7 +252,9 @@ class TestDeleteAccountGuard:
             db = test_app.session_factory()
             try:
                 remaining = db.get(PublishRecord, record_id)
-                assert remaining is not None, "Historical succeeded records are retained after account soft delete"
+                assert remaining is not None, (
+                    "Historical succeeded records are retained after account soft delete"
+                )
                 assert bool(db.get(Account, account_id).is_deleted) is True
             finally:
                 db.close()
@@ -269,7 +275,9 @@ class TestDeleteAccountGuard:
             db = test_app.session_factory()
             try:
                 remaining = db.get(PublishRecord, record_id)
-                assert remaining is not None, "Historical failed records are retained after account soft delete"
+                assert remaining is not None, (
+                    "Historical failed records are retained after account soft delete"
+                )
             finally:
                 db.close()
         finally:
@@ -286,7 +294,11 @@ class TestDeleteAccountGuard:
             try:
                 record = db.get(PublishRecord, record_id)
                 assert record is not None
-                db.add(TaskLog(task_id=record.task_id, record_id=record_id, level="info", message="done"))
+                db.add(
+                    TaskLog(
+                        task_id=record.task_id, record_id=record_id, level="info", message="done"
+                    )
+                )
                 db.commit()
             finally:
                 db.close()
@@ -298,7 +310,12 @@ class TestDeleteAccountGuard:
             try:
                 assert db.get(PublishRecord, record_id) is not None
                 assert db.query(TaskLog).filter(TaskLog.record_id == record_id).count() == 1
-                assert db.query(PublishTaskAccount).filter(PublishTaskAccount.account_id == account_id).count() == 1
+                assert (
+                    db.query(PublishTaskAccount)
+                    .filter(PublishTaskAccount.account_id == account_id)
+                    .count()
+                    == 1
+                )
             finally:
                 db.close()
         finally:

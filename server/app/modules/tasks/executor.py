@@ -1,33 +1,24 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
-import hashlib
 import threading
 import time
 import traceback
-from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, TimeoutError as FutureTimeoutError, wait
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from dataclasses import dataclass
 from datetime import timedelta
 
-from sqlalchemy import inspect as sa_inspect, select, update as sa_update
+from sqlalchemy import inspect as sa_inspect
+from sqlalchemy import select
+from sqlalchemy import update as sa_update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, selectinload
 
 from server.app.core.config import get_settings
 from server.app.core.time import utcnow
-from server.app.modules.accounts.models import Account
-from server.app.modules.articles.models import Article, ArticleBodyAsset
-from server.app.modules.tasks.models import PublishRecord, PublishTask
-from server.app.modules.articles.parser import has_publishable_body
-from server.app.modules.tasks.service import (
-    PAUSED_RECORD_STATUSES,
-    TERMINAL_TASK_STATUSES,
-    add_log,
-    aggregate_task_status,
-    get_task,
-    list_task_records,
-)
 from server.app.modules.accounts.browser import (
     associate_record_with_session,
     disassociate_record,
@@ -36,8 +27,19 @@ from server.app.modules.accounts.browser import (
     stop_remote_browser_session,
     try_acquire_profile_lock,
 )
-from server.app.modules.articles import store_bytes
-from server.app.modules.tasks.drivers.base import PublishError, UserInputRequired
+from server.app.modules.accounts.models import Account
+from server.app.modules.articles.models import Article, ArticleBodyAsset
+from server.app.modules.articles.parser import has_publishable_body
+from server.app.modules.tasks.drivers.base import PublishError, PublishResult, UserInputRequired
+from server.app.modules.tasks.models import PublishRecord, PublishTask
+from server.app.modules.tasks.service import (
+    PAUSED_RECORD_STATUSES,
+    TERMINAL_TASK_STATUSES,
+    add_log,
+    aggregate_task_status,
+    get_task,
+    list_task_records,
+)
 from server.app.shared.diagnostics import PublishDiagnosticEvent, capture_publish_diagnostics
 from server.app.shared.errors import ConflictError
 
@@ -69,7 +71,7 @@ class RunningRecord:
 
 @dataclass(frozen=True)
 class RecordPublishOutcome:
-    result: object
+    result: PublishResult
     diagnostics: list[PublishDiagnosticEvent]
 
 
@@ -108,7 +110,7 @@ def execute_task(db: Session, task: PublishTask) -> PublishTask:
                     worker_heartbeat_at=now,
                 )
             )
-            if db.execute(stmt).rowcount == 0:
+            if db.execute(stmt).rowcount == 0:  # type: ignore[attr-defined]  # DML execute returns CursorResult
                 db.flush()
                 refreshed = get_task(db, task.id)
                 if refreshed is None or refreshed.status in TERMINAL_TASK_STATUSES:
@@ -180,7 +182,9 @@ def _request_task_cancel(db: Session, task_id: int) -> None:
     )
 
 
-def _cancel_not_running_records(db: Session, task: PublishTask, records: list[PublishRecord]) -> None:
+def _cancel_not_running_records(
+    db: Session, task: PublishTask, records: list[PublishRecord]
+) -> None:
     now = utcnow()
     changed = False
     for record in records:
@@ -224,9 +228,7 @@ def _run_pending_records(db: Session, task: PublishTask) -> None:
                     db.commit()
                     return
             else:
-                _paused_for_user = any(
-                    record.status == "waiting_user_input" for record in records
-                )
+                _paused_for_user = any(record.status == "waiting_user_input" for record in records)
                 _paused_for_manual = task.stop_before_publish and any(
                     record.status == "waiting_manual_publish" for record in records
                 )
@@ -254,12 +256,18 @@ def _run_pending_records(db: Session, task: PublishTask) -> None:
             timed_out = [
                 future
                 for future, running_record in running.items()
-                if time.monotonic() - running_record.started_monotonic > get_settings().publish_record_timeout_seconds
+                if time.monotonic() - running_record.started_monotonic
+                > get_settings().publish_record_timeout_seconds
             ]
             for future in set(done) | set(timed_out):
                 running_record = running.pop(future)
                 if future in timed_out and not future.done():
-                    _mark_record_failed(db, task.id, running_record.record_id, "Timeout: record execution exceeded 300s")
+                    _mark_record_failed(
+                        db,
+                        task.id,
+                        running_record.record_id,
+                        "Timeout: record execution exceeded 300s",
+                    )
                     # Stopping the session closes Chromium context, causing the
                     # Playwright thread to receive TargetClosedError and terminate.
                     try:
@@ -348,8 +356,13 @@ def _start_runnable_records(
                 _release_account_lock(next_record.account_id)
                 continue
 
-            if validation_error:
-                _mark_record_failed(db, task.id, next_record.id, validation_error)
+            if validation_error or article is None or account is None:
+                _mark_record_failed(
+                    db,
+                    task.id,
+                    next_record.id,
+                    validation_error or "Record article or account not found",
+                )
                 release_profile_lock_by_owner(owner_kind="publish", owner_id=next_record.id)
                 _release_account_lock(next_record.account_id)
                 db.commit()
@@ -357,8 +370,12 @@ def _start_runnable_records(
 
             _detach_record_inputs(db, next_record, article, account)
             db.commit()
-            future = executor.submit(_publish_record, next_record, article, account, task.stop_before_publish)
-            running[future] = RunningRecord(next_record.id, next_record.account_id, time.monotonic())
+            future = executor.submit(
+                _publish_record, next_record, article, account, task.stop_before_publish
+            )
+            running[future] = RunningRecord(
+                next_record.id, next_record.account_id, time.monotonic()
+            )
             running_accounts.add(next_record.account_id)
             slots -= 1
         except Exception:
@@ -382,7 +399,9 @@ def _release_account_lock(account_id: int) -> None:
             pass  # already released — harmless
 
 
-def _defer_record_for_profile_lock(db: Session, task_id: int, record: PublishRecord, reason: str) -> None:
+def _defer_record_for_profile_lock(
+    db: Session, task_id: int, record: PublishRecord, reason: str
+) -> None:
     already_queued = getattr(record, "queue_reason", None) == reason
     db.execute(
         sa_update(PublishRecord)
@@ -408,11 +427,15 @@ def _stop_record_session(record_id: int) -> None:
     try:
         disassociate_record(record_id)
     except Exception:
-        _logger.warning("Failed to clear browser session mapping for record %d", record_id, exc_info=True)
+        _logger.warning(
+            "Failed to clear browser session mapping for record %d", record_id, exc_info=True
+        )
     try:
         release_profile_lock_by_owner(owner_kind="publish", owner_id=record_id)
     except Exception:
-        _logger.warning("Failed to release browser profile lock for record %d", record_id, exc_info=True)
+        _logger.warning(
+            "Failed to release browser profile lock for record %d", record_id, exc_info=True
+        )
 
 
 def _claim_record(db: Session, task_id: int, record: PublishRecord) -> bool:
@@ -428,7 +451,7 @@ def _claim_record(db: Session, task_id: int, record: PublishRecord) -> bool:
         .values(status="running", started_at=now, lease_until=lease_until, queue_reason=None)
     )
     try:
-        rowcount = db.execute(stmt).rowcount
+        rowcount = db.execute(stmt).rowcount  # type: ignore[attr-defined]  # DML execute returns CursorResult
     except OperationalError as exc:
         if _is_retryable_db_lock_error(exc):
             db.rollback()
@@ -448,7 +471,7 @@ def _claim_record(db: Session, task_id: int, record: PublishRecord) -> bool:
 def _is_retryable_db_lock_error(exc: OperationalError) -> bool:
     original = getattr(exc, "orig", None)
     code = None
-    if getattr(original, "args", None):
+    if original is not None and getattr(original, "args", None):
         code = original.args[0]
     return code in {1205, 1213, 1684}
 
@@ -476,11 +499,15 @@ def _validate_record_inputs(article: Article | None, account: Account | None) ->
     if article.cover_asset_id is None:
         return "文章封面不能为空"
     if account.status != "valid":
-        return f"Account {account.id} is {account.status}: please re-verify the account authorization"
+        return (
+            f"Account {account.id} is {account.status}: please re-verify the account authorization"
+        )
     return None
 
 
-def _detach_record_inputs(db: Session, record: PublishRecord, article: Article, account: Account) -> None:
+def _detach_record_inputs(
+    db: Session, record: PublishRecord, article: Article, account: Account
+) -> None:
     objects: list[object] = [record, article, account]
     if article.cover_asset is not None:
         objects.append(article.cover_asset)
@@ -513,8 +540,12 @@ def _detach_record_inputs(db: Session, record: PublishRecord, article: Article, 
                 )
 
 
-def _publish_record(record: PublishRecord, article: Article, account: Account, stop_before_publish: bool):
-    _logger.info("Publishing record %d for article %d to account %d", record.id, article.id, account.id)
+def _publish_record(
+    record: PublishRecord, article: Article, account: Account, stop_before_publish: bool
+):
+    _logger.info(
+        "Publishing record %d for article %d to account %d", record.id, article.id, account.id
+    )
     _global_publish_sem.acquire()
     diagnostics: list[PublishDiagnosticEvent] = []
     try:
@@ -523,7 +554,7 @@ def _publish_record(record: PublishRecord, article: Article, account: Account, s
             result = runner(article, account, stop_before_publish=stop_before_publish)
             return RecordPublishOutcome(result=result, diagnostics=list(diagnostics))
     except Exception as exc:
-        setattr(exc, "publish_diagnostics", list(diagnostics))
+        exc.publish_diagnostics = list(diagnostics)  # type: ignore[attr-defined]  # dynamic attr to carry diagnostics through raise
         raise
     finally:
         _global_publish_sem.release()
@@ -543,47 +574,87 @@ def _finish_record_future(db: Session, task: PublishTask, record_id: int, future
         _logger.warning("Record %d timed out", record_id)
     except UserInputRequired as exc:
         try:
-            _add_publish_diagnostics(db, task.id, record_id, _diagnostics_from_exception(exc), task.user_id)
-            screenshot_asset_id = _store_failure_screenshot(db, task.id, record_id, exc.screenshot, task.user_id)
+            _add_publish_diagnostics(
+                db, task.id, record_id, _diagnostics_from_exception(exc), task.user_id
+            )
+            screenshot_asset_id = _store_failure_screenshot(
+                db, task.id, record_id, exc.screenshot, task.user_id
+            )
             error_type = getattr(exc, "error_type", "login_required")
-            type_label = {"login_required": "需要登录", "captcha_required": "需要验证码", "qr_scan_required": "需要扫码"}.get(error_type, "需要人工操作")
-            _mark_record_waiting_user_input(db, task.id, record_id, f"[{type_label}] {exc}\n{traceback.format_exc()}", screenshot_asset_id=screenshot_asset_id)
+            type_label = {
+                "login_required": "需要登录",
+                "captcha_required": "需要验证码",
+                "qr_scan_required": "需要扫码",
+            }.get(error_type, "需要人工操作")
+            _mark_record_waiting_user_input(
+                db,
+                task.id,
+                record_id,
+                f"[{type_label}] {exc}\n{traceback.format_exc()}",
+                screenshot_asset_id=screenshot_asset_id,
+            )
             if exc.session_id:
                 associate_record_with_session(record_id, exc.session_id)
             _logger.info("Record %d waiting user input (type=%s)", record_id, error_type)
         except Exception as _inner:
-            _logger.error("Record %d: error handling UserInputRequired: %s", record_id, _inner, exc_info=True)
+            _logger.error(
+                "Record %d: error handling UserInputRequired: %s", record_id, _inner, exc_info=True
+            )
             _mark_record_failed(db, task.id, record_id, f"Error handling user input: {_inner}")
     except PublishError as exc:
         try:
-            _add_publish_diagnostics(db, task.id, record_id, _diagnostics_from_exception(exc), task.user_id)
-            screenshot_asset_id = _store_failure_screenshot(db, task.id, record_id, exc.screenshot, task.user_id)
-            _mark_record_failed(db, task.id, record_id, f"{exc}\n{traceback.format_exc()}", screenshot_asset_id=screenshot_asset_id)
+            _add_publish_diagnostics(
+                db, task.id, record_id, _diagnostics_from_exception(exc), task.user_id
+            )
+            screenshot_asset_id = _store_failure_screenshot(
+                db, task.id, record_id, exc.screenshot, task.user_id
+            )
+            _mark_record_failed(
+                db,
+                task.id,
+                record_id,
+                f"{exc}\n{traceback.format_exc()}",
+                screenshot_asset_id=screenshot_asset_id,
+            )
             _stop_record_session(record_id)
             _logger.error("Record %d publish error: %s", record_id, exc)
         except Exception as _inner:
-            _logger.error("Record %d: error handling PublishError: %s", record_id, _inner, exc_info=True)
+            _logger.error(
+                "Record %d: error handling PublishError: %s", record_id, _inner, exc_info=True
+            )
             _mark_record_failed(db, task.id, record_id, f"Error handling publish error: {_inner}")
             _stop_record_session(record_id)
     except ValueError as exc:
         try:
-            _add_publish_diagnostics(db, task.id, record_id, _diagnostics_from_exception(exc), task.user_id)
+            _add_publish_diagnostics(
+                db, task.id, record_id, _diagnostics_from_exception(exc), task.user_id
+            )
             _mark_record_failed(db, task.id, record_id, f"{exc}\n{traceback.format_exc()}")
             _stop_record_session(record_id)
             _logger.error("Record %d value error: %s", record_id, exc)
         except Exception as _inner:
-            _logger.error("Record %d: error handling ValueError: %s", record_id, _inner, exc_info=True)
+            _logger.error(
+                "Record %d: error handling ValueError: %s", record_id, _inner, exc_info=True
+            )
             _mark_record_failed(db, task.id, record_id, f"Error handling value error: {_inner}")
             _stop_record_session(record_id)
     except Exception as exc:
         try:
-            _add_publish_diagnostics(db, task.id, record_id, _diagnostics_from_exception(exc), task.user_id)
-            _mark_record_failed(db, task.id, record_id, f"Unexpected error: {exc}\n{traceback.format_exc()}")
+            _add_publish_diagnostics(
+                db, task.id, record_id, _diagnostics_from_exception(exc), task.user_id
+            )
+            _mark_record_failed(
+                db, task.id, record_id, f"Unexpected error: {exc}\n{traceback.format_exc()}"
+            )
             _stop_record_session(record_id)
             _logger.error("Record %d unexpected error", record_id, exc_info=True)
         except Exception as _inner:
-            _logger.error("Record %d: error handling unexpected error: %s", record_id, _inner, exc_info=True)
-            _mark_record_failed(db, task.id, record_id, f"Error handling unexpected error: {_inner}")
+            _logger.error(
+                "Record %d: error handling unexpected error: %s", record_id, _inner, exc_info=True
+            )
+            _mark_record_failed(
+                db, task.id, record_id, f"Error handling unexpected error: {_inner}"
+            )
             _stop_record_session(record_id)
     else:
         if task.stop_before_publish:
@@ -594,7 +665,12 @@ def _finish_record_future(db: Session, task: PublishTask, record_id: int, future
                     PublishRecord.status == "running",
                     PublishRecord.is_deleted == False,  # noqa: E712
                 )
-                .values(status="waiting_manual_publish", finished_at=utcnow(), lease_until=None, queue_reason=None)
+                .values(
+                    status="waiting_manual_publish",
+                    finished_at=utcnow(),
+                    lease_until=None,
+                    queue_reason=None,
+                )
             )
             message = "等待手动确认发布"
         else:
@@ -614,7 +690,7 @@ def _finish_record_future(db: Session, task: PublishTask, record_id: int, future
                 )
             )
             message = result.message
-        if db.execute(stmt).rowcount > 0:
+        if db.execute(stmt).rowcount > 0:  # type: ignore[attr-defined]  # DML execute returns CursorResult
             add_log(db, task.id, record_id, "info", message)
             if not task.stop_before_publish:
                 _stop_record_session(record_id)
@@ -641,8 +717,17 @@ def _add_publish_diagnostics(
 ) -> None:
     for event in diagnostics:
         level = event.level if event.level in {"info", "warn", "error"} else "info"
-        screenshot_asset_id = _store_failure_screenshot(db, task_id, record_id, event.screenshot, user_id)
-        add_log(db, task_id, record_id, level, f"[publish diagnostic] {event.message}", screenshot_asset_id=screenshot_asset_id)
+        screenshot_asset_id = _store_failure_screenshot(
+            db, task_id, record_id, event.screenshot, user_id
+        )
+        add_log(
+            db,
+            task_id,
+            record_id,
+            level,
+            f"[publish diagnostic] {event.message}",
+            screenshot_asset_id=screenshot_asset_id,
+        )
 
 
 def _mark_record_failed(
@@ -659,10 +744,18 @@ def _mark_record_failed(
             PublishRecord.status == "running",
             PublishRecord.is_deleted == False,  # noqa: E712
         )
-        .values(status="failed", error_message=error_message, finished_at=utcnow(), lease_until=None, queue_reason=None)
+        .values(
+            status="failed",
+            error_message=error_message,
+            finished_at=utcnow(),
+            lease_until=None,
+            queue_reason=None,
+        )
     )
-    if db.execute(stmt).rowcount > 0:
-        add_log(db, task_id, record_id, "error", error_message, screenshot_asset_id=screenshot_asset_id)
+    if db.execute(stmt).rowcount > 0:  # type: ignore[attr-defined]  # DML execute returns CursorResult
+        add_log(
+            db, task_id, record_id, "error", error_message, screenshot_asset_id=screenshot_asset_id
+        )
 
 
 def _mark_record_waiting_user_input(
@@ -679,9 +772,15 @@ def _mark_record_waiting_user_input(
             PublishRecord.status == "running",
             PublishRecord.is_deleted == False,  # noqa: E712
         )
-        .values(status="waiting_user_input", error_message=message, finished_at=None, lease_until=None, queue_reason=None)
+        .values(
+            status="waiting_user_input",
+            error_message=message,
+            finished_at=None,
+            lease_until=None,
+            queue_reason=None,
+        )
     )
-    if db.execute(stmt).rowcount > 0:
+    if db.execute(stmt).rowcount > 0:  # type: ignore[attr-defined]  # DML execute returns CursorResult
         add_log(db, task_id, record_id, "warn", message, screenshot_asset_id=screenshot_asset_id)
 
 
@@ -694,6 +793,9 @@ def _store_failure_screenshot(
 ) -> str | None:
     if not screenshot:
         return None
+    # 懒导入：避免 articles 包 ↔ tasks 包的包级循环依赖（见 CLAUDE.md）
+    from server.app.modules.articles import store_bytes
+
     stored = store_bytes(
         db,
         user_id,
@@ -706,6 +808,7 @@ def _store_failure_screenshot(
 
 def build_publish_runner_for_record(record: PublishRecord):
     from server.app.modules.tasks.runner import run_publish
+
     settings = get_settings()
     channel = settings.publish_browser_channel
     executable_path = settings.publish_browser_executable_path
@@ -739,7 +842,7 @@ def cancel_task(db: Session, task: PublishTask) -> PublishTask:
 
     refreshed_records = list_task_records(db, task.id)
     if not any(record.status == "running" for record in refreshed_records):
-        rows = db.execute(
+        result = db.execute(
             sa_update(PublishTask)
             .where(
                 PublishTask.id == task.id,
@@ -747,14 +850,21 @@ def cancel_task(db: Session, task: PublishTask) -> PublishTask:
                 PublishTask.is_deleted == False,  # noqa: E712
             )
             .values(status="cancelled", finished_at=now)
-        ).rowcount
+        )
+        rows = result.rowcount  # type: ignore[attr-defined]  # DML execute returns CursorResult
         if rows > 0:
             task.status = "cancelled"
             task.finished_at = now
             add_log(db, task.id, None, "warn", "Task cancelled")
     else:
         task.status = "running"
-        add_log(db, task.id, None, "warn", "Cancellation requested; running record will finish at its next safe point")
+        add_log(
+            db,
+            task.id,
+            None,
+            "warn",
+            "Cancellation requested; running record will finish at its next safe point",
+        )
     db.flush()
 
     return get_task(db, task.id) or task

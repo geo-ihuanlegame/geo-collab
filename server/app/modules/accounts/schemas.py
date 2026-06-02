@@ -9,6 +9,7 @@ if TYPE_CHECKING:
 
 # ── 响应体 ──────────────────────────────────────────────────────────────────
 
+
 class AccountRead(BaseModel):
     id: int
     platform_code: str
@@ -51,6 +52,7 @@ class LoginSessionStatusRead(BaseModel):
 
 # ── 请求体 ──────────────────────────────────────────────────────────────────
 
+
 class PlatformLoginRequest(BaseModel):
     display_name: str = Field(default="头条号账号", min_length=1, max_length=200)
     account_key: str | None = Field(default=None, max_length=120)  # 本地存储目录标识
@@ -76,6 +78,7 @@ class AccountExportRequest(BaseModel):
 
 
 # ── 序列化函数（原 api/serializers.py:to_account_read）───────────────────────
+
 
 def to_account_read(account: "Account") -> AccountRead:
     return AccountRead(

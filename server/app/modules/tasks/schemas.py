@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
 # ── 请求体 ──────────────────────────────────────────────────────────────────
 
+
 class TaskAccountInput(BaseModel):
     account_id: int
     sort_order: int | None = None
@@ -40,6 +41,7 @@ class ManualConfirmInput(BaseModel):
 
 
 # ── 响应体 ──────────────────────────────────────────────────────────────────
+
 
 class TaskAccountRead(BaseModel):
     account_id: int
@@ -119,6 +121,7 @@ class TaskRead(BaseModel):
 
 # ── 序列化函数（原 api/serializers.py）──────────────────────────────────────
 
+
 def to_task_read(task: "PublishTask") -> TaskRead:
     accounts = sorted(task.accounts, key=lambda item: item.sort_order)
     return TaskRead(
@@ -126,7 +129,7 @@ def to_task_read(task: "PublishTask") -> TaskRead:
         name=task.name,
         task_type=task.task_type,
         status=task.status,
-        platform_id=task.platform_id,
+        platform_id=task.platform.id,
         platform_code=task.platform.code,
         article_id=task.article_id,
         group_id=task.group_id,

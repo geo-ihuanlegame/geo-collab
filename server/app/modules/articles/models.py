@@ -13,21 +13,33 @@
 from datetime import datetime
 
 from sqlalchemy import (
-    Boolean, CheckConstraint, Column, DateTime, ForeignKey, Integer,
-    String, Table, Text, UniqueConstraint,
+    Boolean,
+    CheckConstraint,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Table,
+    Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from server.app.core.time import utcnow
 from server.app.db.base import Base
 
-
 # 文章-图库栏目 多对多关联表
 article_stock_categories_table = Table(
     "article_stock_categories",
     Base.metadata,
     Column("article_id", Integer, ForeignKey("articles.id", ondelete="CASCADE"), primary_key=True),
-    Column("stock_category_id", Integer, ForeignKey("stock_categories.id", ondelete="CASCADE"), primary_key=True),
+    Column(
+        "stock_category_id",
+        Integer,
+        ForeignKey("stock_categories.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
     UniqueConstraint("article_id", "stock_category_id", name="uq_article_stock_cat"),
 )
 
@@ -71,9 +83,7 @@ class ArticleTag(Base):
     article_id: Mapped[int] = mapped_column(
         ForeignKey("articles.id", ondelete="CASCADE"), primary_key=True
     )
-    tag_id: Mapped[int] = mapped_column(
-        ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True
-    )
+    tag_id: Mapped[int] = mapped_column(ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True)
 
 
 class Article(Base):
@@ -92,7 +102,9 @@ class Article(Base):
     content_html: Mapped[str] = mapped_column(Text, default="")  # 渲染用 HTML
     plain_text: Mapped[str] = mapped_column(Text, default="")  # 纯文本，用于发布
     word_count: Mapped[int] = mapped_column(Integer, default=0)
-    status: Mapped[str] = mapped_column(String(30), default="draft", index=True)  # draft / ready / archived
+    status: Mapped[str] = mapped_column(
+        String(30), default="draft", index=True
+    )  # draft / ready / archived
     client_request_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
     ai_checking: Mapped[bool] = mapped_column(
@@ -100,7 +112,9 @@ class Article(Base):
     )
     ai_checking_started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     ai_format_error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    stock_category_id: Mapped[int | None] = mapped_column(ForeignKey("stock_categories.id"), nullable=True)
+    stock_category_id: Mapped[int | None] = mapped_column(
+        ForeignKey("stock_categories.id"), nullable=True
+    )
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0", index=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
@@ -113,7 +127,9 @@ class Article(Base):
         secondary="article_stock_categories",
         lazy="select",
     )
-    body_assets = relationship("ArticleBodyAsset", back_populates="article", cascade="all, delete-orphan")
+    body_assets = relationship(
+        "ArticleBodyAsset", back_populates="article", cascade="all, delete-orphan"
+    )
     group_items = relationship("ArticleGroupItem", back_populates="article")
     publish_records = relationship("PublishRecord", back_populates="article")
     tags = relationship("Tag", secondary="article_tags", lazy="selectin")
@@ -153,7 +169,9 @@ class ArticleGroup(Base):
 
 class ArticleGroupItem(Base):
     __tablename__ = "article_group_items"
-    __table_args__ = (UniqueConstraint("group_id", "article_id", name="uq_article_group_items_group_article"),)
+    __table_args__ = (
+        UniqueConstraint("group_id", "article_id", name="uq_article_group_items_group_article"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     group_id: Mapped[int] = mapped_column(ForeignKey("article_groups.id"), index=True)

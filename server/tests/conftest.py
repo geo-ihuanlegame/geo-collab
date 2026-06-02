@@ -2,11 +2,15 @@ import pytest
 
 
 def pytest_addoption(parser):
-    parser.addoption("--mysql", action="store_true", default=False, help="deprecated; tests use MySQL only")
+    parser.addoption(
+        "--mysql", action="store_true", default=False, help="deprecated; tests use MySQL only"
+    )
 
 
 def pytest_configure(config):
-    config.addinivalue_line("markers", "mysql: mark test as requiring the disposable MySQL test database")
+    config.addinivalue_line(
+        "markers", "mysql: mark test as requiring the disposable MySQL test database"
+    )
 
 
 def pytest_collection_modifyitems(config, items):

@@ -6,13 +6,13 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session
 
-from server.app.core.time import utcnow
 from server.app.core.security import require_admin
+from server.app.core.time import utcnow
 from server.app.db.session import get_db
+from server.app.modules.accounts import remote_browser_runtime_status
 from server.app.modules.audit.service import add_audit_entry
 from server.app.modules.system.models import User, WorkerHeartbeat
 from server.app.modules.system.schemas import SystemStatus
-from server.app.modules.accounts import remote_browser_runtime_status
 from server.app.shared.system_status import get_system_status
 
 router = APIRouter()
@@ -57,35 +57,51 @@ def read_system_status(
     base = get_system_status()
     data = base.model_dump()
     try:
-        data["article_count"] = db.scalar(
-            select(func.count()).select_from(Article).where(Article.is_deleted == False)  # noqa: E712
-        ) or 0
-        data["account_count"] = db.scalar(
-            select(func.count()).select_from(Account).where(Account.is_deleted == False)  # noqa: E712
-        ) or 0
-        data["task_count"] = db.scalar(
-            select(func.count()).select_from(PublishTask).where(PublishTask.is_deleted == False)  # noqa: E712
-        ) or 0
-        data["pending_task_count"] = db.scalar(
-            select(func.count())
-            .select_from(PublishTask)
-            .where(
-                PublishTask.status.in_(["pending", "running"]),
-                PublishTask.is_deleted == False,  # noqa: E712
-                exists().where(
-                    PublishRecord.task_id == PublishTask.id,
-                    PublishRecord.status == "pending",
-                    PublishRecord.is_deleted == False,  # noqa: E712
-                ),
+        data["article_count"] = (
+            db.scalar(
+                select(func.count()).select_from(Article).where(Article.is_deleted == False)  # noqa: E712
             )
-        ) or 0
+            or 0
+        )
+        data["account_count"] = (
+            db.scalar(
+                select(func.count()).select_from(Account).where(Account.is_deleted == False)  # noqa: E712
+            )
+            or 0
+        )
+        data["task_count"] = (
+            db.scalar(
+                select(func.count()).select_from(PublishTask).where(PublishTask.is_deleted == False)  # noqa: E712
+            )
+            or 0
+        )
+        data["pending_task_count"] = (
+            db.scalar(
+                select(func.count())
+                .select_from(PublishTask)
+                .where(
+                    PublishTask.status.in_(["pending", "running"]),
+                    PublishTask.is_deleted == False,  # noqa: E712
+                    exists().where(
+                        PublishRecord.task_id == PublishTask.id,
+                        PublishRecord.status == "pending",
+                        PublishRecord.is_deleted == False,  # noqa: E712
+                    ),
+                )
+            )
+            or 0
+        )
         # 自动清理：仅删除 stop_requested=True 且 1 小时未活动的会话
         # （保护正在运行的发文任务，即使在高并发场景下）
         cutoff = utcnow() - timedelta(hours=1)
-        deleted_count = db.query(BrowserSession).filter(
-            BrowserSession.stop_requested == True,
-            BrowserSession.last_activity_at < cutoff,
-        ).delete()
+        deleted_count = (
+            db.query(BrowserSession)
+            .filter(
+                BrowserSession.stop_requested == True,  # noqa: E712
+                BrowserSession.last_activity_at < cutoff,
+            )
+            .delete()
+        )
         db.commit()
         if deleted_count and deleted_count > 0:
             add_audit_entry(
@@ -97,7 +113,9 @@ def read_system_status(
                 payload={"deleted_count": deleted_count},
                 request=request,
             )
-        data["active_browser_sessions"] = db.scalar(select(func.count()).select_from(BrowserSession)) or 0
+        data["active_browser_sessions"] = (
+            db.scalar(select(func.count()).select_from(BrowserSession)) or 0
+        )
         data["worker_online"] = bool(
             db.scalar(
                 select(func.count())

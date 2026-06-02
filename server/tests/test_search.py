@@ -10,10 +10,10 @@ We cover both paths:
   through to LIKE. We create articles with distinctive keywords so both paths
   produce the same result.
 """
+
 from io import BytesIO
 
 from server.tests.utils import build_test_app
-
 
 _PNG = (
     b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
@@ -28,7 +28,9 @@ def _upload_cover(client) -> str:
     return resp.json()["id"]
 
 
-def _create_article(client, *, title: str = "Untitled", author: str = "", plain_text: str = "") -> int:
+def _create_article(
+    client, *, title: str = "Untitled", author: str = "", plain_text: str = ""
+) -> int:
     cover_id = _upload_cover(client)
     payload = {
         "title": title,

@@ -5,23 +5,21 @@ Phase 4 feature tests:
 - 4.1 resolve-user-input / manual-confirm 端点可访问
 - 4.3 zombie session 检测函数存在且可调用
 """
+
 from datetime import timedelta
 from io import BytesIO
 
-import pytest
-
 from server.app.core.time import utcnow
-from server.app.modules.tasks.models import PublishRecord, PublishTask, TaskLog
 from server.app.modules.tasks import recover_stuck_records
 from server.app.modules.tasks.drivers.toutiao import (
-    ToutiaoPublishError,
-    ToutiaoUserInputRequired,
-    QR_HINTS,
     CAPTCHA_HINTS,
     LOGIN_REDIRECT_HINTS,
+    QR_HINTS,
+    ToutiaoPublishError,
+    ToutiaoUserInputRequired,
 )
+from server.app.modules.tasks.models import PublishRecord, TaskLog
 from server.tests.utils import build_test_app
-
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -33,11 +31,18 @@ _PNG = (
 
 
 def _create_article(client, title="Test") -> int:
-    cover = client.post("/api/assets", files={"file": ("c.png", BytesIO(_PNG), "image/png")}).json()["id"]
-    return client.post("/api/articles", json={
-        "title": title, "content_json": {"type": "doc", "content": []},
-        "plain_text": "body", "cover_asset_id": cover,
-    }).json()["id"]
+    cover = client.post(
+        "/api/assets", files={"file": ("c.png", BytesIO(_PNG), "image/png")}
+    ).json()["id"]
+    return client.post(
+        "/api/articles",
+        json={
+            "title": title,
+            "content_json": {"type": "doc", "content": []},
+            "plain_text": "body",
+            "cover_asset_id": cover,
+        },
+    ).json()["id"]
 
 
 def _create_account(test_app, key="acc-p4") -> int:
@@ -51,15 +56,19 @@ def _create_account(test_app, key="acc-p4") -> int:
 
 
 def _create_task(client, article_id: int, account_id: int) -> dict:
-    return client.post("/api/tasks", json={
-        "name": "P4 task",
-        "task_type": "single",
-        "article_id": article_id,
-        "accounts": [{"account_id": account_id}],
-    }).json()
+    return client.post(
+        "/api/tasks",
+        json={
+            "name": "P4 task",
+            "task_type": "single",
+            "article_id": article_id,
+            "accounts": [{"account_id": account_id}],
+        },
+    ).json()
 
 
 # ── 4.4: ToutiaoUserInputRequired.error_type ─────────────────────────────────
+
 
 class TestErrorTypeClassification:
     def test_default_error_type_is_login_required(self):
@@ -97,12 +106,15 @@ class TestErrorTypeClassification:
 
             monkeypatch.setattr(
                 "server.app.modules.tasks.executor.build_publish_runner_for_record",
-                lambda _r: (lambda article, account, *, stop_before_publish=False: (_ for _ in ()).throw(
-                    ToutiaoUserInputRequired("需要扫码", error_type="qr_scan_required")
-                )),
+                lambda _r: (
+                    lambda article, account, *, stop_before_publish=False: (_ for _ in ()).throw(
+                        ToutiaoUserInputRequired("需要扫码", error_type="qr_scan_required")
+                    )
+                ),
             )
 
             import time as _time
+
             test_app.client.post(f"/api/tasks/{task_id}/execute")
             deadline = _time.time() + 5.0
             while _time.time() < deadline:
@@ -112,13 +124,15 @@ class TestErrorTypeClassification:
                 _time.sleep(0.05)
 
             logs = test_app.client.get(f"/api/tasks/{task_id}/logs").json()
-            assert any("扫码" in lg["message"] or "qr_scan" in lg["message"].lower() for lg in logs), \
-                f"Expected qr_scan hint in logs, got: {[lg['message'] for lg in logs]}"
+            assert any(
+                "扫码" in lg["message"] or "qr_scan" in lg["message"].lower() for lg in logs
+            ), f"Expected qr_scan hint in logs, got: {[lg['message'] for lg in logs]}"
         finally:
             test_app.cleanup()
 
 
 # ── 4.5: recover_stuck_records 写 TaskLog ────────────────────────────────────
+
 
 class TestRecoverStuckRecordsLogging:
     def test_recovery_adds_task_log(self, monkeypatch):
@@ -151,14 +165,21 @@ class TestRecoverStuckRecordsLogging:
                 assert record.lease_until is None
 
                 # 验证 TaskLog 已写入
-                logs = db.query(TaskLog).filter(
-                    TaskLog.task_id == task_id,
-                    TaskLog.record_id == record_id,
-                ).all()
+                logs = (
+                    db.query(TaskLog)
+                    .filter(
+                        TaskLog.task_id == task_id,
+                        TaskLog.record_id == record_id,
+                    )
+                    .all()
+                )
                 assert logs, "Expected TaskLog to be written for recovered record"
-                assert any("重启" in lg.message or "重置" in lg.message for lg in logs), \
+                assert any("重启" in lg.message or "重置" in lg.message for lg in logs), (
                     f"Expected recovery message in log, got: {[lg.message for lg in logs]}"
-                assert all(lg.level == "warn" for lg in logs), "Recovery logs should be 'warn' level"
+                )
+                assert all(lg.level == "warn" for lg in logs), (
+                    "Recovery logs should be 'warn' level"
+                )
         finally:
             test_app.cleanup()
 
@@ -176,6 +197,7 @@ class TestRecoverStuckRecordsLogging:
 
 
 # ── 4.1: resolve-user-input / manual-confirm API endpoints ───────────────────
+
 
 class TestManualInterventionEndpoints:
     def _setup_waiting_record(self, monkeypatch, status: str):
@@ -200,9 +222,11 @@ class TestManualInterventionEndpoints:
         try:
             monkeypatch.setattr(
                 "server.app.modules.tasks.executor.build_publish_runner_for_record",
-                lambda _r: (lambda article, account, *, stop_before_publish=False: (_ for _ in ()).throw(
-                    Exception("stop immediately")
-                )),
+                lambda _r: (
+                    lambda article, account, *, stop_before_publish=False: (_ for _ in ()).throw(
+                        Exception("stop immediately")
+                    )
+                ),
             )
             resp = test_app.client.post(f"/api/publish-records/{record_id}/resolve-user-input")
             assert resp.status_code == 200, resp.text
@@ -213,7 +237,9 @@ class TestManualInterventionEndpoints:
             test_app.cleanup()
 
     def test_manual_confirm_succeeded(self, monkeypatch):
-        test_app, record_id, task_id = self._setup_waiting_record(monkeypatch, "waiting_manual_publish")
+        test_app, record_id, task_id = self._setup_waiting_record(
+            monkeypatch, "waiting_manual_publish"
+        )
         try:
             resp = test_app.client.post(
                 f"/api/publish-records/{record_id}/manual-confirm",
@@ -225,7 +251,9 @@ class TestManualInterventionEndpoints:
             test_app.cleanup()
 
     def test_manual_confirm_failed(self, monkeypatch):
-        test_app, record_id, task_id = self._setup_waiting_record(monkeypatch, "waiting_manual_publish")
+        test_app, record_id, task_id = self._setup_waiting_record(
+            monkeypatch, "waiting_manual_publish"
+        )
         try:
             resp = test_app.client.post(
                 f"/api/publish-records/{record_id}/manual-confirm",
@@ -238,6 +266,7 @@ class TestManualInterventionEndpoints:
 
     def test_unauthenticated_cannot_resolve(self, monkeypatch):
         from fastapi.testclient import TestClient
+
         test_app, record_id, _ = self._setup_waiting_record(monkeypatch, "waiting_user_input")
         try:
             anon = TestClient(test_app.client.app)
@@ -249,18 +278,20 @@ class TestManualInterventionEndpoints:
 
 # ── 4.3: zombie session detection ────────────────────────────────────────────
 
+
 class TestZombieSessionDetection:
     def test_cleanup_zombie_sessions_is_callable(self):
         """_cleanup_zombie_sessions 函数存在且在没有活动 session 时不抛出。"""
         from server.app.modules.accounts.browser import _cleanup_zombie_sessions
+
         _cleanup_zombie_sessions()  # should not raise
 
     def test_cleanup_zombie_sessions_skips_healthy_sessions(self, monkeypatch):
         """有活跃但进程健康的 session 时不应误清理。"""
-        from server.app.modules.accounts import browser as bs
-        import subprocess
-        from dataclasses import dataclass, field
+        from dataclasses import dataclass
         from pathlib import Path
+
+        from server.app.modules.accounts import browser as bs
 
         # 构造一个"健康"的假 session（进程 poll() 返回 None 表示还在运行）
         class FakeProcess:

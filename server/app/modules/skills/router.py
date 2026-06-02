@@ -1,4 +1,5 @@
 """技能模块路由 —— 单文本模型，与 PromptTemplate 同构。"""
+
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -7,7 +8,6 @@ from sqlalchemy.orm import Session
 from server.app.core.security import get_current_user
 from server.app.db.session import get_db
 from server.app.modules.audit.service import add_audit_entry
-from server.app.modules.system.models import User
 from server.app.modules.skills.schemas import (
     SkillCreate,
     SkillPatch,
@@ -22,6 +22,7 @@ from server.app.modules.skills.service import (
     patch_skill,
     update_skill,
 )
+from server.app.modules.system.models import User
 
 router = APIRouter()
 

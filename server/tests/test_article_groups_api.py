@@ -42,7 +42,11 @@ def test_article_group_crud_and_items_order(monkeypatch):
             },
         )
         assert updated.status_code == 200
-        assert [item["article_id"] for item in updated.json()["items"]] == [article_1, article_2, article_3]
+        assert [item["article_id"] for item in updated.json()["items"]] == [
+            article_1,
+            article_2,
+            article_3,
+        ]
         assert [item["sort_order"] for item in updated.json()["items"]] == [10, 20, 30]
 
         renamed = client.put(
@@ -101,4 +105,3 @@ def test_article_group_rejects_bad_items_and_duplicate_name(monkeypatch):
         assert "Duplicate article_id" in duplicate_article.json()["detail"]
     finally:
         test_app.cleanup()
-

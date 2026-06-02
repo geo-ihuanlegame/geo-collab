@@ -1,4 +1,3 @@
-import base64
 import struct
 import zlib
 
@@ -9,13 +8,15 @@ from server.tests.utils import build_test_app
 
 def _make_1x1_png(r: int, g: int, b: int) -> bytes:
     """Create a minimal 1x1 RGB PNG with the given pixel color."""
+
     def chunk(typ: bytes, data: bytes) -> bytes:
         c = typ + data
-        return struct.pack('>I', len(data)) + c + struct.pack('>I', zlib.crc32(c) & 0xFFFFFFFF)
-    sig = b'\x89PNG\r\n\x1a\n'
-    ihdr = chunk(b'IHDR', struct.pack('>IIBBBBB', 1, 1, 8, 2, 0, 0, 0))
-    idat = chunk(b'IDAT', zlib.compress(b'\x00' + bytes([r, g, b])))
-    iend = chunk(b'IEND', b'')
+        return struct.pack(">I", len(data)) + c + struct.pack(">I", zlib.crc32(c) & 0xFFFFFFFF)
+
+    sig = b"\x89PNG\r\n\x1a\n"
+    ihdr = chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
+    idat = chunk(b"IDAT", zlib.compress(b"\x00" + bytes([r, g, b])))
+    iend = chunk(b"IEND", b"")
     return sig + ihdr + idat + iend
 
 
@@ -138,7 +139,9 @@ def test_article_cover_endpoint_does_not_touch_body_assets(monkeypatch):
             },
         ).json()
 
-        response = client.post(f"/api/articles/{created['id']}/cover", json={"cover_asset_id": cover_id})
+        response = client.post(
+            f"/api/articles/{created['id']}/cover", json={"cover_asset_id": cover_id}
+        )
 
         assert response.status_code == 200
         payload = response.json()
@@ -182,4 +185,3 @@ def test_article_crud_list_delete_and_missing_asset(monkeypatch):
         assert client.get(f"/api/articles/{created['id']}").status_code == 404
     finally:
         test_app.cleanup()
-

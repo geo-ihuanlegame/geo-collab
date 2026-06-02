@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import io
-import logging
 import json
+import logging
 
 _logger = logging.getLogger(__name__)
 
 
 def _client():
     from minio import Minio
+
     from server.app.core.config import get_settings
+
     s = get_settings()
     return Minio(
         s.minio_endpoint,

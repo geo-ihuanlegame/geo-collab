@@ -1,13 +1,25 @@
 """文章模块路由。"""
+
 import logging
 import os
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
-from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Request, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Body,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy import func, select
@@ -18,9 +30,21 @@ from server.app.core.config import get_settings
 from server.app.core.paths import get_data_dir
 from server.app.core.security import get_current_user, require_admin
 from server.app.db.session import get_db
+from server.app.modules.articles import (
+    create_article,
+    create_group,
+    delete_article,
+    delete_group,
+    get_article,
+    get_group,
+    list_articles,
+    list_groups,
+    replace_group_items,
+    set_article_cover,
+    update_article,
+    update_group,
+)
 from server.app.modules.articles.models import Article, ArticleGroup, Asset
-from server.app.modules.system.models import User
-from server.app.modules.tasks.models import PublishRecord
 from server.app.modules.articles.schemas import (
     ArticleCoverUpdate,
     ArticleCreate,
@@ -52,20 +76,8 @@ from server.app.modules.articles.uploader import (
     get_upload_manager,
 )
 from server.app.modules.audit.service import add_audit_entry
-from server.app.modules.articles import (
-    create_article,
-    delete_article,
-    get_article,
-    list_articles,
-    set_article_cover,
-    update_article,
-    create_group,
-    delete_group,
-    get_group,
-    list_groups,
-    replace_group_items,
-    update_group,
-)
+from server.app.modules.system.models import User
+from server.app.modules.tasks.models import PublishRecord
 from server.app.shared.errors import ClientError, ConflictError
 
 articles_router = APIRouter()
@@ -82,6 +94,7 @@ class AIFormatRequest(BaseModel):
 
 # ── Article helpers ───────────────────────────────────────────────────────────
 
+
 def _verify_article_ownership(article: Article | None, current_user: User) -> Article:
     if article is None:
         raise HTTPException(status_code=404, detail="文章不存在")
@@ -96,7 +109,7 @@ def _is_ai_lock_expired(article: Article) -> bool:
     started = article.ai_checking_started_at
     if started is None:
         return True
-    elapsed = (datetime.now(timezone.utc).replace(tzinfo=None) - started).total_seconds()
+    elapsed = (datetime.now(UTC).replace(tzinfo=None) - started).total_seconds()
     return elapsed >= get_settings().ai_format_timeout_seconds
 
 
@@ -120,6 +133,7 @@ def _check_not_ai_locked(db: Session, article: Article) -> None:
 
 # ── Article routes ────────────────────────────────────────────────────────────
 
+
 @articles_router.get("", response_model=list[ArticleListRead])
 def read_articles(
     q: str | None = Query(default=None),
@@ -128,7 +142,13 @@ def read_articles(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[ArticleListRead]:
-    articles = list_articles(db, q, skip=skip, limit=limit, user_id=None if current_user.role == "admin" else current_user.id)
+    articles = list_articles(
+        db,
+        q,
+        skip=skip,
+        limit=limit,
+        user_id=None if current_user.role == "admin" else current_user.id,
+    )
     if not articles:
         return []
     article_ids = [a.id for a in articles]
@@ -296,16 +316,24 @@ def trigger_ai_format_endpoint(
     if not has_ai_format_targets(article.content_json):
         raise ClientError("文章正文为空，无法进行 AI 格式调整")
 
-    preset_id = payload.preset_id if payload and payload.preset_id is not None else current_user.ai_format_preset_id
+    preset_id = (
+        payload.preset_id
+        if payload and payload.preset_id is not None
+        else current_user.ai_format_preset_id
+    )
     if preset_id is not None:
         from server.app.modules.prompt_templates.service import get_visible_prompt_template
 
-        preset = get_visible_prompt_template(db, preset_id, user_id=current_user.id, scope="ai_format")
+        preset = get_visible_prompt_template(
+            db, preset_id, user_id=current_user.id, scope="ai_format"
+        )
         if preset is None or not preset.is_enabled:
             raise HTTPException(status_code=404, detail="AI format prompt preset not found")
 
-    lock_started_at = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
-    include_images = article.stock_category_id is not None or len(article.stock_categories or []) > 0
+    lock_started_at = datetime.now(UTC).replace(tzinfo=None, microsecond=0)
+    include_images = (
+        article.stock_category_id is not None or len(article.stock_categories or []) > 0
+    )
     article.ai_checking = True
     article.ai_checking_started_at = lock_started_at
     article.ai_format_error = None
@@ -314,6 +342,7 @@ def trigger_ai_format_endpoint(
     def _run() -> None:
         try:
             from server.app.modules.articles.ai_format import run_ai_format
+
             run_ai_format(
                 article_id,
                 include_images=include_images,
@@ -327,7 +356,11 @@ def trigger_ai_format_endpoint(
             )
             try:
                 from server.app.db.session import SessionLocal
-                from server.app.modules.articles.ai_format import _describe_ai_format_error, _unlock_ai_format
+                from server.app.modules.articles.ai_format import (
+                    _describe_ai_format_error,
+                    _unlock_ai_format,
+                )
+
                 cleanup_db = SessionLocal()
                 try:
                     _unlock_ai_format(
@@ -356,6 +389,7 @@ def trigger_ai_format_endpoint(
 
 # ── Article group helpers ─────────────────────────────────────────────────────
 
+
 def _verify_group_ownership(group: ArticleGroup | None, current_user: User) -> ArticleGroup:
     if group is None:
         raise HTTPException(status_code=404, detail="文章分组不存在")
@@ -365,6 +399,7 @@ def _verify_group_ownership(group: ArticleGroup | None, current_user: User) -> A
 
 
 # ── Article group routes ──────────────────────────────────────────────────────
+
 
 @article_groups_router.get("", response_model=list[ArticleGroupRead])
 def read_groups(
@@ -487,6 +522,7 @@ def update_group_items(
 
 # ── Asset helpers ─────────────────────────────────────────────────────────────
 
+
 def resolve_asset_path_from_storage_key(storage_key: str) -> Path | None:
     """根据 storage_key 解析磁盘路径，返回 None 如果路径逃逸"""
     try:
@@ -516,6 +552,7 @@ def to_asset_read(asset: Asset) -> AssetRead:
 
 
 # ── Asset routes ──────────────────────────────────────────────────────────────
+
 
 @assets_router.post("", response_model=AssetRead)
 async def upload_asset(
@@ -629,7 +666,7 @@ def read_asset_file(
 
     if os.environ.get("GEO_NGINX_ACCEL"):
         rel = path.relative_to(get_data_dir())
-        filename_rfc5987 = quote(asset.filename.encode('utf-8'), safe='')
+        filename_rfc5987 = quote(asset.filename.encode("utf-8"), safe="")
         return Response(
             status_code=200,
             headers={
@@ -640,7 +677,7 @@ def read_asset_file(
             },
         )
 
-    filename_rfc5987 = quote(asset.filename.encode('utf-8'), safe='')
+    filename_rfc5987 = quote(asset.filename.encode("utf-8"), safe="")
     return FileResponse(
         path,
         media_type=mime_type,
@@ -650,6 +687,7 @@ def read_asset_file(
 
 
 # ── Chunked upload schemas ────────────────────────────────────────────────────
+
 
 class ChunkedUploadStartRequest(BaseModel):
     total_size: int
@@ -662,6 +700,7 @@ class ChunkedUploadCompleteRequest(BaseModel):
 
 
 # ── Chunked asset routes ──────────────────────────────────────────────────────
+
 
 @chunked_assets_router.post("/upload-start")
 async def start_chunked_upload(

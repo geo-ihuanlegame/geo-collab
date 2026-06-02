@@ -12,6 +12,7 @@
 - 普通 operator 只能改自己的、非 system 的模板，否则 403
 - 只有 admin 可以创建 / 标记 is_system=True，否则 403
 """
+
 from fastapi.testclient import TestClient
 
 from server.app.core.security import create_access_token
@@ -33,7 +34,9 @@ def _make_operator_client(test_app, username="op1") -> tuple[TestClient, int]:
     return client, uid
 
 
-def _create_template(client, *, name="模板A", content="正文内容", scope="generation", is_system=False):
+def _create_template(
+    client, *, name="模板A", content="正文内容", scope="generation", is_system=False
+):
     return client.post(
         "/api/prompt-templates",
         json={"name": name, "content": content, "scope": scope, "is_system": is_system},
@@ -45,7 +48,9 @@ class TestCreatePromptTemplate:
         test_app = build_test_app(monkeypatch)
         client = test_app.client
         try:
-            resp = _create_template(client, name="写作提示词", content="请写一篇文章", scope="generation")
+            resp = _create_template(
+                client, name="写作提示词", content="请写一篇文章", scope="generation"
+            )
             assert resp.status_code == 201
             data = resp.json()
             assert data["name"] == "写作提示词"
@@ -65,7 +70,9 @@ class TestCreatePromptTemplate:
         test_app = build_test_app(monkeypatch)
         client = test_app.client
         try:
-            resp = _create_template(client, name="格式提示词", content="调整格式", scope="ai_format")
+            resp = _create_template(
+                client, name="格式提示词", content="调整格式", scope="ai_format"
+            )
             assert resp.status_code == 201
             assert resp.json()["scope"] == "ai_format"
         finally:
@@ -212,7 +219,9 @@ class TestListPromptTemplates:
         admin_client = test_app.client
         try:
             # admin 建一个 system 模板 + 一个 admin 私有模板
-            system_t = _create_template(admin_client, name="系统可见", content="c", is_system=True).json()
+            system_t = _create_template(
+                admin_client, name="系统可见", content="c", is_system=True
+            ).json()
             admin_private = _create_template(admin_client, name="管理员私有", content="c").json()
 
             op_client, _ = _make_operator_client(test_app)
@@ -242,7 +251,9 @@ class TestUpdatePromptTemplate:
         test_app = build_test_app(monkeypatch)
         client = test_app.client
         try:
-            created = _create_template(client, name="原名", content="原内容", scope="generation").json()
+            created = _create_template(
+                client, name="原名", content="原内容", scope="generation"
+            ).json()
             resp = client.put(
                 f"/api/prompt-templates/{created['id']}",
                 json={"name": "新名", "content": "新内容", "scope": "ai_format"},
@@ -259,7 +270,9 @@ class TestUpdatePromptTemplate:
         test_app = build_test_app(monkeypatch)
         client = test_app.client
         try:
-            created = _create_template(client, name="原名", content="原内容", scope="ai_format").json()
+            created = _create_template(
+                client, name="原名", content="原内容", scope="ai_format"
+            ).json()
             resp = client.put(
                 f"/api/prompt-templates/{created['id']}",
                 json={"name": "改名", "content": "改内容"},
@@ -299,7 +312,9 @@ class TestUpdatePromptTemplate:
         test_app = build_test_app(monkeypatch)
         admin_client = test_app.client
         try:
-            system_t = _create_template(admin_client, name="系统模板", content="c", is_system=True).json()
+            system_t = _create_template(
+                admin_client, name="系统模板", content="c", is_system=True
+            ).json()
             op_client, _ = _make_operator_client(test_app)
             resp = op_client.put(
                 f"/api/prompt-templates/{system_t['id']}",
@@ -385,7 +400,9 @@ class TestPatchPromptTemplate:
         test_app = build_test_app(monkeypatch)
         client = test_app.client
         try:
-            created = _create_template(client, name="范围模板", content="c", scope="generation").json()
+            created = _create_template(
+                client, name="范围模板", content="c", scope="generation"
+            ).json()
             resp = client.patch(
                 f"/api/prompt-templates/{created['id']}",
                 json={"scope": "ai_format"},
@@ -421,7 +438,9 @@ class TestPatchPromptTemplate:
         test_app = build_test_app(monkeypatch)
         admin_client = test_app.client
         try:
-            system_t = _create_template(admin_client, name="系统模板", content="c", is_system=True).json()
+            system_t = _create_template(
+                admin_client, name="系统模板", content="c", is_system=True
+            ).json()
             op_client, _ = _make_operator_client(test_app)
             resp = op_client.patch(
                 f"/api/prompt-templates/{system_t['id']}",
@@ -478,7 +497,9 @@ class TestDeletePromptTemplate:
         test_app = build_test_app(monkeypatch)
         admin_client = test_app.client
         try:
-            system_t = _create_template(admin_client, name="系统模板", content="c", is_system=True).json()
+            system_t = _create_template(
+                admin_client, name="系统模板", content="c", is_system=True
+            ).json()
             op_client, _ = _make_operator_client(test_app)
             resp = op_client.delete(f"/api/prompt-templates/{system_t['id']}")
             assert resp.status_code == 403

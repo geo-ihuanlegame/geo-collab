@@ -5,6 +5,7 @@
 
 注意：字段值保持飞书原样（同步层忠实镜像），不在此处展平 —— 取法后置到生文拼接时处理。
 """
+
 from __future__ import annotations
 
 import json
@@ -13,6 +14,7 @@ import time
 import urllib.error
 import urllib.request
 from threading import Lock
+from typing import Any
 
 from server.app.core.config import get_settings
 
@@ -20,7 +22,7 @@ _logger = logging.getLogger(__name__)
 _FEISHU_BASE = "https://open.feishu.cn/open-apis"
 
 # 模块级 token 缓存（tenant_access_token 有效期约 7200s）
-_token_cache: dict[str, object] = {"token": None, "expire_at": 0.0}
+_token_cache: dict[str, Any] = {"token": None, "expire_at": 0.0}
 _token_lock = Lock()
 
 # 飞书 token 失效错误码
@@ -71,7 +73,9 @@ def get_tenant_access_token(force: bool = False) -> str:
             body={"app_id": app_id, "app_secret": app_secret},
         )
         if resp.get("code") != 0:
-            raise FeishuError(f"获取 tenant_access_token 失败: code={resp.get('code')} msg={resp.get('msg')}")
+            raise FeishuError(
+                f"获取 tenant_access_token 失败: code={resp.get('code')} msg={resp.get('msg')}"
+            )
         token = str(resp["tenant_access_token"])
         expire = int(resp.get("expire", 7200))
         _token_cache["token"] = token

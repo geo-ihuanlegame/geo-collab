@@ -22,10 +22,17 @@ def test_export_import_round_trip(monkeypatch):
         _write_storage_state(app1.data_dir, "demo")
         account = app1.client.post(
             "/api/accounts/toutiao/login",
-            json={"display_name": "round-trip-test", "account_key": "demo", "use_browser": False, "note": "rt"},
+            json={
+                "display_name": "round-trip-test",
+                "account_key": "demo",
+                "use_browser": False,
+                "note": "rt",
+            },
         ).json()
 
-        export_resp = app1.client.post("/api/accounts/export", json={"account_ids": [account["id"]]})
+        export_resp = app1.client.post(
+            "/api/accounts/export", json={"account_ids": [account["id"]]}
+        )
         assert export_resp.status_code == 200
         zip_bytes = export_resp.content
     finally:
@@ -33,7 +40,9 @@ def test_export_import_round_trip(monkeypatch):
 
     app2 = build_test_app(monkeypatch)
     try:
-        result = app2.client.post("/api/accounts/import", files={"file": ("export.zip", zip_bytes, "application/zip")})
+        result = app2.client.post(
+            "/api/accounts/import", files={"file": ("export.zip", zip_bytes, "application/zip")}
+        )
         assert result.status_code == 200
         body = result.json()
         assert body["imported"] == ["round-trip-test"]
@@ -73,13 +82,18 @@ def test_import_path_traversal_returns_400(monkeypatch):
     try:
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w") as archive:
-            archive.writestr("manifest.json", json.dumps({
-                "schema_version": 1,
-                "app_version": "0.1.0",
-                "exported_at": "2025-01-01T00:00:00",
-                "excluded_scopes": [],
-                "accounts": [],
-            }))
+            archive.writestr(
+                "manifest.json",
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "app_version": "0.1.0",
+                        "exported_at": "2025-01-01T00:00:00",
+                        "excluded_scopes": [],
+                        "accounts": [],
+                    }
+                ),
+            )
             archive.writestr("../../etc/passwd", "malicious content")
             archive.writestr("accounts/toutiao-1/storage_state.json", "{}")
             archive.writestr("accounts/toutiao-1/account.json", "{}")
@@ -91,7 +105,9 @@ def test_import_path_traversal_returns_400(monkeypatch):
         )
         assert response.status_code == 400
         content = response.json()["detail"]
-        assert _contains_any(content, "Invalid ZIP entry path", "无效的 ZIP 条目路径", "无效的授权包")
+        assert _contains_any(
+            content, "Invalid ZIP entry path", "无效的 ZIP 条目路径", "无效的授权包"
+        )
     finally:
         test_app.cleanup()
 
@@ -116,13 +132,18 @@ def test_import_oversized_entry_returns_400(monkeypatch):
     try:
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w") as archive:
-            archive.writestr("manifest.json", json.dumps({
-                "schema_version": 1,
-                "app_version": "0.1.0",
-                "exported_at": "2025-01-01T00:00:00",
-                "excluded_scopes": [],
-                "accounts": [],
-            }))
+            archive.writestr(
+                "manifest.json",
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "app_version": "0.1.0",
+                        "exported_at": "2025-01-01T00:00:00",
+                        "excluded_scopes": [],
+                        "accounts": [],
+                    }
+                ),
+            )
             archive.writestr("accounts/toutiao-1/account.json", "{}")
             archive.writestr("accounts/toutiao-1/storage_state.json", "x" * 3 * 1024 * 1024)
         zip_bytes = buf.getvalue()
@@ -139,6 +160,7 @@ def test_import_oversized_entry_returns_400(monkeypatch):
 
 # ── _assess_imported_status 单元测试 ─────────────────────────────────────────
 
+
 def test_assess_imported_status_empty_cookies(tmp_path):
     """cookies 为空数组 → expired。"""
     from server.app.modules.accounts.auth import _assess_imported_status
@@ -151,6 +173,7 @@ def test_assess_imported_status_empty_cookies(tmp_path):
 def test_assess_imported_status_all_expired(tmp_path):
     """所有 cookies 的 expires 均在过去 → expired。"""
     import time
+
     from server.app.modules.accounts.auth import _assess_imported_status
 
     past = int(time.time()) - 3600  # 1 hour ago
@@ -177,6 +200,7 @@ def test_assess_imported_status_session_cookie(tmp_path):
 def test_assess_imported_status_future_cookie(tmp_path):
     """至少一个 cookie expires 在未来 → valid。"""
     import time
+
     from server.app.modules.accounts.auth import _assess_imported_status
 
     future = int(time.time()) + 86400  # 1 day from now

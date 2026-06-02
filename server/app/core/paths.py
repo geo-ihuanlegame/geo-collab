@@ -26,7 +26,9 @@ def get_database_url() -> str:
     if settings.db_host and settings.db_user and settings.db_name:
         password = quote_plus(settings.db_pass or "")
         return f"mysql+pymysql://{settings.db_user}:{password}@{settings.db_host}:{settings.db_port}/{settings.db_name}"
-    raise RuntimeError("MySQL database configuration is required: set GEO_DATABASE_URL or GEO_DB_HOST/GEO_DB_USER/GEO_DB_NAME")
+    raise RuntimeError(
+        "MySQL database configuration is required: set GEO_DATABASE_URL or GEO_DB_HOST/GEO_DB_USER/GEO_DB_NAME"
+    )
 
 
 # 确保数据目录及所有子目录存在

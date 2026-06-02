@@ -1,4 +1,5 @@
 """Tests for server.app.modules.tasks.runner."""
+
 from __future__ import annotations
 
 import types
@@ -12,10 +13,10 @@ from server.app.modules.tasks.drivers.toutiao import (
     ToutiaoUserInputRequired,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers / stubs
 # ---------------------------------------------------------------------------
+
 
 def _make_stub_article(tmp_path: Path) -> types.SimpleNamespace:
     return types.SimpleNamespace(
@@ -64,9 +65,7 @@ def _make_stub_pw_context_page():
         new_page=lambda: page,
         close=lambda: None,
     )
-    chromium = types.SimpleNamespace(
-        launch_persistent_context=lambda user_data_dir, **kw: context
-    )
+    chromium = types.SimpleNamespace(launch_persistent_context=lambda user_data_dir, **kw: context)
     pw = types.SimpleNamespace(
         chromium=chromium,
         stop=lambda: None,
@@ -79,6 +78,7 @@ def _make_stub_pw_context_page():
 # ---------------------------------------------------------------------------
 # Shared monkeypatching helper
 # ---------------------------------------------------------------------------
+
 
 def _patch_common(monkeypatch, tmp_path: Path, stub_session, pw_cm, context, page):
     """Apply all patches common to both tests."""
@@ -154,6 +154,7 @@ def _patch_common(monkeypatch, tmp_path: Path, stub_session, pw_cm, context, pag
 # Test 1
 # ---------------------------------------------------------------------------
 
+
 def test_run_publish_routes_by_platform_code(monkeypatch, tmp_path):
     """run_publish calls the driver matched by the platform code in state_path."""
     from server.app.modules.tasks import runner as publish_runner
@@ -203,6 +204,7 @@ def test_run_publish_routes_by_platform_code(monkeypatch, tmp_path):
 # Test 2
 # ---------------------------------------------------------------------------
 
+
 def test_run_publish_keeps_session_on_user_input_required(monkeypatch, tmp_path):
     """When driver.publish raises ToutiaoUserInputRequired, session is kept alive and exception has session_id/novnc_url."""
     from server.app.modules.tasks import runner as publish_runner
@@ -248,8 +250,12 @@ def test_run_publish_keeps_session_on_user_input_required(monkeypatch, tmp_path)
     assert kept_alive == [stub_session.id], (
         f"keep_session_alive was not called with '{stub_session.id}'; calls: {kept_alive}"
     )
-    assert exc.session_id == stub_session.id, f"Expected session_id={stub_session.id!r}, got {exc.session_id!r}"
-    assert exc.novnc_url == stub_session.novnc_url, f"Expected novnc_url={stub_session.novnc_url!r}, got {exc.novnc_url!r}"
+    assert exc.session_id == stub_session.id, (
+        f"Expected session_id={stub_session.id!r}, got {exc.session_id!r}"
+    )
+    assert exc.novnc_url == stub_session.novnc_url, (
+        f"Expected novnc_url={stub_session.novnc_url!r}, got {exc.novnc_url!r}"
+    )
 
 
 def test_run_publish_stops_session_after_auto_publish(monkeypatch, tmp_path):
@@ -270,15 +276,27 @@ def test_run_publish_stops_session_after_auto_publish(monkeypatch, tmp_path):
             return True
 
         def publish(self, *, page, context, payload, stop_before_publish):
-            return PublishResult(url="https://example.com/article/1", title=payload.title, message="ok")
+            return PublishResult(
+                url="https://example.com/article/1", title=payload.title, message="ok"
+            )
 
     stopped = []
     kept_alive = []
-    monkeypatch.setattr("server.app.modules.tasks.runner.get_driver", lambda platform_code: _StubDriver())
-    monkeypatch.setattr("server.app.modules.tasks.runner.stop_remote_browser_session", lambda session_id: stopped.append(session_id))
-    monkeypatch.setattr("server.app.modules.tasks.runner.keep_session_alive", lambda session_id: kept_alive.append(session_id))
+    monkeypatch.setattr(
+        "server.app.modules.tasks.runner.get_driver", lambda platform_code: _StubDriver()
+    )
+    monkeypatch.setattr(
+        "server.app.modules.tasks.runner.stop_remote_browser_session",
+        lambda session_id: stopped.append(session_id),
+    )
+    monkeypatch.setattr(
+        "server.app.modules.tasks.runner.keep_session_alive",
+        lambda session_id: kept_alive.append(session_id),
+    )
 
-    result = publish_runner.run_publish(article=_make_stub_article(tmp_path), account=_make_stub_account())
+    result = publish_runner.run_publish(
+        article=_make_stub_article(tmp_path), account=_make_stub_account()
+    )
 
     assert result.url == "https://example.com/article/1"
     assert stopped == [stub_session.id]
@@ -307,9 +325,17 @@ def test_run_publish_keeps_session_for_manual_publish(monkeypatch, tmp_path):
 
     stopped = []
     kept_alive = []
-    monkeypatch.setattr("server.app.modules.tasks.runner.get_driver", lambda platform_code: _StubDriver())
-    monkeypatch.setattr("server.app.modules.tasks.runner.stop_remote_browser_session", lambda session_id: stopped.append(session_id))
-    monkeypatch.setattr("server.app.modules.tasks.runner.keep_session_alive", lambda session_id: kept_alive.append(session_id))
+    monkeypatch.setattr(
+        "server.app.modules.tasks.runner.get_driver", lambda platform_code: _StubDriver()
+    )
+    monkeypatch.setattr(
+        "server.app.modules.tasks.runner.stop_remote_browser_session",
+        lambda session_id: stopped.append(session_id),
+    )
+    monkeypatch.setattr(
+        "server.app.modules.tasks.runner.keep_session_alive",
+        lambda session_id: kept_alive.append(session_id),
+    )
 
     result = publish_runner.run_publish(
         article=_make_stub_article(tmp_path),
@@ -340,8 +366,13 @@ def test_build_payload_resolves_stock_image_segments(monkeypatch, tmp_path):
     )
     account = _make_stub_account()
 
-    monkeypatch.setattr("server.app.modules.tasks.runner.resolve_asset_path", lambda asset: cover_path)
-    monkeypatch.setattr("server.app.modules.tasks.runner._resolve_stock_image_path", lambda stock_image_id: stock_path)
+    monkeypatch.setattr(
+        "server.app.modules.tasks.runner.resolve_asset_path", lambda asset: cover_path
+    )
+    monkeypatch.setattr(
+        "server.app.modules.tasks.runner._resolve_stock_image_path",
+        lambda stock_image_id: stock_path,
+    )
 
     payload = publish_runner._build_payload(
         article,

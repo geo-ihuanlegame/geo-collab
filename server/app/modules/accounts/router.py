@@ -4,9 +4,23 @@ from sqlalchemy.orm import Session
 
 from server.app.core.security import get_current_user, require_admin
 from server.app.db.session import get_db
+from server.app.modules.accounts import (
+    check_account,
+    delete_account,
+    export_accounts_auth_package,
+    finish_account_login_session,
+    get_account,
+    get_login_session_status,
+    import_accounts_auth_package,
+    list_accounts,
+    register_account_from_storage_state,
+    relogin_account,
+    rename_account,
+    start_account_login_session,
+    start_login_session,
+    stop_account_login_session,
+)
 from server.app.modules.accounts.models import Account as AccountModel
-from server.app.modules.audit.service import add_audit_entry
-from server.app.modules.system.models import User
 from server.app.modules.accounts.schemas import (
     AccountBrowserSessionFinishRead,
     AccountBrowserSessionRead,
@@ -18,22 +32,8 @@ from server.app.modules.accounts.schemas import (
     PlatformLoginRequest,
     to_account_read,
 )
-from server.app.modules.accounts import (
-    check_account,
-    delete_account,
-    export_accounts_auth_package,
-    finish_account_login_session,
-    get_account,
-    get_login_session_status,
-    import_accounts_auth_package,
-    list_accounts,
-    rename_account,
-    register_account_from_storage_state,
-    relogin_account,
-    start_account_login_session,
-    start_login_session,
-    stop_account_login_session,
-)
+from server.app.modules.audit.service import add_audit_entry
+from server.app.modules.system.models import User
 from server.app.modules.tasks.drivers import all_driver_codes, get_driver
 
 router = APIRouter()
@@ -130,7 +130,9 @@ def start_existing_account_login_session_endpoint(
     return _to_browser_session_read(result)
 
 
-@router.get("/{account_id:int}/login-session/{session_id}/status", response_model=LoginSessionStatusRead)
+@router.get(
+    "/{account_id:int}/login-session/{session_id}/status", response_model=LoginSessionStatusRead
+)
 def get_login_session_status_endpoint(
     account_id: int,
     session_id: str,
@@ -150,7 +152,10 @@ def get_login_session_status_endpoint(
     )
 
 
-@router.post("/{account_id:int}/login-session/{session_id}/finish", response_model=AccountBrowserSessionFinishRead)
+@router.post(
+    "/{account_id:int}/login-session/{session_id}/finish",
+    response_model=AccountBrowserSessionFinishRead,
+)
 def finish_existing_account_login_session_endpoint(
     account_id: int,
     session_id: str,
@@ -177,7 +182,9 @@ def finish_existing_account_login_session_endpoint(
     )
 
 
-@router.delete("/{account_id:int}/login-session/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{account_id:int}/login-session/{session_id}", status_code=status.HTTP_204_NO_CONTENT
+)
 def stop_existing_account_login_session_endpoint(
     account_id: int,
     session_id: str,
@@ -267,7 +274,9 @@ async def import_accounts(
             detail=f"ZIP 文件超过 {MAX_ZIP_BYTES // (1024 * 1024)}MB 限制",
         )
 
-    ZIP_ENTRY_RE = re.compile(r"^(?:manifest\.json|accounts/[a-zA-Z0-9_]+-\d+/(?:account|storage_state)\.json)$")
+    ZIP_ENTRY_RE = re.compile(
+        r"^(?:manifest\.json|accounts/[a-zA-Z0-9_]+-\d+/(?:account|storage_state)\.json)$"
+    )
     MAX_ENTRIES = 50
     MAX_ENTRY_BYTES = 2 * 1024 * 1024
 
@@ -275,15 +284,23 @@ async def import_accounts(
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as archive:
             entries = archive.namelist()
             if len(entries) > MAX_ENTRIES:
-                raise HTTPException(status_code=400, detail=f"ZIP 文件包含 {len(entries)} 个条目，最多允许 {MAX_ENTRIES} 个")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"ZIP 文件包含 {len(entries)} 个条目，最多允许 {MAX_ENTRIES} 个",
+                )
             for entry_name in entries:
                 info = archive.getinfo(entry_name)
                 if not ZIP_ENTRY_RE.match(entry_name):
-                    raise HTTPException(status_code=400, detail=f"无效的 ZIP 条目路径：{entry_name}")
+                    raise HTTPException(
+                        status_code=400, detail=f"无效的 ZIP 条目路径：{entry_name}"
+                    )
                 if info.file_size > MAX_ENTRY_BYTES:
-                    raise HTTPException(status_code=400, detail=f"ZIP 条目过大：{entry_name}（{info.file_size} 字节）")
-    except zipfile.BadZipFile:
-        raise HTTPException(status_code=400, detail="无效的 ZIP 文件")
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"ZIP 条目过大：{entry_name}（{info.file_size} 字节）",
+                    )
+    except zipfile.BadZipFile as exc:
+        raise HTTPException(status_code=400, detail="无效的 ZIP 文件") from exc
 
     result = import_accounts_auth_package(db, current_user.id, zip_bytes)
     imported_count = len(result.get("imported", []) or [])
@@ -379,6 +396,7 @@ def delete_existing_account(
     current_user: User = Depends(require_admin),
 ) -> Response:
     from server.app.shared.errors import ClientError
+
     account = _verify_account_ownership(get_account(db, account_id), current_user)
     display_name = account.display_name
     try:

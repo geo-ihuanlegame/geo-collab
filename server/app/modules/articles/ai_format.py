@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -12,8 +12,11 @@ from jinja2.sandbox import SandboxedEnvironment
 
 from server.app.core.config import get_settings
 from server.app.modules.articles.parser import dumps_content_json, loads_content_json
-from server.app.modules.image_library.inserter import has_images_in_content, insert_images_at_positions
-from server.app.modules.image_library.selector import fetch_image_by_id, pick_image_id, ImageQuery
+from server.app.modules.image_library.inserter import (
+    has_images_in_content,
+    insert_images_at_positions,
+)
+from server.app.modules.image_library.selector import ImageQuery, fetch_image_by_id, pick_image_id
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +76,7 @@ _SYSTEM_PROMPT_HEADINGS_ONLY = (
     '返回：仅返回一行 JSON，不添加任何解释：{"heading_indices": [2, 7]}'
 )
 
+
 def _image_prompt_params(text_nodes: list[tuple[int, dict]]) -> tuple[int, int]:
     """Derive (max_images, min_spacing) from article structure.
 
@@ -83,13 +87,16 @@ def _image_prompt_params(text_nodes: list[tuple[int, dict]]) -> tuple[int, int]:
     """
     existing_headings = sum(1 for _, n in text_nodes if n.get("type") == "heading")
     short_paragraphs = sum(
-        1 for _, n in text_nodes
+        1
+        for _, n in text_nodes
         if n.get("type") == "paragraph" and len(_node_text(n).strip()) <= 25
     )
     # Use existing headings first; fall back to counting short paragraphs that
     # are likely to become headings after the LLM pass.
-    section_estimate = existing_headings if existing_headings >= 3 else (
-        short_paragraphs if short_paragraphs >= 3 else 0
+    section_estimate = (
+        existing_headings
+        if existing_headings >= 3
+        else (short_paragraphs if short_paragraphs >= 3 else 0)
     )
     if section_estimate >= 3:
         # Cap at 3 images regardless of section count; require 5-node spacing
@@ -118,7 +125,9 @@ def _top_level_text_nodes(content_json: dict) -> list[tuple[int, dict]]:
 
 
 def _non_empty_text_nodes(content_json: dict) -> list[tuple[int, dict]]:
-    return [(i, node) for i, node in _top_level_text_nodes(content_json) if _node_text(node).strip()]
+    return [
+        (i, node) for i, node in _top_level_text_nodes(content_json) if _node_text(node).strip()
+    ]
 
 
 def has_ai_format_targets(raw_content_json: Any) -> bool:
@@ -186,7 +195,7 @@ def _available_categories_for_article(article: Any, db: Any | None = None) -> li
     result: list[dict[str, Any]] = []
     seen: set[int] = set()
 
-    for category in (getattr(article, "stock_categories", None) or []):
+    for category in getattr(article, "stock_categories", None) or []:
         item = _category_context(category)
         if item is not None and item["id"] not in seen:
             result.append(item)
@@ -199,11 +208,15 @@ def _available_categories_for_article(article: Any, db: Any | None = None) -> li
             from server.app.modules.image_library.models import StockCategory
 
             category = db.get(StockCategory, legacy_id)
-        item = _category_context(category) if category is not None else {
-            "id": legacy_id,
-            "name": str(legacy_id),
-            "description": None,
-        }
+        item = (
+            _category_context(category)
+            if category is not None
+            else {
+                "id": legacy_id,
+                "name": str(legacy_id),
+                "description": None,
+            }
+        )
         if item is not None:
             result.append(item)
             seen.add(item["id"])
@@ -357,7 +370,12 @@ def _describe_ai_format_error(exc: BaseException) -> str:
     lower = raw.lower()
     if isinstance(exc, AIFormatConfigurationError):
         return raw
-    if "insufficient balance" in lower or "payment required" in lower or "402" in lower or "quota" in lower:
+    if (
+        "insufficient balance" in lower
+        or "payment required" in lower
+        or "402" in lower
+        or "quota" in lower
+    ):
         return "AI 排版失败：DeepSeek 账户余额不足，请充值或更换 API Key。"
     if (
         "unauthorized" in lower
@@ -398,7 +416,9 @@ def _call_litellm_completion(
     )
 
 
-def _maybe_insert_images(content_json: dict, parsed: dict, article: Any, db: Any) -> tuple[dict, int]:
+def _maybe_insert_images(
+    content_json: dict, parsed: dict, article: Any, db: Any
+) -> tuple[dict, int]:
     if has_images_in_content(content_json):
         return content_json, 0
 
@@ -430,7 +450,7 @@ def _maybe_insert_images(content_json: dict, parsed: dict, article: Any, db: Any
     matched_refs = []
     matched_positions = []
     used_ids: list[int] = []
-    for pos, requested_category_id in zip(positions, requested_category_ids):
+    for pos, requested_category_id in zip(positions, requested_category_ids, strict=False):
         if requested_category_id is None or requested_category_id not in valid_category_ids:
             continue
         image_id = pick_image_id(
@@ -447,7 +467,9 @@ def _maybe_insert_images(content_json: dict, parsed: dict, article: Any, db: Any
     if not matched_refs:
         return content_json, 0
 
-    return insert_images_at_positions(content_json, matched_refs, matched_positions), len(matched_refs)
+    return insert_images_at_positions(content_json, matched_refs, matched_positions), len(
+        matched_refs
+    )
 
 
 def _unlock_ai_format(
@@ -482,6 +504,7 @@ def run_ai_format(
     error_message: str | None = None
     try:
         from server.app.db.session import SessionLocal
+
         db = SessionLocal()
         from server.app.modules.articles.service import get_article
 
@@ -495,16 +518,22 @@ def run_ai_format(
         content_json = loads_content_json(article.content_json)
         text_nodes = _non_empty_text_nodes(content_json)
         if not text_nodes:
-            logger.info("ai_format skipped article %s: no non-empty paragraph/heading nodes", article_id)
+            logger.info(
+                "ai_format skipped article %s: no non-empty paragraph/heading nodes", article_id
+            )
             return
 
         get_settings.cache_clear()
         settings = get_settings()
         api_key = settings.ai_format_api_key or settings.ai_api_key or None
         if not api_key:
-            raise AIFormatConfigurationError("AI 排版失败：未配置 API Key，请设置 GEO_AI_FORMAT_API_KEY。")
+            raise AIFormatConfigurationError(
+                "AI 排版失败：未配置 API Key，请设置 GEO_AI_FORMAT_API_KEY。"
+            )
 
-        available_categories = _available_categories_for_article(article, db) if include_images else []
+        available_categories = (
+            _available_categories_for_article(article, db) if include_images else []
+        )
         system_prompt = _load_ai_format_prompt(
             db,
             preset_id=preset_id,
@@ -526,12 +555,16 @@ def run_ai_format(
         raw = (response.choices[0].message.content or "").strip()
         parsed = json.loads(_extract_json(raw))
         valid_indices = {i for i, _ in text_nodes}
-        heading_indices = _normalize_heading_indices(parsed.get("heading_indices", []), valid_indices)
+        heading_indices = _normalize_heading_indices(
+            parsed.get("heading_indices", []), valid_indices
+        )
 
         new_content_json = _apply_headings(content_json, heading_indices)
         image_count = 0
         if include_images:
-            new_content_json, image_count = _maybe_insert_images(new_content_json, parsed, article, db)
+            new_content_json, image_count = _maybe_insert_images(
+                new_content_json, parsed, article, db
+            )
 
         db.refresh(article)
         if not _article_lock_matches(article, lock_started_at):
@@ -543,7 +576,7 @@ def run_ai_format(
         article.content_html = new_html
         article.plain_text = new_text
         article.version += 1
-        article.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        article.updated_at = datetime.now(UTC).replace(tzinfo=None)
         db.commit()
         logger.info(
             "ai_format applied %d headings%s to article %s",
