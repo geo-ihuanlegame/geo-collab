@@ -37,3 +37,6 @@ plan.md
 # 项目文档（暂不入仓）
 doc.rar
 doc/
+# Spike capture output (live tokens / article ids — never commit)
+spike_result.json
+spike_*_capture.json
