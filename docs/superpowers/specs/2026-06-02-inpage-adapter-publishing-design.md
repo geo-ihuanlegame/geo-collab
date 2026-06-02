@@ -193,7 +193,7 @@ worker 抢占记录 → 构建 `PublishPayload` → runner 启动浏览器、导
 待确认项：
 
 - ~~Spike 结论（页内 fetch 是否自动签名）→ 决定纯适配器 vs 混合。~~ **已彻底解决（2026-06-02 live 验证）**：页内 XHR 被全局 hook 自动签名且被服务端受理（见 §6「Spike 结论 · phase 3」）。B-direct 成立。
-- **新残留（→ M2）：`save=0` 草稿被 `code=7050 保存失败` 拒绝**（补齐完整字段集仍旧）。主假设为缺封面 / 缺建稿前置调用。M2 Task 0 先扩展 capture 抓响应 + 编辑器加载链路定位根因。
+- ~~新残留：`save=0` 草稿被 `code=7050 保存失败` 拒绝。~~ **已定位（2026-06-02）= 环境性**：编辑器**自己**的原生保存同样 7050，请求头 `x-secsdk-csrf-token: DOWNGRADE`（secsdk 握手退化）。我们的请求与编辑器等价、无 bug。修复在环境层（干净网络 / 重新登录刷新 secsdk）。详见「M2 调查记录」。
 - 现有 manual-confirm 机制细节（规划阶段核实）。
 - `@wechatsync/drivers/toutiao` 具体文件许可证（照抄任何字面代码前确认；当前按只参考不照抄处理）。
 
@@ -213,10 +213,9 @@ worker 抢占记录 → 构建 `PublishPayload` → runner 启动浏览器、导
 - ❌ 字段完整度：补齐完整字段集（含 `title_id` 等 8 个缺失字段）仍 7050。
 - ❌ 封面：草稿允许空封面（draft_list 实证）。
 - ❌ CSRF / 签名：`spike_toutiao_probe_outgoing.py` 实测我们的 `POST /article/publish` 出参带 `a_bogus`+`msToken`、请求头带 `x-secsdk-csrf-token`（全局 hook 已全加）。`_signature` 仅终发布才有，`save=0` 不需要。
-- **🔎 仍开放**：我们的 `save=0` **不带 pgc_id**（尝试新建），返回 `pgc_id:"0"` 未建出草稿。主假设：新建走的是另一条草稿生命周期（某前置调用建稿取 pgc_id，或 save 必须带已有 pgc_id），而非编辑器"加载已有草稿"那条路径。
+- **✅ 根因已定位 = 环境性，不是我们的请求**：驱动编辑器触发其**原生自动保存**（`spike_toutiao_editor_save.py`），编辑器**自己**的 `POST /article/publish?save=0` **同样返回 7050**，且请求体与我们逐字段等价（同 endpoint/参数、`save=0`、**无 pgc_id**、`pgc_feed_covers=[]` 空封面）。**冒烟证据**：编辑器自己的请求头 `x-secsdk-csrf-token: DOWNGRADE` —— secsdk 在本机环境**无法完成安全握手、退化为占位 CSRF**，服务端因此拒绝所有保存（编辑器自身也中招）。代理开/关均 7050（`spike_noproxy_probe.py`）。
 
-**下一个决定性诊断**：抓编辑器**自己**成功的 `POST /article/publish?save=0` 请求体（用户手动在编辑器输入触发自动保存 + 抓包），与我们的请求体逐字段 diff。自动化合成打字未能在窗口内触发自动保存，故最可靠是人工驱动。
-（注：直接测「save 带已有 pgc_id」会覆盖用户现有草稿，未擅自做。）
+**结论**：页内适配器构造的 save 请求**是正确的**（与编辑器原生请求等价），无 payload / 生命周期 bug；7050 由本机 secsdk 退化（`DOWNGRADE`）造成，对**编辑器原生流程与 DOM 驱动一视同仁**——不是 in-page 特有问题。**修复在环境层**：在 secsdk 能正常握手的**干净网络**（生产 / Docker，非被标记 IP）上验证，期望 `x-secsdk-csrf-token` 是真实 token 而非 `DOWNGRADE`，保存即通。可先试的低成本动作：**重新扫码登录刷新 secsdk 状态**（phase-2 全新登录时保存/发布成功过）。
 
 ## 15. 不在本期范围（YAGNI）
 
