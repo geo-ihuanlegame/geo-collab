@@ -384,25 +384,30 @@ export function GenerateTab({ onNavigateToContent }: { onNavigateToContent: () =
           />
         </div>
 
+        {/* 过渡期 stopgap：问题池直连生成已硬切下线，迁移到「方案池 / 方案运行」。
+            新界面上线前禁用生成按钮并提示，避免触发已下线接口。问题池同步/列表、Skill/提示词管理不受影响。 */}
+        <div
+          style={{
+            margin: "8px 0",
+            padding: "8px 10px",
+            borderRadius: 6,
+            background: "rgba(0,0,0,0.04)",
+            fontSize: 13,
+            lineHeight: 1.5,
+          }}
+        >
+          生成流已升级为「方案池 / 方案运行」（scheme）。问题池直连生成暂不可用，新的方案录入与运行界面即将上线。
+        </div>
         <div className="aiConfigActions">
           <button
             className="aiGenerateBtn"
             type="button"
             onClick={handleGenerate}
-            disabled={
-              isGenerating ||
-              selectedPoolId === "" ||
-              !selectedSkillId ||
-              !selectedPromptId ||
-              expectedArticleCount === 0
-            }
+            disabled
+            title="问题池直连生成已升级为「方案池」，新界面即将上线"
           >
             <Sparkles size={15} />
-            {isGenerating
-              ? "生成中…"
-              : mode === "manual"
-              ? `按勾选生成 ${expectedArticleCount} 篇`
-              : `自动生成 ${expectedArticleCount} 篇`}
+            生成流已升级（方案池）
           </button>
         </div>
       </div>

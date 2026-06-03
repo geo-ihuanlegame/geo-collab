@@ -1,152 +1,43 @@
-"""AI 生文模块路由。"""
+"""AI 生文模块路由（问题池 CRUD/同步 + 问题类型聚合）。
+
+注：旧 `POST /sessions` 问题池直连生成已硬切下线，改走方案流（scheme_router）。
+"""
 
 import logging
-import threading
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from server.app.core.security import get_current_user
 from server.app.db.session import get_db
 from server.app.modules.ai_generation import question_bank as qb
 from server.app.modules.ai_generation.schemas import (
-    GenerationSessionCreate,
     GenerationSessionRead,
+    QuestionBrief,
     QuestionItemRead,
     QuestionPoolCreate,
     QuestionPoolRead,
+    QuestionTypeRead,
     SyncResult,
 )
-from server.app.modules.ai_generation.service import create_session, get_session
+from server.app.modules.ai_generation.service import get_session
 from server.app.modules.audit.service import add_audit_entry
-from server.app.modules.prompt_templates.service import get_visible_prompt_template
-from server.app.modules.skills.service import get_skill
 from server.app.modules.system.models import User
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# 后台任务使用的 Session 工厂（测试时可替换为 TestingSessionLocal）
-bg_session_factory: Any = None
 
-
-@router.post("/sessions", status_code=202)
-def start_generation(
-    payload: GenerationSessionCreate,
-    request: Request,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-) -> JSONResponse:
-    skill = get_skill(db, payload.skill_id)
-    if skill is None or not skill.is_enabled:
-        raise HTTPException(status_code=404, detail="Skill 不存在或已停用")
-
-    prompt = get_visible_prompt_template(
-        db,
-        payload.prompt_template_id,
-        user_id=current_user.id,
-        scope="generation",
-    )
-    if prompt is None or not prompt.is_enabled:
-        raise HTTPException(status_code=404, detail="提示词模板不存在或已停用")
-
-    # 单批上限：避免限流/成本失控（手动勾选 + 自动 N 都受限）
-    BATCH_MAX = 20
-
-    pool_id: int | None = payload.pool_id
-    item_ids = list(dict.fromkeys(payload.question_item_ids))  # 去重保序
-
-    if item_ids:
-        # 手动模式：校验选中的问题单元存在 + 归属（admin 跳过）+ 同池一致 + status=pending
-        if len(item_ids) > BATCH_MAX:
-            raise HTTPException(status_code=400, detail=f"单批最多 {BATCH_MAX} 条问题")
-        items = qb.get_items(db, item_ids)
-        if len(items) != len(set(item_ids)):
-            raise HTTPException(status_code=400, detail="部分问题单元不存在")
-        consumed = [it.id for it in items if it.status != "pending"]
-        if consumed:
-            raise HTTPException(
-                status_code=400,
-                detail=f"选中的问题已生成过，请刷新列表后重新勾选（共 {len(consumed)} 条）",
-            )
-        item_pool_ids = {it.pool_id for it in items}
-        if len(item_pool_ids) > 1:
-            raise HTTPException(status_code=400, detail="一次只能选同一个问题池的单元")
-        derived_pool_id = next(iter(item_pool_ids))
-        if pool_id is None:
-            pool_id = derived_pool_id
-        elif pool_id != derived_pool_id:
-            raise HTTPException(status_code=400, detail="选中的单元不属于指定的问题池")
-        if current_user.role != "admin":
-            pool = qb.get_pool(db, pool_id)
-            if pool is None or pool.user_id != current_user.id:
-                raise HTTPException(status_code=403, detail="无权使用该问题池")
-        auto_count_to_use: int | None = None
-    else:
-        # 自动模式：要求 pool_id + auto_count（>0、不超过 BATCH_MAX）
-        if not payload.auto_count or payload.auto_count <= 0:
-            raise HTTPException(status_code=400, detail="请勾选问题，或填写自动生成数量")
-        if payload.auto_count > BATCH_MAX:
-            raise HTTPException(status_code=400, detail=f"单批最多 {BATCH_MAX} 篇")
-        if pool_id is None:
-            raise HTTPException(status_code=400, detail="自动模式必须指定问题池")
-        pool = qb.get_pool(db, pool_id)
-        if pool is None or (current_user.role != "admin" and pool.user_id != current_user.id):
-            raise HTTPException(status_code=404, detail="问题池不存在")
-        auto_count_to_use = payload.auto_count
-
-    session = create_session(
-        db,
-        user_id=current_user.id,
-        skill_id=payload.skill_id,
-        prompt_template_id=payload.prompt_template_id,
-        extra_instruction=payload.extra_instruction,
-        pool_id=pool_id,
-        question_item_ids=item_ids,
-        auto_count=auto_count_to_use,
-    )
-    db.flush()
-    db.commit()
-
-    session_id = session.id
-
-    topic_count = len(item_ids) if item_ids else (auto_count_to_use or 0)
-    add_audit_entry(
-        db,
-        user=current_user,
-        action="generation_session.create",
-        target_type="generation_session",
-        target_id=session_id,
-        payload={"topic_count": topic_count, "skill_id": payload.skill_id},
-        request=request,
-    )
-
-    if bg_session_factory is None:
-        logger.error(
-            "bg_session_factory 未初始化，AI 生文后台线程将不会运行（session_id=%d）",
-            session.id,
-        )
-    else:
-        factory = bg_session_factory
-
-        def _run() -> None:
-            from server.app.modules.ai_generation.pipeline import run_pipeline
-
-            bg_db = factory()
-            try:
-                run_pipeline(bg_db, session_id, session_factory=factory)
-            except Exception:
-                logger.exception("generation background thread failed for session %d", session_id)
-            finally:
-                bg_db.close()
-
-        threading.Thread(target=_run, daemon=True).start()
-
-    return JSONResponse(
-        content={"session_id": session_id, "status": "pending"},
-        status_code=202,
+@router.post("/sessions")
+def start_generation() -> None:
+    """旧问题池直连生成已硬切下线。改用方案流（scheme run）。"""
+    raise HTTPException(
+        status_code=410,
+        detail=(
+            "问题池直连生成已下线，请改用方案流：先 POST /api/generation/schemes 建方案，"
+            "再 POST /api/generation/schemes/{scheme_id}/runs 执行。"
+        ),
     )
 
 
@@ -242,6 +133,8 @@ def sync_question_pool(
             "total": result.get("total"),
             "added": result.get("added"),
             "updated": result.get("updated"),
+            "reactivated": result.get("reactivated"),
+            "deactivated": result.get("deactivated"),
         },
         request=request,
     )
@@ -257,3 +150,26 @@ def list_question_items(
 ) -> Any:
     pool = _get_owned_pool(db, pool_id, current_user)
     return qb.list_items(db, pool.id, status=(None if status == "all" else status))
+
+
+@router.get(
+    "/question-pools/{pool_id}/question-types",
+    response_model=list[QuestionTypeRead],
+)
+def list_question_types(
+    pool_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Any:
+    """按问题类型（category）聚合该池所有 source_active 问题，供方案录入页使用。"""
+    from server.app.modules.ai_generation import scheme_service as svc
+
+    pool = _get_owned_pool(db, pool_id, current_user)
+    return [
+        QuestionTypeRead(
+            question_type=qtype,
+            count=len(items),
+            questions=[QuestionBrief.model_validate(it) for it in items],
+        )
+        for qtype, items in svc.question_types(db, pool.id)
+    ]
