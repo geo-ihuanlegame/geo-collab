@@ -31,10 +31,32 @@ def test_bold_run_wrapped_in_strong():
     assert image_order == []
 
 
-def test_heading_becomes_bold_paragraph():
+def test_heading_becomes_pgc_subheading():
+    # 头条小标题（红点）节点：<h1 class="pgc-h-forward-slash">，不再压成 <p><strong>。
     segs = [BodySegment(kind="text", text="小标题", heading_level=1)]
     html, image_order = body_segments_to_toutiao_html(segs)
-    assert html == '<p data-track="1"><strong>小标题</strong></p>'
+    assert html == '<h1 class="pgc-h-forward-slash" data-track="1">小标题</h1>'
+    assert image_order == []
+
+
+def test_h2_maps_to_same_subheading():
+    # h1/h2 都映射成同一类头条小标题（符合最初设想）。
+    segs = [BodySegment(kind="text", text="二级", heading_level=2)]
+    html, image_order = body_segments_to_toutiao_html(segs)
+    assert html == '<h1 class="pgc-h-forward-slash" data-track="1">二级</h1>'
+    assert image_order == []
+
+
+def test_heading_then_paragraph_keeps_monotonic_track():
+    segs = [
+        BodySegment(kind="text", text="小标题", heading_level=1),
+        BodySegment(kind="text", text="\n"),
+        BodySegment(kind="text", text="正文"),
+    ]
+    html, image_order = body_segments_to_toutiao_html(segs)
+    assert html == (
+        '<h1 class="pgc-h-forward-slash" data-track="1">小标题</h1><p data-track="2">正文</p>'
+    )
     assert image_order == []
 
 
