@@ -60,11 +60,24 @@ MINIO_ROOT_PASSWORD=minioadmin123
     [System.IO.File]::WriteAllText($envFile, $content, [System.Text.Encoding]::ASCII)
 }
 
-# 2. 起后端
+# 2. 兜底：确保基础镜像 python:3.12-slim 在本地。
+# 国内 DNS 常污染 docker.io 鉴权（auth.docker.io），且 Docker Desktop 开启
+# containerd 镜像存储时 daemon.json 的 registry-mirrors 不生效。这里若本地缺
+# 基础镜像，就从国内镜像源拉取再打回标准 tag，让后续 build 命中本地、不碰 docker.io。
+$baseImg = "python:3.12-slim"
+$mirrorImg = "docker.m.daocloud.io/library/python:3.12-slim"
+if (-not (docker image inspect $baseImg 2>$null)) {
+    Write-Host "[dev-docker] 本地缺 $baseImg，从镜像源拉取并打 tag..." -ForegroundColor Yellow
+    docker pull $mirrorImg
+    if ($LASTEXITCODE -eq 0) { docker tag $mirrorImg $baseImg }
+    else { Write-Host "[dev-docker] 镜像源拉取失败，将尝试直连 docker.io（可能因网络失败）。" -ForegroundColor Yellow }
+}
+
+# 3. 起后端
 Write-Host "[dev-docker] 启动后端容器 (compose up -d --build)..." -ForegroundColor Cyan
 Invoke-Compose up -d --build
 
-# 3. 等 app 就绪
+# 4. 等 app 就绪
 Write-Host "[dev-docker] 等待后端 http://127.0.0.1:8000 就绪..." -ForegroundColor Cyan
 $ready = $false
 for ($i = 0; $i -lt 90; $i++) {
@@ -83,7 +96,7 @@ if (-not $ready) {
 }
 Write-Host "[dev-docker] 后端就绪。登录账号 admin / admin12345" -ForegroundColor Green
 
-# 4. 起前端（宿主 Vite）
+# 5. 起前端（宿主 Vite）
 if ($NoFrontend) {
     Write-Host "[dev-docker] -NoFrontend：跳过前端。前端请自行 pnpm --filter @geo/web dev" -ForegroundColor Yellow
     return
@@ -98,4 +111,5 @@ Write-Host "[dev-docker] 启动前端 Vite (:5173) -> http://127.0.0.1:5173" -Fo
 Push-Location $repo
 pnpm --filter @geo/web dev
 Pop-Location
+
 
