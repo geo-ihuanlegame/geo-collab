@@ -21,3 +21,14 @@ _tmp_*
 *.db
 *.sqlite
 *.log
+
+# Runtime artifacts — must NEVER be baked into the image.
+# (backups/*.tar.gz were being copied into /app/backups and filled prod disk.)
+backups/
+data/
+exports/
+*.tar
+*.tar.gz
+*.zip
+.claude/
+spike_*.json
