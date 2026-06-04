@@ -74,6 +74,21 @@ def get_node_types() -> dict:
                     {"key": "model", "type": "text", "label": "模型(可空)"},
                 ],
             },
+            {
+                "type": "article_group_source",
+                "label": "已审核分组源",
+                "config_schema": [
+                    {"key": "group_id", "type": "article_group", "label": "内容分组"},
+                ],
+            },
+            {
+                "type": "distribute",
+                "label": "内容分发",
+                "config_schema": [
+                    {"key": "account_ids", "type": "accounts", "label": "分发账号"},
+                    {"key": "name", "type": "text", "label": "任务名(可空)"},
+                ],
+            },
         ],
         "registered": registered_types(),
     }

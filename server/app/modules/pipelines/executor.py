@@ -119,3 +119,28 @@ def run_pipeline(run_id: int, session_factory: SessionFactory) -> None:
             db.commit()
     finally:
         db.close()
+
+    # Track A: 产出文章 → pending + 成组（best-effort，不影响 run 状态）
+    if article_ids:
+        try:
+            from server.app.modules.articles.service import mark_pending_and_group
+            from server.app.modules.pipelines.models import Pipeline
+
+            db = session_factory()
+            try:
+                run = db.get(PipelineRun, run_id)
+                p = db.get(Pipeline, run.pipeline_id) if run is not None else None
+                pname = p.name if p is not None else f"工作流 {run_id}"
+                created = run.created_at if run is not None else None
+                base_name = (
+                    f"{created:%Y/%m/%d %H:%M} · {pname}" if created else f"{pname} #{run_id}"
+                )
+                uid = run.user_id if run is not None else None
+            finally:
+                db.close()
+            if uid is not None:
+                mark_pending_and_group(
+                    session_factory, article_ids=article_ids, user_id=uid, base_name=base_name
+                )
+        except Exception:  # noqa: BLE001
+            logger.exception("pipeline run %s post-grouping failed", run_id)

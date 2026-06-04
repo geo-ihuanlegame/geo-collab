@@ -1,10 +1,12 @@
 // web/src/features/pipelines/PipelineEditor.tsx
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { listAccounts } from "../../api/accounts";
+import { listArticleGroups } from "../../api/articles";
 import {
   discardDraft, getNodeTypes, getPipeline, getRun, publishPipeline, saveDraft, startRun,
 } from "../../api/pipelines";
 import { useToast } from "../../components/Toast";
-import type { NodeTypeDef, Pipeline, PipelineNodeDef } from "../../types";
+import type { Account, ArticleGroup, NodeTypeDef, Pipeline, PipelineNodeDef } from "../../types";
 import { VersionHistory } from "./VersionHistory";
 
 export function PipelineEditor({ pipelineId, onChanged }:
@@ -16,6 +18,8 @@ export function PipelineEditor({ pipelineId, onChanged }:
   const [selected, setSelected] = useState<number | null>(null);
   const [showVersions, setShowVersions] = useState(false);
   const [runStatus, setRunStatus] = useState<string | null>(null);
+  const [groups, setGroups] = useState<ArticleGroup[]>([]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
   const pollRef = useRef<number | null>(null);
 
   const load = useCallback(async () => {
@@ -27,6 +31,10 @@ export function PipelineEditor({ pipelineId, onChanged }:
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { getNodeTypes().then((r) => setNodeTypes(r.node_types)).catch(() => {}); }, []);
+  useEffect(() => {
+    listArticleGroups().then(setGroups).catch(() => {});
+    listAccounts().then(setAccounts).catch(() => {});
+  }, []);
 
   // Stop polling and reset run status when switching pipelines.
   useEffect(() => {
@@ -155,7 +163,25 @@ export function PipelineEditor({ pipelineId, onChanged }:
               {selDef.config_schema.map((f) => (
                 <div key={f.key}>
                   <label>{f.label}
-                    {f.type === "textarea"
+                    {f.type === "article_group"
+                      ? <select value={String(sel.config[f.key] ?? "")}
+                          onChange={(e) => updateNode(selected!,
+                            { config: { ...sel.config,
+                              [f.key]: e.target.value ? Number(e.target.value) : undefined } })}>
+                          <option value="">选择分组</option>
+                          {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                        </select>
+                      : f.type === "accounts"
+                      ? <select multiple
+                          value={((sel.config[f.key] as number[] | undefined) ?? []).map(String)}
+                          onChange={(e) => updateNode(selected!,
+                            { config: { ...sel.config,
+                              [f.key]: Array.from(e.target.selectedOptions, (o) => Number(o.value)) } })}>
+                          {accounts.map((a) => (
+                            <option key={a.id} value={a.id}>{a.display_name}</option>
+                          ))}
+                        </select>
+                      : f.type === "textarea"
                       ? <textarea value={String(sel.config[f.key] ?? "")}
                           onChange={(e) => updateNode(selected!,
                             { config: { ...sel.config, [f.key]: e.target.value } })} />
