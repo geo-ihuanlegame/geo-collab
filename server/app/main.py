@@ -55,7 +55,6 @@ from server.app.modules.audit.router import router as audit_router
 from server.app.modules.image_library.router import files_router as stock_files_router
 from server.app.modules.image_library.router import router as stock_images_router
 from server.app.modules.prompt_templates.router import router as prompt_templates_router
-from server.app.modules.skills.router import router as skills_router
 from server.app.modules.system.auth_router import router as auth_router
 from server.app.modules.system.models import User
 from server.app.modules.system.system_router import router as system_router
@@ -209,12 +208,6 @@ def create_app() -> FastAPI:
     )
     app.include_router(
         tasks_router, prefix="/api/tasks", tags=["tasks"], dependencies=[Depends(get_current_user)]
-    )
-    app.include_router(
-        skills_router,
-        prefix="/api/skills",
-        tags=["skills"],
-        dependencies=[Depends(get_current_user)],
     )
     app.include_router(
         prompt_templates_router,
