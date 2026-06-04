@@ -1,7 +1,7 @@
 """pipelines orchestration tables
 
-Revision ID: 0037
-Revises: 0036
+Revision ID: 0038
+Revises: 0037
 Create Date: 2026-06-04
 """
 from __future__ import annotations
@@ -11,8 +11,8 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0037"
-down_revision: Union[str, None] = "0036"
+revision: str = "0038"
+down_revision: Union[str, None] = "0037"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
