@@ -1,0 +1,65 @@
+from __future__ import annotations
+
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict
+
+
+class PipelineCreate(BaseModel):
+    name: str
+    description: str | None = None
+
+
+class PipelinePatch(BaseModel):
+    name: str | None = None
+    description: str | None = None
+
+
+class NodeRead(BaseModel):
+    node_type: str
+    name: str
+    node_index: int
+    config: dict
+    flow_meta: dict | None = None
+
+
+class PipelineRead(BaseModel):
+    id: int
+    name: str
+    description: str | None
+    has_draft: bool
+    created_at: datetime
+    updated_at: datetime
+    nodes: list[NodeRead] = []
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DraftSave(BaseModel):
+    snapshot: dict
+
+
+class PublishRequest(BaseModel):
+    remark: str | None = None
+
+
+class VersionRead(BaseModel):
+    id: int
+    pipeline_id: int
+    version_no: int
+    remark: str | None
+    created_by: int
+    created_at: datetime
+    snapshot: dict | None = None
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RunRead(BaseModel):
+    id: int
+    pipeline_id: int
+    status: str
+    article_ids: list = []
+    node_results: dict = {}
+    error_message: str | None = None
+    created_at: datetime
+    completed_at: datetime | None = None
+    model_config = ConfigDict(from_attributes=True)
