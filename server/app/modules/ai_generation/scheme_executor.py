@@ -25,6 +25,7 @@ from server.app.modules.ai_generation.models import (
     GenerationSchemeRunTask,
 )
 from server.app.modules.ai_generation.scheme_service import get_line_questions, get_lines
+from server.app.modules.articles.ai_format import all_category_contexts, run_ai_format
 from server.app.modules.prompt_templates.service import get_visible_prompt_template
 
 logger = logging.getLogger(__name__)
@@ -167,6 +168,9 @@ def _execute_task(
         db.commit()
     finally:
         db.close()
+
+    # 生文成功后自动 AI 排版 + 全 bucket 智能配图（best-effort，不影响 task 结果）
+    _auto_format_article(article_id, user_id, session_factory)
     return article_id
 
 
@@ -233,3 +237,50 @@ def _aggregate_run(run_id: int, session_factory: SessionFactory) -> None:
         db.commit()
     finally:
         db.close()
+
+
+def _auto_format_article(
+    article_id: int,
+    user_id: int,
+    session_factory: SessionFactory,
+) -> None:
+    """方案生文成功后自动 AI 排版 + 用全部图片 bucket 智能配图。
+
+    best-effort：任何失败只记日志，绝不影响已生成的文章 / task 状态。
+    """
+    try:
+        from server.app.modules.articles.ai_format import has_ai_format_targets
+        from server.app.modules.articles.models import Article
+        from server.app.modules.system.models import User
+
+        lock_started_at = utcnow().replace(microsecond=0)
+        preset_id: int | None = None
+        candidate_categories: list[Any] = []
+
+        db = session_factory()
+        try:
+            article = db.get(Article, article_id)
+            if article is None or article.is_deleted:
+                return
+            if not has_ai_format_targets(article.content_json):
+                return
+            user = db.get(User, user_id)
+            preset_id = getattr(user, "ai_format_preset_id", None) if user else None
+            candidate_categories = all_category_contexts(db)
+            article.ai_checking = True
+            article.ai_checking_started_at = lock_started_at
+            article.ai_format_error = None
+            db.commit()
+        finally:
+            db.close()
+
+        run_ai_format(
+            article_id,
+            include_images=True,
+            lock_started_at=lock_started_at,
+            preset_id=preset_id,
+            user_id=user_id,
+            candidate_categories=candidate_categories,
+        )
+    except Exception:  # noqa: BLE001 — 自动排版失败不影响生文结果
+        logger.exception("auto ai_format failed for article %s", article_id)

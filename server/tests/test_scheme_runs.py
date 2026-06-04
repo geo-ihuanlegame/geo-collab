@@ -153,7 +153,9 @@ def test_run_scheme_passes_ai_engine_model_to_llm(monkeypatch):
         seen: dict[str, str] = {}
 
         def _cap(**kw):
-            seen["model"] = kw.get("model")
+            # 只记录首个调用（生文）的 model；生文成功后的自动 AI 排版会用格式模型
+            # 再调一次 litellm，不能覆盖这里的断言目标。
+            seen.setdefault("model", kw.get("model"))
             return _fake_completion("# T\n\nx")
 
         monkeypatch.setattr("litellm.completion", _cap)
