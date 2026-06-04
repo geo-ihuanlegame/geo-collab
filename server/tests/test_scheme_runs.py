@@ -132,6 +132,77 @@ def test_run_scheme_expands_by_article_count_and_records_template(monkeypatch):
         app.cleanup()
 
 
+def test_run_scheme_prepends_questions_before_prompt_body(monkeypatch):
+    app = build_test_app(monkeypatch)
+    try:
+        from server.app.modules.ai_generation.models import QuestionItem, QuestionPool
+        from server.app.modules.prompt_templates.models import PromptTemplate
+
+        uid = _admin_id(app.session_factory)
+        ids: dict[str, int] = {}
+        with app.session_factory() as db:
+            pool = QuestionPool(user_id=uid, name="P")
+            db.add(pool)
+            db.flush()
+            for rec in ("a1", "a2"):
+                it = QuestionItem(
+                    pool_id=pool.id,
+                    record_id=rec,
+                    fields={},
+                    question_text=f"问题{rec}",
+                    category="A",
+                    source_active=True,
+                )
+                db.add(it)
+                db.flush()
+                ids[rec] = it.id
+            # 不含 {{问题}} 占位符，走前置分支
+            tpl = PromptTemplate(
+                name="g",
+                content="【产品提示词正文】围绕用户问题写作。",
+                scope="generation",
+                user_id=uid,
+                is_enabled=True,
+            )
+            db.add(tpl)
+            db.flush()
+            tpl_id = tpl.id
+            pool_id = pool.id
+            db.commit()
+
+        captured: dict[str, list] = {}
+
+        def _cap(**kw):
+            # 只记录首个调用（生文）的 messages；生文成功后的自动 AI 排版会再调一次。
+            captured.setdefault("messages", kw["messages"])
+            return _fake_completion("# 标题\n\n正文。")
+
+        monkeypatch.setattr("litellm.completion", _cap)
+
+        scheme_id = _create_scheme(
+            app,
+            pool_id,
+            [
+                {
+                    "question_type": "A",
+                    "question_item_ids": [ids["a1"], ids["a2"]],
+                    "article_count": 1,
+                    "allowed_prompt_template_ids": [tpl_id],
+                }
+            ],
+            uid,
+        )
+        _run_now(app, scheme_id, uid)
+
+        user_msg = next(m["content"] for m in captured["messages"] if m["role"] == "user")
+        assert user_msg.startswith("基于以下 2 个问题，结合参考这些问题生成 1 篇文章：")
+        assert "1. 问题a1" in user_msg
+        # 真实问题排在产品提示词正文之前
+        assert user_msg.index("1. 问题a1") < user_msg.index("【产品提示词正文】")
+    finally:
+        app.cleanup()
+
+
 def test_run_scheme_passes_ai_engine_model_to_llm(monkeypatch):
     app = build_test_app(monkeypatch)
     try:

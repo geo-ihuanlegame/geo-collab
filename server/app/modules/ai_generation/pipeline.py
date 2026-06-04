@@ -17,6 +17,8 @@ from typing import Any
 from langgraph.graph import END, StateGraph
 from typing_extensions import TypedDict
 
+from server.app.modules.ai_generation.article_writer import render_question_prompt
+
 logger = logging.getLogger(__name__)
 
 
@@ -231,16 +233,6 @@ def _inject_api_key(api_key: str) -> None:
         os.environ.setdefault("OPENAI_API_KEY", api_key)
 
 
-_QUESTION_PLACEHOLDER = "{{问题}}"
-
-
-def _render_question_prompt(prompt_content: str, question_text: str) -> str:
-    """把问题文本注入基础提示词：有 {{问题}} 占位符则替换，否则追加。"""
-    if _QUESTION_PLACEHOLDER in prompt_content:
-        return prompt_content.replace(_QUESTION_PLACEHOLDER, question_text)
-    return f"{prompt_content}\n\n## 用户问题\n\n{question_text}"
-
-
 def _build_task_specs(db: Any, gen_session: Any, prompt_content: str) -> list[dict]:
     """构造写作任务列表（单一 pipeline，两种触发方式）：
 
@@ -275,7 +267,7 @@ def _build_task_specs(db: Any, gen_session: Any, prompt_content: str) -> list[di
                     "category": cat,
                     "pool_id": group[0].pool_id if group else None,
                     "item_ids": [it.id for it in group],
-                    "user_prompt": _render_question_prompt(prompt_content, question_text),
+                    "user_prompt": render_question_prompt(prompt_content, question_text),
                 }
             )
     elif gen_session.auto_count and gen_session.pool_id:
@@ -289,7 +281,7 @@ def _build_task_specs(db: Any, gen_session: Any, prompt_content: str) -> list[di
                     "category": cat,
                     "pool_id": gen_session.pool_id,
                     "item_ids": [it.id for it in group],  # 自动模式不消费,仅备查
-                    "user_prompt": _render_question_prompt(prompt_content, question_text),
+                    "user_prompt": render_question_prompt(prompt_content, question_text),
                 }
             )
     return specs
