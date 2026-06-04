@@ -1,0 +1,30 @@
+import { api } from "./core";
+import type { NodeTypeDef, Pipeline, PipelineRun, PipelineVersionSummary } from "../types";
+
+export const listPipelines = () => api<Pipeline[]>("/api/pipelines");
+export const getPipeline = (id: number) => api<Pipeline>(`/api/pipelines/${id}`);
+export const createPipeline = (p: { name: string; description?: string }) =>
+  api<Pipeline>("/api/pipelines", { method: "POST", body: JSON.stringify(p) });
+export const patchPipeline = (id: number, p: { name?: string; description?: string }) =>
+  api<Pipeline>(`/api/pipelines/${id}`, { method: "PATCH", body: JSON.stringify(p) });
+export const deletePipeline = (id: number) =>
+  api<void>(`/api/pipelines/${id}`, { method: "DELETE" });
+
+export const getNodeTypes = () =>
+  api<{ node_types: NodeTypeDef[]; registered: string[] }>("/api/pipelines/node-types");
+
+export const saveDraft = (id: number, snapshot: unknown) =>
+  api<{ ok: boolean }>(`/api/pipelines/${id}/draft`, { method: "POST", body: JSON.stringify({ snapshot }) });
+export const publishPipeline = (id: number, remark?: string) =>
+  api<{ version_no: number }>(`/api/pipelines/${id}/publish`, { method: "POST", body: JSON.stringify({ remark }) });
+export const discardDraft = (id: number) =>
+  api<{ ok: boolean }>(`/api/pipelines/${id}/draft/discard`, { method: "POST" });
+
+export const listVersions = (id: number) =>
+  api<PipelineVersionSummary[]>(`/api/pipelines/${id}/versions`);
+export const rollbackVersion = (versionId: number) =>
+  api<{ ok: boolean }>(`/api/pipelines/versions/${versionId}/rollback`, { method: "POST" });
+
+export const startRun = (id: number) =>
+  api<{ run_id: number; status: string }>(`/api/pipelines/${id}/runs`, { method: "POST" });
+export const getRun = (runId: number) => api<PipelineRun>(`/api/pipelines/runs/${runId}`);

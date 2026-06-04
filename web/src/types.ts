@@ -463,3 +463,41 @@ export type UserRecord = {
 };
 
 export const ITEM_HEIGHT = 82;
+
+// ── 流程编排（pipelines）─────────────────────────────────────────────────────
+
+export interface PipelineNodeDef {
+  node_type: string;
+  name: string;
+  node_index: number;
+  config: Record<string, unknown>;
+  flow_meta: PipelineFlowMeta | null;
+}
+export interface PipelineFlowMeta {
+  schemaVersion?: number;
+  dependsOnIndex?: number | null;
+  inputMapping?: { from: string; to: string }[];
+  condition?: { field: string; op: "eq" | "neq" | "contains"; value: string } | null;
+}
+export interface Pipeline {
+  id: number;
+  name: string;
+  description: string | null;
+  has_draft: boolean;
+  created_at: string;
+  updated_at: string;
+  nodes: PipelineNodeDef[];
+}
+export interface PipelineVersionSummary {
+  id: number; pipeline_id: number; version_no: number;
+  remark: string | null; created_by: number; created_at: string;
+}
+export interface PipelineRun {
+  id: number; pipeline_id: number; status: string;
+  article_ids: number[]; node_results: Record<string, unknown>;
+  error_message: string | null; created_at: string; completed_at: string | null;
+}
+export interface NodeTypeDef {
+  type: string; label: string;
+  config_schema: { key: string; type: string; label: string }[];
+}
