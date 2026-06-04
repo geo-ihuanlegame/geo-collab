@@ -54,6 +54,7 @@ from server.app.modules.articles.router import (
 from server.app.modules.audit.router import router as audit_router
 from server.app.modules.image_library.router import files_router as stock_files_router
 from server.app.modules.image_library.router import router as stock_images_router
+from server.app.modules.pipelines.router import router as pipelines_router
 from server.app.modules.prompt_templates.router import router as prompt_templates_router
 from server.app.modules.system.auth_router import router as auth_router
 from server.app.modules.system.models import User
@@ -78,7 +79,8 @@ def create_app() -> FastAPI:
     # 确保数据目录存在（assets/ browser_states/ logs/ exports/）
     ensure_data_dirs()
 
-    # 注册所有平台驱动（import 触发 register() 副作用）
+    # import 触发注册副作用：pipelines 节点类型 + 所有平台驱动
+    import server.app.modules.pipelines.nodes  # noqa: F401
     import server.app.modules.tasks.drivers.toutiao  # noqa: F401
     import server.app.modules.tasks.drivers.toutiao_inpage  # noqa: F401
 
@@ -228,6 +230,12 @@ def create_app() -> FastAPI:
         dependencies=[Depends(get_current_user)],
     )
     app.include_router(
+        pipelines_router,
+        prefix="/api/pipelines",
+        tags=["pipelines"],
+        dependencies=[Depends(get_current_user)],
+    )
+    app.include_router(
         stock_images_router,
         prefix="/api/image-library",
         tags=["image-library"],
@@ -245,6 +253,11 @@ def create_app() -> FastAPI:
     import server.app.modules.ai_generation.scheme_router as _scheme_routes
 
     _scheme_routes.bg_session_factory = SessionLocal
+
+    # 为 pipelines 运行后台线程提供 SessionLocal（同样靠路由内后台线程执行）
+    import server.app.modules.pipelines.router as _pipelines_routes
+
+    _pipelines_routes.bg_session_factory = SessionLocal
 
     # 问题池定时镜像同步：仅在 GEO_QUESTION_POOL_AUTO_SYNC_ENABLED=true 时启动后台线程。
     # 默认关闭，测试 / 本地不会打真实飞书。启动失败只记日志，不致命。

@@ -39,3 +39,5 @@ doc.rar
 # Spike capture output (live tokens / article ids — never commit)
 spike_result.json
 spike_*_capture.json
+/pc-admin-conetnt-library-public
+/content-library-public

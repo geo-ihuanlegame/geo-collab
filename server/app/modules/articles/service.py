@@ -470,3 +470,60 @@ def approve_group(db: Session, group_id: int, user_id: int, role: str) -> Articl
             _set_article_review_status(article, "approved")
         db.flush()
     return get_group(db, group_id) or group
+
+
+def mark_pending_and_group(
+    session_factory, *, article_ids: list[int], user_id: int, base_name: str
+) -> int | None:
+    """把文章标 review_status='pending' 并归入一个新 ArticleGroup（名 base_name）。
+    撞 (user_id, name) 唯一约束时追加后缀。best-effort：失败记日志、不抛。
+    用独立 session、本函数内 commit+close。返回 group_id 或 None。
+    镜像 ai_generation.scheme_executor._group_run_articles。"""
+    if not article_ids:
+        return None
+    try:
+        from sqlalchemy.exc import IntegrityError
+
+        db = session_factory()
+        try:
+            for aid in article_ids:
+                art = db.get(Article, aid)
+                if art is not None:
+                    art.review_status = "pending"
+
+            exists = (
+                db.query(ArticleGroup.id)
+                .filter(
+                    ArticleGroup.user_id == user_id,
+                    ArticleGroup.name == base_name,
+                    ArticleGroup.is_deleted.is_(False),
+                )
+                .first()
+            )
+            name = f"{base_name} #{article_ids[0]}" if exists is not None else base_name
+            group = ArticleGroup(user_id=user_id, name=name)
+            db.add(group)
+            try:
+                db.flush()
+            except IntegrityError:
+                db.rollback()
+                for aid in article_ids:
+                    art = db.get(Article, aid)
+                    if art is not None:
+                        art.review_status = "pending"
+                group = ArticleGroup(user_id=user_id, name=f"{base_name} #{article_ids[0]}")
+                db.add(group)
+                db.flush()
+
+            for idx, aid in enumerate(article_ids):
+                db.add(ArticleGroupItem(group_id=group.id, article_id=aid, sort_order=idx))
+            gid = group.id
+            db.commit()
+            return gid
+        finally:
+            db.close()
+    except Exception:  # noqa: BLE001 — best-effort
+        _logger.exception(
+            "mark_pending_and_group failed (user=%s, n=%s)", user_id, len(article_ids)
+        )
+        return None
