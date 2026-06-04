@@ -1,7 +1,7 @@
-import { FileText, Images, MessagesSquare, MonitorCog, RadioTower, Send, Sparkles } from "lucide-react";
+import { FileText, Images, MessagesSquare, MonitorCog, RadioTower, Send, Sparkles, Workflow } from "lucide-react";
 import type { ComponentType } from "react";
 
-export type NavKey = "ai" | "content" | "prompts" | "image-library" | "media" | "tasks" | "system" | "admin" | "audit-logs";
+export type NavKey = "pipelines" | "ai" | "content" | "prompts" | "image-library" | "media" | "tasks" | "system" | "admin" | "audit-logs";
 
 export type PromptScope = "generation" | "ai_format";
 
@@ -449,6 +449,7 @@ export function statusLabel(status: string): string {
 }
 
 export const navItems: { key: NavKey; label: string; icon: ComponentType<{ size?: number }> }[] = [
+  { key: "pipelines", label: "工作流编排", icon: Workflow },
   { key: "ai", label: "AI 生文", icon: Sparkles },
   { key: "content", label: "内容管理", icon: FileText },
   { key: "prompts", label: "提示词管理", icon: MessagesSquare },
@@ -479,3 +480,41 @@ export type UserRecord = {
 };
 
 export const ITEM_HEIGHT = 82;
+
+// ── 流程编排（pipelines）─────────────────────────────────────────────────────
+
+export interface PipelineNodeDef {
+  node_type: string;
+  name: string;
+  node_index: number;
+  config: Record<string, unknown>;
+  flow_meta: PipelineFlowMeta | null;
+}
+export interface PipelineFlowMeta {
+  schemaVersion?: number;
+  dependsOnIndex?: number | null;
+  inputMapping?: { from: string; to: string }[];
+  condition?: { field: string; op: "eq" | "neq" | "contains"; value: string } | null;
+}
+export interface Pipeline {
+  id: number;
+  name: string;
+  description: string | null;
+  has_draft: boolean;
+  created_at: string;
+  updated_at: string;
+  nodes: PipelineNodeDef[];
+}
+export interface PipelineVersionSummary {
+  id: number; pipeline_id: number; version_no: number;
+  remark: string | null; created_by: number; created_at: string;
+}
+export interface PipelineRun {
+  id: number; pipeline_id: number; status: string;
+  article_ids: number[]; node_results: Record<string, unknown>;
+  error_message: string | null; created_at: string; completed_at: string | null;
+}
+export interface NodeTypeDef {
+  type: string; label: string;
+  config_schema: { key: string; type: string; label: string }[];
+}
