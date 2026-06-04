@@ -1,5 +1,17 @@
 import { api } from "./core";
-import type { GenerationSession, QuestionItem, QuestionPool, QuestionSyncResult, Skill } from "../types";
+import type {
+  AiEngine,
+  GenerationSession,
+  QuestionItem,
+  QuestionPool,
+  QuestionSyncResult,
+  QuestionType,
+  Scheme,
+  SchemeCreatePayload,
+  SchemeRun,
+  SchemeRunSummary,
+  SchemeUpdatePayload,
+} from "../types";
 
 export {
   createPromptTemplate,
@@ -8,42 +20,6 @@ export {
   patchPromptTemplate,
   updatePromptTemplate,
 } from "./prompt-templates";
-
-export function listSkills(): Promise<Skill[]> {
-  return api<Skill[]>("/api/skills");
-}
-
-export function createSkill(payload: {
-  name: string;
-  content: string;
-  description?: string | null;
-}): Promise<Skill> {
-  return api<Skill>("/api/skills", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-}
-
-export function updateSkill(
-  id: number,
-  payload: { name: string; content: string; description?: string | null },
-): Promise<Skill> {
-  return api<Skill>(`/api/skills/${id}`, {
-    method: "PUT",
-    body: JSON.stringify(payload),
-  });
-}
-
-export function patchSkill(id: number, payload: { is_enabled: boolean }): Promise<Skill> {
-  return api<Skill>(`/api/skills/${id}`, {
-    method: "PATCH",
-    body: JSON.stringify(payload),
-  });
-}
-
-export function deleteSkill(id: number): Promise<void> {
-  return api<void>(`/api/skills/${id}`, { method: "DELETE" });
-}
 
 export function startGeneration(payload: {
   skill_id: number;
@@ -88,4 +64,65 @@ export function syncQuestionPool(poolId: number): Promise<QuestionSyncResult> {
 
 export function listQuestionItems(poolId: number, status = "pending"): Promise<QuestionItem[]> {
   return api<QuestionItem[]>(`/api/generation/question-pools/${poolId}/items?status=${status}`);
+}
+
+export function listQuestionTypes(poolId: number): Promise<QuestionType[]> {
+  return api<QuestionType[]>(`/api/generation/question-pools/${poolId}/question-types`);
+}
+
+// ── 方案池 / 方案运行（scheme flow）──────────────────────────────────────────
+
+export function listAiEngines(): Promise<AiEngine[]> {
+  return api<AiEngine[]>("/api/generation/ai-engines");
+}
+
+export function listSchemes(): Promise<Scheme[]> {
+  return api<Scheme[]>("/api/generation/schemes");
+}
+
+export function getScheme(schemeId: number): Promise<Scheme> {
+  return api<Scheme>(`/api/generation/schemes/${schemeId}`);
+}
+
+export function createScheme(payload: SchemeCreatePayload): Promise<Scheme> {
+  return api<Scheme>("/api/generation/schemes", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateScheme(schemeId: number, payload: SchemeUpdatePayload): Promise<Scheme> {
+  return api<Scheme>(`/api/generation/schemes/${schemeId}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function patchScheme(
+  schemeId: number,
+  payload: { is_enabled?: boolean },
+): Promise<Scheme> {
+  return api<Scheme>(`/api/generation/schemes/${schemeId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteScheme(schemeId: number): Promise<void> {
+  return api<void>(`/api/generation/schemes/${schemeId}`, { method: "DELETE" });
+}
+
+export function startSchemeRun(schemeId: number): Promise<{ run_id: number; status: string }> {
+  return api<{ run_id: number; status: string }>(
+    `/api/generation/schemes/${schemeId}/runs`,
+    { method: "POST" },
+  );
+}
+
+export function listSchemeRuns(schemeId: number): Promise<SchemeRunSummary[]> {
+  return api<SchemeRunSummary[]>(`/api/generation/schemes/${schemeId}/runs`);
+}
+
+export function getSchemeRun(runId: number): Promise<SchemeRun> {
+  return api<SchemeRun>(`/api/generation/scheme-runs/${runId}`);
 }

@@ -236,7 +236,8 @@ def _map_full_response(result: Any, title: str, *, is_draft: bool = False) -> Pu
     if result.get("ok") is False and result.get("step") == "upload":
         raise PublishError(
             f"头条图片上传失败: index={result.get('index')} "
-            f"httpStatus={result.get('httpStatus')} raw={result.get('raw')}"
+            f"httpStatus={result.get('httpStatus')} field={result.get('field')} "
+            f"b64len={result.get('b64len')} raw={result.get('raw')}"
         )
     publish = result.get("publish")
     if not isinstance(publish, dict):

@@ -60,10 +60,11 @@ def test_converter_markdown_to_tiptap_and_html():
     assert "小标题" in markdown_to_html(md)
 
 
-# ── 同步：upsert 语义（消费不复活）──────────────────────────────────────────
+# ── 同步：纯镜像语义（全量对齐飞书，含历史 consumed）────────────────────────
 
 
-def test_sync_pool_upsert_does_not_resurrect_consumed(monkeypatch):
+def test_sync_pool_mirror_updates_all_including_consumed(monkeypatch):
+    """纯镜像：飞书在的项全部 upsert 对齐（含历史 consumed），新项新增。"""
     app = build_test_app(monkeypatch)
     try:
         from server.app.modules.ai_generation.models import QuestionItem, QuestionPool
@@ -75,7 +76,7 @@ def test_sync_pool_upsert_does_not_resurrect_consumed(monkeypatch):
             )
             db.add(pool)
             db.flush()
-            # 已消费的 rec1（应被同步跳过、不复活、不覆盖）
+            # 历史遗留 consumed 项：镜像语义下应被对齐更新，不再跳过
             db.add(
                 QuestionItem(
                     pool_id=pool.id,
@@ -96,17 +97,85 @@ def test_sync_pool_upsert_does_not_resurrect_consumed(monkeypatch):
             ],
         )
         with app.session_factory() as db:
-            pool = db.get(QuestionPool, pool_id)
-            res = qb.sync_pool(db, pool)
+            res = qb.sync_pool(db, db.get(QuestionPool, pool_id))
             db.commit()
 
         assert res["added"] == 1  # rec2 新增
-        assert res["skipped_consumed"] == 1  # rec1 不复活
+        assert res["updated"] == 1  # rec1 被对齐更新（不再跳过）
+        assert res["deactivated"] == 0
         with app.session_factory() as db:
             items = {it.record_id: it for it in db.query(QuestionItem).filter_by(pool_id=pool_id)}
-            assert items["rec1"].status == "consumed"
-            assert items["rec1"].fields["q"] == "old"  # 未被覆盖
-            assert items["rec2"].status == "pending"
+            assert items["rec1"].fields["q"] == "NEW"  # 内容已对齐飞书
+            assert items["rec1"].source_active is True
+            assert items["rec2"].source_active is True
+            # 池级状态：成功后写 last_synced_at、清 last_sync_error
+            pool = db.get(QuestionPool, pool_id)
+            assert pool.last_synced_at is not None
+            assert pool.last_sync_error is None
+    finally:
+        app.cleanup()
+
+
+def test_sync_pool_soft_marks_missing_then_reactivates(monkeypatch):
+    """飞书缺失 → source_active=False（软标记，不删）；再次出现 → 恢复 active。"""
+    app = build_test_app(monkeypatch)
+    try:
+        from server.app.modules.ai_generation.models import QuestionItem, QuestionPool
+
+        uid = _admin_id(app.session_factory)
+        with app.session_factory() as db:
+            pool = QuestionPool(
+                user_id=uid, name="p", feishu_app_token="app", feishu_table_id="tbl"
+            )
+            db.add(pool)
+            db.flush()
+            pool_id = pool.id
+            db.commit()
+
+        records = {
+            "v": [
+                {"record_id": "r1", "fields": {"q": "a"}},
+                {"record_id": "r2", "fields": {"q": "b"}},
+            ]
+        }
+        monkeypatch.setattr(
+            "server.app.shared.feishu_bitable.list_bitable_records",
+            lambda app_token, table_id: records["v"],
+        )
+
+        # 第一轮：两条都在
+        with app.session_factory() as db:
+            res = qb.sync_pool(db, db.get(QuestionPool, pool_id))
+            db.commit()
+        assert res["added"] == 2
+
+        # 第二轮：r2 从飞书消失 → 软标记缺失，不物理删除
+        records["v"] = [{"record_id": "r1", "fields": {"q": "a"}}]
+        with app.session_factory() as db:
+            res = qb.sync_pool(db, db.get(QuestionPool, pool_id))
+            db.commit()
+        assert res["deactivated"] == 1
+        with app.session_factory() as db:
+            items = {it.record_id: it for it in db.query(QuestionItem).filter_by(pool_id=pool_id)}
+            assert set(items) == {"r1", "r2"}  # r2 仍在库（软标记）
+            assert items["r1"].source_active is True
+            assert items["r2"].source_active is False
+            assert items["r2"].source_deleted_at is not None
+
+        # 第三轮：r2 又出现 → 恢复 active
+        records["v"] = [
+            {"record_id": "r1", "fields": {"q": "a"}},
+            {"record_id": "r2", "fields": {"q": "b2"}},
+        ]
+        with app.session_factory() as db:
+            res = qb.sync_pool(db, db.get(QuestionPool, pool_id))
+            db.commit()
+        assert res["reactivated"] == 1
+        with app.session_factory() as db:
+            r2 = db.query(QuestionItem).filter_by(pool_id=pool_id, record_id="r2").one()
+            assert r2.source_active is True
+            assert r2.source_deleted_at is None
+            assert r2.fields["q"] == "b2"
     finally:
         app.cleanup()
 
@@ -226,49 +295,16 @@ def test_pool_create_sync_list_via_api(monkeypatch):
         app.cleanup()
 
 
-def test_start_generation_accepts_question_items(monkeypatch):
+def test_start_generation_sessions_is_hard_cut(monkeypatch):
+    """旧问题池直连生成已硬切：POST /sessions 返回 410，引导改用方案运行。"""
     app = build_test_app(monkeypatch)
     try:
-        from server.app.modules.ai_generation.models import (
-            GenerationSession,
-            QuestionItem,
-            QuestionPool,
-        )
-        from server.app.modules.prompt_templates.models import PromptTemplate
-        from server.app.modules.skills.models import Skill
-
-        uid = _admin_id(app.session_factory)
-        with app.session_factory() as db:
-            skill = Skill(name="s", description="", storage_path="x", is_enabled=True)
-            db.add(skill)
-            prompt = PromptTemplate(
-                name="p", content="{{问题}}", scope="generation", user_id=uid, is_enabled=True
-            )
-            db.add(prompt)
-            pool = QuestionPool(user_id=uid, name="pool")
-            db.add(pool)
-            db.flush()
-            item = QuestionItem(
-                pool_id=pool.id, record_id="r1", fields={"问题": "q"}, status="pending"
-            )
-            db.add(item)
-            db.flush()
-            db.commit()
-            skill_id, prompt_id, item_id = skill.id, prompt.id, item.id
-
         r = app.client.post(
             "/api/generation/sessions",
-            json={
-                "skill_id": skill_id,
-                "prompt_template_id": prompt_id,
-                "question_item_ids": [item_id],
-            },
+            json={"skill_id": 1, "prompt_template_id": 1, "question_item_ids": [1]},
         )
-        assert r.status_code == 202, r.text
-        session_id = r.json()["session_id"]
-        with app.session_factory() as db:
-            s = db.get(GenerationSession, session_id)
-            assert json.loads(s.question_item_ids) == [item_id]
+        assert r.status_code == 410, r.text
+        assert "方案" in r.json()["detail"]
     finally:
         app.cleanup()
 

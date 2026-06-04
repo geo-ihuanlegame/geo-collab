@@ -54,9 +54,17 @@ class Settings(BaseSettings):
     # 飞书自建应用凭据（问题库从多维表同步、以及未来发布采集写回 都用它换 tenant_access_token）
     feishu_app_id: str | None = None  # GEO_FEISHU_APP_ID
     feishu_app_secret: str | None = None  # GEO_FEISHU_APP_SECRET
+    # 问题池定时镜像同步（应用内后台线程）。默认关闭，避免本地 / 测试打真实飞书。
+    question_pool_auto_sync_enabled: bool = False  # GEO_QUESTION_POOL_AUTO_SYNC_ENABLED
+    question_pool_sync_interval_seconds: int = 21600  # GEO_QUESTION_POOL_SYNC_INTERVAL_SECONDS (6h)
     # AI 生文（LangGraph 写作 Agent）—— 保持 Claude
     ai_model: str = "claude-3-5-sonnet-20241022"  # GEO_AI_MODEL
     ai_api_key: str = ""  # GEO_AI_API_KEY
+    # 方案级可选 AI 引擎列表（为后续接入更多写作模型留接口）。
+    # 每项 {"label": 展示名, "model": litellm model 字符串}；model 为空 = 用 ai_model 默认。
+    # 通过 GEO_AI_ENGINES 传 JSON 覆盖，例如：
+    #   [{"label":"默认写作模型","model":""},{"label":"DeepSeek","model":"deepseek/deepseek-chat"}]
+    ai_engines: list[dict[str, str]] = [{"label": "默认写作模型", "model": ""}]  # GEO_AI_ENGINES
 
     # AI 格式调整（标题识别 / 未来配图配链接）—— 独立模型，降低成本
     ai_format_model: str = "deepseek/deepseek-v4-flash"  # GEO_AI_FORMAT_MODEL

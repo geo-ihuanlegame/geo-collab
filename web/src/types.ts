@@ -5,16 +5,6 @@ export type NavKey = "ai" | "content" | "prompts" | "image-library" | "media" | 
 
 export type PromptScope = "generation" | "ai_format";
 
-export type Skill = {
-  id: number;
-  name: string;
-  description: string | null;
-  content: string;
-  is_enabled: boolean;
-  is_deleted: boolean;
-  created_at: string;
-};
-
 export type PromptTemplate = {
   id: number;
   name: string;
@@ -61,7 +51,108 @@ export type QuestionSyncResult = {
   total: number;
   added: number;
   updated: number;
-  skipped_consumed: number;
+  reactivated: number;
+  deactivated: number;
+};
+
+// ── 方案池 / 方案运行（scheme flow）──────────────────────────────────────────
+
+export type AiEngine = { label: string; model: string };
+
+export type QuestionBrief = {
+  id: number;
+  record_id: string;
+  question_text: string | null;
+};
+
+export type QuestionType = {
+  question_type: string | null;
+  count: number;
+  questions: QuestionBrief[];
+};
+
+export type SchemeLineQuestion = {
+  question_item_id: number | null;
+  record_id: string | null;
+  question_text: string | null;
+  question_type: string | null;
+};
+
+export type SchemeLine = {
+  id: number;
+  question_type: string | null;
+  article_count: number;
+  allowed_prompt_template_ids: number[];
+  questions: SchemeLineQuestion[];
+};
+
+export type Scheme = {
+  id: number;
+  name: string;
+  pool_id: number;
+  is_enabled: boolean;
+  ai_engine: string | null;
+  created_at: string;
+  updated_at: string;
+  lines: SchemeLine[];
+};
+
+export type SchemeRunStatus = "pending" | "running" | "done" | "partial_failed" | "failed";
+export type SchemeTaskStatus = "pending" | "running" | "done" | "failed";
+
+export type SchemeRunTask = {
+  id: number;
+  scheme_line_id: number | null;
+  question_type: string | null;
+  question_text: string | null;
+  question_item_ids: number[];
+  allowed_prompt_template_ids: number[];
+  actual_prompt_template_id: number | null;
+  status: SchemeTaskStatus;
+  article_id: number | null;
+  error_message: string | null;
+};
+
+export type SchemeRun = {
+  id: number;
+  scheme_id: number;
+  status: SchemeRunStatus;
+  article_ids: number[];
+  error_message: string | null;
+  created_at: string;
+  completed_at: string | null;
+  tasks: SchemeRunTask[];
+};
+
+export type SchemeRunSummary = {
+  id: number;
+  status: SchemeRunStatus;
+  article_count: number;
+  task_count: number;
+  created_at: string;
+  completed_at: string | null;
+};
+
+export type SchemeLineInput = {
+  question_type: string | null;
+  question_item_ids: number[];
+  article_count: number;
+  allowed_prompt_template_ids: number[];
+};
+
+export type SchemeCreatePayload = {
+  name: string;
+  pool_id: number;
+  is_enabled: boolean;
+  ai_engine: string | null;
+  lines: SchemeLineInput[];
+};
+
+export type SchemeUpdatePayload = {
+  name: string;
+  is_enabled: boolean;
+  ai_engine: string | null;
+  lines: SchemeLineInput[];
 };
 
 export type Asset = {

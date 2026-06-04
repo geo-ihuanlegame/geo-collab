@@ -45,17 +45,44 @@ async (arg) => {
     });
   }
 
+  // Diagnostic: probe candidate field names once, then reuse the one that
+  // returns a usable uri. A bare `file` field came back code:1053 无效图片数据
+  // with all image fields empty (server didn't read a file under that key).
+  let _uploadField = null;
+
   async function uploadOne(item) {
+    const b64len = item && item.b64 ? item.b64.length : 0;
     const blob = b64ToBlob(item.b64, item.mime);
-    const fd = new FormData();
-    fd.append("file", blob);
-    // Do NOT set content-type for multipart: the browser sets the boundary.
-    const res = await xhrPost(arg.uploadUrl, fd, null);
-    let json = null;
-    try {
-      json = JSON.parse(res.text);
-    } catch (_) {}
-    return { httpStatus: res.status, json: json, raw: (res.text || "").slice(0, 1200) };
+    const ext = item.mime === "image/png" ? "png" : "jpg";
+    const fname = "image." + ext;
+    const candidates = _uploadField ? [_uploadField] : ["file", "upfile", "image", "media"];
+    let last = { httpStatus: 0, json: null, raw: "", field: null, b64len: b64len };
+    for (let fi = 0; fi < candidates.length; fi++) {
+      const field = candidates[fi];
+      const fd = new FormData();
+      // Real filename + extension; no explicit content-type so the browser
+      // sets the multipart boundary.
+      fd.append(field, blob, fname);
+      const res = await xhrPost(arg.uploadUrl, fd, null);
+      let json = null;
+      try {
+        json = JSON.parse(res.text);
+      } catch (_) {}
+      const d = (json && (json.data || json)) || {};
+      const uri = d.uri || d.web_uri || d.origin_web_uri || "";
+      last = {
+        httpStatus: res.status,
+        json: json,
+        raw: (res.text || "").slice(0, 1200),
+        field: field,
+        b64len: b64len,
+      };
+      if (res.status === 200 && uri) {
+        _uploadField = field;
+        return last;
+      }
+    }
+    return last;
   }
 
   function pickImageFields(up) {
@@ -84,6 +111,8 @@ async (arg) => {
           index: index,
           httpStatus: up.httpStatus,
           raw: up.raw,
+          field: up.field,
+          b64len: up.b64len,
         };
       }
       arg.form.pgc_feed_covers = JSON.stringify([
@@ -113,6 +142,8 @@ async (arg) => {
           index: index,
           httpStatus: up.httpStatus,
           raw: up.raw,
+          field: up.field,
+          b64len: up.b64len,
         };
       }
       arg.form.content = arg.form.content

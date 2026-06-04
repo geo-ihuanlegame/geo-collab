@@ -44,6 +44,7 @@ from server.app.core.paths import ensure_data_dirs
 from server.app.core.security import get_current_user
 from server.app.modules.accounts.router import router as accounts_router
 from server.app.modules.ai_generation.router import router as generation_router
+from server.app.modules.ai_generation.scheme_router import scheme_router
 from server.app.modules.articles.router import (
     article_groups_router,
     articles_router,
@@ -54,7 +55,6 @@ from server.app.modules.audit.router import router as audit_router
 from server.app.modules.image_library.router import files_router as stock_files_router
 from server.app.modules.image_library.router import router as stock_images_router
 from server.app.modules.prompt_templates.router import router as prompt_templates_router
-from server.app.modules.skills.router import router as skills_router
 from server.app.modules.system.auth_router import router as auth_router
 from server.app.modules.system.models import User
 from server.app.modules.system.system_router import router as system_router
@@ -210,12 +210,6 @@ def create_app() -> FastAPI:
         tasks_router, prefix="/api/tasks", tags=["tasks"], dependencies=[Depends(get_current_user)]
     )
     app.include_router(
-        skills_router,
-        prefix="/api/skills",
-        tags=["skills"],
-        dependencies=[Depends(get_current_user)],
-    )
-    app.include_router(
         prompt_templates_router,
         prefix="/api/prompt-templates",
         tags=["prompt-templates"],
@@ -225,6 +219,12 @@ def create_app() -> FastAPI:
         generation_router,
         prefix="/api/generation",
         tags=["generation"],
+        dependencies=[Depends(get_current_user)],
+    )
+    app.include_router(
+        scheme_router,
+        prefix="/api/generation",
+        tags=["generation-schemes"],
         dependencies=[Depends(get_current_user)],
     )
     app.include_router(
@@ -241,11 +241,21 @@ def create_app() -> FastAPI:
         dependencies=[Depends(get_current_user)],
     )
 
-    # 为 AI 生文后台线程提供 SessionLocal（tasks 的生产路径走 executor.py 轮询，不需要；
-    # generation 没有对应的 worker，只能靠路由内后台线程，因此必须在此处初始化）
-    import server.app.modules.ai_generation.router as _gen_routes
+    # 为方案运行后台线程提供 SessionLocal（generation 没有独立 worker，靠路由内后台线程执行）
+    import server.app.modules.ai_generation.scheme_router as _scheme_routes
 
-    _gen_routes.bg_session_factory = SessionLocal
+    _scheme_routes.bg_session_factory = SessionLocal
+
+    # 问题池定时镜像同步：仅在 GEO_QUESTION_POOL_AUTO_SYNC_ENABLED=true 时启动后台线程。
+    # 默认关闭，测试 / 本地不会打真实飞书。启动失败只记日志，不致命。
+    try:
+        from server.app.modules.ai_generation.sync_scheduler import start_auto_sync
+
+        start_auto_sync(SessionLocal)
+    except Exception:
+        import logging as _logging
+
+        _logging.getLogger(__name__).exception("Failed to start question-pool auto-sync thread")
 
     try:
         # 挂载前端静态文件（Vite 构建产物）

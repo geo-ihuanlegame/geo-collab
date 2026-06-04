@@ -34,9 +34,8 @@ ai-generation-demo.html
 # 本机工作笔记，不入仓
 plan.md
 
-# 项目文档（暂不入仓）
+# 项目文档归档包（不入仓；体系化文档已迁入 docs/）
 doc.rar
-doc/
 # Spike capture output (live tokens / article ids — never commit)
 spike_result.json
 spike_*_capture.json

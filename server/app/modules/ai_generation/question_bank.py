@@ -1,9 +1,12 @@
-"""问题库（可消费队列）服务：池 CRUD、飞书同步、出队、默认取法。
+"""问题库服务：池 CRUD、飞书镜像同步、默认取法。
 
-核心语义：
-- 同步按 (pool_id, record_id) upsert；status='consumed' 的单元**不复活**（不会被重新拉回 pending）。
-- 生成成功后 mark_consumed 出队并记 article_id；失败保持 pending 可重试。
-- extract_question_text 是"记录→提示词"的**默认取法**，做成单一可替换函数（精确取法后置讨论）。
+核心语义（方案流，纯镜像）：
+- 同步按 (pool_id, record_id) upsert；飞书存在则 source_active=True，飞书缺失则软标记
+  source_active=False + source_deleted_at（不物理删除），再次出现则恢复 active。
+- 对所有本地项一视同仁对齐飞书（含历史遗留 status='consumed' 的项），不再"消费不复活"。
+- `status` / `article_id` / mark_*_consumed / auto_pick_groups / CategoryUsage 是旧
+  /sessions 消费队列遗留，方案流不使用（保留为只读兼容 / 后续清理）。
+- extract_question_text 是"记录→提示词"的**默认取法**，做成单一可替换函数。
 """
 
 from __future__ import annotations
@@ -65,7 +68,14 @@ def create_pool(
 
 
 def sync_pool(db: Session, pool: QuestionPool) -> dict[str, int]:
-    """从飞书多维表拉取记录，upsert 进队列。已消费的单元不复活。"""
+    """从飞书多维表拉取记录，纯镜像 upsert。
+
+    飞书存在 → 新增或更新内容并置 source_active=True、last_seen_at=now、清 source_deleted_at；
+    飞书缺失 → 本地软标记 source_active=False、source_deleted_at=now（不物理删除）；
+    缺失项再次出现 → 恢复 active。所有项一视同仁，不再跳过历史 consumed。
+    成功时 pool.last_synced_at=now、last_sync_error=None。飞书读取失败抛 ClientError（不写错误，
+    由定时同步 run_sync_once 捕获后单独记 last_sync_error）。
+    """
     if not pool.feishu_app_token or not pool.feishu_table_id:
         raise ValidationError("该问题池未绑定飞书多维表（app_token/table_id 缺失）")
 
@@ -82,13 +92,15 @@ def sync_pool(db: Session, pool: QuestionPool) -> dict[str, int]:
         for it in db.query(QuestionItem).filter(QuestionItem.pool_id == pool.id).all()
     }
     now = utcnow()
-    added = updated = skipped_consumed = 0
+    added = updated = reactivated = deactivated = 0
+    seen: set[str] = set()
 
     for rec in records:
         record_id = rec.get("record_id")
         fields = rec.get("fields") or {}
         if not record_id:
             continue
+        seen.add(record_id)
         # 从飞书记录里抽出生文真正要用的两列（其余列保存进 fields 备用，不参与流程）
         question_text = _stringify_field_value(fields.get(FIELD_QUESTION)).strip() or None
         category = _stringify_field_value(fields.get(FIELD_CATEGORY)).strip() or None
@@ -101,27 +113,42 @@ def sync_pool(db: Session, pool: QuestionPool) -> dict[str, int]:
                     fields=fields,
                     question_text=question_text,
                     category=category,
-                    status="pending",
+                    source_active=True,
+                    last_seen_at=now,
                     synced_at=now,
                 )
             )
             added += 1
-        elif cur.status == "consumed":
-            skipped_consumed += 1  # 不复活
         else:
+            if not cur.source_active:
+                reactivated += 1
             cur.fields = fields
             cur.question_text = question_text
             cur.category = category
+            cur.source_active = True
+            cur.source_deleted_at = None
+            cur.last_seen_at = now
             cur.synced_at = now
             updated += 1
 
+    # 飞书本轮缺失的本地项 → 软标记缺失（不物理删除）
+    for record_id, cur in existing.items():
+        if record_id in seen:
+            continue
+        if cur.source_active:
+            cur.source_active = False
+            cur.source_deleted_at = now
+            deactivated += 1
+
     pool.last_synced_at = now
+    pool.last_sync_error = None
     db.flush()
     return {
         "total": len(records),
         "added": added,
         "updated": updated,
-        "skipped_consumed": skipped_consumed,
+        "reactivated": reactivated,
+        "deactivated": deactivated,
     }
 
 

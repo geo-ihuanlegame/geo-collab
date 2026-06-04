@@ -2155,3 +2155,140 @@ input:focus, select:focus, textarea:focus {
 }
 .imageLibraryEmptyTitle { font-size: 14px; font-weight: 500; color: var(--fg-2); }
 .imageLibraryEmptyState > p:not(.imageLibraryEmptyTitle) { font-size: 12px; }
+
+/* ── 方案库 / 方案编辑器 / 运行明细 ──────────────────────────────────────── */
+.schemeLib { display: flex; flex-direction: column; gap: 18px; }
+.schemeLibHead { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.schemeLibTitle { font-family: var(--serif); font-size: 22px; color: var(--fg); margin: 0; }
+.schemeLibSub { font-size: 13px; color: var(--fg-3); margin: 4px 0 0; }
+.schemeList { display: flex; flex-direction: column; gap: 12px; }
+.schemeDot { width: 3px; height: 3px; border-radius: 50%; background: var(--hair-2); display: inline-block; }
+
+.schemeCard {
+  display: flex; align-items: center; gap: 16px;
+  padding: 14px 18px; background: var(--paper);
+  border: 1px solid var(--hair); border-radius: var(--r);
+}
+.schemeCardInfo { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.schemeCardName { font-family: var(--serif); font-size: 17px; color: var(--fg); }
+.schemeCardMeta { display: flex; gap: 12px; align-items: center; font-size: 13px; color: var(--fg-2); flex-wrap: wrap; }
+.schemeCardPool { display: inline-flex; gap: 5px; align-items: center; color: var(--fg-3); }
+.schemeCardCtrls { display: flex; gap: 10px; align-items: center; flex-shrink: 0; }
+
+.schemeBadge {
+  display: inline-flex; gap: 6px; align-items: center;
+  padding: 4px 10px; border-radius: 999px; font-size: 12px;
+  border: none; cursor: pointer; font-family: inherit;
+}
+.schemeBadgeDot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+
+.schemeIconBtn {
+  width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--r-sm); background: var(--paper); border: 1px solid var(--hair);
+  color: var(--fg-2); cursor: pointer;
+}
+.schemeIconBtn:hover:not(:disabled) { border-color: var(--fg-3); background: var(--cream); }
+.schemeIconBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+.schemeIconBtn.danger:hover:not(:disabled) { color: var(--red); border-color: var(--red); }
+
+.schemeToggle {
+  width: 38px; height: 21px; border-radius: 999px; border: none; padding: 2px;
+  display: flex; align-items: center; cursor: pointer; transition: background .15s; flex-shrink: 0;
+}
+.schemeToggle .knob { width: 17px; height: 17px; border-radius: 50%; background: #fff; }
+.schemeToggle.on { background: var(--accent); justify-content: flex-end; }
+.schemeToggle.off { background: var(--hair-2); justify-content: flex-start; }
+
+.schemeEmpty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center; padding: 56px 20px; color: var(--fg-3); font-size: 13px;
+}
+
+/* 弹窗面板（编辑器 / 运行明细 / 池管理）*/
+.schemePanel {
+  background: var(--paper); border-radius: var(--r-lg);
+  max-height: calc(100vh - 48px); display: flex; flex-direction: column;
+  overflow: hidden; box-shadow: 0 18px 50px rgba(0, 0, 0, 0.25);
+}
+.schemePanelHead {
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;
+  padding: 18px 24px; border-bottom: 1px solid var(--hair); flex-shrink: 0;
+}
+.schemePanelHead h3 { font-family: var(--serif); font-size: 18px; margin: 0; color: var(--fg); }
+.schemePanelHint { font-size: 12px; color: var(--fg-3); margin: 3px 0 0; }
+.schemePanelBody { padding: 20px 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
+.schemePanelFoot {
+  display: flex; justify-content: flex-end; gap: 12px; align-items: center;
+  padding: 14px 24px; border-top: 1px solid var(--hair); background: var(--cream); flex-shrink: 0;
+}
+
+.schemeFormRow { display: flex; gap: 16px; align-items: flex-end; }
+.schemeField { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; }
+.schemeFieldLabel { font-size: 11px; color: var(--fg-3); }
+
+.schemeLineScroll {
+  max-height: 46vh; overflow-y: auto; display: flex; flex-direction: column; gap: 12px;
+  padding-right: 4px;
+}
+.schemeLineCard {
+  background: var(--sidebar); border: 1px solid var(--hair); border-radius: var(--r);
+  padding: 12px 14px; display: flex; flex-direction: column; gap: 9px;
+}
+.schemeLineHead { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.schemeTypeBadge {
+  padding: 2px 9px; border-radius: 999px; background: var(--accent-soft);
+  color: var(--accent-deep); font-size: 12.5px;
+}
+.schemeLineActions { display: flex; gap: 12px; align-items: center; font-size: 11px; }
+.schemeLineSub { display: flex; gap: 10px; align-items: flex-start; }
+.schemeSubLabel { font-size: 12px; color: var(--fg-2); white-space: nowrap; padding-top: 6px; flex-shrink: 0; }
+.schemeChips { display: flex; flex-wrap: wrap; gap: 7px; flex: 1; min-width: 0; }
+.schemeChip {
+  display: inline-flex; gap: 6px; align-items: center; max-width: 100%;
+  padding: 5px 9px; border-radius: var(--r-sm); font-size: 13px; cursor: pointer;
+  border: 1px solid var(--hair); background: var(--paper); color: var(--fg-2);
+  font-family: inherit;
+}
+.schemeChip.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-deep); }
+.schemeChipText { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.schemeNumBox { width: 56px !important; text-align: center; cursor: text; }
+.schemeLink {
+  color: var(--accent-deep); background: none; border: none; cursor: pointer;
+  font-size: 12px; padding: 0; font-family: inherit;
+}
+
+/* 运行明细 */
+.runSummary { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; font-size: 12px; color: var(--fg-2); }
+.runSummaryItem { display: inline-flex; gap: 5px; align-items: center; }
+.runProgress { height: 6px; border-radius: 999px; background: var(--cream-2); overflow: hidden; }
+.runProgressFill { height: 6px; border-radius: 999px; background: var(--accent); transition: width .3s; }
+.runGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.runTask {
+  display: flex; gap: 11px; align-items: center; padding: 10px 13px;
+  background: var(--paper); border: 1px solid var(--hair); border-radius: var(--r); min-width: 0;
+}
+.runTaskIcon { width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.runTaskInfo { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.runTaskLabel { font-size: 13px; color: var(--fg); }
+.runTaskTpl { font-size: 11px; color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.runTaskRes { font-size: 12px; display: inline-flex; gap: 5px; align-items: center; white-space: nowrap; flex-shrink: 0; }
+
+.runsSwitcher { position: relative; }
+.runsSwitcherBtn {
+  display: inline-flex; gap: 8px; align-items: center; padding: 7px 12px;
+  border-radius: var(--r); background: var(--cream); border: 1px solid var(--hair);
+  cursor: pointer; font-size: 13px; color: var(--fg-2); font-family: inherit;
+}
+.runsPopover {
+  position: absolute; top: 44px; left: 0; z-index: 5; width: 252px;
+  background: var(--paper); border: 1px solid var(--hair); border-radius: var(--r);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18); padding: 6px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.runsPopItem {
+  display: flex; gap: 10px; align-items: center; padding: 8px 10px;
+  border-radius: var(--r-sm); cursor: pointer; border: none; background: none;
+  text-align: left; font-family: inherit;
+}
+.runsPopItem:hover { background: var(--cream); }
+.runsPopItem.active { background: var(--accent-soft); }

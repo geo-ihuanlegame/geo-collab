@@ -662,3 +662,87 @@ def test_maybe_insert_images_fallback_to_old_stock_category_id(monkeypatch):
     # 应当把旧的 stock_category_id 包含进 category_ids，并且 pick_image_id 被调用
     assert 99 in received_ids
     assert count == 1
+
+
+@pytest.mark.mysql
+def test_all_category_contexts_returns_all_buckets(monkeypatch):
+    test_app = build_test_app(monkeypatch)
+    try:
+        from server.app.modules.articles.ai_format import all_category_contexts
+        from server.app.modules.image_library.models import StockCategory
+
+        with test_app.session_factory() as db:
+            db.add(StockCategory(name="王者荣耀", bucket_name="wzry", description="MOBA"))
+            db.add(StockCategory(name="原神", bucket_name="ys", description=None))
+            db.commit()
+
+        with test_app.session_factory() as db:
+            cats = all_category_contexts(db)
+
+        names = {c["name"] for c in cats}
+        assert names == {"王者荣耀", "原神"}
+        assert all(set(c.keys()) == {"id", "name", "description"} for c in cats)
+    finally:
+        test_app.cleanup()
+
+
+@pytest.mark.mysql
+def test_run_ai_format_uses_candidate_categories_when_article_has_none(monkeypatch):
+    test_app = build_test_app(monkeypatch)
+    client = test_app.client
+    try:
+        from server.app.modules.articles import ai_format as aif
+        from server.app.modules.articles.ai_format import run_ai_format
+
+        article = _create_article(
+            client,
+            {
+                "type": "doc",
+                "content": [
+                    {
+                        "type": "paragraph",
+                        "content": [{"type": "text", "text": "王者荣耀是一款 MOBA 手游。"}],
+                    },
+                    {
+                        "type": "paragraph",
+                        "content": [{"type": "text", "text": "它有上百名英雄。"}],
+                    },
+                ],
+            },
+        )
+        article_id = article["id"]
+
+        monkeypatch.setattr(
+            "server.app.modules.articles.ai_format._call_litellm_completion",
+            lambda **kw: _fake_completion(
+                '{"heading_indices": [], "image_positions": [{"index": 1, "category_id": 777}]}'
+            ),
+        )
+        monkeypatch.setattr(aif, "pick_image_id", lambda query, db: 1001)
+        monkeypatch.setattr(
+            aif,
+            "fetch_image_by_id",
+            lambda image_id, db: SimpleNamespace(
+                url="http://img/1001.png", alt="王者荣耀", width=800, height=600
+            ),
+        )
+        inserted = {}
+        monkeypatch.setattr(
+            aif,
+            "insert_images_at_positions",
+            lambda content_json, refs, positions: (
+                inserted.update({"refs": refs, "positions": positions}) or content_json
+            ),
+        )
+        # run_ai_format re-reads settings (get_settings.cache_clear) and requires an
+        # API key before the (mocked) model call. Set it here so the test is hermetic
+        # instead of depending on the dev's ambient GEO_AI_* env (CI has none).
+        monkeypatch.setenv("GEO_AI_FORMAT_API_KEY", "test-key")
+
+        candidate = [{"id": 777, "name": "王者荣耀", "description": "MOBA"}]
+        run_ai_format(article_id, include_images=True, candidate_categories=candidate)
+
+        assert inserted.get("positions") == [1]
+        assert len(inserted.get("refs", [])) == 1
+    finally:
+        test_app.cleanup()

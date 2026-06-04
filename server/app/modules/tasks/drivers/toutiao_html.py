@@ -41,27 +41,33 @@ def body_segments_to_toutiao_html(
     image index); the real upload + token substitution happens later in JS.
 
     Paragraph break = a text segment whose text is exactly "\\n".
-    Headings render as a bold paragraph (no dedicated heading tag).
-    ``data-track`` stays monotonic 1-based across ALL paragraphs, text and
-    placeholder alike.
+    Headings (h1/h2 alike) render as Toutiao's 小标题 node
+    ``<h1 class="pgc-h-forward-slash">`` — the red-dot subheading the DOM driver
+    produces via the editor's "# " input rule; everything else as ``<p>``.
+    ``data-track`` stays monotonic 1-based across ALL paragraphs.
     """
-    paragraphs: list[str] = []
+    # Each entry is (inner_html, is_heading); the heading flag selects the
+    # wrapping tag at the end while data-track stays monotonic across both.
+    paragraphs: list[tuple[str, bool]] = []
     image_order: list[ImageRef] = []
     current: list[str] = []
+    current_is_heading = False
 
     def flush() -> None:
+        nonlocal current_is_heading
         if current:
             joined = "".join(current)
             if joined.strip():
-                paragraphs.append(joined)
+                paragraphs.append((joined, current_is_heading))
         current.clear()
+        current_is_heading = False
 
     for seg in segments:
         if seg.kind == "image":
             flush()
             k = len(image_order)
             token = f"__GEO_IMG_{k}__"
-            paragraphs.append(token)
+            paragraphs.append((token, False))
             image_order.append(
                 ImageRef(
                     token=token,
@@ -76,11 +82,21 @@ def body_segments_to_toutiao_html(
             continue
         if not seg.text:
             continue
-        bold = seg.bold or seg.heading_level is not None
-        current.append(_run_html(seg.text, bold))
+        if seg.heading_level is not None:
+            # 小标题: the heading node supplies the emphasis — don't also bold it.
+            current_is_heading = True
+            current.append(_run_html(seg.text, False))
+        else:
+            current.append(_run_html(seg.text, seg.bold))
     flush()
 
     if not paragraphs:
         raise ToutiaoBodyError("正文为空")
-    html = "".join(f'<p data-track="{i + 1}">{p}</p>' for i, p in enumerate(paragraphs))
-    return html, image_order
+    html_parts: list[str] = []
+    for i, (inner, is_heading) in enumerate(paragraphs):
+        track = i + 1
+        if is_heading:
+            html_parts.append(f'<h1 class="pgc-h-forward-slash" data-track="{track}">{inner}</h1>')
+        else:
+            html_parts.append(f'<p data-track="{track}">{inner}</p>')
+    return "".join(html_parts), image_order
