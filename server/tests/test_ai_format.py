@@ -734,6 +734,10 @@ def test_run_ai_format_uses_candidate_categories_when_article_has_none(monkeypat
                 inserted.update({"refs": refs, "positions": positions}) or content_json
             ),
         )
+        # run_ai_format re-reads settings (get_settings.cache_clear) and requires an
+        # API key before the (mocked) model call. Set it here so the test is hermetic
+        # instead of depending on the dev's ambient GEO_AI_* env (CI has none).
+        monkeypatch.setenv("GEO_AI_FORMAT_API_KEY", "test-key")
 
         candidate = [{"id": 777, "name": "王者荣耀", "description": "MOBA"}]
         run_ai_format(article_id, include_images=True, candidate_categories=candidate)
