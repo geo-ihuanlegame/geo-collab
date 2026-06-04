@@ -1,7 +1,7 @@
 # 发文模块重构设计：页内适配器（In-Page Adapter）方案
 
 - 日期：2026-06-02
-- 状态：设计待评审
+- 状态：✅ 已实现并合并（M1 PR #7 + M2 PR #9 + 修复 `0afc352`）；仅剩 Phase 0 —— 在干净生产网络验证真实 save/publish（开发机 `7050/DOWNGRADE` 为环境性）。默认驱动仍是 DOM，`GEO_TOUTIAO_DRIVER=inpage` 切换启用。
 - 适用范围：`server/app/modules/tasks/drivers/` 发布驱动层
 - 首批落地平台：头条号（验证架构）
 
@@ -190,7 +190,7 @@ worker 抢占记录 → 构建 `PublishPayload` → runner 启动浏览器、导
 3. GPL → 只参考不照抄。
 4. 手动确认时「重发已存草稿」。
 
-待确认项：
+待确认项（注：实现已随 M1 PR #7 / M2 PR #9 落地——封面+正文图上传、`save=1` 真发布、登录加固均已合并并有单测；下列除"干净网络验证 save"外多已解决）：
 
 - ~~Spike 结论（页内 fetch 是否自动签名）→ 决定纯适配器 vs 混合。~~ **已彻底解决（2026-06-02 live 验证）**：页内 XHR 被全局 hook 自动签名且被服务端受理（见 §6「Spike 结论 · phase 3」）。B-direct 成立。
 - ~~新残留：`save=0` 草稿被 `code=7050 保存失败` 拒绝。~~ **已定位（2026-06-02）= 环境性**：编辑器**自己**的原生保存同样 7050，请求头 `x-secsdk-csrf-token: DOWNGRADE`（secsdk 握手退化）。我们的请求与编辑器等价、无 bug。修复在环境层（干净网络 / 重新登录刷新 secsdk）。详见「M2 调查记录」。
