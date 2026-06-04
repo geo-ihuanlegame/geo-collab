@@ -40,3 +40,33 @@ def test_should_skip_unknown_op_treated_as_eq():
     meta = {"condition": {"field": "x", "op": "gt", "value": "1"}}
     assert should_skip(meta, {"x": "1"}) is False
     assert should_skip(meta, {"x": "2"}) is True
+
+
+from server.app.modules.pipelines.snapshot import nodes_to_snapshot, snapshot_to_node_dicts
+
+
+class _FakeNode:
+    def __init__(self, node_type, name, node_index, config, flow_meta):
+        self.node_type, self.name, self.node_index = node_type, name, node_index
+        self.config, self.flow_meta = config, flow_meta
+
+
+def test_snapshot_round_trip_preserves_order_and_fields():
+    nodes = [
+        _FakeNode("input", "源", 0, {"question_text": "Q"}, None),
+        _FakeNode("ai_generate", "生文", 1, {"prompt_template_id": 5, "count": 2},
+                  {"schemaVersion": 1, "inputMapping": [{"from": "question_text", "to": "question_text"}]}),
+    ]
+    snap = nodes_to_snapshot(nodes)
+    assert snap["schemaVersion"] == 1
+    assert [n["node_index"] for n in snap["nodes"]] == [0, 1]
+
+    dicts = snapshot_to_node_dicts(snap)
+    assert dicts[0]["node_type"] == "input"
+    assert dicts[1]["config"]["count"] == 2
+    assert dicts[1]["flow_meta"]["inputMapping"][0]["to"] == "question_text"
+
+
+def test_snapshot_to_node_dicts_handles_empty():
+    assert snapshot_to_node_dicts(None) == []
+    assert snapshot_to_node_dicts({}) == []
