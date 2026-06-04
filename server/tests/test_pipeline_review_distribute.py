@@ -5,6 +5,33 @@ import pytest
 from server.tests.utils import build_test_app
 
 
+def _write_storage_state(data_dir, account_key: str) -> None:
+    state_dir = data_dir / "browser_states" / "toutiao" / account_key
+    state_dir.mkdir(parents=True, exist_ok=True)
+    (state_dir / "storage_state.json").write_text('{"cookies":[],"origins":[]}', encoding="utf-8")
+
+
+def _create_account(client, data_dir, account_key: str, display_name: str) -> int:
+    """复用 test_tasks_api.py 的做法：写 storage_state + /api/accounts/toutiao/login（不开浏览器）。"""
+    _write_storage_state(data_dir, account_key)
+    resp = client.post(
+        "/api/accounts/toutiao/login",
+        json={"display_name": display_name, "account_key": account_key, "use_browser": False},
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()["id"]
+
+
+def _set_review_status(test_app, article_id: int, status: str) -> None:
+    from server.app.modules.articles.models import Article
+
+    with test_app.session_factory() as db:
+        article = db.get(Article, article_id)
+        assert article is not None
+        article.review_status = status
+        db.commit()
+
+
 def _make_article(client, title="文章") -> int:
     resp = client.post(
         "/api/articles",
@@ -140,5 +167,142 @@ def test_pipeline_run_marks_articles_pending_and_groups(monkeypatch):
                 .all()
             )
             assert len(grouped) == 2  # 都进了某个分组
+    finally:
+        test_app.cleanup()
+
+
+@pytest.mark.mysql
+def test_distribute_node_creates_round_robin_task_for_approved_group(monkeypatch):
+    from server.app.modules.tasks.models import PublishTask
+
+    test_app = build_test_app(monkeypatch)
+    client = test_app.client
+    try:
+        # 1) 造 approved 文章 + 分组 + 账号（参照 test_tasks_api.py 的夹具写法）
+        #    新建文章默认 review_status=approved；走 /api/article-groups + items 成组。
+        art1 = _make_article(client, "甲")
+        art2 = _make_article(client, "乙")
+        acc1 = _create_account(client, test_app.data_dir, "account-a", "Account A")
+
+        group = client.post("/api/article-groups", json={"name": "已审核分组"}).json()
+        g = group["id"]
+        upd = client.put(
+            f"/api/article-groups/{g}/items",
+            json={
+                "items": [
+                    {"article_id": art1, "sort_order": 10},
+                    {"article_id": art2, "sort_order": 20},
+                ]
+            },
+        )
+        assert upd.status_code == 200, upd.text
+
+        # 2) 建 article_group_source(g) -> distribute(account_ids=[acc1]) pipeline
+        snapshot = {
+            "schemaVersion": 1,
+            "nodes": [
+                {
+                    "node_type": "article_group_source",
+                    "name": "源",
+                    "node_index": 0,
+                    "config": {"group_id": g},
+                    "flow_meta": None,
+                },
+                {
+                    "node_type": "distribute",
+                    "name": "分发",
+                    "node_index": 1,
+                    "config": {"account_ids": [acc1]},
+                    "flow_meta": {"inputMapping": [{"from": "group_id", "to": "group_id"}]},
+                },
+            ],
+        }
+        pid = client.post("/api/pipelines", json={"name": "分发流"}).json()["id"]
+        client.post(f"/api/pipelines/{pid}/draft", json={"snapshot": snapshot})
+        client.post(f"/api/pipelines/{pid}/publish", json={})
+
+        from server.app.modules.pipelines.executor import create_run, run_pipeline
+        from server.app.modules.pipelines.models import Pipeline
+
+        with test_app.session_factory() as db:
+            p = db.get(Pipeline, pid)
+            run = create_run(db, pipeline_id=p.id, user_id=p.user_id)
+            db.commit()
+            run_id = run.id
+        run_pipeline(run_id, test_app.session_factory)
+
+        run = client.get(f"/api/pipelines/runs/{run_id}").json()
+        assert run["status"] == "done", run
+        assert run["node_results"]["1"].get("task_id")
+        with test_app.session_factory() as db:
+            tasks = db.query(PublishTask).all()
+            assert any(t.task_type == "group_round_robin" for t in tasks)
+    finally:
+        test_app.cleanup()
+
+
+@pytest.mark.mysql
+def test_distribute_node_fails_when_group_has_pending(monkeypatch):
+    from server.app.modules.tasks.models import PublishTask
+
+    test_app = build_test_app(monkeypatch)
+    client = test_app.client
+    try:
+        # 同上夹具，但一篇 article.review_status="pending"（未过审）
+        art1 = _make_article(client, "甲")
+        art2 = _make_article(client, "乙")
+        _set_review_status(test_app, art2, "pending")
+        acc1 = _create_account(client, test_app.data_dir, "account-a", "Account A")
+
+        group = client.post("/api/article-groups", json={"name": "含未审分组"}).json()
+        g = group["id"]
+        upd = client.put(
+            f"/api/article-groups/{g}/items",
+            json={
+                "items": [
+                    {"article_id": art1, "sort_order": 10},
+                    {"article_id": art2, "sort_order": 20},
+                ]
+            },
+        )
+        assert upd.status_code == 200, upd.text
+
+        snapshot = {
+            "schemaVersion": 1,
+            "nodes": [
+                {
+                    "node_type": "article_group_source",
+                    "name": "源",
+                    "node_index": 0,
+                    "config": {"group_id": g},
+                    "flow_meta": None,
+                },
+                {
+                    "node_type": "distribute",
+                    "name": "分发",
+                    "node_index": 1,
+                    "config": {"account_ids": [acc1]},
+                    "flow_meta": {"inputMapping": [{"from": "group_id", "to": "group_id"}]},
+                },
+            ],
+        }
+        pid = client.post("/api/pipelines", json={"name": "门禁流"}).json()["id"]
+        client.post(f"/api/pipelines/{pid}/draft", json={"snapshot": snapshot})
+        client.post(f"/api/pipelines/{pid}/publish", json={})
+
+        from server.app.modules.pipelines.executor import create_run, run_pipeline
+        from server.app.modules.pipelines.models import Pipeline
+
+        with test_app.session_factory() as db:
+            p = db.get(Pipeline, pid)
+            run = create_run(db, pipeline_id=p.id, user_id=p.user_id)
+            db.commit()
+            run_id = run.id
+        run_pipeline(run_id, test_app.session_factory)
+
+        run = client.get(f"/api/pipelines/runs/{run_id}").json()
+        assert run["status"] == "failed", run
+        with test_app.session_factory() as db:
+            assert db.query(PublishTask).count() == 0
     finally:
         test_app.cleanup()
