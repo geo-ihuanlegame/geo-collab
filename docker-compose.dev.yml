@@ -1,0 +1,73 @@
+# 开发用编排：后端在 Docker，前端在宿主 Vite (5173)。
+# 不含 worker / nginx（本地不测发布流程）。生产请用 docker-compose.yml。
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?required}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-geo_collab}
+      MYSQL_USER: ${MYSQL_USER:-geo_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?required}
+    ports:
+      - "127.0.0.1:3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?required}
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - minio_data:/data
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.app
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    env_file:
+      - .env
+    environment:
+      GEO_DB_HOST: mysql
+      GEO_DB_PORT: 3306
+      GEO_DB_USER: ${MYSQL_USER:-geo_user}
+      GEO_DB_PASS: ${MYSQL_PASSWORD}
+      GEO_DB_NAME: ${MYSQL_DATABASE:-geo_collab}
+      GEO_DATA_DIR: /app/data
+      GEO_MINIO_ENDPOINT: minio:9000
+      GEO_MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+      GEO_MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      # Windows bind mount 文件事件不可靠，强制 uvicorn --reload 轮询
+      WATCHFILES_FORCE_POLLING: "true"
+    command: >
+      sh -c "alembic upgrade head &&
+             python -m server.scripts.seed_users &&
+             uvicorn server.app.main:app --host 0.0.0.0 --port 8000 --reload"
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      # 挂载源码实现后端热重载（alembic.ini 仍用镜像内烤好的）
+      - ./server:/app/server
+      - app_data:/app/data
+
+volumes:
+  mysql_data:
+  minio_data:
+  app_data:

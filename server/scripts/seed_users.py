@@ -9,8 +9,18 @@ from __future__ import annotations
 import json
 import os
 
+# 独立运行时必须导入全部模块的 models，否则 SQLAlchemy 配置 mapper 时
+# 解析跨模块 relationship（如 Platform→Account）会因类名未注册而失败。
+import server.app.modules.accounts.models  # noqa: F401,E402
+import server.app.modules.ai_generation.models  # noqa: F401,E402
+import server.app.modules.articles.models  # noqa: F401,E402
+import server.app.modules.audit.models  # noqa: F401,E402
+import server.app.modules.image_library.models  # noqa: F401,E402
+import server.app.modules.prompt_templates.models  # noqa: F401,E402
+import server.app.modules.skills.models  # noqa: F401,E402
+import server.app.modules.tasks.models  # noqa: F401,E402
 from server.app.db.session import SessionLocal
-from server.app.modules.system.models import User
+from server.app.modules.system.models import User  # noqa: E402
 
 
 def main() -> None:
