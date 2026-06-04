@@ -433,12 +433,22 @@ def _call_litellm_completion(
 
 
 def _maybe_insert_images(
-    content_json: dict, parsed: dict, article: Any, db: Any
+    content_json: dict,
+    parsed: dict,
+    article: Any,
+    db: Any,
+    *,
+    available_categories: list[dict[str, Any]] | None = None,
 ) -> tuple[dict, int]:
     if has_images_in_content(content_json):
         return content_json, 0
 
-    category_ids: list[int] = [cat["id"] for cat in _available_categories_for_article(article, db)]
+    cats = (
+        available_categories
+        if available_categories is not None
+        else _available_categories_for_article(article, db)
+    )
+    category_ids: list[int] = [cat["id"] for cat in cats]
     if not category_ids:
         return content_json, 0
 
@@ -514,8 +524,13 @@ def run_ai_format(
     lock_started_at: datetime | None = None,
     preset_id: int | None = None,
     user_id: int | None = None,
+    candidate_categories: list[dict[str, Any]] | None = None,
 ) -> None:
-    """Identify body subheadings and write the updated Tiptap document back to the article."""
+    """Identify body subheadings and write the updated Tiptap document back to the article.
+
+    candidate_categories 非 None 时用它当配图候选栏目（方案自动配图用全部 bucket）；
+    None 时回退到文章已分配的类别（手动 AI 排版按钮的现状行为）。
+    """
     db = None
     error_message: str | None = None
     try:
@@ -547,9 +562,12 @@ def run_ai_format(
                 "AI 排版失败：未配置 API Key，请设置 GEO_AI_FORMAT_API_KEY。"
             )
 
-        available_categories = (
-            _available_categories_for_article(article, db) if include_images else []
-        )
+        if not include_images:
+            available_categories = []
+        elif candidate_categories is not None:
+            available_categories = candidate_categories
+        else:
+            available_categories = _available_categories_for_article(article, db)
         system_prompt = _load_ai_format_prompt(
             db,
             preset_id=preset_id,
@@ -579,7 +597,7 @@ def run_ai_format(
         image_count = 0
         if include_images:
             new_content_json, image_count = _maybe_insert_images(
-                new_content_json, parsed, article, db
+                new_content_json, parsed, article, db, available_categories=available_categories
             )
 
         db.refresh(article)
