@@ -224,6 +224,22 @@ def _available_categories_for_article(article: Any, db: Any | None = None) -> li
     return result
 
 
+def all_category_contexts(db: Any) -> list[dict[str, Any]]:
+    """返回系统里全部图片栏目（StockCategory）的 {id,name,description} 上下文。
+
+    供方案自动配图：候选栏目取全部 bucket（而非文章已分配的类别），
+    让模型按文章游戏内容自行匹配；匹配不上则返回空 image_positions。
+    """
+    from server.app.modules.image_library.models import StockCategory
+
+    result: list[dict[str, Any]] = []
+    for category in db.query(StockCategory).order_by(StockCategory.id.asc()).all():
+        item = _category_context(category)
+        if item is not None:
+            result.append(item)
+    return result
+
+
 def render_ai_format_prompt(
     template_source: str,
     *,

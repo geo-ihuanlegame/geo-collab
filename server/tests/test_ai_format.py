@@ -662,3 +662,25 @@ def test_maybe_insert_images_fallback_to_old_stock_category_id(monkeypatch):
     # 应当把旧的 stock_category_id 包含进 category_ids，并且 pick_image_id 被调用
     assert 99 in received_ids
     assert count == 1
+
+
+@pytest.mark.mysql
+def test_all_category_contexts_returns_all_buckets(monkeypatch):
+    test_app = build_test_app(monkeypatch)
+    try:
+        from server.app.modules.articles.ai_format import all_category_contexts
+        from server.app.modules.image_library.models import StockCategory
+
+        with test_app.session_factory() as db:
+            db.add(StockCategory(name="王者荣耀", bucket_name="wzry", description="MOBA"))
+            db.add(StockCategory(name="原神", bucket_name="ys", description=None))
+            db.commit()
+
+        with test_app.session_factory() as db:
+            cats = all_category_contexts(db)
+
+        names = {c["name"] for c in cats}
+        assert names == {"王者荣耀", "原神"}
+        assert all(set(c.keys()) == {"id", "name", "description"} for c in cats)
+    finally:
+        test_app.cleanup()
