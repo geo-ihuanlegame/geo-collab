@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import os
+import re
 import uuid
 from collections.abc import Callable
 from typing import Any
@@ -20,10 +21,24 @@ _GENERIC_SYSTEM_PROMPT = (
 
 
 def render_question_prompt(template_content: str, question_text: str) -> str:
-    """把问题文本注入模板：有 {{问题}} 占位符则替换，否则追加为 ## 用户问题 编号列表。"""
+    """把问题文本注入模板。
+
+    - 含 {{问题}} 占位符：仅替换占位符（高级用法，问题插入位置由产品自定）。
+    - 不含占位符：把编号问题块前置到模板正文之前，桥接句带问题条数。
+    - 问题为空：只返回模板正文，不插入问题块。
+
+    `question_text` 已由上游（format_question_group / _render_questions）渲染成
+    "1. …\n2. …" 编号列表；这里只负责拼接，不再编号。
+    """
     if _QUESTION_PLACEHOLDER in template_content:
         return template_content.replace(_QUESTION_PLACEHOLDER, question_text)
-    return f"{template_content}\n\n## 用户问题\n\n{question_text}"
+    if not question_text.strip():
+        return template_content
+    n = len(re.findall(r"(?m)^\s*\d+\.", question_text))
+    return (
+        f"基于以下 {n} 个问题，结合参考这些问题生成 1 篇文章：\n\n"
+        f"{question_text}\n\n{template_content}"
+    )
 
 
 def _inject_api_key(api_key: str) -> None:
