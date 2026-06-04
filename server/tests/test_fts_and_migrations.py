@@ -11,7 +11,12 @@ from sqlalchemy import create_engine, inspect, text
 
 from alembic import command
 from server.app.core.config import get_settings
-from server.tests.utils import build_test_app, get_test_database_url, reset_test_database
+from server.tests.utils import (
+    build_test_app,
+    get_test_database_url,
+    invalidate_test_schema,
+    reset_test_database,
+)
 
 
 def _new_temp_data_dir() -> Path:
@@ -56,6 +61,9 @@ def test_search_falls_back_to_like_when_fulltext_index_missing(monkeypatch):
         assert resp.json() == []
     finally:
         test_app.cleanup()
+        # 本测试用裸 SQL DROP 了 ft_articles 索引，标记共享 schema 失效，
+        # 让下个 build_test_app 全量重建（否则后续全文检索测试会缺索引）。
+        invalidate_test_schema()
 
 
 @pytest.mark.mysql

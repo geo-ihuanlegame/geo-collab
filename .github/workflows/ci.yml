@@ -1,7 +1,7 @@
 name: CI
 
-# 每次 push 和 PR 都触发。配合仓库的 branch protection（Settings → Branches）
-# 把本工作流设为 main 分支的 required check，即可实现"红了不准 merge"。
+# 每次 push（main）和 PR 都触发。分支规则 "geo" 要求 backend / frontend 两个必需检查，
+# 所以下面必须保留名为 `backend`、`frontend` 的 job 作为必需上下文。
 on:
   push:
     branches: [main]
@@ -13,15 +13,72 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # ───────────────────────── 后端 ─────────────────────────
-  backend:
+  # ── 改动分类：纯文档改动跳过重活（但 job 仍正常完成并报成功，满足必需检查）──
+  changes:
     runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - 'server/**'
+              - 'web/**'
+              - 'requirements.txt'
+              - 'requirements-dev.txt'
+              - 'pyproject.toml'
+              - 'alembic.ini'
+              - '.github/workflows/**'
+
+  # ── 后端质量门禁：ruff / format / mypy（whole-codebase，不分片，与测试并行）──
+  lint:
+    needs: changes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        if: needs.changes.outputs.code == 'true'
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+      - name: Cache mypy
+        if: needs.changes.outputs.code == 'true'
+        uses: actions/cache@v4
+        with:
+          path: .mypy_cache
+          key: mypy-${{ runner.os }}-py312-${{ hashFiles('server/**/*.py', 'pyproject.toml') }}
+          restore-keys: |
+            mypy-${{ runner.os }}-py312-
+      - name: Ruff lint
+        if: needs.changes.outputs.code == 'true'
+        run: ruff check server/
+      - name: Ruff format check
+        if: needs.changes.outputs.code == 'true'
+        run: ruff format --check server/
+      - name: Mypy
+        if: needs.changes.outputs.code == 'true'
+        run: mypy server/app
+
+  # ── 后端测试：4 片并行，各自带独立 MySQL service（天然隔离）。pytest-split 均分。──
+  # 本 job 的 check 名是 "backend-tests (N)"，非必需；必需的 "backend" 由下方聚合 job 产出。
+  backend-tests:
+    needs: changes
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     env:
-      # 后端工具/测试输出含中文；统一 UTF-8 避免编码相关报错
       PYTHONIOENCODING: utf-8
       PYTHONUTF8: "1"
     services:
-      # CI 临时起一个 MySQL 8（含 ngram 全文检索支持），测试结束即销毁
       mysql:
         image: mysql:8.0
         env:
@@ -36,65 +93,64 @@ jobs:
           --health-retries=15
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
-
       - name: Install dependencies
+        if: needs.changes.outputs.code == 'true'
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt -r requirements-dev.txt
-
-      # ── 质量检查：存量告警已清零，现为硬门禁（红了即 fail，不准 merge）──
-      - name: Ruff lint
-        run: ruff check server/
-
-      - name: Ruff format check
-        run: ruff format --check server/
-
-      - name: Mypy
-        run: mypy server/app
-
-      # ── 硬门禁：测试必须通过 ──
-      - name: Pytest
+      - name: Pytest (shard ${{ matrix.shard }}/4)
+        if: needs.changes.outputs.code == 'true'
         env:
           GEO_TEST_DATABASE_URL: mysql+pymysql://root:testpw@127.0.0.1:3306/geo_test
           GEO_JWT_SECRET: ci-test-secret-not-for-prod
-          # Some code paths read GEO_DATA_DIR from the environment directly
-          # (e.g. background threads that don't see the test's patched settings).
           GEO_DATA_DIR: ${{ runner.temp }}/geo-data
-        # --timeout: any test hung >120s fails fast (safety net for thread tests).
-        # --cov: report coverage (informational; does not fail the build yet).
-        run: pytest server/tests/ -q --timeout=120 --cov=server/app --cov-report=term-missing
+        # --timeout：任何测试卡死 >120s 直接失败（线程类测试的安全网）
+        # --splits/--group：把测试集均分到 4 片，本 job 只跑第 N 片
+        run: pytest server/tests/ -q --timeout=120 --splits 4 --group ${{ matrix.shard }}
 
-  # ───────────────────────── 前端 ─────────────────────────
+  # ── 必需检查 "backend"：聚合 lint + 4 个测试分片的结果。任一失败则失败。──
+  backend:
+    needs: [changes, lint, backend-tests]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Gate on lint + test shards
+        run: |
+          echo "lint=${{ needs.lint.result }}  backend-tests=${{ needs.backend-tests.result }}"
+          if [ "${{ needs.lint.result }}" != "success" ] || [ "${{ needs.backend-tests.result }}" != "success" ]; then
+            echo "::error::backend gate failed (lint or one of the test shards did not succeed)"
+            exit 1
+          fi
+          echo "backend gate passed"
+
+  # ── 前端：类型检查 + 构建（必需检查）。纯文档改动时跳过重活但 job 仍报成功。──
   frontend:
+    needs: changes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: pnpm/action-setup@v4
         with:
           version: "10.4.0"
-
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
           cache: pnpm
-
       - name: Install dependencies
+        if: needs.changes.outputs.code == 'true'
         run: pnpm install --frozen-lockfile
-
-      # 非阻塞：清掉当前 7 个 lint error 后，删掉 continue-on-error 即变硬门禁
+      # 非阻塞：清掉存量 lint error 后，删掉 continue-on-error 即变硬门禁
       - name: ESLint (non-blocking)
+        if: needs.changes.outputs.code == 'true'
         continue-on-error: true
         run: pnpm --filter @geo/web lint
-
-      # ── 硬门禁：类型检查 + 构建必须通过（当前已验证通过）──
       - name: Typecheck
+        if: needs.changes.outputs.code == 'true'
         run: pnpm --filter @geo/web typecheck
-
       - name: Build
+        if: needs.changes.outputs.code == 'true'
         run: pnpm --filter @geo/web build
