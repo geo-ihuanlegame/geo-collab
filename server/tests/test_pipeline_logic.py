@@ -1,4 +1,9 @@
+import pytest
+
 from server.app.modules.pipelines.flow_meta import apply_input_mapping, should_skip
+from server.app.modules.pipelines.nodes import base as node_base
+from server.app.modules.pipelines.snapshot import nodes_to_snapshot, snapshot_to_node_dicts
+from server.app.shared.errors import ValidationError
 
 
 def test_apply_input_mapping_copies_upstream_to_target_names():
@@ -42,9 +47,6 @@ def test_should_skip_unknown_op_treated_as_eq():
     assert should_skip(meta, {"x": "2"}) is True
 
 
-from server.app.modules.pipelines.snapshot import nodes_to_snapshot, snapshot_to_node_dicts
-
-
 class _FakeNode:
     def __init__(self, node_type, name, node_index, config, flow_meta):
         self.node_type, self.name, self.node_index = node_type, name, node_index
@@ -70,11 +72,6 @@ def test_snapshot_round_trip_preserves_order_and_fields():
 def test_snapshot_to_node_dicts_handles_empty():
     assert snapshot_to_node_dicts(None) == []
     assert snapshot_to_node_dicts({}) == []
-
-
-import pytest
-from server.app.modules.pipelines.nodes import base as node_base
-from server.app.shared.errors import ValidationError
 
 
 def test_registry_register_and_get():
