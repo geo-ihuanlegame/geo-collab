@@ -299,6 +299,84 @@ def test_update_scheme_replaces_lines_and_snapshots(monkeypatch):
         app.cleanup()
 
 
+def test_update_scheme_with_prior_run_tasks_succeeds(monkeypatch):
+    """编辑「已运行过」的方案不应 500：删旧行前要先断开 run task 的 scheme_line_id 外键。
+
+    run task 的 scheme_line_id 是 FK→generation_scheme_lines（MySQL 默认 RESTRICT）。
+    若不先置 NULL，删行会触发 1451 → 未捕获 IntegrityError → 500。
+    运行明细是只读快照，断开回指针应保留历史、不丢数据。
+    """
+    from server.app.modules.ai_generation.models import (
+        GenerationSchemeRun,
+        GenerationSchemeRunTask,
+    )
+
+    app = build_test_app(monkeypatch)
+    try:
+        pool_id, items, uid = _seed_pool_with_types(app)
+        tpls = _seed_templates(app, uid)
+        good = tpls["good"]
+        r = app.client.post(
+            "/api/generation/schemes",
+            json={
+                "name": "s",
+                "pool_id": pool_id,
+                "lines": [
+                    {
+                        "question_type": "A",
+                        "question_item_ids": [items["a1"], items["a2"]],
+                        "article_count": 2,
+                        "allowed_prompt_template_ids": [good],
+                    }
+                ],
+            },
+        )
+        assert r.status_code == 201, r.text
+        sid = r.json()["id"]
+        line_id = r.json()["lines"][0]["id"]
+
+        # 模拟该方案被运行过：插一条 run + 引用该行的 run task
+        with app.session_factory() as db:
+            run = GenerationSchemeRun(scheme_id=sid, user_id=uid, status="done")
+            db.add(run)
+            db.flush()
+            task = GenerationSchemeRunTask(
+                run_id=run.id,
+                scheme_line_id=line_id,
+                question_type="A",
+                status="done",
+            )
+            db.add(task)
+            db.commit()
+            task_id = task.id
+
+        # 编辑方案（重建行）——修复前这里 500，修复后 200
+        r2 = app.client.put(
+            f"/api/generation/schemes/{sid}",
+            json={
+                "name": "s2",
+                "lines": [
+                    {
+                        "question_type": "B",
+                        "question_item_ids": [items["b1"]],
+                        "article_count": 5,
+                        "allowed_prompt_template_ids": [good],
+                    }
+                ],
+            },
+        )
+        assert r2.status_code == 200, r2.text
+        assert r2.json()["lines"][0]["question_type"] == "B"
+
+        # 运行历史保留，但回指针已断开（scheme_line_id 置 NULL）
+        with app.session_factory() as db:
+            t = db.get(GenerationSchemeRunTask, task_id)
+            assert t is not None, "运行明细不应被删除"
+            assert t.scheme_line_id is None, "应已断开对已删行的外键引用"
+    finally:
+        app.cleanup()
+
+
 # ── AI 引擎字段 ────────────────────────────────────────────────────────────────
 
 

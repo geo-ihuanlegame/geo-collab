@@ -15,6 +15,7 @@ from server.app.modules.ai_generation.models import (
     GenerationScheme,
     GenerationSchemeLine,
     GenerationSchemeLineQuestion,
+    GenerationSchemeRunTask,
     QuestionItem,
 )
 from server.app.modules.ai_generation.schemas import SchemeCreate, SchemeLineInput, SchemeUpdate
@@ -201,6 +202,12 @@ def update_scheme(
     ]
     old_line_ids = [ln.id for ln in get_lines(db, scheme.id)]
     if old_line_ids:
+        # 历次运行明细可能仍外键引用这些行（scheme_line_id, MySQL FK 默认 RESTRICT）。
+        # 删行前先把引用置 NULL，否则 1451 → 未捕获 IntegrityError → 500。
+        # 运行明细只读快照（question_type/question_text/... 已冗余），断开回指针不丢数据。
+        db.query(GenerationSchemeRunTask).filter(
+            GenerationSchemeRunTask.scheme_line_id.in_(old_line_ids)
+        ).update({GenerationSchemeRunTask.scheme_line_id: None}, synchronize_session=False)
         db.query(GenerationSchemeLineQuestion).filter(
             GenerationSchemeLineQuestion.scheme_line_id.in_(old_line_ids)
         ).delete(synchronize_session=False)
