@@ -5,3 +5,4 @@ ruff==0.15.15
 mypy==2.1.0
 pytest-cov==6.0.0       # coverage measurement (pytest --cov)
 pytest-timeout==2.3.1   # fail a hung test after N seconds instead of burning CI for hours
+pytest-split==0.11.0    # 把测试集均分到 N 个并行分片（CI 用 --splits/--group 加速）

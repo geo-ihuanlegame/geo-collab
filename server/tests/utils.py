@@ -16,6 +16,11 @@ from sqlalchemy.orm import Session, sessionmaker
 from server.app.core.config import get_settings
 from server.app.db.base import Base
 
+# 共享 schema 缓存：首个 build_test_app 建一次表，其后测试间用 TRUNCATE 清数据，
+# 不再每个测试都 DROP+CREATE 全部表（慢）。任何全量重置 / 裸 DDL 改 schema 都会把它
+# 标记失效（reset_test_database / invalidate_test_schema），下个 build_test_app 会重建。
+_schema_ready = False
+
 
 class TestApp:
     def __init__(
@@ -31,7 +36,8 @@ class TestApp:
         self.engine = engine
 
     def cleanup(self) -> None:
-        reset_test_database(self.engine)
+        # 不再 reset 数据库：下个 build_test_app 会按需 TRUNCATE / 重建，省掉一次全量 DDL。
+        # schema 持久在库里、不随 engine 释放而消失。
         self.engine.dispose()
         shutil.rmtree(self.data_dir, ignore_errors=True)
         get_settings.cache_clear()
@@ -55,17 +61,8 @@ def get_test_database_url() -> str:
     return url
 
 
-def build_test_engine() -> Engine:
-    engine = create_engine(
-        get_test_database_url(),
-        pool_pre_ping=True,
-        connect_args={"init_command": "SET SESSION time_zone='+00:00'"},
-    )
-    reset_test_database(engine)
-    return engine
-
-
-def reset_test_database(engine: Engine, *, create_schema: bool = True) -> None:
+def _model_modules() -> None:
+    """import 所有 ORM 模块，确保 Base.metadata 完整（建表 / TRUNCATE 都依赖它）。"""
     import server.app.modules.accounts.models  # noqa: F401
     import server.app.modules.ai_generation.models  # noqa: F401
     import server.app.modules.articles.models  # noqa: F401
@@ -75,6 +72,31 @@ def reset_test_database(engine: Engine, *, create_schema: bool = True) -> None:
     import server.app.modules.skills.models  # noqa: F401
     import server.app.modules.system.models  # noqa: F401
     import server.app.modules.tasks.models  # noqa: F401
+
+
+def _make_engine() -> Engine:
+    return create_engine(
+        get_test_database_url(),
+        pool_pre_ping=True,
+        connect_args={"init_command": "SET SESSION time_zone='+00:00'"},
+    )
+
+
+def build_test_engine() -> Engine:
+    """全新 engine + 全量重置 schema。供需要自管 schema 生命周期的测试用
+    （如 test_models / test_fts_and_migrations 的迁移用例）。"""
+    engine = _make_engine()
+    reset_test_database(engine)
+    return engine
+
+
+def reset_test_database(engine: Engine, *, create_schema: bool = True) -> None:
+    """DROP 全部表（+ alembic_version），可选重建 schema + 全文索引。
+
+    任何调用都把共享 schema 缓存标记失效——因为它把库重置成了已知/空状态，
+    下个 build_test_app 必须重新确认 schema（重建后再缓存）。"""
+    global _schema_ready
+    _model_modules()
 
     with engine.connect() as conn:
         conn.execute(sa.text("SET FOREIGN_KEY_CHECKS=0"))
@@ -92,6 +114,38 @@ def reset_test_database(engine: Engine, *, create_schema: bool = True) -> None:
         finally:
             conn.execute(sa.text("SET FOREIGN_KEY_CHECKS=1"))
         conn.commit()
+
+    _schema_ready = False
+
+
+def _truncate_all(engine: Engine) -> None:
+    """清空所有表的数据（保留 schema / 索引），比 DROP+CREATE 快。
+    TRUNCATE 会重置 AUTO_INCREMENT，等价于新建表的 id 行为，依赖 id=1 的测试不受影响。"""
+    _model_modules()
+    with engine.connect() as conn:
+        conn.execute(sa.text("SET FOREIGN_KEY_CHECKS=0"))
+        try:
+            for table in Base.metadata.sorted_tables:
+                conn.execute(sa.text(f"TRUNCATE TABLE `{table.name}`"))
+        finally:
+            conn.execute(sa.text("SET FOREIGN_KEY_CHECKS=1"))
+        conn.commit()
+
+
+def _ensure_clean_db(engine: Engine) -> None:
+    """给 build_test_app 用：首次（或 schema 失效后）全量重建并缓存；之后只 TRUNCATE。"""
+    global _schema_ready
+    if _schema_ready:
+        _truncate_all(engine)
+    else:
+        reset_test_database(engine, create_schema=True)  # 内部会置 _schema_ready=False
+        _schema_ready = True
+
+
+def invalidate_test_schema() -> None:
+    """测试若用裸 DDL 改了 schema（如 DROP INDEX），调用本函数让下个 build_test_app 重建。"""
+    global _schema_ready
+    _schema_ready = False
 
 
 def build_test_app(monkeypatch) -> TestApp:
@@ -118,7 +172,8 @@ def build_test_app(monkeypatch) -> TestApp:
 
     _security_mod._reset_user_cache()
 
-    engine = build_test_engine()
+    engine = _make_engine()
+    _ensure_clean_db(engine)
     TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
     def override_get_db():

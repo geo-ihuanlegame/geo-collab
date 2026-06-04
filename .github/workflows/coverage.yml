@@ -1,0 +1,55 @@
+name: Coverage (nightly)
+
+# 覆盖率从 PR 门禁里挪出来：不卡合并，单独每日跑一次（也可手动触发）。
+# 这样 PR 的 backend 门禁不必为 coverage 插桩付时间。
+on:
+  schedule:
+    - cron: "0 18 * * *"   # 每天 UTC 18:00 ≈ 北京 02:00
+  workflow_dispatch:
+
+concurrency:
+  group: coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: "1"
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: testpw
+          MYSQL_DATABASE: geo_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -ptestpw"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+      - name: Pytest with coverage（全量，不分片）
+        env:
+          GEO_TEST_DATABASE_URL: mysql+pymysql://root:testpw@127.0.0.1:3306/geo_test
+          GEO_JWT_SECRET: ci-test-secret-not-for-prod
+          GEO_DATA_DIR: ${{ runner.temp }}/geo-data
+        run: pytest server/tests/ -q --timeout=120 --cov=server/app --cov-report=term-missing --cov-report=xml
+      - name: Upload coverage xml
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: ignore
