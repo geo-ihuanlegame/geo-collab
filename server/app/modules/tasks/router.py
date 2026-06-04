@@ -34,8 +34,10 @@ from server.app.modules.tasks import (
 )
 from server.app.modules.tasks.models import PublishRecord, PublishTask
 from server.app.modules.tasks.schemas import (
+    AutoDistributeRequest,
     ManualConfirmInput,
     PublishRecordRead,
+    TaskAccountInput,
     TaskAssignmentPreviewRead,
     TaskCreate,
     TaskLogRead,
@@ -121,6 +123,51 @@ def create_task_endpoint(
         raise HTTPException(
             status_code=409, detail="请求冲突：client_request_id 已存在或数据完整性约束失败"
         ) from exc
+
+
+@tasks_router.post("/auto-distribute", response_model=TaskRead)
+def auto_distribute_endpoint(
+    payload: AutoDistributeRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> TaskRead:
+    is_group = payload.group_id is not None
+    target_label = f"分组 {payload.group_id}" if is_group else f"文章 {payload.article_id}"
+    task_create = TaskCreate(
+        name=payload.name or f"自动分发 {target_label}",
+        task_type="group_round_robin" if is_group else "single",
+        article_id=payload.article_id,
+        group_id=payload.group_id,
+        accounts=[
+            TaskAccountInput(account_id=account_id, sort_order=index)
+            for index, account_id in enumerate(payload.account_ids)
+        ],
+        stop_before_publish=False,
+    )
+    # 审核门禁 + 账号有效性校验都在 create_task 内部执行（抛命名异常 → 全局映射 400）。
+    new_task = create_task(db, current_user.id, task_create, role=current_user.role)
+    db.commit()
+
+    add_audit_entry(
+        db,
+        user=current_user,
+        action="task.auto_distribute",
+        target_type="task",
+        target_id=new_task.id,
+        payload={
+            "name": task_create.name,
+            "article_id": payload.article_id,
+            "group_id": payload.group_id,
+            "account_ids": list(payload.account_ids),
+        },
+        request=request,
+    )
+
+    # 触发后台执行（与 POST /api/tasks/{id}/execute 同一条懒加载 bg_session_factory 路径）。
+    _start_background_execute(new_task.id)
+
+    return to_task_read(new_task)
 
 
 @tasks_router.post("/preview", response_model=TaskAssignmentPreviewRead)

@@ -8,6 +8,10 @@ from server.app.modules.articles.parser import (  # noqa: F401
 )
 from server.app.modules.articles.service import (  # noqa: F401
     VALID_ARTICLE_STATUSES,
+    VALID_REVIEW_STATUSES,
+    approve_article,
+    approve_group,
+    compute_group_review_summary,
     create_article,
     create_group,
     delete_article,
@@ -18,6 +22,7 @@ from server.app.modules.articles.service import (  # noqa: F401
     list_articles,
     list_groups,
     replace_group_items,
+    revoke_article_approval,
     set_article_cover,
     sync_article_body_assets,
     update_article,

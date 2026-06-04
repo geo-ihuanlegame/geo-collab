@@ -68,3 +68,15 @@ export function triggerAiFormat(articleId: number, payload?: { preset_id?: numbe
     body: JSON.stringify(payload ?? {}),
   });
 }
+
+export function approveArticle(articleId: number): Promise<Article> {
+  return api<Article>(`/api/articles/${articleId}/approve`, { method: "POST" });
+}
+
+export function revokeArticleApproval(articleId: number): Promise<Article> {
+  return api<Article>(`/api/articles/${articleId}/revoke-approval`, { method: "POST" });
+}
+
+export function approveGroup(groupId: number): Promise<ArticleGroup> {
+  return api<ArticleGroup>(`/api/article-groups/${groupId}/approve-all`, { method: "POST" });
+}

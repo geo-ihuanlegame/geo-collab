@@ -32,6 +32,7 @@ from server.app.shared.errors import ClientError, ConflictError
 _logger = logging.getLogger(__name__)
 
 VALID_ARTICLE_STATUSES = {"draft", "ready", "archived"}
+VALID_REVIEW_STATUSES = {"pending", "approved"}
 
 
 def validate_article_status(status: str) -> None:
@@ -92,10 +93,13 @@ def list_articles(
     skip: int = 0,
     limit: int = 50,
     user_id: int | None = None,
+    review_status: str | None = None,
 ) -> list[Article]:
     if query and len(query) >= 3:
         try:
             matching = _search_articles(db, query, user_id=user_id)
+            if review_status is not None:
+                matching = [a for a in matching if a.review_status == review_status]
             if not matching:
                 return []
             matching.sort(key=lambda a: a.updated_at, reverse=True)
@@ -123,6 +127,9 @@ def list_articles(
 
     if user_id is not None:
         stmt = stmt.where(Article.user_id == user_id)
+
+    if review_status is not None:
+        stmt = stmt.where(Article.review_status == review_status)
 
     if query:
         like = f"%{query}%"
@@ -264,6 +271,40 @@ def delete_article(db: Session, article: Article) -> None:
     db.flush()
 
 
+# --- Article review (审核) ---
+
+
+def _get_owned_article(db: Session, article_id: int, user_id: int, role: str) -> Article:
+    """按所有权取文章；非 admin 只能取自己的。找不到 / 越权 → ClientError(404 语义)。"""
+    article = get_article(db, article_id)
+    if article is None or (role != "admin" and article.user_id != user_id):
+        raise ClientError("文章不存在")
+    return article
+
+
+def _set_article_review_status(article: Article, review_status: str) -> Article:
+    article.review_status = review_status
+    article.version += 1
+    article.updated_at = utcnow()
+    return article
+
+
+def approve_article(db: Session, article_id: int, user_id: int, role: str) -> Article:
+    """通过审核：置 review_status='approved'，version+1。"""
+    article = _get_owned_article(db, article_id, user_id, role)
+    _set_article_review_status(article, "approved")
+    db.flush()
+    return get_article(db, article.id) or article
+
+
+def revoke_article_approval(db: Session, article_id: int, user_id: int, role: str) -> Article:
+    """撤销审核：打回 review_status='pending'，version+1。"""
+    article = _get_owned_article(db, article_id, user_id, role)
+    _set_article_review_status(article, "pending")
+    db.flush()
+    return get_article(db, article.id) or article
+
+
 # --- Article Group CRUD ---
 
 
@@ -381,3 +422,51 @@ def delete_group(db: Session, group: ArticleGroup) -> None:
     group.deleted_at = utcnow()
     group.updated_at = utcnow()
     db.flush()
+
+
+# --- Article group review (整组审核) ---
+
+
+def compute_group_review_summary(db: Session, group_id: int) -> tuple[int, int]:
+    """返回 (total, approved)：组内未删除文章总数 / 已审核数。
+
+    「整组已审核」由调用方判断：approved == total and total > 0。
+    """
+    base = (
+        select(ArticleGroupItem.article_id)
+        .join(Article, Article.id == ArticleGroupItem.article_id)
+        .where(
+            ArticleGroupItem.group_id == group_id,
+            Article.is_deleted == False,  # noqa: E712
+        )
+    )
+    total = db.execute(select(func.count()).select_from(base.subquery())).scalar_one()
+    approved = db.execute(
+        select(func.count()).select_from(base.where(Article.review_status == "approved").subquery())
+    ).scalar_one()
+    return int(total), int(approved)
+
+
+def approve_group(db: Session, group_id: int, user_id: int, role: str) -> ArticleGroup:
+    """把组内所有未删除文章置 review_status='approved'（version+1）。"""
+    group = get_group(db, group_id)
+    if group is None or (role != "admin" and group.user_id != user_id):
+        raise ClientError("文章分组不存在")
+
+    article_ids = [item.article_id for item in group.items]
+    if article_ids:
+        articles = list(
+            db.execute(
+                select(Article).where(
+                    Article.id.in_(article_ids),
+                    Article.is_deleted == False,  # noqa: E712
+                    Article.review_status != "approved",
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for article in articles:
+            _set_article_review_status(article, "approved")
+        db.flush()
+    return get_group(db, group_id) or group

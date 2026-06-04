@@ -104,6 +104,7 @@ class ArticleListRead(BaseModel):
     word_count: int
     status: str
     version: int
+    review_status: str  # pending / approved
     published_count: int = 0
     created_at: datetime
     updated_at: datetime
@@ -120,6 +121,7 @@ class ArticleRead(BaseModel):
     word_count: int
     status: str
     version: int
+    review_status: str  # pending / approved
     body_assets: list[ArticleBodyAssetRead]
     published_count: int = 0  # 成功发布次数
     stock_category_id: int | None = None
@@ -163,12 +165,20 @@ class ArticleGroupItemRead(BaseModel):
     sort_order: int
 
 
+class ReviewSummary(BaseModel):
+    """组内未删除文章的审核进度统计。整组已审核 = approved == total and total > 0。"""
+
+    total: int = 0
+    approved: int = 0
+
+
 class ArticleGroupRead(BaseModel):
     id: int
     name: str
     description: str | None
     version: int
     items: list[ArticleGroupItemRead]
+    review_summary: ReviewSummary = Field(default_factory=ReviewSummary)
     created_at: datetime
     updated_at: datetime
 
@@ -191,6 +201,7 @@ def to_article_read(article: "Article", published_count: int = 0) -> ArticleRead
         word_count=article.word_count,
         status=article.status,
         version=article.version,
+        review_status=article.review_status,
         published_count=published_count,
         body_assets=[
             ArticleBodyAssetRead(
@@ -209,7 +220,9 @@ def to_article_read(article: "Article", published_count: int = 0) -> ArticleRead
     )
 
 
-def to_group_read(group: "ArticleGroup") -> ArticleGroupRead:
+def to_group_read(
+    group: "ArticleGroup", review_summary: ReviewSummary | None = None
+) -> ArticleGroupRead:
     items = sorted(group.items, key=lambda item: item.sort_order)
     return ArticleGroupRead(
         id=group.id,
@@ -223,6 +236,7 @@ def to_group_read(group: "ArticleGroup") -> ArticleGroupRead:
             )
             for item in items
         ],
+        review_summary=review_summary or ReviewSummary(),
         created_at=group.created_at,
         updated_at=group.updated_at,
     )

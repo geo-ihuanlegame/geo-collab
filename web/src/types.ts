@@ -171,6 +171,8 @@ export type ArticleBodyAsset = {
   editor_node_id: string | null;
 };
 
+export type ReviewStatus = "pending" | "approved";
+
 export type ArticleSummary = {
   id: number;
   title: string;
@@ -180,6 +182,7 @@ export type ArticleSummary = {
   status: string;
   version: number;
   published_count: number;
+  review_status: ReviewStatus;
   created_at: string;
   updated_at: string;
 };
@@ -196,11 +199,17 @@ export type Article = ArticleSummary & {
   ai_format_error: string | null;
 };
 
+export type ArticleReviewSummary = {
+  total: number;
+  approved: number;
+};
+
 export type ArticleGroup = {
   id: number;
   name: string;
   items: { article_id: number; sort_order: number }[];
   version: number;
+  review_summary?: ArticleReviewSummary;
   created_at: string;
   updated_at: string;
 };
@@ -400,6 +409,13 @@ export type TaskCreatePayload = {
   accounts: { account_id: number; sort_order: number }[];
   stop_before_publish?: boolean;
   platform_code?: string;
+};
+
+export type AutoDistributePayload = {
+  article_id?: number;
+  group_id?: number;
+  account_ids: number[];
+  name?: string;
 };
 
 export type PlatformLoginPayload = {

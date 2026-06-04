@@ -90,6 +90,9 @@ class Article(Base):
     __tablename__ = "articles"
     __table_args__ = (
         CheckConstraint("status in ('draft', 'ready', 'archived')", name="ck_articles_status"),
+        CheckConstraint(
+            "review_status in ('pending', 'approved')", name="ck_articles_review_status"
+        ),
         UniqueConstraint("user_id", "client_request_id", name="uq_articles_user_client_request_id"),
     )
 
@@ -105,6 +108,11 @@ class Article(Base):
     status: Mapped[str] = mapped_column(
         String(30), default="draft", index=True
     )  # draft / ready / archived
+    # 审核状态：pending=未审核 / approved=已审核。默认 approved（既有+手工内容视为已审）；
+    # AI 方案生成的文章由 scheme_executor 显式置 pending。未过审不可发布。
+    review_status: Mapped[str] = mapped_column(
+        String(20), default="approved", server_default="approved", index=True
+    )
     client_request_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
     ai_checking: Mapped[bool] = mapped_column(

@@ -9,7 +9,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, model_validator
 
 if TYPE_CHECKING:
     from server.app.modules.tasks.models import PublishRecord, PublishTask, TaskLog
@@ -32,6 +32,19 @@ class TaskCreate(BaseModel):
     platform_code: str = "toutiao"
     accounts: list[TaskAccountInput]
     stop_before_publish: bool = False
+
+
+class AutoDistributeRequest(BaseModel):
+    article_id: int | None = None
+    group_id: int | None = None
+    account_ids: list[int]
+    name: str | None = None
+
+    @model_validator(mode="after")
+    def _exactly_one_target(self) -> "AutoDistributeRequest":
+        if (self.article_id is None) == (self.group_id is None):
+            raise ValueError("必须且只能提供 article_id 或 group_id 其中之一")
+        return self
 
 
 class ManualConfirmInput(BaseModel):

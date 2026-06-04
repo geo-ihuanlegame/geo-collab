@@ -171,6 +171,8 @@ def _execute_task(
 
     # 生文成功后自动 AI 排版 + 全 bucket 智能配图（best-effort，不影响 task 结果）
     _auto_format_article(article_id, user_id, session_factory)
+    # [临时] 封面兜底：从 cantingyangchengji bucket 随机取图当封面（后期删除本行 + _assign_temp_cover_from_bucket）
+    _assign_temp_cover_from_bucket(article_id, user_id, session_factory)
     return article_id
 
 
@@ -209,6 +211,7 @@ def run_scheme(run_id: int, session_factory: SessionFactory) -> None:
                     logger.exception("scheme run task %s crashed", futures[future])
 
     _aggregate_run(run_id, session_factory)
+    _group_run_articles(run_id, session_factory)
 
 
 def _aggregate_run(run_id: int, session_factory: SessionFactory) -> None:
@@ -237,6 +240,91 @@ def _aggregate_run(run_id: int, session_factory: SessionFactory) -> None:
         db.commit()
     finally:
         db.close()
+
+
+def _group_run_articles(run_id: int, session_factory: SessionFactory) -> None:
+    """方案运行产出文章：标记为未审核（pending）+ 全部归入一个新的方案组。
+
+    best-effort：成组 / 标记失败只记日志，绝不影响已汇总的 run 状态。
+    用独立 DB session（session 非线程安全），本线程内 commit + close。
+    名称撞 (user_id, name) 唯一约束时追加 ` #{run.id}`（schema-from-models 测试库有该约束，
+    迁移 0021 在生产库已 drop —— 两边行为不同，所以这里既防 collision 又兜 IntegrityError）。
+    """
+    try:
+        from sqlalchemy.exc import IntegrityError
+
+        from server.app.modules.articles.models import (
+            Article,
+            ArticleGroup,
+            ArticleGroupItem,
+        )
+
+        db = session_factory()
+        try:
+            run = db.get(GenerationSchemeRun, run_id)
+            if run is None:
+                return
+            article_ids = list(run.article_ids or [])
+            if not article_ids:
+                return
+            user_id = run.user_id
+
+            # 1. 标记生成文章为未审核（AI 内容必须审核）
+            for aid in article_ids:
+                article = db.get(Article, aid)
+                if article is not None:
+                    article.review_status = "pending"
+
+            # 2. 组名：created_at + 方案名
+            scheme = db.get(GenerationScheme, run.scheme_id)
+            scheme_name = scheme.name if scheme is not None else f"方案 {run.scheme_id}"
+            base_name = f"{run.created_at:%Y/%m/%d %H:%M} · {scheme_name}"
+
+            # 同名防御：已存在同名（同 user，未删）→ 直接带后缀建
+            exists = (
+                db.query(ArticleGroup.id)
+                .filter(
+                    ArticleGroup.user_id == user_id,
+                    ArticleGroup.name == base_name,
+                    ArticleGroup.is_deleted.is_(False),
+                )
+                .first()
+            )
+            name = f"{base_name} #{run.id}" if exists is not None else base_name
+
+            group = ArticleGroup(user_id=user_id, name=name)
+            db.add(group)
+            try:
+                db.flush()
+            except IntegrityError:
+                # 唯一约束兜底：重试一次带后缀的名字
+                db.rollback()
+                run = db.get(GenerationSchemeRun, run_id)
+                article_ids = list(run.article_ids or []) if run is not None else []
+                if not article_ids:
+                    return
+                for aid in article_ids:
+                    article = db.get(Article, aid)
+                    if article is not None:
+                        article.review_status = "pending"
+                group = ArticleGroup(user_id=user_id, name=f"{base_name} #{run_id}")
+                db.add(group)
+                db.flush()
+
+            # 3. 按 article_ids 顺序加入分组
+            for idx, aid in enumerate(article_ids):
+                db.add(ArticleGroupItem(group_id=group.id, article_id=aid, sort_order=idx))
+            db.commit()
+            logger.info(
+                "scheme run %s grouped %s articles into group %s (pending)",
+                run_id,
+                len(article_ids),
+                group.id,
+            )
+        finally:
+            db.close()
+    except Exception:  # noqa: BLE001 — 成组 / 标 pending 失败不影响 run 状态
+        logger.exception("group_run_articles failed for run %s", run_id)
 
 
 def _auto_format_article(
@@ -284,3 +372,74 @@ def _auto_format_article(
         )
     except Exception:  # noqa: BLE001 — 自动排版失败不影响生文结果
         logger.exception("auto ai_format failed for article %s", article_id)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# [临时] 封面兜底
+#
+# 封面图目前没有自动生成逻辑。在接入真正的封面方案之前，先从 cantingyangchengji
+# （餐厅养成记）bucket 随机取一张图当封面。后期删除整段（常量 + 函数 + _execute_task
+# 里的调用）即可，不影响其它逻辑。
+# ─────────────────────────────────────────────────────────────────────────────
+_TEMP_COVER_BUCKET = "cantingyangchengji"
+
+
+def _assign_temp_cover_from_bucket(
+    article_id: int,
+    user_id: int,
+    session_factory: SessionFactory,
+) -> None:
+    """[临时] 从 cantingyangchengji bucket 随机取一张图，落成 Asset 后设为文章封面。
+
+    - 走 store_bytes 落成真实 Asset（cover_asset_id 外键有效，发布驱动可上传文件）。
+    - 已有封面的文章跳过，不覆盖。
+    - best-effort：任何失败只记日志，绝不影响已生成的文章 / task 状态。
+    """
+    try:
+        import mimetypes
+
+        from sqlalchemy import func
+
+        from server.app.modules.articles.models import Article
+        from server.app.modules.articles.store import store_bytes
+        from server.app.modules.image_library.models import StockCategory, StockImage
+        from server.app.modules.image_library.store import get_object_bytes
+
+        db = session_factory()
+        try:
+            article = db.get(Article, article_id)
+            if article is None or article.is_deleted or article.cover_asset_id:
+                return
+
+            category = (
+                db.query(StockCategory)
+                .filter(StockCategory.bucket_name == _TEMP_COVER_BUCKET)
+                .first()
+            )
+            if category is None:
+                logger.info("temp cover: bucket %s 未注册，跳过", _TEMP_COVER_BUCKET)
+                return
+
+            image = (
+                db.query(StockImage)
+                .filter(StockImage.category_id == category.id)
+                .order_by(func.rand())
+                .first()
+            )
+            if image is None:
+                logger.info("temp cover: bucket %s 无图片，跳过", _TEMP_COVER_BUCKET)
+                return
+
+            data = get_object_bytes(category.bucket_name, image.minio_key)
+            content_type = mimetypes.guess_type(image.filename)[0] or "image/jpeg"
+            stored = store_bytes(db, user_id, data, image.filename, content_type)
+
+            article.cover_asset_id = stored.asset.id
+            article.version += 1
+            article.updated_at = utcnow()
+            db.commit()
+            logger.info("temp cover 设置成功 article=%s image=%s", article_id, image.minio_key)
+        finally:
+            db.close()
+    except Exception:  # noqa: BLE001 — 临时封面失败不影响生文结果
+        logger.exception("temp cover assignment failed for article %s", article_id)

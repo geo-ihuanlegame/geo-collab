@@ -9,9 +9,11 @@ import Color from "@tiptap/extension-color";
 import Highlight from "@tiptap/extension-highlight";
 import Underline from "@tiptap/extension-underline";
 import TextAlign from "@tiptap/extension-text-align";
-import { Plus, Save, Search, Trash2, Upload, ChevronRight } from "lucide-react";
+import { Plus, Save, Search, Trash2, Upload, ChevronRight, Check, Send, ShieldCheck, ListChecks } from "lucide-react";
 import { useToast } from "../../components/Toast";
 import {
+  approveArticle,
+  approveGroup,
   createArticle,
   createArticleGroup,
   deleteArticle,
@@ -19,23 +21,26 @@ import {
   getArticle,
   listArticleGroups,
   listArticles,
+  revokeArticleApproval,
   triggerAiFormat,
   updateArticle,
   updateArticleCover,
   updateArticleGroup,
   updateArticleGroupItems,
 } from "../../api/articles";
+import { listAccounts } from "../../api/accounts";
 import { listCategories } from "../../api/image-library";
 import { listPromptTemplates, updateUserAiFormatPreset } from "../../api/prompt-templates";
 import { uploadAsset as uploadAssetRequest } from "../../api/assets";
 import { assetSrc, assetThumbSrc, countWords, emptyDoc, newClientRequestId, singleFlight, withAssetToken } from "../../api/core";
-import type { Article, ArticleCreatePayload, ArticleGroup, ArticleGroupUpdateItemsPayload, ArticleSummary, ArticleUpdatePayload, Draft, PromptTemplate, StockCategory } from "../../types";
+import type { Account, Article, ArticleCreatePayload, ArticleGroup, ArticleGroupUpdateItemsPayload, ArticleSummary, ArticleUpdatePayload, Draft, PromptTemplate, ReviewStatus, StockCategory } from "../../types";
 import { formatDateTime } from "../../utils/dateFormat";
 import { EditorToolbar } from "../../components/editor/EditorToolbar";
-import { ArticleListItem } from "../../components/ArticleListItem";
+import { ArticleListItem, ReviewBadge } from "../../components/ArticleListItem";
 import { Modal } from "../../components/Modal";
 import { Pagination } from "../../components/Pagination";
 import { useAuth } from "../auth/AuthContext";
+import { DistributeModal, type DistributeTarget } from "./DistributeModal";
 
 function makeEmptyDraft(): Draft {
   return {
@@ -344,6 +349,10 @@ export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
   const [confirmDeleteArticle, setConfirmDeleteArticle] = useState(false);
   const [confirmDeleteGroup, setConfirmDeleteGroup] = useState(false);
   const [confirmUnsavedNew, setConfirmUnsavedNew] = useState(false);
+  const [reviewTab, setReviewTab] = useState<ReviewStatus>("pending");
+  const [reviewBusyId, setReviewBusyId] = useState<number | null>(null);
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [distributeTarget, setDistributeTarget] = useState<DistributeTarget | null>(null);
 
   const pasteImageRef = useRef<(file: File) => void>(() => {});
   const isInitialMountRef = useRef(true);
@@ -420,25 +429,52 @@ export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
     return ids;
   }, [groups]);
 
+  const articleById = useMemo(() => Object.fromEntries(articles.map((a) => [a.id, a])), [articles]);
+
+  function groupReviewCounts(group: ArticleGroup): { total: number; approved: number } {
+    if (group.review_summary) return group.review_summary;
+    // Fallback: derive from loaded member articles when the backend omits the summary.
+    let total = 0;
+    let approved = 0;
+    for (const item of group.items) {
+      const article = articleById[item.article_id];
+      if (!article) continue;
+      total += 1;
+      if (article.review_status === "approved") approved += 1;
+    }
+    return { total, approved };
+  }
+
+  // Tab counts: standalone (ungrouped) articles split by review_status.
+  const reviewCounts = useMemo(() => {
+    let pending = 0;
+    let approved = 0;
+    for (const article of articles) {
+      if (groupedArticleIdSet.has(article.id)) continue;
+      if (article.review_status === "approved") approved += 1;
+      else pending += 1;
+    }
+    return { pending, approved };
+  }, [articles, groupedArticleIdSet]);
+
   const unifiedList = useMemo(() => {
-    const articleById = Object.fromEntries(articles.map((a) => [a.id, a]));
     const items: UnifiedListItem[] = [];
     for (const article of articles) {
-      if (!groupedArticleIdSet.has(article.id)) {
-        items.push({ type: "article", article, sortTime: new Date(article.created_at).getTime() });
-      }
+      if (groupedArticleIdSet.has(article.id)) continue;
+      if (article.review_status !== reviewTab) continue;
+      items.push({ type: "article", article, sortTime: new Date(article.created_at).getTime() });
     }
+    // Groups always appear in both tabs (scheme batches); actions differ per tab.
     for (const group of groups) {
       if (!query || group.name.toLowerCase().includes(query.toLowerCase()) || group.items.some((item) => articleById[item.article_id])) {
         items.push({ type: "group", group, sortTime: new Date(group.created_at).getTime() });
       }
     }
     return items.sort((a, b) => b.sortTime - a.sortTime);
-  }, [articles, groups, groupedArticleIdSet, query]);
+  }, [articles, groups, groupedArticleIdSet, query, reviewTab, articleById]);
 
   const totalArticlePages = Math.max(1, Math.ceil(unifiedList.length / LIST_PAGE_SIZE));
   const pagedUnifiedList = unifiedList.slice(articlePage * LIST_PAGE_SIZE, (articlePage + 1) * LIST_PAGE_SIZE);
-  const articleById = useMemo(() => Object.fromEntries(articles.map((a) => [a.id, a])), [articles]);
 
   useEffect(() => {
     if (articlePage >= totalArticlePages) {
@@ -514,6 +550,7 @@ export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
     void refreshArticles();
     void refreshGroups();
     listCategories().then(setStockCategories).catch(() => {});
+    listAccounts().then(setAccounts).catch(() => {});
     listPromptTemplates("ai_format")
       .then((data) => setAiFormatPresets(data.filter((prompt) => prompt.is_enabled)))
       .catch(() => {});
@@ -996,6 +1033,90 @@ export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
     setArticlePage(Math.min(Math.max(nextPage, 0), totalArticlePages - 1));
   }
 
+  function applyReviewedArticle(updated: Article) {
+    setArticles((prev) =>
+      prev.map((a) => (a.id === updated.id ? { ...a, review_status: updated.review_status, version: updated.version } : a)),
+    );
+    setSelectedArticle((prev) => (prev && prev.id === updated.id ? { ...prev, review_status: updated.review_status, version: updated.version } : prev));
+    setDraft((prev) => (prev.id === updated.id ? { ...prev, version: updated.version } : prev));
+  }
+
+  function selectReviewTab(tab: ReviewStatus) {
+    setReviewTab(tab);
+    setArticlePage(0);
+    setSelectedArticleIds([]);
+  }
+
+  async function approveOne(articleId: number) {
+    setReviewBusyId(articleId);
+    try {
+      const updated = await approveArticle(articleId);
+      applyReviewedArticle(updated);
+      toast("文章已通过审核", "success");
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "审核失败", "error");
+    } finally {
+      setReviewBusyId(null);
+    }
+  }
+
+  async function revokeOne(articleId: number) {
+    setReviewBusyId(articleId);
+    try {
+      const updated = await revokeArticleApproval(articleId);
+      applyReviewedArticle(updated);
+      toast("已撤销审核", "success");
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "撤销审核失败", "error");
+    } finally {
+      setReviewBusyId(null);
+    }
+  }
+
+  async function approveWholeGroup(group: ArticleGroup) {
+    setReviewBusyId(-group.id);
+    try {
+      const updated = await approveGroup(group.id);
+      setGroups((prev) => prev.map((g) => (g.id === updated.id ? updated : g)));
+      // Reflect approval on the member articles already loaded.
+      const memberIds = new Set(updated.items.map((item) => item.article_id));
+      setArticles((prev) => prev.map((a) => (memberIds.has(a.id) ? { ...a, review_status: "approved" } : a)));
+      setSelectedArticle((prev) => (prev && memberIds.has(prev.id) ? { ...prev, review_status: "approved" } : prev));
+      toast("分组已全部通过审核", "success");
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "分组审核失败", "error");
+    } finally {
+      setReviewBusyId(null);
+    }
+  }
+
+  function groupArticleSummaries(group: ArticleGroup): ArticleSummary[] {
+    return group.items
+      .slice()
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map((gi) => articleById[gi.article_id])
+      .filter((a): a is ArticleSummary => a !== undefined);
+  }
+
+  function openDistributeForGroup(group: ArticleGroup) {
+    setDistributeTarget({ kind: "group", groupId: group.id, name: group.name, articles: groupArticleSummaries(group) });
+  }
+
+  function openDistributeForSelection() {
+    const selected = selectedArticleIds
+      .map((id) => articleById[id])
+      .filter((a): a is ArticleSummary => a !== undefined);
+    if (selected.length === 0) return;
+    setDistributeTarget({ kind: "selection", articles: selected });
+  }
+
+  function openDistributeForCurrent() {
+    if (!selectedArticle) return;
+    setDistributeTarget({ kind: "article", article: selectedArticle });
+  }
+
+  const currentReviewStatus: ReviewStatus = selectedArticle?.review_status ?? "approved";
+
   return (
     <>
       <header className="topbar">
@@ -1025,6 +1146,43 @@ export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
 
       <section className="contentGrid">
         <aside className="listPane">
+          <div className="reviewTabs">
+            <button
+              type="button"
+              className={`reviewTabBtn ${reviewTab === "pending" ? "active" : ""}`}
+              onClick={() => selectReviewTab("pending")}
+            >
+              未审核
+              <span className="reviewTabCount">{reviewCounts.pending}</span>
+            </button>
+            <button
+              type="button"
+              className={`reviewTabBtn ${reviewTab === "approved" ? "active" : ""}`}
+              onClick={() => selectReviewTab("approved")}
+            >
+              已审核
+              <span className="reviewTabCount">{reviewCounts.approved}</span>
+            </button>
+          </div>
+
+          {reviewTab === "approved" && selectedArticleIds.length > 0 ? (
+            <div className="bulkBar">
+              <div className="bulkBarLeft">
+                <ListChecks size={16} />
+                <span>已选 {selectedArticleIds.length} 篇</span>
+              </div>
+              <div className="bulkBarRight">
+                <button type="button" className="bulkClearBtn" onClick={() => setSelectedArticleIds([])}>
+                  取消选择
+                </button>
+                <button type="button" className="bulkDistributeBtn" onClick={openDistributeForSelection}>
+                  <Send size={15} />
+                  自动分发
+                </button>
+              </div>
+            </div>
+          ) : null}
+
           <div className="searchRow">
             <Search size={16} />
             <input value={query} placeholder="搜索标题或作者" onChange={(event) => setQuery(event.target.value)} />
@@ -1045,26 +1203,37 @@ export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
                       onToggle={toggleSelectedArticle}
                       onSelect={(article) => void loadArticle(article)}
                     />
-                    <button
-                      className="inlineMiniButton"
-                      type="button"
-                      onClick={() => {
-                        setGroupPickerArticle(item.article);
-                        setGroupPickerSelectedId(groups[0]?.id ?? null);
-                      }}
-                    >
-                      加入分组
-                    </button>
+                    <div className="articleRowActions">
+                      {item.article.review_status === "pending" ? (
+                        <button
+                          className="inlineMiniButton approveMiniButton"
+                          type="button"
+                          disabled={reviewBusyId === item.article.id}
+                          onClick={() => void approveOne(item.article.id)}
+                        >
+                          <Check size={13} />
+                          通过审核
+                        </button>
+                      ) : null}
+                      <button
+                        className="inlineMiniButton"
+                        type="button"
+                        onClick={() => {
+                          setGroupPickerArticle(item.article);
+                          setGroupPickerSelectedId(groups[0]?.id ?? null);
+                        }}
+                      >
+                        加入分组
+                      </button>
+                    </div>
                   </div>
                 );
               }
               const { group } = item;
               const isExpanded = expandedGroupIds.has(group.id);
-              const groupArticles = group.items
-                .slice()
-                .sort((a, b) => a.sort_order - b.sort_order)
-                .map((gi) => articleById[gi.article_id])
-                .filter((a): a is ArticleSummary => a !== undefined);
+              const groupArticles = groupArticleSummaries(group);
+              const counts = groupReviewCounts(group);
+              const fullyApproved = counts.total > 0 && counts.approved === counts.total;
               return (
                 <div className="groupRowItem" key={`g-${group.id}`}>
                   <div className={`groupRowHeader ${group.id === editingGroupId ? "selected" : ""}`}>
@@ -1084,6 +1253,32 @@ export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
                       <span className="groupRowName">{group.name}</span>
                       <small className="groupRowCount">{group.items.length} 篇</small>
                     </button>
+                    <div className="groupRowReview">
+                      {counts.total > 0 ? (
+                        <span className={`badge ${fullyApproved ? "succeeded" : "waiting_manual_publish"}`}>
+                          {fullyApproved ? "全部已审核" : `${counts.approved}/${counts.total} 已审核`}
+                        </span>
+                      ) : null}
+                      {fullyApproved ? (
+                        <button
+                          type="button"
+                          className="inlineMiniButton distributeMiniButton"
+                          onClick={() => openDistributeForGroup(group)}
+                        >
+                          <Send size={13} />
+                          自动分发
+                        </button>
+                      ) : counts.total > 0 ? (
+                        <button
+                          type="button"
+                          className="inlineMiniButton approveMiniButton"
+                          disabled={reviewBusyId === -group.id}
+                          onClick={() => void approveWholeGroup(group)}
+                        >
+                          全部通过
+                        </button>
+                      ) : null}
+                    </div>
                     <button className="groupRowEdit" type="button" onClick={() => loadGroup(group)}>
                       编辑
                     </button>
@@ -1101,7 +1296,6 @@ export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
                               type="checkbox"
                               onChange={() => toggleSelectedArticle(article.id)}
                             />
-                            <span>{article.status}</span>
                           </label>
                           <button type="button" onClick={() => void loadArticle(article)}>
                             <strong>{article.title}</strong>
@@ -1111,6 +1305,9 @@ export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
                               {article.published_count > 0 ? <span style={{ color: "#16a34a", marginLeft: 6 }}>· 已发布 {article.published_count} 次</span> : null}
                             </small>
                           </button>
+                          <div className="articleItemBadge">
+                            <ReviewBadge status={article.review_status} />
+                          </div>
                           <button
                             className="inlineMiniButton removeFromGroupButton"
                             type="button"
@@ -1221,6 +1418,47 @@ export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
             </label>
           </div>
 
+          {selectedArticle ? (
+            <div className={`reviewStrip ${currentReviewStatus === "approved" ? "approved" : "pending"}`}>
+              <div className="reviewStripLeft">
+                <ShieldCheck size={18} />
+                <div className="reviewStripText">
+                  <strong>{currentReviewStatus === "approved" ? "审核状态：已通过" : "审核状态"}</strong>
+                  <span>{currentReviewStatus === "approved" ? "该文章已可进入发布" : "通过审核后该文章方可进入发布"}</span>
+                </div>
+              </div>
+              <div className="reviewStripActions">
+                <ReviewBadge status={currentReviewStatus} />
+                {currentReviewStatus === "approved" ? (
+                  <>
+                    <button
+                      type="button"
+                      className="secondaryButton reviewStripBtn"
+                      disabled={reviewBusyId === selectedArticle.id}
+                      onClick={() => void revokeOne(selectedArticle.id)}
+                    >
+                      撤销审核
+                    </button>
+                    <button type="button" className="reviewStripDistribute" onClick={openDistributeForCurrent}>
+                      <Send size={15} />
+                      自动分发
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    className="reviewStripApprove"
+                    disabled={reviewBusyId === selectedArticle.id}
+                    onClick={() => void approveOne(selectedArticle.id)}
+                  >
+                    <Check size={15} />
+                    通过审核
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : null}
+
           <section className="coverRow">
             <div className="coverPreview">
               {(pendingCoverUrl ?? assetSrc(draft.cover_asset_id)) ? <img alt="封面" src={pendingCoverUrl ?? assetThumbSrc(draft.cover_asset_id) ?? assetSrc(draft.cover_asset_id)!} /> : <span>封面</span>}
@@ -1251,6 +1489,15 @@ export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
 
         </section>
       </section>
+
+      {distributeTarget ? (
+        <DistributeModal
+          target={distributeTarget}
+          accounts={accounts}
+          onClose={() => setDistributeTarget(null)}
+          onDistributed={() => setSelectedArticleIds([])}
+        />
+      ) : null}
 
       {groupPickerArticle ? (
         <Modal

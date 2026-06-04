@@ -1,6 +1,15 @@
 from server.app.modules.accounts.models import Account
+from server.app.modules.articles.models import Article
 from server.app.modules.tasks.drivers.toutiao import PublishFillResult, ToutiaoPublishError
 from server.tests.utils import build_test_app
+
+
+def _set_review_status(test_app, article_id: int, status: str) -> None:
+    with test_app.session_factory() as db:
+        article = db.get(Article, article_id)
+        assert article is not None
+        article.review_status = status
+        db.commit()
 
 
 def _execute_and_wait(client, task_id: int, max_wait: float = 5.0) -> dict:
@@ -684,5 +693,197 @@ def test_retry_record_cannot_create_duplicate_retry_chain(monkeypatch):
 
         records_after = client.get(f"/api/tasks/{task['id']}/records").json()
         assert len(records_after) == 2
+    finally:
+        test_app.cleanup()
+
+
+# ── 审核门禁 + 自动分发 ────────────────────────────────────────────────────────
+
+
+def test_create_task_rejects_unapproved_article(monkeypatch):
+    test_app = build_test_app(monkeypatch)
+    client = test_app.client
+
+    try:
+        article_id = create_article(client, "Pending Article")
+        account_id = create_account(client, test_app.data_dir, "account-a", "Account A")
+        _set_review_status(test_app, article_id, "pending")
+
+        response = client.post(
+            "/api/tasks",
+            json={
+                "name": "single publish",
+                "task_type": "single",
+                "article_id": article_id,
+                "accounts": [{"account_id": account_id}],
+            },
+        )
+        assert response.status_code == 400
+        assert response.json()["detail"] == "存在未通过审核的文章，无法发布"
+    finally:
+        test_app.cleanup()
+
+
+def test_create_group_task_rejects_any_unapproved_article(monkeypatch):
+    test_app = build_test_app(monkeypatch)
+    client = test_app.client
+
+    try:
+        article_1 = create_article(client, "Approved Article")
+        article_2 = create_article(client, "Pending Article")
+        account_id = create_account(client, test_app.data_dir, "account-a", "Account A")
+        _set_review_status(test_app, article_2, "pending")
+
+        group = client.post("/api/article-groups", json={"name": "Batch"}).json()
+        client.put(
+            f"/api/article-groups/{group['id']}/items",
+            json={
+                "items": [
+                    {"article_id": article_1, "sort_order": 10},
+                    {"article_id": article_2, "sort_order": 20},
+                ]
+            },
+        )
+
+        response = client.post(
+            "/api/tasks",
+            json={
+                "name": "group publish",
+                "task_type": "group_round_robin",
+                "group_id": group["id"],
+                "accounts": [{"account_id": account_id}],
+            },
+        )
+        assert response.status_code == 400
+        assert response.json()["detail"] == "存在未通过审核的文章，无法发布"
+    finally:
+        test_app.cleanup()
+
+
+def test_auto_distribute_single_creates_and_executes(monkeypatch):
+    test_app = build_test_app(monkeypatch)
+    client = test_app.client
+
+    try:
+        monkeypatch.setattr(
+            "server.app.modules.tasks.executor.build_publish_runner_for_record",
+            lambda record: FakePublisher()._runner,
+        )
+        cover_id = _upload_cover_image(client)
+        article_id = create_article(client, "Article A", plain_text="Body", cover_asset_id=cover_id)
+        account_id = create_account(client, test_app.data_dir, "account-a", "Account A")
+
+        response = client.post(
+            "/api/tasks/auto-distribute",
+            json={"article_id": article_id, "account_ids": [account_id]},
+        )
+        assert response.status_code == 200
+        task = response.json()
+        assert task["task_type"] == "single"
+        assert task["article_id"] == article_id
+        assert task["group_id"] is None
+        assert task["record_count"] == 1
+        assert task["name"] == f"自动分发 文章 {article_id}"
+
+        # 自动分发已触发后台执行；轮询直到终态。
+        import time as _time
+
+        deadline = _time.time() + 5.0
+        final = task
+        while _time.time() < deadline:
+            final = client.get(f"/api/tasks/{task['id']}").json()
+            if final["status"] in ("succeeded", "failed", "partial_failed", "cancelled"):
+                break
+            _time.sleep(0.05)
+        assert final["status"] == "succeeded"
+    finally:
+        test_app.cleanup()
+
+
+def test_auto_distribute_group_round_robin(monkeypatch):
+    test_app = build_test_app(monkeypatch)
+    client = test_app.client
+
+    try:
+        monkeypatch.setattr(
+            "server.app.modules.tasks.executor.build_publish_runner_for_record",
+            lambda record: FakePublisher()._runner,
+        )
+        cover_id = _upload_cover_image(client)
+        article_1 = create_article(client, "A", plain_text="a", cover_asset_id=cover_id)
+        article_2 = create_article(client, "B", plain_text="b", cover_asset_id=cover_id)
+        account_1 = create_account(client, test_app.data_dir, "account-a", "Account A")
+        account_2 = create_account(client, test_app.data_dir, "account-b", "Account B")
+
+        group = client.post("/api/article-groups", json={"name": "Batch"}).json()
+        client.put(
+            f"/api/article-groups/{group['id']}/items",
+            json={
+                "items": [
+                    {"article_id": article_1, "sort_order": 10},
+                    {"article_id": article_2, "sort_order": 20},
+                ]
+            },
+        )
+
+        response = client.post(
+            "/api/tasks/auto-distribute",
+            json={
+                "group_id": group["id"],
+                "account_ids": [account_1, account_2],
+                "name": "我的分发",
+            },
+        )
+        assert response.status_code == 200
+        task = response.json()
+        assert task["task_type"] == "group_round_robin"
+        assert task["group_id"] == group["id"]
+        assert task["record_count"] == 2
+        assert task["name"] == "我的分发"
+
+        records = client.get(f"/api/tasks/{task['id']}/records").json()
+        # round-robin：第一篇 -> 账号1，第二篇 -> 账号2（按传入 account_ids 顺序）。
+        assert [r["account_id"] for r in records] == [account_1, account_2]
+    finally:
+        test_app.cleanup()
+
+
+def test_auto_distribute_rejects_unapproved_article(monkeypatch):
+    test_app = build_test_app(monkeypatch)
+    client = test_app.client
+
+    try:
+        article_id = create_article(client, "Pending Article")
+        account_id = create_account(client, test_app.data_dir, "account-a", "Account A")
+        _set_review_status(test_app, article_id, "pending")
+
+        response = client.post(
+            "/api/tasks/auto-distribute",
+            json={"article_id": article_id, "account_ids": [account_id]},
+        )
+        assert response.status_code == 400
+        assert response.json()["detail"] == "存在未通过审核的文章，无法发布"
+    finally:
+        test_app.cleanup()
+
+
+def test_auto_distribute_requires_exactly_one_target(monkeypatch):
+    test_app = build_test_app(monkeypatch)
+    client = test_app.client
+
+    try:
+        account_id = create_account(client, test_app.data_dir, "account-a", "Account A")
+
+        both = client.post(
+            "/api/tasks/auto-distribute",
+            json={"article_id": 1, "group_id": 2, "account_ids": [account_id]},
+        )
+        assert both.status_code == 422
+
+        neither = client.post(
+            "/api/tasks/auto-distribute",
+            json={"account_ids": [account_id]},
+        )
+        assert neither.status_code == 422
     finally:
         test_app.cleanup()

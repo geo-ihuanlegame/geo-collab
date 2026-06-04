@@ -31,6 +31,10 @@ from server.app.core.paths import get_data_dir
 from server.app.core.security import get_current_user, require_admin
 from server.app.db.session import get_db
 from server.app.modules.articles import (
+    VALID_REVIEW_STATUSES,
+    approve_article,
+    approve_group,
+    compute_group_review_summary,
     create_article,
     create_group,
     delete_article,
@@ -40,6 +44,7 @@ from server.app.modules.articles import (
     list_articles,
     list_groups,
     replace_group_items,
+    revoke_article_approval,
     set_article_cover,
     update_article,
     update_group,
@@ -56,6 +61,7 @@ from server.app.modules.articles.schemas import (
     ArticleRead,
     ArticleUpdate,
     AssetRead,
+    ReviewSummary,
     to_article_read,
     to_group_read,
 )
@@ -139,15 +145,19 @@ def read_articles(
     q: str | None = Query(default=None),
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=50, le=200),
+    review_status: str | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[ArticleListRead]:
+    if review_status is not None and review_status not in VALID_REVIEW_STATUSES:
+        raise ClientError(f"Invalid review_status: {review_status}")
     articles = list_articles(
         db,
         q,
         skip=skip,
         limit=limit,
         user_id=None if current_user.role == "admin" else current_user.id,
+        review_status=review_status,
     )
     if not articles:
         return []
@@ -171,6 +181,7 @@ def read_articles(
             word_count=a.word_count,
             status=a.status,
             version=a.version,
+            review_status=a.review_status,
             published_count=count_map.get(a.id, 0),
             created_at=a.created_at,
             updated_at=a.updated_at,
@@ -301,6 +312,48 @@ def update_article_cover(
     return to_article_read(updated)
 
 
+@articles_router.post("/{article_id}/approve", response_model=ArticleRead)
+def approve_article_endpoint(
+    article_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ArticleRead:
+    article = _verify_article_ownership(get_article(db, article_id), current_user)
+    updated = approve_article(db, article.id, current_user.id, current_user.role)
+    add_audit_entry(
+        db,
+        user=current_user,
+        action="article.review.approve",
+        target_type="article",
+        target_id=article_id,
+        payload=None,
+        request=request,
+    )
+    return to_article_read(updated)
+
+
+@articles_router.post("/{article_id}/revoke-approval", response_model=ArticleRead)
+def revoke_article_approval_endpoint(
+    article_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ArticleRead:
+    article = _verify_article_ownership(get_article(db, article_id), current_user)
+    updated = revoke_article_approval(db, article.id, current_user.id, current_user.role)
+    add_audit_entry(
+        db,
+        user=current_user,
+        action="article.review.revoke",
+        target_type="article",
+        target_id=article_id,
+        payload=None,
+        request=request,
+    )
+    return to_article_read(updated)
+
+
 @articles_router.post("/{article_id}/ai-format", status_code=202)
 def trigger_ai_format_endpoint(
     article_id: int,
@@ -398,6 +451,11 @@ def _verify_group_ownership(group: ArticleGroup | None, current_user: User) -> A
     return group
 
 
+def _group_read_with_summary(db: Session, group: ArticleGroup) -> ArticleGroupRead:
+    total, approved = compute_group_review_summary(db, group.id)
+    return to_group_read(group, ReviewSummary(total=total, approved=approved))
+
+
 # ── Article group routes ──────────────────────────────────────────────────────
 
 
@@ -409,7 +467,7 @@ def read_groups(
     groups = list_groups(db)
     if current_user.role != "admin":
         groups = [g for g in groups if g.user_id == current_user.id]
-    return [to_group_read(group) for group in groups]
+    return [_group_read_with_summary(db, group) for group in groups]
 
 
 @article_groups_router.post("", response_model=ArticleGroupRead)
@@ -433,7 +491,7 @@ def create_group_endpoint(
         payload={"name": group.name},
         request=request,
     )
-    return to_group_read(group)
+    return _group_read_with_summary(db, group)
 
 
 @article_groups_router.get("/{group_id}", response_model=ArticleGroupRead)
@@ -443,7 +501,7 @@ def read_group(
     current_user: User = Depends(get_current_user),
 ) -> ArticleGroupRead:
     group = _verify_group_ownership(get_group(db, group_id), current_user)
-    return to_group_read(group)
+    return _group_read_with_summary(db, group)
 
 
 @article_groups_router.put("/{group_id}", response_model=ArticleGroupRead)
@@ -470,7 +528,7 @@ def update_group_endpoint(
         payload={"changed_fields": changed_fields},
         request=request,
     )
-    return to_group_read(updated)
+    return _group_read_with_summary(db, updated)
 
 
 @article_groups_router.delete("/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -517,7 +575,28 @@ def update_group_items(
         payload={"item_count": len(payload.items)},
         request=request,
     )
-    return to_group_read(updated)
+    return _group_read_with_summary(db, updated)
+
+
+@article_groups_router.post("/{group_id}/approve-all", response_model=ArticleGroupRead)
+def approve_group_endpoint(
+    group_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ArticleGroupRead:
+    group = _verify_group_ownership(get_group(db, group_id), current_user)
+    updated = approve_group(db, group.id, current_user.id, current_user.role)
+    add_audit_entry(
+        db,
+        user=current_user,
+        action="article_group.review.approve_all",
+        target_type="article_group",
+        target_id=group_id,
+        payload=None,
+        request=request,
+    )
+    return _group_read_with_summary(db, updated)
 
 
 # ── Asset helpers ─────────────────────────────────────────────────────────────

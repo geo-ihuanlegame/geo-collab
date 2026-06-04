@@ -1,5 +1,5 @@
 import { api } from "./core";
-import type { AssignmentPreview, ManualConfirmPayload, PublishRecord, Task, TaskCreatePayload, TaskLog } from "../types";
+import type { AssignmentPreview, AutoDistributePayload, ManualConfirmPayload, PublishRecord, Task, TaskCreatePayload, TaskLog } from "../types";
 
 export type TaskPreviewPayload = Omit<TaskCreatePayload, "client_request_id"> & {
   client_request_id?: string;
@@ -19,6 +19,10 @@ export function listTaskLogs(taskId: number, afterId: number): Promise<TaskLog[]
 
 export function createTask(payload: TaskCreatePayload): Promise<Task> {
   return api<Task>("/api/tasks", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export function autoDistribute(payload: AutoDistributePayload): Promise<Task> {
+  return api<Task>("/api/tasks/auto-distribute", { method: "POST", body: JSON.stringify(payload) });
 }
 
 export function previewTaskAssignment(payload: TaskPreviewPayload): Promise<AssignmentPreview> {

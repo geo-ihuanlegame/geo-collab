@@ -451,6 +451,7 @@ def _validated_task_inputs(
     ordered_accounts = _validated_accounts(db, platform.id, payload.accounts, user_id=user_id)
     article_ids = _article_ids_for_task(db, payload, user_id=user_id)
     _validate_unique_articles(article_ids)
+    _validate_articles_approved(db, article_ids)
 
     if payload.task_type == "single" and len(ordered_accounts) != 1:
         raise ValidationError("Single task requires exactly one account")
@@ -519,6 +520,24 @@ def _validated_accounts(
 def _validate_unique_articles(article_ids: list[int]) -> None:
     if len(article_ids) != len(set(article_ids)):
         raise ValidationError("Duplicate article_id in task assignment")
+
+
+def _validate_articles_approved(db: Session, article_ids: list[int]) -> None:
+    """发布前审核门禁：目标文章必须全部 review_status == 'approved'。"""
+    if not article_ids:
+        return
+    statuses = (
+        db.execute(
+            select(Article.review_status).where(
+                Article.id.in_(article_ids),
+                Article.is_deleted == False,  # noqa: E712
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if any(status != "approved" for status in statuses):
+        raise ValidationError("存在未通过审核的文章，无法发布")
 
 
 def _article_ids_for_task(
