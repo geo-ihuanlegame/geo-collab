@@ -11,7 +11,6 @@ import type {
   SchemeRun,
   SchemeRunSummary,
   SchemeUpdatePayload,
-  Skill,
 } from "../types";
 
 export {
@@ -21,42 +20,6 @@ export {
   patchPromptTemplate,
   updatePromptTemplate,
 } from "./prompt-templates";
-
-export function listSkills(): Promise<Skill[]> {
-  return api<Skill[]>("/api/skills");
-}
-
-export function createSkill(payload: {
-  name: string;
-  content: string;
-  description?: string | null;
-}): Promise<Skill> {
-  return api<Skill>("/api/skills", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-}
-
-export function updateSkill(
-  id: number,
-  payload: { name: string; content: string; description?: string | null },
-): Promise<Skill> {
-  return api<Skill>(`/api/skills/${id}`, {
-    method: "PUT",
-    body: JSON.stringify(payload),
-  });
-}
-
-export function patchSkill(id: number, payload: { is_enabled: boolean }): Promise<Skill> {
-  return api<Skill>(`/api/skills/${id}`, {
-    method: "PATCH",
-    body: JSON.stringify(payload),
-  });
-}
-
-export function deleteSkill(id: number): Promise<void> {
-  return api<void>(`/api/skills/${id}`, { method: "DELETE" });
-}
 
 export function startGeneration(payload: {
   skill_id: number;

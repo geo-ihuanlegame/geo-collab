@@ -5,16 +5,6 @@ export type NavKey = "ai" | "content" | "prompts" | "image-library" | "media" | 
 
 export type PromptScope = "generation" | "ai_format";
 
-export type Skill = {
-  id: number;
-  name: string;
-  description: string | null;
-  content: string;
-  is_enabled: boolean;
-  is_deleted: boolean;
-  created_at: string;
-};
-
 export type PromptTemplate = {
   id: number;
   name: string;
