@@ -382,7 +382,7 @@ export function SchemeEditorModal({
                       <div className="schemeChips">
                         {allTemplateIds.length === 0 && (
                           <span style={{ fontSize: 12, color: "var(--fg-3)" }}>
-                            暂无启用的 generation 模板，请先到「技能与提示词」创建
+                            暂无启用的 generation 模板，请先到「提示词管理」创建
                           </span>
                         )}
                         {templates.map((t) => {

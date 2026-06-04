@@ -8,7 +8,7 @@
 
 **Tech Stack:** FastAPI + SQLAlchemy（MySQL only）、Pydantic v2、LiteLLM、React 19 + Vite + TS、pytest（`@pytest.mark.mysql` + `build_test_app`）。
 
-**分支约定：** 全部在 `feat/question-scheme-pool` 上提交，**不合 main**（灰度验证中）。
+**分支约定（已更新）：** 原在 `feat/question-scheme-pool` 上开发，**已通过 PR #13 合入 `main`**（本地门禁 + 真实 E2E 灰度验证通过，2026-06）。
 
 **决策（已与用户确认）：**
 1. `skills` 表 / `skill_id` 列 **留休眠**，不 drop、不写迁移。

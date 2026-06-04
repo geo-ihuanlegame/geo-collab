@@ -29,7 +29,7 @@
 | 2026-05-21 | [AI 格式调整](./plans/2026-05-21-ai-format-adjustment.md) · [头条富格式](./plans/2026-05-21-toutiao-rich-format.md) |
 | 2026-05-26 | [前端多图库分类](./plans/2026-05-26-frontend-multi-stock-category.md) · [图库 UI 升级](./plans/2026-05-26-image-library-ui-upgrade.md) · [用户测试修复](./plans/2026-05-26-user-testing-fixes.md) |
 | 2026-06-02 | [头条页内适配器](./plans/2026-06-02-toutiao-inpage-adapter.md) · [页内适配器 M2](./plans/2026-06-02-toutiao-inpage-adapter-m2.md) |
-| 进行中 | [问题池 / 方案池重构](./plans/question-scheme-pipeline-plan.md) · [方案自动排版配图 + Skill 下线](./plans/scheme-autoformat-plan.md) |
+| 2026-06（已合入 #13） | [问题池 / 方案池重构](./plans/question-scheme-pipeline-plan.md) · [方案自动排版配图 + Skill 下线](./plans/scheme-autoformat-plan.md) |
 
 ## 设计稿索引（`specs/`）
 
