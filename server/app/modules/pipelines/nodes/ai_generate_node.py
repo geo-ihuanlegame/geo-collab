@@ -1,11 +1,10 @@
+from server.app.modules.ai_generation.article_writer import generate_article_from_prompt
 from server.app.modules.pipelines.nodes.base import NodeResult, NodeRunContext, register
+from server.app.modules.prompt_templates.service import get_prompt_template
 from server.app.shared.errors import ValidationError
 
 
 def run_ai_generate(ctx: NodeRunContext) -> NodeResult:
-    from server.app.modules.ai_generation.article_writer import generate_article_from_prompt
-    from server.app.modules.prompt_templates.service import get_prompt_template
-
     cfg = ctx.config or {}
     # question_text：优先来自上游注入，其次 config 兜底
     question_text = ctx.inputs.get("question_text") or cfg.get("question_text") or ""

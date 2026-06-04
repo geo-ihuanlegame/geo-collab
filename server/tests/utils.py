@@ -71,6 +71,7 @@ def reset_test_database(engine: Engine, *, create_schema: bool = True) -> None:
     import server.app.modules.articles.models  # noqa: F401
     import server.app.modules.audit.models  # noqa: F401
     import server.app.modules.image_library.models  # noqa: F401
+    import server.app.modules.pipelines.models  # noqa: F401
     import server.app.modules.prompt_templates.models  # noqa: F401
     import server.app.modules.skills.models  # noqa: F401
     import server.app.modules.system.models  # noqa: F401
