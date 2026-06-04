@@ -2,6 +2,8 @@ import pytest
 
 from server.app.modules.pipelines.flow_meta import apply_input_mapping, should_skip
 from server.app.modules.pipelines.nodes import base as node_base
+from server.app.modules.pipelines.nodes.base import NodeRunContext
+from server.app.modules.pipelines.nodes.input_node import run_input
 from server.app.modules.pipelines.snapshot import nodes_to_snapshot, snapshot_to_node_dicts
 from server.app.shared.errors import ValidationError
 
@@ -84,3 +86,11 @@ def test_registry_register_and_get():
 def test_registry_unknown_type_raises():
     with pytest.raises(ValidationError):
         node_base.get_handler("nope-does-not-exist")
+
+
+def test_input_node_outputs_question_text():
+    ctx = NodeRunContext(session_factory=None, user_id=1,
+                         config={"question_text": "今天写什么"}, inputs={}, upstream={})
+    res = run_input(ctx)
+    assert res.output == {"question_text": "今天写什么"}
+    assert res.article_ids == []

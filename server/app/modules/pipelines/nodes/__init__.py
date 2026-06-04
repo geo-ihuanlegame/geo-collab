@@ -1,2 +1,6 @@
-# 触发内置节点注册（Task 5 填充）
-from server.app.modules.pipelines.nodes import base  # noqa: F401
+# 触发内置节点注册
+from server.app.modules.pipelines.nodes import (
+    ai_generate_node,  # noqa: F401
+    base,  # noqa: F401
+    input_node,  # noqa: F401
+)
