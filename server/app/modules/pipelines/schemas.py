@@ -104,3 +104,10 @@ class RunLogRow(BaseModel):
     level: str  # "INFO" | "ERROR"
     message: str
     time: datetime | None = None
+
+
+class RunLogPage(BaseModel):
+    items: list[RunLogRow]
+    total: int
+    page: int
+    page_size: int

@@ -19,6 +19,7 @@ from server.app.modules.pipelines.schemas import (
     PipelinePatch,
     PipelineRead,
     PublishRequest,
+    RunLogPage,
     RunRead,
     VersionRead,
 )
@@ -329,27 +330,27 @@ def get_run(run_id: int, db: Session = Depends(get_db), user: User = Depends(get
 @router.get("/{pipeline_id}/logs")
 def list_run_logs(
     pipeline_id: int,
-    limit: int = 50,
+    page: int = 1,
+    page_size: int = 30,
+    start_date: str | None = None,
+    end_date: str | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    from server.app.modules.pipelines.models import PipelineNode, PipelineRun
-    from server.app.modules.pipelines.run_logs import build_run_log_rows
+    from server.app.modules.pipelines.run_logs import (
+        beijing_day_to_utc_range,
+        list_run_log_page,
+    )
 
     _owned(db, pipeline_id, user)
-    limit = max(1, min(limit, 200))
-    name_by_index = {
-        n.node_index: n.name
-        for n in db.query(PipelineNode).filter(PipelineNode.pipeline_id == pipeline_id).all()
-    }
-    runs = (
-        db.query(PipelineRun)
-        .filter(PipelineRun.pipeline_id == pipeline_id)
-        .order_by(PipelineRun.id.desc())
-        .limit(limit)
-        .all()
+    page = max(1, page)
+    page_size = page_size if page_size in (20, 30) else 30
+    try:
+        start_dt, end_dt = beijing_day_to_utc_range(start_date, end_date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="日期格式应为 YYYY-MM-DD") from None
+
+    rows, total = list_run_log_page(
+        db, pipeline_id, page=page, page_size=page_size, start_dt=start_dt, end_dt=end_dt
     )
-    rows: list[dict] = []
-    for run in runs:
-        rows.extend(r.model_dump() for r in build_run_log_rows(run, name_by_index))
-    return rows
+    return RunLogPage(items=rows, total=total, page=page, page_size=page_size).model_dump()

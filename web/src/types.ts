@@ -539,3 +539,10 @@ export type RunLogRow = {
   message: string;
   time: string | null;
 };
+
+export type RunLogPage = {
+  items: RunLogRow[];
+  total: number;
+  page: number;
+  page_size: number;
+};

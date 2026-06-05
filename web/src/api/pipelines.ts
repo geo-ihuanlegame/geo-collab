@@ -1,5 +1,5 @@
 import { api } from "./core";
-import type { NodeTypeDef, Pipeline, PipelineRun, PipelineVersionSummary, RunLogRow } from "../types";
+import type { NodeTypeDef, Pipeline, PipelineRun, PipelineVersionSummary, RunLogPage } from "../types";
 
 export interface AgentFields {
   type?: string; tags?: string[]; ignore_exception?: boolean; is_enabled?: boolean;
@@ -35,5 +35,14 @@ export const startRun = (id: number) =>
   api<{ run_id: number; status: string }>(`/api/pipelines/${id}/runs`, { method: "POST" });
 export const getRun = (runId: number) => api<PipelineRun>(`/api/pipelines/runs/${runId}`);
 
-export const listPipelineLogs = (id: number, limit = 50) =>
-  api<RunLogRow[]>(`/api/pipelines/${id}/logs?limit=${limit}`);
+export const listPipelineLogs = (
+  id: number,
+  opts: { page?: number; pageSize?: number; startDate?: string; endDate?: string } = {},
+) => {
+  const p = new URLSearchParams();
+  p.set("page", String(opts.page ?? 1));
+  p.set("page_size", String(opts.pageSize ?? 30));
+  if (opts.startDate) p.set("start_date", opts.startDate);
+  if (opts.endDate) p.set("end_date", opts.endDate);
+  return api<RunLogPage>(`/api/pipelines/${id}/logs?${p.toString()}`);
+};
