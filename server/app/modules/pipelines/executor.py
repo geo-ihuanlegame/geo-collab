@@ -94,7 +94,6 @@ def _run_pipeline_inner(run_id: int, session_factory: SessionFactory) -> None:
                 }
                 for n in nodes
             ]
-        has_to_review = any(s["node_type"] == "to_review" for s in node_specs)
         db.commit()
     finally:
         db.close()
@@ -104,6 +103,9 @@ def _run_pipeline_inner(run_id: int, session_factory: SessionFactory) -> None:
     article_ids: list[int] = []
     had_success = False
     had_failure = False
+    # 是否已有节点（如 to_review）真正成了组：判"成功执行"而非"节点存在"，
+    # 避免 to_review 被跳过/漏配/失败时执行器误以为已成组、把文章留成孤儿。
+    grouped = False
     failed_indices: set[int] = set()
 
     for spec in node_specs:
@@ -143,6 +145,8 @@ def _run_pipeline_inner(run_id: int, session_factory: SessionFactory) -> None:
             context[idx] = result.output
             node_results[str(idx)] = result.output
             article_ids.extend(result.article_ids)
+            if result.output.get("group_id"):
+                grouped = True
             if result.output.get("errors"):
                 had_failure = True
             # had_success 仅在真正产出业务结果时置位：
@@ -175,9 +179,10 @@ def _run_pipeline_inner(run_id: int, session_factory: SessionFactory) -> None:
     error_message = "; ".join(error_parts)[:2000] or None
 
     # Track A: 产出文章 → pending + 成组。先成组拿到结果，再一次性写终态，消除 done→partial_failed 闪烁。
-    # 含 to_review 节点时由该节点接管成组，避免重复成组。失败不能静默——会让未审文章被误用：
+    # to_review 节点已成组时（grouped）由它接管，执行器不重复成组；否则执行器兜底成组，
+    # 防止 to_review 被跳过/漏配/失败留下孤儿文章。失败不能静默——会让未审文章被误用：
     # 成组失败时把 done 降级 partial_failed 并写明原因。
-    if article_ids and not has_to_review:
+    if article_ids and not grouped:
         gid = None
         try:
             db = session_factory()
