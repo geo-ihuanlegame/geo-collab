@@ -41,7 +41,7 @@ def create_run(db, *, pipeline_id: int, user_id: int) -> PipelineRun:
     return run
 
 
-def run_pipeline(run_id: int, session_factory: SessionFactory) -> None:
+def _run_pipeline_inner(run_id: int, session_factory: SessionFactory) -> None:
     """后台线程入口：线性执行节点，聚合 run 状态。"""
     db = session_factory()
     try:
@@ -202,3 +202,20 @@ def run_pipeline(run_id: int, session_factory: SessionFactory) -> None:
                     db.commit()
             finally:
                 db.close()
+
+
+def run_pipeline(run_id: int, session_factory: SessionFactory) -> None:
+    try:
+        _run_pipeline_inner(run_id, session_factory)
+    except Exception:
+        logger.exception("pipeline run %s crashed at top level", run_id)
+        db = session_factory()
+        try:
+            run = db.get(PipelineRun, run_id)
+            if run is not None and run.status in ("pending", "running"):
+                run.status = "failed"
+                run.error_message = "执行器内部异常，运行已中止"
+                run.completed_at = utcnow()
+                db.commit()
+        finally:
+            db.close()

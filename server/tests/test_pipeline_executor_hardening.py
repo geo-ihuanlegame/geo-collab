@@ -292,3 +292,57 @@ def test_run_downgraded_when_grouping_fails(monkeypatch):
         assert run["error_message"] and "成组" in run["error_message"]
     finally:
         test_app.cleanup()
+
+
+# --- Task 3: 畸形 flow_meta 不应让 run 卡 running ---
+
+
+@pytest.mark.mysql
+def test_malformed_flow_meta_marks_run_failed_not_stuck(monkeypatch):
+    from server.app.modules.pipelines.executor import run_pipeline
+    from server.app.modules.pipelines.models import Pipeline, PipelineNode, PipelineRun
+    from server.app.modules.system.models import User
+
+    test_app = build_test_app(monkeypatch)
+    try:
+        db = test_app.session_factory()
+        try:
+            user_id = db.query(User).filter(User.username == "testadmin").first().id
+            p = Pipeline(user_id=user_id, name="malformed", has_draft=False)
+            db.add(p)
+            db.flush()
+            # condition 不是 dict —— 旧代码会在 should_skip 抛 AttributeError
+            db.add(
+                PipelineNode(
+                    pipeline_id=p.id,
+                    node_type="input",
+                    name="in",
+                    node_index=0,
+                    config={"question_text": "x"},
+                    flow_meta={"condition": "not-a-dict"},
+                )
+            )
+            run = PipelineRun(
+                pipeline_id=p.id,
+                user_id=user_id,
+                status="pending",
+                node_results={},
+                article_ids=[],
+            )
+            db.add(run)
+            db.commit()
+            run_id = run.id
+        finally:
+            db.close()
+
+        run_pipeline(run_id, test_app.session_factory)  # 不应抛
+
+        db = test_app.session_factory()
+        try:
+            run = db.get(PipelineRun, run_id)
+            assert run.status not in ("running", "pending"), f"run stuck in {run.status!r}"
+            assert run.completed_at is not None
+        finally:
+            db.close()
+    finally:
+        test_app.cleanup()
