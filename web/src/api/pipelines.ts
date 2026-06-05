@@ -1,5 +1,5 @@
 import { api } from "./core";
-import type { NodeTypeDef, Pipeline, PipelineRun, PipelineVersionSummary } from "../types";
+import type { NodeTypeDef, Pipeline, PipelineRun, PipelineVersionSummary, RunLogRow } from "../types";
 
 export interface AgentFields {
   type?: string; tags?: string[]; ignore_exception?: boolean; is_enabled?: boolean;
@@ -34,3 +34,6 @@ export const rollbackVersion = (versionId: number) =>
 export const startRun = (id: number) =>
   api<{ run_id: number; status: string }>(`/api/pipelines/${id}/runs`, { method: "POST" });
 export const getRun = (runId: number) => api<PipelineRun>(`/api/pipelines/runs/${runId}`);
+
+export const listPipelineLogs = (id: number, limit = 50) =>
+  api<RunLogRow[]>(`/api/pipelines/${id}/logs?limit=${limit}`);
