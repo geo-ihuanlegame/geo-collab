@@ -226,13 +226,19 @@ def test_logs_date_range_beijing_boundary(monkeypatch):
     try:
         pid = _publish_three_node_pipeline(client)
         # A：北京 2026-06-04 23:30 = UTC 06-04 15:30；B：北京 2026-06-05 00:30 = UTC 06-04 16:30
-        a = _add_run(app, pid, {"0": {"ok": 1}}, status="done",
-                     completed_at=datetime(2026, 6, 4, 15, 30))
-        b = _add_run(app, pid, {"0": {"ok": 1}}, status="done",
-                     completed_at=datetime(2026, 6, 4, 16, 30))
-        d5 = client.get(f"/api/pipelines/{pid}/logs?start_date=2026-06-05&end_date=2026-06-05").json()
+        a = _add_run(
+            app, pid, {"0": {"ok": 1}}, status="done", completed_at=datetime(2026, 6, 4, 15, 30)
+        )
+        b = _add_run(
+            app, pid, {"0": {"ok": 1}}, status="done", completed_at=datetime(2026, 6, 4, 16, 30)
+        )
+        d5 = client.get(
+            f"/api/pipelines/{pid}/logs?start_date=2026-06-05&end_date=2026-06-05"
+        ).json()
         assert [r["batch"] for r in d5["items"]] == [b] and d5["total"] == 1
-        d4 = client.get(f"/api/pipelines/{pid}/logs?start_date=2026-06-04&end_date=2026-06-04").json()
+        d4 = client.get(
+            f"/api/pipelines/{pid}/logs?start_date=2026-06-04&end_date=2026-06-04"
+        ).json()
         assert [r["batch"] for r in d4["items"]] == [a] and d4["total"] == 1
     finally:
         app.cleanup()
