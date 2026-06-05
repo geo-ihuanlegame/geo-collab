@@ -5,7 +5,8 @@ from server.app.shared.errors import ValidationError
 def run_article_group_source(ctx: NodeRunContext) -> NodeResult:
     from server.app.modules.articles.models import Article, ArticleGroup, ArticleGroupItem
 
-    group_id = (ctx.config or {}).get("group_id")
+    # 优先取上游 inputMapping 注入的 group_id，回退节点 config（与其它节点一致）
+    group_id = ctx.inputs.get("group_id") or (ctx.config or {}).get("group_id")
     if not group_id:
         raise ValidationError("article_group_source 节点需配置 group_id")
 
