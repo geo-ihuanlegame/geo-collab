@@ -94,3 +94,13 @@ class RunRead(BaseModel):
     created_at: datetime
     completed_at: datetime | None = None
     model_config = ConfigDict(from_attributes=True)
+
+
+class RunLogRow(BaseModel):
+    batch: int
+    run_status: str
+    step: int
+    task_name: str
+    level: str  # "INFO" | "ERROR"
+    message: str
+    time: datetime | None = None
