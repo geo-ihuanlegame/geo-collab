@@ -306,6 +306,9 @@ export function PipelineEditor({ pipelineId, onChanged }:
                   </select>
                 </label>
                 <div className="agentFieldLabel" style={{ marginTop: 4 }}>字段映射</div>
+                <div style={{ fontSize: 12, opacity: 0.6, marginBottom: 4 }}>
+                  留空 = 自动透传上游全部字段；仅需改名/筛选时才添加映射
+                </div>
                 {(sel.flow_meta?.inputMapping ?? []).map((m, mi) => (
                   <div className="peMapRow" key={mi}>
                     <input type="text" placeholder="上游字段" value={m.from}

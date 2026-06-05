@@ -541,9 +541,11 @@ def _fake_generate_factory():
 def test_executor_groups_orphans_when_to_review_present_but_did_not_group(monkeypatch):
     """Bug 2: to_review 节点存在 ≠ 真的成了组。
 
-    to_review 漏配 inputMapping → 拿到空 article_ids → 静默跳过、不成组。
-    执行器不能因为"存在 to_review 节点"就放手，否则 ai_compose 产的文章成孤儿。
-    期望：执行器兜底把这些文章成组（一个组），不留孤儿。
+    to_review 被 condition 跳过（不执行）→ 不成组。执行器不能因为"存在 to_review 节点"
+    就放手，否则 ai_compose 产的文章成孤儿。期望：执行器兜底把这些文章成组（一个组），不留孤儿。
+
+    （注：自从"无 inputMapping 默认透传上游"后，漏配映射不再产生孤儿——to_review 会自动拿到
+    article_ids 并成组。故这里改用 condition 跳过 to_review 来制造"节点存在但未成组"的孤儿场景。）
     """
     monkeypatch.setattr(
         "server.app.modules.pipelines.nodes.ai_compose.generate_article_from_prompt",
@@ -574,12 +576,14 @@ def test_executor_groups_orphans_when_to_review_present_but_did_not_group(monkey
                     },
                 },
                 {
-                    # 故意漏配 inputMapping：to_review 拿不到 article_ids → 不会成组
+                    # 用 condition 跳过 to_review：节点存在但不执行成组 → 测执行器兜底成组
                     "node_type": "to_review",
                     "name": "进未审核",
                     "node_index": 2,
                     "config": {"group_name": "今日"},
-                    "flow_meta": None,
+                    "flow_meta": {
+                        "condition": {"field": "__never__", "op": "eq", "value": "__skip__"}
+                    },
                 },
             ],
         }

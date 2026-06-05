@@ -6,11 +6,23 @@ from typing import Any
 
 
 def apply_input_mapping(meta: dict | None, upstream: dict[str, Any] | None) -> dict[str, Any]:
-    """按 meta.inputMapping 把上游字段拷到目标字段名。meta/mapping/upstream 空则返回 {}。"""
+    """解析节点入参（ctx.inputs）。
+
+    - 未配置 inputMapping（meta 为空 / 无该键 / 空列表）→ **默认透传整个上游输出**：
+      选定上游节点（或默认合并全部上游）即自动把上游字段传给本节点，无需手填同名映射。
+      这样"连了上游却没出数据"的常见坑不再出现。
+    - 配置了 inputMapping → 只注入映射命中的字段（用于改名 / 筛选），未命中的不透传。
+
+    上游非 dict（无上游）时返回 {}。
+    """
+    if not isinstance(upstream, dict):
+        return {}
+    mapping = meta.get("inputMapping") if isinstance(meta, dict) else None
+    if not mapping:
+        # 无显式映射 → 透传上游（浅拷贝，避免下游 handler 误改 context 中的原 output）
+        return dict(upstream)
     out: dict[str, Any] = {}
-    if not isinstance(meta, dict) or not isinstance(upstream, dict):
-        return out
-    for m in meta.get("inputMapping") or []:
+    for m in mapping:
         if not isinstance(m, dict):
             continue
         src, dst = m.get("from"), m.get("to")
