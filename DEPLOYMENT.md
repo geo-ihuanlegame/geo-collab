@@ -123,6 +123,8 @@ RUN PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright \
 
 EXPOSE 8000
 CMD ["sh", "-c", "alembic upgrade head && uvicorn server.app.main:app --host 0.0.0.0 --port 8000"]
+
+> **多实例部署注意（startup recovery leader）：** `GEO_RUN_STARTUP_RECOVERY`（默认 `true`）控制应用启动时是否执行卡住记录的恢复逻辑。多实例部署时，**只能有一个 web 实例开启此标志**（即保持默认 `true`），其余实例须显式设置 `GEO_RUN_STARTUP_RECOVERY=false`。原因与 `GEO_PIPELINE_SCHEDULER_ENABLED` 相同：若多个实例同时执行恢复，会把其他实例正在执行的 in-flight 记录误标为 `failed`。
 ```
 
 ### 2.2 docker-compose.yml 优化
