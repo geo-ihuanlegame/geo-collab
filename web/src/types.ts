@@ -529,3 +529,13 @@ export interface NodeTypeDef {
   type: string; label: string;
   config_schema: { key: string; type: string; label: string }[];
 }
+
+export type RunLogRow = {
+  batch: number;
+  run_status: string;
+  step: number;
+  task_name: string;
+  level: "INFO" | "ERROR";
+  message: string;
+  time: string | null;
+};

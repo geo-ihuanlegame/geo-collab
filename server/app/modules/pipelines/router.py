@@ -324,3 +324,32 @@ def get_run(run_id: int, db: Session = Depends(get_db), user: User = Depends(get
         raise HTTPException(status_code=404, detail="运行记录不存在")
     _owned(db, r.pipeline_id, user)
     return RunRead.model_validate(r).model_dump()
+
+
+@router.get("/{pipeline_id}/logs")
+def list_run_logs(
+    pipeline_id: int,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    from server.app.modules.pipelines.models import PipelineNode, PipelineRun
+    from server.app.modules.pipelines.run_logs import build_run_log_rows
+
+    _owned(db, pipeline_id, user)
+    limit = max(1, min(limit, 200))
+    name_by_index = {
+        n.node_index: n.name
+        for n in db.query(PipelineNode).filter(PipelineNode.pipeline_id == pipeline_id).all()
+    }
+    runs = (
+        db.query(PipelineRun)
+        .filter(PipelineRun.pipeline_id == pipeline_id)
+        .order_by(PipelineRun.id.desc())
+        .limit(limit)
+        .all()
+    )
+    rows: list[dict] = []
+    for run in runs:
+        rows.extend(r.model_dump() for r in build_run_log_rows(run, name_by_index))
+    return rows
