@@ -34,7 +34,10 @@ def current_slot(
 def in_window(window_start: dt.time | None, window_end: dt.time | None, now: dt.datetime) -> bool:
     if window_start is None or window_end is None:
         return True
-    return window_start <= now.timetz().replace(tzinfo=None) <= window_end
+    t = now.timetz().replace(tzinfo=None)
+    if window_start <= window_end:
+        return window_start <= t <= window_end
+    return t >= window_start or t <= window_end  # 跨午夜
 
 
 def last_due_slot(

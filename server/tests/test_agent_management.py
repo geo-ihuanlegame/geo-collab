@@ -96,6 +96,19 @@ def test_validate_schedule_consistency():
 
 
 def test_validate_window_order():
+    # overnight window (start > end) is now ACCEPTED
+    validate_agent_fields(
+        name="a",
+        type="general",
+        tags=[],
+        schedule_kind="none",
+        schedule_minute=None,
+        schedule_hour=None,
+        schedule_weekday=None,
+        window_start=dt.time(22, 0),
+        window_end=dt.time(6, 0),
+    )
+    # zero-length window (start == end) still rejected
     with pytest.raises(ValidationError):
         validate_agent_fields(
             name="a",
@@ -105,9 +118,37 @@ def test_validate_window_order():
             schedule_minute=None,
             schedule_hour=None,
             schedule_weekday=None,
-            window_start=dt.time(20, 0),
-            window_end=dt.time(8, 0),
+            window_start=dt.time(10, 0),
+            window_end=dt.time(10, 0),
         )
+    # paired-presence enforced: only one of start/end set → raises
+    with pytest.raises(ValidationError):
+        validate_agent_fields(
+            name="a",
+            type="general",
+            tags=[],
+            schedule_kind="none",
+            schedule_minute=None,
+            schedule_hour=None,
+            schedule_weekday=None,
+            window_start=dt.time(10, 0),
+            window_end=None,
+        )
+
+
+def test_in_window_overnight():
+    from server.app.modules.pipelines.schedule_calc import in_window
+    import datetime as dt
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo("Asia/Shanghai")
+
+    def L(h, mi):
+        return dt.datetime(2026, 6, 5, h, mi, tzinfo=tz)
+
+    ws, we = dt.time(22, 0), dt.time(6, 0)
+    assert in_window(ws, we, L(23, 0)) is True
+    assert in_window(ws, we, L(3, 0)) is True
+    assert in_window(ws, we, L(12, 0)) is False
 
 
 def test_current_slot_daily_hit_and_miss():

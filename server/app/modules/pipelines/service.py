@@ -63,8 +63,8 @@ def validate_agent_fields(
             raise ValidationError("星期需在 0-6（周一=0）")
     if (window_start is None) != (window_end is None):
         raise ValidationError("时间窗起止需同时设置或同时留空")
-    if window_start is not None and window_end is not None and not (window_start < window_end):
-        raise ValidationError("时间窗起须早于止")
+    if window_start is not None and window_end is not None and window_start == window_end:
+        raise ValidationError("时间窗起止不能相同")
 
 
 def create_pipeline(
