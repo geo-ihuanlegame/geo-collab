@@ -4,7 +4,6 @@ import type { NavKey } from "./types";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ToastProvider } from "./components/Toast";
 import { AgentManagementWorkspace } from "./features/pipelines/AgentManagementWorkspace";
-import { PipelinesWorkspace } from "./features/pipelines/PipelinesWorkspace";
 import { AiGenerationWorkspace } from "./features/ai-generation/AiGenerationWorkspace";
 import { ImageLibraryWorkspace } from "./features/image-library/ImageLibraryWorkspace";
 import { ContentWorkspace } from "./features/content/ContentWorkspace";
@@ -25,7 +24,6 @@ function AppShell() {
   const [activeNav, setActiveNav] = useState<NavKey>("content");
   const [visitedTabs, setVisitedTabs] = useState<Set<NavKey>>(new Set(["content"]));
   const contentDirtyRef = useRef<() => boolean>(() => false);
-  const [editFlowId, setEditFlowId] = useState<number | null>(null);
 
   function handleNavClick(key: NavKey) {
     if (activeNav === "content" && key !== "content" && contentDirtyRef.current()) {
@@ -115,14 +113,7 @@ function AppShell() {
             {visitedTabs.has("agents") && (
               <div style={{ display: activeNav === "agents" ? undefined : "none" }}>
                 <ErrorBoundary fallback={<p role="alert">智能体管理出错，请刷新重试</p>}>
-                  <AgentManagementWorkspace onEditFlow={(id) => { setEditFlowId(id); handleNavClick("pipelines"); }} />
-                </ErrorBoundary>
-              </div>
-            )}
-            {visitedTabs.has("pipelines") && (
-              <div style={{ display: activeNav === "pipelines" ? undefined : "none" }}>
-                <ErrorBoundary fallback={<p role="alert">工作流编排出错，请刷新重试</p>}>
-                  <PipelinesWorkspace selectedId={editFlowId} />
+                  <AgentManagementWorkspace />
                 </ErrorBoundary>
               </div>
             )}

@@ -2601,3 +2601,99 @@ input:focus, select:focus, textarea:focus {
   flex-shrink: 0;
 }
 .distributeMapMore { font-size: 11px; color: var(--fg-3); margin: 0; }
+
+/* ── 智能体管理 ─────────────────────────────────────────── */
+.agentNewBtn {
+  height: 34px;
+  padding: 0 16px;
+  border-radius: var(--r-sm);
+  background: var(--fg);
+  color: var(--paper);
+  font-size: 13px;
+  border: 1px solid var(--fg);
+}
+.agentNewBtn:hover { background: var(--accent); border-color: var(--accent); }
+
+.agentTable { width: 100%; border-collapse: collapse; font-size: 13px; }
+.agentTable thead th {
+  text-align: left;
+  font-size: 11px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--fg-3);
+  font-weight: 500;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--hair);
+}
+.agentTable tbody td {
+  padding: 13px 12px;
+  border-bottom: 1px solid var(--hair);
+  color: var(--fg-2);
+  vertical-align: middle;
+}
+.agentTable tbody tr:hover { background: var(--cream); }
+.agentName { font-weight: 600; color: var(--fg); }
+.agentDraftDot { color: var(--accent); margin-left: 6px; font-size: 10px; }
+.agentTag {
+  display: inline-block;
+  padding: 2px 9px;
+  margin: 0 5px 4px 0;
+  font-size: 12px;
+  background: var(--cream-2);
+  color: var(--fg-2);
+  border-radius: 999px;
+}
+.agentRowActions { display: flex; gap: 6px; flex-wrap: wrap; }
+.agentRowActions button {
+  height: 28px;
+  padding: 0 11px;
+  font-size: 12px;
+  border: 1px solid var(--hair-2);
+  border-radius: var(--r-sm);
+  color: var(--fg-2);
+  background: var(--paper);
+}
+.agentRowActions button:hover { background: var(--cream); color: var(--fg); }
+.agentRowActions button.danger:hover { color: var(--red); border-color: var(--red); }
+.agentEmpty { padding: 44px 12px; text-align: center; color: var(--fg-3); font-size: 13px; }
+
+.agentModal { width: min(560px, 100%); }
+.agentModalBody { display: flex; flex-direction: column; gap: 16px; padding: 18px 20px; }
+.agentField { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; }
+.agentFieldLabel { font-size: 11px; color: var(--fg-3); letter-spacing: .3px; }
+.agentField input[type="text"],
+.agentField input[type="number"],
+.agentField input[type="time"],
+.agentField select {
+  width: 100%;
+  border: 1px solid var(--hair);
+  border-radius: var(--r);
+  padding: 9px 11px;
+  font-size: 13px;
+  background: var(--paper);
+  color: var(--fg);
+}
+.agentField input:focus, .agentField select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.agentFieldRow { display: flex; gap: 12px; flex-wrap: wrap; }
+.agentToggles {
+  display: flex;
+  gap: 22px;
+  flex-wrap: wrap;
+  padding: 4px 0;
+}
+.agentToggle { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--fg-2); cursor: pointer; }
+.agentToggle input { width: 16px; height: 16px; }
+.agentSchedule {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  padding: 12px;
+  background: var(--cream);
+  border-radius: var(--r);
+}
+.agentSchedule .agentField { flex: 0 0 auto; min-width: 96px; }
+.agentHint { color: var(--fg-3); font-size: 12px; }
