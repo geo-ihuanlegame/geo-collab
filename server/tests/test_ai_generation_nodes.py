@@ -71,6 +71,107 @@ def test_question_source_picks_type_and_active(monkeypatch):
         app.cleanup()
 
 
+@pytest.mark.mysql
+def test_question_source_empty_type_pulls_whole_pool(monkeypatch):
+    """空 question_type → 取整池所有 source_active 问题（不按类型过滤）。"""
+    from server.app.modules.pipelines.nodes.base import NodeRunContext
+    from server.app.modules.pipelines.nodes.question_source import run_question_source
+
+    app = build_test_app(monkeypatch)
+    try:
+        pool_id, uid = _make_pool_with_items(
+            app,
+            [
+                ("美食", "红烧肉", True),
+                ("旅游", "去哪玩", True),
+                (None, "没有分类的问题", True),
+                ("美食", "停用的", False),
+            ],
+        )
+        # question_type 缺省（"全部类型"）
+        ctx = NodeRunContext(
+            session_factory=app.session_factory,
+            user_id=uid,
+            config={"pool_id": pool_id},
+            inputs={},
+            upstream={},
+        )
+        res = run_question_source(ctx)
+        assert res.output["question_count"] == 3
+        for kw in ("红烧肉", "去哪玩", "没有分类的问题"):
+            assert kw in res.output["question_text"]
+        assert "停用" not in res.output["question_text"]
+        # 显式传空字符串等价于"全部类型"
+        ctx_blank = NodeRunContext(
+            session_factory=app.session_factory,
+            user_id=uid,
+            config={"pool_id": pool_id, "question_type": ""},
+            inputs={},
+            upstream={},
+        )
+        assert run_question_source(ctx_blank).output["question_count"] == 3
+    finally:
+        app.cleanup()
+
+
+@pytest.mark.mysql
+def test_question_source_uncategorized_sentinel(monkeypatch):
+    """question_type == "__uncategorized__" → 只取 category 为 NULL 的问题。"""
+    from server.app.modules.pipelines.nodes.base import NodeRunContext
+    from server.app.modules.pipelines.nodes.question_source import run_question_source
+
+    app = build_test_app(monkeypatch)
+    try:
+        pool_id, uid = _make_pool_with_items(
+            app,
+            [
+                ("美食", "红烧肉", True),
+                (None, "未分类甲", True),
+                (None, "未分类乙", True),
+            ],
+        )
+        ctx = NodeRunContext(
+            session_factory=app.session_factory,
+            user_id=uid,
+            config={"pool_id": pool_id, "question_type": "__uncategorized__"},
+            inputs={},
+            upstream={},
+        )
+        res = run_question_source(ctx)
+        assert res.output["question_count"] == 2
+        assert "未分类甲" in res.output["question_text"]
+        assert "未分类乙" in res.output["question_text"]
+        assert "红烧肉" not in res.output["question_text"]
+    finally:
+        app.cleanup()
+
+
+@pytest.mark.mysql
+def test_question_source_requires_pool_id(monkeypatch):
+    """缺 pool_id → ValidationError（question_type 不再必填）。"""
+    from server.app.modules.pipelines.nodes.base import NodeRunContext
+    from server.app.modules.pipelines.nodes.question_source import run_question_source
+    from server.app.shared.errors import ValidationError
+
+    app = build_test_app(monkeypatch)
+    try:
+        with app.session_factory() as db:
+            from server.app.modules.system.models import User
+
+            uid = db.query(User).first().id
+        ctx = NodeRunContext(
+            session_factory=app.session_factory,
+            user_id=uid,
+            config={"question_type": "美食"},
+            inputs={},
+            upstream={},
+        )
+        with pytest.raises(ValidationError):
+            run_question_source(ctx)
+    finally:
+        app.cleanup()
+
+
 def _make_gen_template(app, uid, content="写：", enabled=True):
     from server.app.modules.prompt_templates.models import PromptTemplate
 
