@@ -1,12 +1,17 @@
 // web/src/features/pipelines/PipelineEditor.tsx
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listAccounts } from "../../api/accounts";
+import { listAiEngines, listQuestionPools, listQuestionTypes } from "../../api/ai-generation";
 import { listArticleGroups } from "../../api/articles";
 import {
   discardDraft, getNodeTypes, getPipeline, getRun, publishPipeline, saveDraft, startRun,
 } from "../../api/pipelines";
+import { listPromptTemplates } from "../../api/prompt-templates";
 import { useToast } from "../../components/Toast";
-import type { Account, ArticleGroup, NodeTypeDef, Pipeline, PipelineNodeDef } from "../../types";
+import type {
+  Account, AiEngine, ArticleGroup, NodeTypeDef, Pipeline, PipelineNodeDef,
+  PromptTemplate, QuestionPool,
+} from "../../types";
 import { VersionHistory } from "./VersionHistory";
 
 export function PipelineEditor({ pipelineId, onChanged }:
@@ -20,6 +25,10 @@ export function PipelineEditor({ pipelineId, onChanged }:
   const [runStatus, setRunStatus] = useState<string | null>(null);
   const [groups, setGroups] = useState<ArticleGroup[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [pools, setPools] = useState<QuestionPool[]>([]);
+  const [engines, setEngines] = useState<AiEngine[]>([]);
+  const [genTemplates, setGenTemplates] = useState<PromptTemplate[]>([]);
+  const [typesByPool, setTypesByPool] = useState<Record<number, string[]>>({});
   const pollRef = useRef<number | null>(null);
 
   const load = useCallback(async () => {
@@ -34,7 +43,24 @@ export function PipelineEditor({ pipelineId, onChanged }:
   useEffect(() => {
     listArticleGroups().then(setGroups).catch(() => {});
     listAccounts().then(setAccounts).catch(() => {});
+    listQuestionPools().then(setPools).catch(() => {});
+    listAiEngines().then(setEngines).catch(() => {});
+    listPromptTemplates("generation")
+      .then((ts) => setGenTemplates(ts.filter((t) => t.scope === "generation" && t.is_enabled)))
+      .catch(() => {});
   }, []);
+
+  // Lazily load a pool's question types (cascade for question_type fields).
+  const ensureTypes = useCallback((poolId: number) => {
+    if (poolId && typesByPool[poolId] === undefined) {
+      listQuestionTypes(poolId)
+        .then((ts) => setTypesByPool((m) => ({
+          ...m,
+          [poolId]: ts.map((t) => t.question_type).filter((t): t is string => !!t),
+        })))
+        .catch(() => setTypesByPool((m) => ({ ...m, [poolId]: [] })));
+    }
+  }, [typesByPool]);
 
   // Stop polling and reset run status when switching pipelines.
   useEffect(() => {
@@ -187,7 +213,49 @@ export function PipelineEditor({ pipelineId, onChanged }:
               {selDef.config_schema.map((f) => (
                 <label className="agentField" key={f.key}>
                   <span className="agentFieldLabel">{f.label}</span>
-                  {f.type === "article_group"
+                  {f.type === "question_pool"
+                    ? <select value={String(sel.config[f.key] ?? "")}
+                        onChange={(e) => {
+                          const v = e.target.value ? Number(e.target.value) : undefined;
+                          updateNode(selected!,
+                            { config: { ...sel.config, [f.key]: v, question_type: "" } });
+                          if (v) ensureTypes(v);
+                        }}>
+                        <option value="">选择问题池</option>
+                        {pools.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </select>
+                    : f.type === "question_type"
+                    ? (() => {
+                        const poolId = Number(sel.config["pool_id"]) || 0;
+                        const opts = typesByPool[poolId] ?? [];
+                        if (poolId) ensureTypes(poolId);
+                        return (
+                          <select value={String(sel.config[f.key] ?? "")} disabled={!poolId}
+                            onChange={(e) => updateNode(selected!,
+                              { config: { ...sel.config, [f.key]: e.target.value } })}>
+                            <option value="">{poolId ? "选择问题类型" : "请先选问题池"}</option>
+                            {opts.map((t) => <option key={t} value={t}>{t}</option>)}
+                          </select>
+                        );
+                      })()
+                    : f.type === "ai_engine"
+                    ? <select value={String(sel.config[f.key] ?? "")}
+                        onChange={(e) => updateNode(selected!,
+                          { config: { ...sel.config, [f.key]: e.target.value || null } })}>
+                        <option value="">系统默认</option>
+                        {engines.map((en) => (
+                          <option key={en.model} value={en.model}>{en.label || en.model}</option>
+                        ))}
+                      </select>
+                    : f.type === "prompt_templates"
+                    ? <select className="peMultiSelect" multiple
+                        value={((sel.config[f.key] as number[] | undefined) ?? []).map(String)}
+                        onChange={(e) => updateNode(selected!,
+                          { config: { ...sel.config,
+                            [f.key]: Array.from(e.target.selectedOptions, (o) => Number(o.value)) } })}>
+                        {genTemplates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                      </select>
+                    : f.type === "article_group"
                     ? <select value={String(sel.config[f.key] ?? "")}
                         onChange={(e) => updateNode(selected!,
                           { config: { ...sel.config,
