@@ -217,6 +217,99 @@ def test_to_review_marks_pending_and_groups(monkeypatch):
 
 
 @pytest.mark.mysql
+def test_end_to_end_generate_into_review(monkeypatch):
+    def _fake_generate(*, session_factory, user_id, template_content, question_text, model=None):
+        import uuid
+
+        from server.app.modules.articles.schemas import ArticleCreate
+        from server.app.modules.articles.service import create_article
+
+        # 断言上游问题确实传进来了
+        assert "红烧肉" in question_text
+        db = session_factory()
+        try:
+            art = create_article(
+                db,
+                user_id,
+                ArticleCreate(
+                    title="成品",
+                    content_json={"type": "doc", "content": []},
+                    content_html="<p>x</p>",
+                    plain_text="x",
+                    word_count=1,
+                    client_request_id=str(uuid.uuid4()),
+                ),
+            )
+            db.commit()
+            return art.id
+        finally:
+            db.close()
+
+    monkeypatch.setattr(
+        "server.app.modules.pipelines.nodes.ai_compose.generate_article_from_prompt", _fake_generate
+    )
+    app = build_test_app(monkeypatch)
+    client = app.client
+    try:
+        pool_id, uid = _make_pool_with_items(app, [("美食", "怎么做红烧肉", True)])
+        tpl = _make_gen_template(app, uid)
+        snap = {
+            "schemaVersion": 1,
+            "nodes": [
+                {
+                    "node_type": "question_source",
+                    "name": "问题源",
+                    "node_index": 0,
+                    "config": {"pool_id": pool_id, "question_type": "美食"},
+                    "flow_meta": None,
+                },
+                {
+                    "node_type": "ai_compose",
+                    "name": "创作",
+                    "node_index": 1,
+                    "config": {"prompt_template_ids": [tpl], "count": 2},
+                    "flow_meta": {
+                        "inputMapping": [{"from": "question_text", "to": "question_text"}]
+                    },
+                },
+                {
+                    "node_type": "to_review",
+                    "name": "进未审核",
+                    "node_index": 2,
+                    "config": {"group_name": "端到端"},
+                    "flow_meta": {"inputMapping": [{"from": "article_ids", "to": "article_ids"}]},
+                },
+            ],
+        }
+        pid = client.post(
+            "/api/pipelines", json={"name": "AI生文智能体", "type": "generation"}
+        ).json()["id"]
+        client.post(f"/api/pipelines/{pid}/draft", json={"snapshot": snap})
+        client.post(f"/api/pipelines/{pid}/publish", json={})
+        from server.app.modules.pipelines.executor import create_run, run_pipeline
+        from server.app.modules.pipelines.models import Pipeline
+
+        with app.session_factory() as db:
+            p = db.get(Pipeline, pid)
+            run = create_run(db, pipeline_id=pid, user_id=p.user_id)
+            db.commit()
+            rid = run.id
+        run_pipeline(rid, app.session_factory)
+
+        run = client.get(f"/api/pipelines/runs/{rid}").json()
+        assert run["status"] == "done", run
+        assert len(run["article_ids"]) == 2
+        # 文章出现在"未审核"列表
+        listed = client.get("/api/articles?review_status=pending&limit=50").json()
+        listed_ids = {
+            a["id"] for a in (listed if isinstance(listed, list) else listed.get("items", []))
+        }
+        assert set(run["article_ids"]).issubset(listed_ids)
+    finally:
+        app.cleanup()
+
+
+@pytest.mark.mysql
 def test_executor_skips_autogroup_when_to_review_present(monkeypatch):
     def _fake_generate(*, session_factory, user_id, template_content, question_text, model=None):
         import uuid
