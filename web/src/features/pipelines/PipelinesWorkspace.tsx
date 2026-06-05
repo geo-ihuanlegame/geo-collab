@@ -4,10 +4,12 @@ import { useToast } from "../../components/Toast";
 import type { Pipeline } from "../../types";
 import { PipelineEditor } from "./PipelineEditor";
 
-export function PipelinesWorkspace() {
+export function PipelinesWorkspace({ selectedId: externalId }: { selectedId?: number | null } = {}) {
   const { toast } = useToast();
   const [items, setItems] = useState<Pipeline[]>([]);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [selectedId, setSelectedId] = useState<number | null>(externalId ?? null);
+
+  useEffect(() => { if (externalId != null) setSelectedId(externalId); }, [externalId]);
 
   const reload = useCallback(async () => {
     try {
@@ -60,7 +62,7 @@ export function PipelinesWorkspace() {
         </aside>
         <main style={{ flex: 1 }}>
           {selectedId != null
-            ? <PipelineEditor pipelineId={selectedId} onChanged={reload} />
+            ? <PipelineEditor key={selectedId} pipelineId={selectedId} onChanged={reload} />
             : <p>请选择或新建工作流</p>}
         </main>
       </div>

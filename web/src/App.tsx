@@ -25,6 +25,7 @@ function AppShell() {
   const [activeNav, setActiveNav] = useState<NavKey>("content");
   const [visitedTabs, setVisitedTabs] = useState<Set<NavKey>>(new Set(["content"]));
   const contentDirtyRef = useRef<() => boolean>(() => false);
+  const [editFlowId, setEditFlowId] = useState<number | null>(null);
 
   function handleNavClick(key: NavKey) {
     if (activeNav === "content" && key !== "content" && contentDirtyRef.current()) {
@@ -114,14 +115,14 @@ function AppShell() {
             {visitedTabs.has("agents") && (
               <div style={{ display: activeNav === "agents" ? undefined : "none" }}>
                 <ErrorBoundary fallback={<p role="alert">智能体管理出错，请刷新重试</p>}>
-                  <AgentManagementWorkspace onEditFlow={() => handleNavClick("pipelines")} />
+                  <AgentManagementWorkspace onEditFlow={(id) => { setEditFlowId(id); handleNavClick("pipelines"); }} />
                 </ErrorBoundary>
               </div>
             )}
             {visitedTabs.has("pipelines") && (
               <div style={{ display: activeNav === "pipelines" ? undefined : "none" }}>
                 <ErrorBoundary fallback={<p role="alert">工作流编排出错，请刷新重试</p>}>
-                  <PipelinesWorkspace />
+                  <PipelinesWorkspace selectedId={editFlowId} />
                 </ErrorBoundary>
               </div>
             )}

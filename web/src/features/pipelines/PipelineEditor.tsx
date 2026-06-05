@@ -103,22 +103,27 @@ export function PipelineEditor({ pipelineId, onChanged }:
       setRunStatus("running");
       if (pollRef.current != null) { clearInterval(pollRef.current); pollRef.current = null; }
       let failures = 0;
-      pollRef.current = setInterval(async () => {
+      const timer = window.setInterval(async () => {
+        // 只有当本 timer 仍是当前轮询时才处理（防切换/重跑后的脏写）
+        if (pollRef.current !== timer) { clearInterval(timer); return; }
         try {
           const r = await getRun(run_id);
+          if (pollRef.current !== timer) { clearInterval(timer); return; }
           failures = 0;
           setRunStatus(`${r.status}（文章 ${r.article_ids.length} 篇）`);
           if (["done", "failed", "partial_failed"].includes(r.status)) {
-            if (pollRef.current != null) { clearInterval(pollRef.current); pollRef.current = null; }
+            clearInterval(timer);
+            if (pollRef.current === timer) pollRef.current = null;
           }
         } catch {
           failures += 1;
-          if (failures >= 5 && pollRef.current != null) {
-            clearInterval(pollRef.current); pollRef.current = null;
-            setRunStatus("运行状态获取失败，请刷新");
+          if (failures >= 5) {
+            clearInterval(timer);
+            if (pollRef.current === timer) { pollRef.current = null; setRunStatus("运行状态获取失败，请刷新"); }
           }
         }
       }, 1500);
+      pollRef.current = timer;
     } catch (e) {
       toast(e instanceof Error ? e.message : "运行失败", "error");
     }
