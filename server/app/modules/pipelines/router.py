@@ -91,6 +91,34 @@ def get_node_types() -> dict:
                     {"key": "name", "type": "text", "label": "任务名(可空)"},
                 ],
             },
+            {
+                "type": "question_source",
+                "label": "问题源",
+                "config_schema": [
+                    {"key": "pool_id", "type": "question_pool", "label": "问题池"},
+                    {"key": "question_type", "type": "question_type", "label": "问题类型"},
+                ],
+            },
+            {
+                "type": "ai_compose",
+                "label": "AI创作",
+                "config_schema": [
+                    {"key": "ai_engine", "type": "ai_engine", "label": "AI 模型"},
+                    {
+                        "key": "prompt_template_ids",
+                        "type": "prompt_templates",
+                        "label": "提示词模板(可多选,运行时随机)",
+                    },
+                    {"key": "count", "type": "number", "label": "生成数量"},
+                ],
+            },
+            {
+                "type": "to_review",
+                "label": "进入未审核库",
+                "config_schema": [
+                    {"key": "group_name", "type": "text", "label": "分组名(可空)"},
+                ],
+            },
         ],
         "registered": registered_types(),
     }
