@@ -259,17 +259,27 @@ def create_scheme_run(
     )
 
     if bg_session_factory is None:
-        logger.error("bg_session_factory 未初始化，方案运行后台线程不会执行（run_id=%d）", run_id)
-    else:
-        factory = bg_session_factory
+        # 与 pipelines/router 对齐：后台执行器未就绪时标 run failed + 返回 503，
+        # 不再撒谎回 202（否则 run 永远卡 pending、调用方以为在跑）。
+        logger.error("bg_session_factory 未注入，方案运行无法执行（run_id=%d）", run_id)
+        from server.app.modules.ai_generation.models import GenerationSchemeRun
 
-        def _run() -> None:
-            try:
-                run_scheme(run_id, factory)
-            except Exception:
-                logger.exception("scheme run background thread failed for run %d", run_id)
+        run_obj = db.get(GenerationSchemeRun, run_id)
+        if run_obj is not None:
+            run_obj.status = "failed"
+            run_obj.error_message = "后台执行器未就绪（bg_session_factory 未注入）"
+            db.commit()
+        return JSONResponse(status_code=503, content={"run_id": run_id, "status": "failed"})
 
-        threading.Thread(target=_run, daemon=True).start()
+    factory = bg_session_factory
+
+    def _run() -> None:
+        try:
+            run_scheme(run_id, factory)
+        except Exception:
+            logger.exception("scheme run background thread failed for run %d", run_id)
+
+    threading.Thread(target=_run, daemon=True).start()
 
     return JSONResponse(content={"run_id": run_id, "status": "pending"}, status_code=202)
 

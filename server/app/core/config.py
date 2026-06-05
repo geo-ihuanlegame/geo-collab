@@ -63,6 +63,8 @@ class Settings(BaseSettings):
     run_startup_recovery: bool = True  # GEO_RUN_STARTUP_RECOVERY；多实例只在单一实例开启
     ai_generate_max_count: int = 20  # GEO_AI_GENERATE_MAX_COUNT
     pipeline_max_concurrent_runs: int = 3  # GEO_PIPELINE_MAX_CONCURRENT_RUNS
+    # [临时] 方案生文封面兜底 bucket（GEO_TEMP_COVER_BUCKET）。空字符串=禁用整段临时封面逻辑。
+    temp_cover_bucket: str = "cantingyangchengji"
     # AI 生文（LangGraph 写作 Agent）—— 保持 Claude
     ai_model: str = "claude-3-5-sonnet-20241022"  # GEO_AI_MODEL
     ai_api_key: str = ""  # GEO_AI_API_KEY
