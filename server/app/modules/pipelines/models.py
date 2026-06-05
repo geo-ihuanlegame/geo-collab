@@ -10,6 +10,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    Time,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -26,6 +27,17 @@ class Pipeline(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     draft_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     has_draft: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    type: Mapped[str] = mapped_column(String(20), default="general", server_default="general")
+    tags: Mapped[list] = mapped_column(JSON, default=list)
+    ignore_exception: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    is_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    schedule_kind: Mapped[str] = mapped_column(String(20), default="none", server_default="none")
+    schedule_minute: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    schedule_hour: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    schedule_weekday: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    window_start: Mapped[Time | None] = mapped_column(Time, nullable=True)
+    window_end: Mapped[Time | None] = mapped_column(Time, nullable=True)
+    last_scheduled_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
