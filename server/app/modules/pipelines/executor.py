@@ -7,7 +7,7 @@ from typing import Any
 
 from server.app.core.time import utcnow
 from server.app.modules.pipelines.flow_meta import apply_input_mapping, should_skip
-from server.app.modules.pipelines.models import PipelineNode, PipelineRun
+from server.app.modules.pipelines.models import Pipeline, PipelineNode, PipelineRun
 from server.app.modules.pipelines.nodes.base import NodeRunContext, get_handler
 
 logger = logging.getLogger(__name__)
@@ -37,6 +37,8 @@ def run_pipeline(run_id: int, session_factory: SessionFactory) -> None:
             return
         run.status = "running"
         pipeline_id, user_id = run.pipeline_id, run.user_id
+        pipeline = db.get(Pipeline, pipeline_id)
+        ignore_exception = bool(pipeline.ignore_exception) if pipeline is not None else False
         nodes = (
             db.query(PipelineNode)
             .filter(PipelineNode.pipeline_id == pipeline_id)
@@ -76,6 +78,7 @@ def run_pipeline(run_id: int, session_factory: SessionFactory) -> None:
             continue
 
         inputs = apply_input_mapping(meta, upstream)
+        node_failed = False
         try:
             handler = get_handler(spec["node_type"])
             result = handler(
@@ -90,15 +93,19 @@ def run_pipeline(run_id: int, session_factory: SessionFactory) -> None:
             context[idx] = result.output
             node_results[str(idx)] = result.output
             article_ids.extend(result.article_ids)
-            # ai_generate 节点内单篇失败也算部分失败
             if result.output.get("errors"):
                 had_failure = True
+                node_failed = True
             if result.article_ids or spec["node_type"] == "input":
                 had_success = True
         except Exception as exc:
             logger.exception("pipeline run %s node #%s failed", run_id, idx)
             node_results[str(idx)] = {"error": str(exc)}
             had_failure = True
+            node_failed = True
+
+        if node_failed and not ignore_exception:
+            break  # fail-fast：停掉后续节点
 
     # 聚合状态
     if had_failure and had_success:
@@ -124,7 +131,6 @@ def run_pipeline(run_id: int, session_factory: SessionFactory) -> None:
     if article_ids:
         try:
             from server.app.modules.articles.service import mark_pending_and_group
-            from server.app.modules.pipelines.models import Pipeline
 
             db = session_factory()
             try:

@@ -242,3 +242,55 @@ def test_run_due_skips_disabled_window_and_no_nodes(monkeypatch):
         assert run_due_pipelines_once(test_app.session_factory, now=now) == 0
     finally:
         test_app.cleanup()
+
+
+@pytest.mark.mysql
+def test_ignore_exception_fail_fast_vs_continue(monkeypatch):
+    test_app = build_test_app(monkeypatch)
+    client = test_app.client
+    try:
+        from server.app.modules.pipelines.executor import create_run, run_pipeline
+        from server.app.modules.pipelines.models import Pipeline
+
+        def _build(ignore: bool):
+            pid = client.post(
+                "/api/pipelines", json={"name": f"ie-{ignore}", "ignore_exception": ignore}
+            ).json()["id"]
+            snap = {
+                "schemaVersion": 1,
+                "nodes": [
+                    {
+                        "node_type": "ai_generate",
+                        "name": "坏",
+                        "node_index": 0,
+                        "config": {"prompt_template_id": 999999, "count": 1, "question_text": "x"},
+                        "flow_meta": None,
+                    },
+                    {
+                        "node_type": "input",
+                        "name": "后",
+                        "node_index": 1,
+                        "config": {"question_text": "y"},
+                        "flow_meta": None,
+                    },
+                ],
+            }
+            client.post(f"/api/pipelines/{pid}/draft", json={"snapshot": snap})
+            client.post(f"/api/pipelines/{pid}/publish", json={})
+            with test_app.session_factory() as db:
+                p = db.get(Pipeline, pid)
+                run = create_run(db, pipeline_id=pid, user_id=p.user_id)
+                db.commit()
+                rid = run.id
+            run_pipeline(rid, test_app.session_factory)
+            return client.get(f"/api/pipelines/runs/{rid}").json()
+
+        # fail-fast：第二个节点不应执行
+        r_off = _build(False)
+        assert r_off["status"] == "failed"
+        assert "1" not in r_off["node_results"]  # 后续节点没跑
+        # 继续：第二个节点应执行
+        r_on = _build(True)
+        assert "1" in r_on["node_results"]
+    finally:
+        test_app.cleanup()
