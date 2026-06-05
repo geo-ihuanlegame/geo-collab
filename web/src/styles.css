@@ -2697,3 +2697,89 @@ input:focus, select:focus, textarea:focus {
 }
 .agentSchedule .agentField { flex: 0 0 auto; min-width: 96px; }
 .agentHint { color: var(--fg-3); font-size: 12px; }
+
+/* ── 工作流编排（节点编辑器） ───────────────────────────── */
+.peEditor { display: flex; flex-direction: column; gap: 16px; }
+.peToolbar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding-bottom: 14px; border-bottom: 1px solid var(--hair);
+}
+.peToolbar button {
+  height: 32px; padding: 0 13px; font-size: 13px;
+  border: 1px solid var(--hair-2); border-radius: var(--r-sm);
+  color: var(--fg-2); background: var(--paper);
+}
+.peToolbar button:hover:not(:disabled) { background: var(--cream); color: var(--fg); }
+.peToolbar button:disabled { opacity: .45; cursor: not-allowed; }
+.peBtnPrimary { background: var(--fg) !important; color: var(--paper) !important; border-color: var(--fg) !important; }
+.peBtnPrimary:hover { background: var(--accent) !important; border-color: var(--accent) !important; }
+.peDraftBadge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 10px; font-size: 12px; border-radius: 999px;
+  background: var(--yellow-soft, #faf3df); color: var(--yellow, #b8860b);
+}
+.peRunStatus { margin-left: auto; font-size: 12px; color: var(--fg-3); }
+
+.peAddBar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.peAddLabel { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: var(--fg-3); }
+.peAddBtn {
+  height: 30px; padding: 0 12px; font-size: 13px;
+  border: 1px dashed var(--hair-2); border-radius: var(--r-sm);
+  color: var(--fg-2); background: var(--paper);
+}
+.peAddBtn:hover { border-color: var(--accent); color: var(--accent); border-style: solid; }
+
+.peLayout { display: flex; gap: 20px; align-items: flex-start; }
+.peNodeList { width: 248px; flex-shrink: 0; }
+.peNode {
+  border: 1px solid var(--hair); border-radius: var(--r);
+  padding: 11px 12px; cursor: pointer; background: var(--paper);
+  transition: border-color .12s, background .12s;
+}
+.peNode:hover { border-color: var(--hair-2); }
+.peNode.selected { border-color: var(--accent); background: var(--accent-soft, #eef0fe); }
+.peNodeHead { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; }
+.peNodeIdx { font-size: 11px; color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.peNodeName { font-weight: 600; color: var(--fg); font-size: 14px; }
+.peNodeType { font-size: 11px; color: var(--fg-3); font-style: italic; }
+.peNodeBtns { display: flex; gap: 5px; margin-top: 8px; }
+.peNodeBtns button {
+  width: 26px; height: 24px; font-size: 12px;
+  border: 1px solid var(--hair-2); border-radius: var(--r-sm);
+  color: var(--fg-3); background: var(--paper);
+}
+.peNodeBtns button:hover { background: var(--cream); color: var(--fg); }
+.peNodeBtns button.danger:hover { color: var(--red); border-color: var(--red); }
+.peConnector { text-align: center; color: var(--hair-2); font-size: 14px; line-height: 22px; }
+
+.pePanel { flex: 1; min-width: 0; }
+.peCard { border: 1px solid var(--hair); border-radius: var(--r-lg); padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+.peCardTitle { display: flex; align-items: baseline; gap: 8px; font-family: var(--serif); font-size: 18px; color: var(--fg); }
+.peCard textarea {
+  width: 100%; min-height: 72px; resize: vertical;
+  border: 1px solid var(--hair); border-radius: var(--r); padding: 9px 11px;
+  font-size: 13px; background: var(--paper); color: var(--fg);
+}
+.peMultiSelect { min-height: 96px; padding: 4px !important; }
+.peSection { border-top: 1px solid var(--hair); padding-top: 14px; display: flex; flex-direction: column; gap: 8px; }
+.peSectionTitle { font-size: 12px; font-weight: 600; color: var(--fg); }
+.peMapRow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.peMapRow input, .peMapRow select {
+  flex: 1; min-width: 90px;
+  border: 1px solid var(--hair); border-radius: var(--r); padding: 8px 10px;
+  font-size: 13px; background: var(--paper); color: var(--fg);
+}
+.peMapRow select { flex: 0 0 auto; min-width: 84px; }
+.peMapArrow { color: var(--fg-3); }
+.peMiniBtn {
+  align-self: flex-start; height: 28px; padding: 0 11px; font-size: 12px;
+  border: 1px solid var(--hair-2); border-radius: var(--r-sm);
+  color: var(--fg-2); background: var(--paper);
+}
+.peMiniBtn:hover { background: var(--cream); color: var(--fg); }
+.peMiniBtn.danger { width: 30px; padding: 0; flex: 0 0 auto; }
+.peMiniBtn.danger:hover { color: var(--red); border-color: var(--red); }
+.peEmpty {
+  border: 1px dashed var(--hair-2); border-radius: var(--r-lg);
+  padding: 48px; text-align: center; color: var(--fg-3); font-size: 13px;
+}
