@@ -31,7 +31,8 @@ class PublishTask(Base):
     __tablename__ = "publish_tasks"
     __table_args__ = (
         CheckConstraint(
-            "task_type in ('single', 'group_round_robin')", name="ck_publish_tasks_task_type"
+            "task_type in ('single', 'group_round_robin', 'article_round_robin')",
+            name="ck_publish_tasks_task_type",
         ),
         CheckConstraint(
             "status in ('pending', 'running', 'succeeded', 'partial_failed', 'failed', 'cancelled')",
@@ -45,7 +46,9 @@ class PublishTask(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     name: Mapped[str] = mapped_column(String(300))
-    task_type: Mapped[str] = mapped_column(String(40), index=True)  # single / group_round_robin
+    task_type: Mapped[str] = mapped_column(
+        String(40), index=True
+    )  # single / group_round_robin / article_round_robin
     status: Mapped[str] = mapped_column(String(40), default="pending", index=True)
     platform_id: Mapped[int | None] = mapped_column(
         ForeignKey("platforms.id"), nullable=True, index=True
