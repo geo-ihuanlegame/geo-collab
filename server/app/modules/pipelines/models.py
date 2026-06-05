@@ -96,6 +96,8 @@ class PipelineRun(Base):
     status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
     node_results: Mapped[dict] = mapped_column(JSON, default=dict)
     article_ids: Mapped[list] = mapped_column(JSON, default=list)
+    # 运行创建时冻结的节点快照：执行只读它，不读 live 节点（创建→执行之间被 publish 改了也不影响）
+    snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

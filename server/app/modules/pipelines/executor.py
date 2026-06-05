@@ -12,6 +12,7 @@ from server.app.modules.articles.service import mark_pending_and_group
 from server.app.modules.pipelines.flow_meta import apply_input_mapping, should_skip
 from server.app.modules.pipelines.models import Pipeline, PipelineNode, PipelineRun
 from server.app.modules.pipelines.nodes.base import NodeRunContext, get_handler
+from server.app.modules.pipelines.snapshot import nodes_to_snapshot, snapshot_to_node_dicts
 from server.app.shared.errors import ConflictError
 
 logger = logging.getLogger(__name__)
@@ -34,12 +35,20 @@ def create_run(db, *, pipeline_id: int, user_id: int) -> PipelineRun:
     )
     if active is not None:
         raise ConflictError("该工作流已有正在运行的任务，请等待其完成后再运行")
+    # 冻结当前 live 节点为快照：执行只读快照，创建→执行之间的 publish 不影响本次运行
+    nodes = (
+        db.query(PipelineNode)
+        .filter(PipelineNode.pipeline_id == pipeline_id)
+        .order_by(PipelineNode.node_index.asc())
+        .all()
+    )
     run = PipelineRun(
         pipeline_id=pipeline_id,
         user_id=user_id,
         status="pending",
         node_results={},
         article_ids=[],
+        snapshot=nodes_to_snapshot(nodes),
     )
     db.add(run)
     db.flush()
@@ -58,21 +67,33 @@ def _run_pipeline_inner(run_id: int, session_factory: SessionFactory) -> None:
         pipeline_id, user_id = run.pipeline_id, run.user_id
         pipeline = db.get(Pipeline, pipeline_id)
         ignore_exception = bool(pipeline.ignore_exception) if pipeline is not None else False
-        nodes = (
-            db.query(PipelineNode)
-            .filter(PipelineNode.pipeline_id == pipeline_id)
-            .order_by(PipelineNode.node_index.asc())
-            .all()
-        )
-        node_specs = [
-            {
-                "node_type": n.node_type,
-                "node_index": n.node_index,
-                "config": n.config or {},
-                "flow_meta": n.flow_meta,
-            }
-            for n in nodes
-        ]
+        if run.snapshot:
+            # 优先读运行快照（创建时冻结）；旧 run 无快照时回退 live 节点
+            node_specs = [
+                {
+                    "node_type": d["node_type"],
+                    "node_index": d["node_index"],
+                    "config": d.get("config") or {},
+                    "flow_meta": d.get("flow_meta"),
+                }
+                for d in snapshot_to_node_dicts(run.snapshot)
+            ]
+        else:
+            nodes = (
+                db.query(PipelineNode)
+                .filter(PipelineNode.pipeline_id == pipeline_id)
+                .order_by(PipelineNode.node_index.asc())
+                .all()
+            )
+            node_specs = [
+                {
+                    "node_type": n.node_type,
+                    "node_index": n.node_index,
+                    "config": n.config or {},
+                    "flow_meta": n.flow_meta,
+                }
+                for n in nodes
+            ]
         has_to_review = any(s["node_type"] == "to_review" for s in node_specs)
         db.commit()
     finally:
@@ -153,21 +174,9 @@ def _run_pipeline_inner(run_id: int, session_factory: SessionFactory) -> None:
                 error_parts.append(f"node#{k}: {'; '.join(str(e) for e in v['errors'])}")
     error_message = "; ".join(error_parts)[:2000] or None
 
-    db = session_factory()
-    try:
-        run = db.get(PipelineRun, run_id)
-        if run is not None:
-            run.status = status
-            run.node_results = node_results
-            run.article_ids = article_ids
-            run.error_message = error_message
-            run.completed_at = utcnow()
-            db.commit()
-    finally:
-        db.close()
-
-    # Track A：产出文章 → pending + 成组。含 to_review 节点时由该节点接管，避免重复成组。
-    # 失败不能静默——会让未审文章被误用
+    # Track A: 产出文章 → pending + 成组。先成组拿到结果，再一次性写终态，消除 done→partial_failed 闪烁。
+    # 含 to_review 节点时由该节点接管成组，避免重复成组。失败不能静默——会让未审文章被误用：
+    # 成组失败时把 done 降级 partial_failed 并写明原因。
     if article_ids and not has_to_review:
         gid = None
         try:
@@ -195,20 +204,24 @@ def _run_pipeline_inner(run_id: int, session_factory: SessionFactory) -> None:
             logger.exception("pipeline run %s post-grouping failed", run_id)
 
         if gid is None:
-            # 成组/送审失败：降级 run 状态 + 写明原因，避免 UI 显示成功
-            db = session_factory()
-            try:
-                run = db.get(PipelineRun, run_id)
-                if run is not None:
-                    if run.status == "done":
-                        run.status = "partial_failed"
-                    note = "文章已生成但送审/成组失败，请手动核对审核状态"
-                    run.error_message = (
-                        f"{run.error_message}; {note}" if run.error_message else note
-                    )
-                    db.commit()
-            finally:
-                db.close()
+            note = "文章已生成但送审/成组失败，请手动核对审核状态"
+            error_message = f"{error_message}; {note}" if error_message else note
+            if status == "done":
+                status = "partial_failed"
+
+    # 一次性写终态：status / node_results / article_ids / error_message / completed_at 写一次到位
+    db = session_factory()
+    try:
+        run = db.get(PipelineRun, run_id)
+        if run is not None:
+            run.status = status
+            run.node_results = node_results
+            run.article_ids = article_ids
+            run.error_message = error_message
+            run.completed_at = utcnow()
+            db.commit()
+    finally:
+        db.close()
 
 
 def run_pipeline(run_id: int, session_factory: SessionFactory) -> None:

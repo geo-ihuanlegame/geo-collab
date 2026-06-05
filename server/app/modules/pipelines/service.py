@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from server.app.modules.pipelines.models import (
@@ -261,14 +261,12 @@ def publish_draft(db: Session, p: Pipeline, *, remark: str | None, user_id: int)
 
 
 def _next_version_no(db: Session, pipeline_id: int) -> int:
-    rows = (
-        db.execute(
-            select(PipelineVersion.version_no).where(PipelineVersion.pipeline_id == pipeline_id)
+    max_no = db.execute(
+        select(func.max(PipelineVersion.version_no)).where(
+            PipelineVersion.pipeline_id == pipeline_id
         )
-        .scalars()
-        .all()
-    )
-    return (max(rows) if rows else 0) + 1
+    ).scalar()
+    return (max_no or 0) + 1
 
 
 def list_versions(db: Session, pipeline_id: int) -> list[PipelineVersion]:
