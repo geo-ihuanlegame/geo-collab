@@ -73,6 +73,7 @@ def _run_pipeline_inner(run_id: int, session_factory: SessionFactory) -> None:
             }
             for n in nodes
         ]
+        has_to_review = any(s["node_type"] == "to_review" for s in node_specs)
         db.commit()
     finally:
         db.close()
@@ -165,8 +166,9 @@ def _run_pipeline_inner(run_id: int, session_factory: SessionFactory) -> None:
     finally:
         db.close()
 
-    # Track A: 产出文章 → pending + 成组。失败不能静默——会让未审文章被误用
-    if article_ids:
+    # Track A：产出文章 → pending + 成组。含 to_review 节点时由该节点接管，避免重复成组。
+    # 失败不能静默——会让未审文章被误用
+    if article_ids and not has_to_review:
         gid = None
         try:
             db = session_factory()
