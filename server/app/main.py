@@ -111,6 +111,14 @@ def create_app() -> FastAPI:
         recover_db = SessionLocal()
         try:
             recover_stuck_records(recover_db)
+            from server.app.modules.pipelines.recovery import recover_stuck_pipeline_runs
+
+            recover_stuck_pipeline_runs(recover_db)
+            from server.app.modules.ai_generation.scheme_executor import (
+                recover_stuck_scheme_runs,
+            )
+
+            recover_stuck_scheme_runs(recover_db)
         finally:
             recover_db.close()
     except Exception:

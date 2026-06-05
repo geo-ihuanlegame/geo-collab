@@ -19,10 +19,36 @@ def _create_generation_template(client) -> int:
 
 @pytest.mark.mysql
 def test_pipeline_draft_publish_version_and_run(monkeypatch):
-    # monkeypatch 掉真实 LLM 调用
+    # monkeypatch 掉真实 LLM 调用：造一篇真实文章（默认 approved）并返回其 id，
+    # 这样运行结束后的 pending+成组能成功、run 才会是 done（返回假 id 会成组失败 → partial_failed）。
+    import uuid as _uuid
+
+    from server.app.modules.articles.schemas import ArticleCreate
+    from server.app.modules.articles.service import create_article
+
+    def _fake_generate(*, session_factory, user_id, template_content, question_text, model=None):
+        db = session_factory()
+        try:
+            art = create_article(
+                db,
+                user_id,
+                ArticleCreate(
+                    title="AI",
+                    content_json={"type": "doc", "content": []},
+                    content_html="<p>a</p>",
+                    plain_text="a",
+                    word_count=1,
+                    client_request_id=str(_uuid.uuid4()),
+                ),
+            )
+            db.commit()
+            return art.id
+        finally:
+            db.close()
+
     monkeypatch.setattr(
         "server.app.modules.pipelines.nodes.ai_generate_node.generate_article_from_prompt",
-        lambda **kwargs: 12345,
+        _fake_generate,
     )
     test_app = build_test_app(monkeypatch)
     client = test_app.client
@@ -91,7 +117,7 @@ def test_pipeline_draft_publish_version_and_run(monkeypatch):
 
         run = client.get(f"/api/pipelines/runs/{run_id}").json()
         assert run["status"] == "done", run
-        assert run["article_ids"] == [12345, 12345]
+        assert len(run["article_ids"]) == 2
 
         # 6) 回溯：先再发布一版以制造历史，再回溯 v1 到草稿
         r = client.post(f"/api/pipelines/{pid}/publish", json={"remark": "v2"})

@@ -188,6 +188,7 @@ def list_versions(
     return out
 
 
+# 预留给「版本详情/diff」UI（当前前端未调用，勿当死代码删）
 @router.get("/versions/{version_id}")
 def get_version(
     version_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
@@ -225,11 +226,34 @@ def create_run(
     run = _create_run(db, pipeline_id=p.id, user_id=user.id)
     db.commit()
     run_id = run.id
+
     factory = bg_session_factory
-    threading.Thread(target=run_pipeline, args=(run_id, factory), daemon=True).start()
+    if factory is None:
+        import logging
+
+        logging.getLogger(__name__).error("bg_session_factory 未注入，run %s 无法执行", run_id)
+        from server.app.modules.pipelines.models import PipelineRun
+
+        run_obj = db.get(PipelineRun, run_id)
+        if run_obj is not None:
+            run_obj.status = "failed"
+            run_obj.error_message = "后台执行器未就绪（bg_session_factory 未注入）"
+            db.commit()
+        return JSONResponse(status_code=503, content={"run_id": run_id, "status": "failed"})
+
+    def _runner() -> None:
+        try:
+            run_pipeline(run_id, factory)
+        except Exception:
+            import logging
+
+            logging.getLogger(__name__).exception("pipeline run %s thread crashed", run_id)
+
+    threading.Thread(target=_runner, daemon=True).start()
     return JSONResponse(status_code=202, content={"run_id": run_id, "status": "pending"})
 
 
+# 预留给「运行历史」列表 UI（当前前端只轮询单个 run，勿当死代码删）
 @router.get("/{pipeline_id}/runs")
 def list_runs(
     pipeline_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)

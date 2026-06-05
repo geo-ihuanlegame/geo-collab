@@ -14,6 +14,7 @@ class NodeRunContext:
     config: dict
     inputs: dict  # 经 flow_meta inputMapping 注入
     upstream: dict  # 上游累积 context（node_index -> output 的合并视图）
+    # 预留：节点可直接读全量上游输出；当前内置节点只用 inputs
 
 
 @dataclass
