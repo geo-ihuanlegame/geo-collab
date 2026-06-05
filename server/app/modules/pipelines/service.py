@@ -16,6 +16,17 @@ VALID_AGENT_TYPES = {"generation", "distribution", "general"}
 VALID_SCHEDULE_KINDS = {"none", "hourly", "daily", "weekly"}
 
 
+def _dedup_tags(tags: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for t in tags:
+        s = t.strip()
+        if s and s not in seen:
+            seen.add(s)
+            out.append(s)
+    return out
+
+
 def validate_agent_fields(
     *,
     name,
@@ -85,6 +96,7 @@ def create_pipeline(
         window_start=window_start,
         window_end=window_end,
     )
+    tags = _dedup_tags(tags)
     p = Pipeline(
         user_id=user_id,
         name=name.strip(),
@@ -160,7 +172,12 @@ def patch_pipeline(db: Session, p: Pipeline, *, fields: dict) -> Pipeline:
     ]
     for k in settable:
         if k in fields and fields[k] is not None:
-            setattr(p, k, fields[k].strip() if k == "name" else fields[k])
+            if k == "name":
+                setattr(p, k, fields[k].strip())
+            elif k == "tags":
+                setattr(p, k, _dedup_tags(fields[k]))
+            else:
+                setattr(p, k, fields[k])
     db.flush()
     return p
 

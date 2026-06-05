@@ -245,6 +245,33 @@ def test_run_due_skips_disabled_window_and_no_nodes(monkeypatch):
 
 
 @pytest.mark.mysql
+def test_tags_dedup_on_create_and_patch(monkeypatch):
+    test_app = build_test_app(monkeypatch)
+    client = test_app.client
+    try:
+        # create with duplicates and whitespace variants
+        resp = client.post(
+            "/api/pipelines",
+            json={"name": "去重体", "tags": ["a", "a", "b", " b ", "c"]},
+        )
+        assert resp.status_code in (200, 201), resp.text
+        pid = resp.json()["id"]
+        got = client.get(f"/api/pipelines/{pid}").json()
+        assert got["tags"] == ["a", "b", "c"]
+
+        # patch with duplicates also deduped
+        resp2 = client.patch(
+            f"/api/pipelines/{pid}",
+            json={"tags": ["x", "x", " y", "y"]},
+        )
+        assert resp2.status_code == 200, resp2.text
+        got2 = client.get(f"/api/pipelines/{pid}").json()
+        assert got2["tags"] == ["x", "y"]
+    finally:
+        test_app.cleanup()
+
+
+@pytest.mark.mysql
 def test_ignore_exception_fail_fast_vs_continue(monkeypatch):
     test_app = build_test_app(monkeypatch)
     client = test_app.client
