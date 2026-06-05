@@ -322,3 +322,34 @@ def test_ignore_exception_fail_fast_vs_continue(monkeypatch):
         assert "上游" not in str(r_on["node_results"]["1"])
     finally:
         test_app.cleanup()
+
+
+# ---------------------------------------------------------------------------
+# Pure-logic tests for last_due_slot (no DB needed)
+# ---------------------------------------------------------------------------
+from server.app.modules.pipelines.schedule_calc import last_due_slot  # noqa: E402
+
+_TZ = ZoneInfo("Asia/Shanghai")
+
+
+def _local(y, mo, d, h, mi):
+    return dt.datetime(y, mo, d, h, mi, tzinfo=_TZ)
+
+
+def test_last_due_slot_hourly_returns_recent_even_when_minute_passed():
+    slot = last_due_slot("hourly", 30, None, None, _local(2026, 6, 5, 9, 47))
+    assert (slot.hour, slot.minute) == (9, 30)
+
+
+def test_last_due_slot_hourly_wraps_prev_hour():
+    slot = last_due_slot("hourly", 30, None, None, _local(2026, 6, 5, 9, 10))
+    assert (slot.hour, slot.minute) == (8, 30)
+
+
+def test_last_due_slot_daily_before_time_wraps_prev_day():
+    slot = last_due_slot("daily", 30, 9, None, _local(2026, 6, 5, 8, 0))
+    assert (slot.day, slot.hour, slot.minute) == (4, 9, 30)
+
+
+def test_last_due_slot_none_kind():
+    assert last_due_slot("none", None, None, None, _local(2026, 6, 5, 9, 0)) is None
