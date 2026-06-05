@@ -1,7 +1,7 @@
-import { FileText, Images, MessagesSquare, MonitorCog, RadioTower, Send, Sparkles, Workflow } from "lucide-react";
+import { Bot, FileText, Images, MessagesSquare, MonitorCog, RadioTower, Send, Sparkles, Workflow } from "lucide-react";
 import type { ComponentType } from "react";
 
-export type NavKey = "pipelines" | "ai" | "content" | "prompts" | "image-library" | "media" | "tasks" | "system" | "admin" | "audit-logs";
+export type NavKey = "agents" | "pipelines" | "ai" | "content" | "prompts" | "image-library" | "media" | "tasks" | "system" | "admin" | "audit-logs";
 
 export type PromptScope = "generation" | "ai_format";
 
@@ -449,6 +449,7 @@ export function statusLabel(status: string): string {
 }
 
 export const navItems: { key: NavKey; label: string; icon: ComponentType<{ size?: number }> }[] = [
+  { key: "agents", label: "智能体管理", icon: Bot },
   { key: "pipelines", label: "工作流编排", icon: Workflow },
   { key: "ai", label: "AI 生文", icon: Sparkles },
   { key: "content", label: "内容管理", icon: FileText },
@@ -503,6 +504,17 @@ export interface Pipeline {
   has_draft: boolean;
   created_at: string;
   updated_at: string;
+  type: string;
+  tags: string[];
+  ignore_exception: boolean;
+  is_enabled: boolean;
+  schedule_kind: string;
+  schedule_minute: number | null;
+  schedule_hour: number | null;
+  schedule_weekday: number | null;
+  window_start: string | null;
+  window_end: string | null;
+  last_scheduled_run_at: string | null;
   nodes: PipelineNodeDef[];
 }
 export interface PipelineVersionSummary {

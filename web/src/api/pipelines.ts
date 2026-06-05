@@ -1,11 +1,17 @@
 import { api } from "./core";
 import type { NodeTypeDef, Pipeline, PipelineRun, PipelineVersionSummary } from "../types";
 
+export interface AgentFields {
+  type?: string; tags?: string[]; ignore_exception?: boolean; is_enabled?: boolean;
+  schedule_kind?: string; schedule_minute?: number | null; schedule_hour?: number | null;
+  schedule_weekday?: number | null; window_start?: string | null; window_end?: string | null;
+}
+
 export const listPipelines = () => api<Pipeline[]>("/api/pipelines");
 export const getPipeline = (id: number) => api<Pipeline>(`/api/pipelines/${id}`);
-export const createPipeline = (p: { name: string; description?: string }) =>
+export const createPipeline = (p: { name: string; description?: string } & AgentFields) =>
   api<Pipeline>("/api/pipelines", { method: "POST", body: JSON.stringify(p) });
-export const patchPipeline = (id: number, p: { name?: string; description?: string }) =>
+export const patchPipeline = (id: number, p: { name?: string; description?: string } & AgentFields) =>
   api<Pipeline>(`/api/pipelines/${id}`, { method: "PATCH", body: JSON.stringify(p) });
 export const deletePipeline = (id: number) =>
   api<void>(`/api/pipelines/${id}`, { method: "DELETE" });

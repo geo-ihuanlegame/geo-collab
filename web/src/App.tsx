@@ -3,6 +3,7 @@ import { navItems } from "./types";
 import type { NavKey } from "./types";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ToastProvider } from "./components/Toast";
+import { AgentManagementWorkspace } from "./features/pipelines/AgentManagementWorkspace";
 import { PipelinesWorkspace } from "./features/pipelines/PipelinesWorkspace";
 import { AiGenerationWorkspace } from "./features/ai-generation/AiGenerationWorkspace";
 import { ImageLibraryWorkspace } from "./features/image-library/ImageLibraryWorkspace";
@@ -110,6 +111,13 @@ function AppShell() {
         </aside>
         <section className="workspace">
           <div className="workspaceInner">
+            {visitedTabs.has("agents") && (
+              <div style={{ display: activeNav === "agents" ? undefined : "none" }}>
+                <ErrorBoundary fallback={<p role="alert">智能体管理出错，请刷新重试</p>}>
+                  <AgentManagementWorkspace onEditFlow={() => handleNavClick("pipelines")} />
+                </ErrorBoundary>
+              </div>
+            )}
             {visitedTabs.has("pipelines") && (
               <div style={{ display: activeNav === "pipelines" ? undefined : "none" }}>
                 <ErrorBoundary fallback={<p role="alert">工作流编排出错，请刷新重试</p>}>
