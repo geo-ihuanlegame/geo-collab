@@ -231,8 +231,8 @@ def test_read_pipeline_with_null_tags(monkeypatch):
         from sqlalchemy import text
 
         import server.app.modules.pipelines.service as svc
-        from server.app.modules.system.models import User
         from server.app.modules.pipelines.router import _to_read
+        from server.app.modules.system.models import User
 
         with test_app.session_factory() as db:
             admin_id = db.query(User).filter(User.username == "testadmin").first().id

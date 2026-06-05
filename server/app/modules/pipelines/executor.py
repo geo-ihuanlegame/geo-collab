@@ -8,8 +8,6 @@ from typing import Any
 
 from server.app.core.config import get_settings as _get_settings
 from server.app.core.time import utcnow
-
-_RUN_SEMAPHORE = _threading.Semaphore(max(1, _get_settings().pipeline_max_concurrent_runs))
 from server.app.modules.articles.service import mark_pending_and_group
 from server.app.modules.pipelines.flow_meta import apply_input_mapping, should_skip
 from server.app.modules.pipelines.models import Pipeline, PipelineNode, PipelineRun
@@ -18,6 +16,9 @@ from server.app.shared.errors import ConflictError
 
 logger = logging.getLogger(__name__)
 SessionFactory = Callable[[], Any]
+
+# 全局并发闸：限制单进程同时执行的 pipeline run 数（与单 leader 约束配合即为全局上限）
+_RUN_SEMAPHORE = _threading.Semaphore(max(1, _get_settings().pipeline_max_concurrent_runs))
 
 
 def create_run(db, *, pipeline_id: int, user_id: int) -> PipelineRun:

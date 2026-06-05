@@ -6,6 +6,7 @@ from server.tests.utils import build_test_app
 def test_recovery_skipped_when_flag_off(monkeypatch):
     monkeypatch.setenv("GEO_RUN_STARTUP_RECOVERY", "false")
     from server.app.core.config import get_settings
+
     get_settings.cache_clear()
     assert get_settings().run_startup_recovery is False
     get_settings.cache_clear()

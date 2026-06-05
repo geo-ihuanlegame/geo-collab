@@ -15,8 +15,14 @@ from server.app.shared.errors import ClientError, ConflictError, ValidationError
 VALID_AGENT_TYPES = {"generation", "distribution", "general"}
 VALID_SCHEDULE_KINDS = {"none", "hourly", "daily", "weekly"}
 
-_NULLABLE_CLEARABLE = {"description", "window_start", "window_end",
-                       "schedule_minute", "schedule_hour", "schedule_weekday"}
+_NULLABLE_CLEARABLE = {
+    "description",
+    "window_start",
+    "window_end",
+    "schedule_minute",
+    "schedule_hour",
+    "schedule_weekday",
+}
 
 
 def _dedup_tags(tags: list[str]) -> list[str]:
@@ -144,18 +150,34 @@ def list_nodes(db: Session, pipeline_id: int) -> list[PipelineNode]:
 def patch_pipeline(db: Session, p: Pipeline, *, fields: dict) -> Pipeline:
     """fields = PipelinePatch.model_dump(exclude_unset=True)。只覆盖提供的字段。"""
     merged = {
-        "name": p.name, "type": p.type, "tags": list(p.tags or []),
-        "schedule_kind": p.schedule_kind, "schedule_minute": p.schedule_minute,
-        "schedule_hour": p.schedule_hour, "schedule_weekday": p.schedule_weekday,
-        "window_start": p.window_start, "window_end": p.window_end,
+        "name": p.name,
+        "type": p.type,
+        "tags": list(p.tags or []),
+        "schedule_kind": p.schedule_kind,
+        "schedule_minute": p.schedule_minute,
+        "schedule_hour": p.schedule_hour,
+        "schedule_weekday": p.schedule_weekday,
+        "window_start": p.window_start,
+        "window_end": p.window_end,
     }
     for k in merged:
         if k in fields and (fields[k] is not None or k in _NULLABLE_CLEARABLE):
             merged[k] = fields[k]
     validate_agent_fields(**merged)
-    settable = ["name", "description", "type", "tags", "ignore_exception", "is_enabled",
-                "schedule_kind", "schedule_minute", "schedule_hour", "schedule_weekday",
-                "window_start", "window_end"]
+    settable = [
+        "name",
+        "description",
+        "type",
+        "tags",
+        "ignore_exception",
+        "is_enabled",
+        "schedule_kind",
+        "schedule_minute",
+        "schedule_hour",
+        "schedule_weekday",
+        "window_start",
+        "window_end",
+    ]
     for k in settable:
         if k not in fields:
             continue

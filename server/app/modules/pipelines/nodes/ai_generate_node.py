@@ -20,6 +20,7 @@ def run_ai_generate(ctx: NodeRunContext) -> NodeResult:
         raise ValidationError("ai_generate 节点需配置 prompt_template_id 与 count>0")
 
     from server.app.core.config import get_settings
+
     if count > get_settings().ai_generate_max_count:
         raise ValidationError(f"生成数量超过上限 {get_settings().ai_generate_max_count}")
 

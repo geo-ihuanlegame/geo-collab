@@ -15,7 +15,7 @@ from sqlalchemy import update
 from server.app.core.config import get_settings
 from server.app.modules.pipelines.executor import create_run, run_pipeline
 from server.app.modules.pipelines.models import Pipeline, PipelineNode, PipelineRun
-from server.app.modules.pipelines.schedule_calc import last_due_slot, in_window
+from server.app.modules.pipelines.schedule_calc import in_window, last_due_slot
 
 logger = logging.getLogger(__name__)
 SessionFactory = Callable[[], Any]
@@ -65,7 +65,9 @@ def run_due_pipelines_once(session_factory: SessionFactory, now: dt.datetime | N
             db = session_factory()
             try:
                 # 无已发布节点 → 跳过
-                has_nodes = db.query(PipelineNode.id).filter(PipelineNode.pipeline_id == pid).first()
+                has_nodes = (
+                    db.query(PipelineNode.id).filter(PipelineNode.pipeline_id == pid).first()
+                )
                 if has_nodes is None:
                     continue
                 # 运行中不重叠
@@ -81,11 +83,13 @@ def run_due_pipelines_once(session_factory: SessionFactory, now: dt.datetime | N
                     continue
                 # claim：条件 UPDATE，rowcount==1 才算抢到
                 res = db.execute(
-                    update(Pipeline).where(
+                    update(Pipeline)
+                    .where(
                         Pipeline.id == pid,
                         (Pipeline.last_scheduled_run_at.is_(None))
                         | (Pipeline.last_scheduled_run_at < slot_utc),
-                    ).values(last_scheduled_run_at=slot_utc)
+                    )
+                    .values(last_scheduled_run_at=slot_utc)
                 )
                 if res.rowcount != 1:
                     db.rollback()
