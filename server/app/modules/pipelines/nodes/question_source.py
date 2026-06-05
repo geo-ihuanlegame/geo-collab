@@ -8,9 +8,11 @@ def run_question_source(ctx: NodeRunContext) -> NodeResult:
 
     cfg = ctx.config or {}
     pool_id = cfg.get("pool_id")
+    # question_type 可选：空 → 取整池（"全部类型"）；"__uncategorized__" → 仅未分类（category 为 NULL）；
+    # 其它 → 按该具体分类过滤。
     question_type = cfg.get("question_type")
-    if not pool_id or not question_type:
-        raise ValidationError("question_source 节点需配置 pool_id 与 question_type")
+    if not pool_id:
+        raise ValidationError("question_source 节点需配置 pool_id")
 
     db = ctx.session_factory()
     try:
@@ -21,16 +23,16 @@ def run_question_source(ctx: NodeRunContext) -> NodeResult:
             user = db.get(User, ctx.user_id)
             if user is None or user.role != "admin":
                 raise ValidationError("无权访问该问题池")
-        rows = (
-            db.query(QuestionItem.question_text)
-            .filter(
-                QuestionItem.pool_id == pool_id,
-                QuestionItem.category == question_type,
-                QuestionItem.source_active.is_(True),
-            )
-            .order_by(QuestionItem.id.asc())
-            .all()
+        query = db.query(QuestionItem.question_text).filter(
+            QuestionItem.pool_id == pool_id,
+            QuestionItem.source_active.is_(True),
         )
+        if question_type == "__uncategorized__":
+            query = query.filter(QuestionItem.category.is_(None))
+        elif question_type:
+            query = query.filter(QuestionItem.category == question_type)
+        # else: 空 question_type → 不按类型过滤，取整池
+        rows = query.order_by(QuestionItem.id.asc()).all()
         texts = [(r[0] or "").strip() for r in rows if (r[0] or "").strip()]
     finally:
         db.close()

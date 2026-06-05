@@ -28,7 +28,9 @@ export function PipelineEditor({ pipelineId, onChanged }:
   const [pools, setPools] = useState<QuestionPool[]>([]);
   const [engines, setEngines] = useState<AiEngine[]>([]);
   const [genTemplates, setGenTemplates] = useState<PromptTemplate[]>([]);
-  const [typesByPool, setTypesByPool] = useState<Record<number, string[]>>({});
+  // 每个池缓存问题类型选项；null 分类映射为「未分类」哨兵值，供下拉选取。
+  const [typesByPool, setTypesByPool] =
+    useState<Record<number, { value: string; label: string }[]>>({});
   const pollRef = useRef<number | null>(null);
 
   const load = useCallback(async () => {
@@ -56,7 +58,9 @@ export function PipelineEditor({ pipelineId, onChanged }:
       listQuestionTypes(poolId)
         .then((ts) => setTypesByPool((m) => ({
           ...m,
-          [poolId]: ts.map((t) => t.question_type).filter((t): t is string => !!t),
+          [poolId]: ts.map((t) => t.question_type
+            ? { value: t.question_type, label: t.question_type }
+            : { value: "__uncategorized__", label: "未分类" }),
         })))
         .catch(() => setTypesByPool((m) => ({ ...m, [poolId]: [] })));
     }
@@ -233,8 +237,8 @@ export function PipelineEditor({ pipelineId, onChanged }:
                           <select value={String(sel.config[f.key] ?? "")} disabled={!poolId}
                             onChange={(e) => updateNode(selected!,
                               { config: { ...sel.config, [f.key]: e.target.value } })}>
-                            <option value="">{poolId ? "选择问题类型" : "请先选问题池"}</option>
-                            {opts.map((t) => <option key={t} value={t}>{t}</option>)}
+                            <option value="">{poolId ? "全部类型" : "请先选问题池"}</option>
+                            {opts.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
                           </select>
                         );
                       })()
