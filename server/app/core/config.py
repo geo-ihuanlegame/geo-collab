@@ -60,6 +60,9 @@ class Settings(BaseSettings):
     pipeline_scheduler_enabled: bool = False  # GEO_PIPELINE_SCHEDULER_ENABLED
     pipeline_scheduler_interval_seconds: int = 60  # GEO_PIPELINE_SCHEDULER_INTERVAL_SECONDS
     scheduler_tz: str = "Asia/Shanghai"  # GEO_SCHEDULER_TZ
+    run_startup_recovery: bool = True  # GEO_RUN_STARTUP_RECOVERY；多实例只在单一实例开启
+    ai_generate_max_count: int = 20  # GEO_AI_GENERATE_MAX_COUNT
+    pipeline_max_concurrent_runs: int = 3  # GEO_PIPELINE_MAX_CONCURRENT_RUNS
     # AI 生文（LangGraph 写作 Agent）—— 保持 Claude
     ai_model: str = "claude-3-5-sonnet-20241022"  # GEO_AI_MODEL
     ai_api_key: str = ""  # GEO_AI_API_KEY

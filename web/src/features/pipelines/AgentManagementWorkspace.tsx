@@ -110,7 +110,8 @@ export function AgentManagementWorkspace() {
           </div>
           <button onClick={() => { setEditingId(null); reload(); }}>← 返回智能体列表</button>
         </div>
-        <PipelineEditor pipelineId={editingId} onChanged={reload} />
+        {/* key 让切换智能体时 PipelineEditor 重挂载，重置 runStatus/轮询 timer，避免在途轮询脏写到另一个智能体 */}
+        <PipelineEditor key={editingId} pipelineId={editingId} onChanged={reload} />
       </div>
     );
   }

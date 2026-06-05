@@ -104,29 +104,31 @@ def create_app() -> FastAPI:
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]  # slowapi handler is typed for its own exc
     # 启动时恢复卡住的记录（上次运行时 crash 导致 status='running' 的记录）
+    # 多实例部署时只允许一个实例执行恢复，其他实例设 GEO_RUN_STARTUP_RECOVERY=false
     from server.app.db.session import SessionLocal
     from server.app.modules.tasks import recover_stuck_records
 
-    try:
-        recover_db = SessionLocal()
+    if get_settings().run_startup_recovery:
         try:
-            recover_stuck_records(recover_db)
-            from server.app.modules.pipelines.recovery import recover_stuck_pipeline_runs
+            recover_db = SessionLocal()
+            try:
+                recover_stuck_records(recover_db)
+                from server.app.modules.pipelines.recovery import recover_stuck_pipeline_runs
 
-            recover_stuck_pipeline_runs(recover_db)
-            from server.app.modules.ai_generation.scheme_executor import (
-                recover_stuck_scheme_runs,
+                recover_stuck_pipeline_runs(recover_db)
+                from server.app.modules.ai_generation.scheme_executor import (
+                    recover_stuck_scheme_runs,
+                )
+
+                recover_stuck_scheme_runs(recover_db)
+            finally:
+                recover_db.close()
+        except Exception:
+            import logging as _logging
+
+            _logging.getLogger(__name__).exception(
+                "Startup recovery failed — stuck records may not have been reset"
             )
-
-            recover_stuck_scheme_runs(recover_db)
-        finally:
-            recover_db.close()
-    except Exception:
-        import logging as _logging
-
-        _logging.getLogger(__name__).exception(
-            "Startup recovery failed — stuck records may not have been reset"
-        )
 
     # 全局异常处理：子类先注册，父类后注册，确保子类不被父类处理器吃掉
     # ConflictError → 409（子类，先注册）

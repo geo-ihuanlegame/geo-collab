@@ -10,10 +10,19 @@ from server.app.modules.pipelines.models import (
     PipelineVersion,
 )
 from server.app.modules.pipelines.snapshot import nodes_to_snapshot, snapshot_to_node_dicts
-from server.app.shared.errors import ClientError, ValidationError
+from server.app.shared.errors import ClientError, ConflictError, ValidationError
 
 VALID_AGENT_TYPES = {"generation", "distribution", "general"}
 VALID_SCHEDULE_KINDS = {"none", "hourly", "daily", "weekly"}
+
+_NULLABLE_CLEARABLE = {
+    "description",
+    "window_start",
+    "window_end",
+    "schedule_minute",
+    "schedule_hour",
+    "schedule_weekday",
+}
 
 
 def _dedup_tags(tags: list[str]) -> list[str]:
@@ -63,8 +72,8 @@ def validate_agent_fields(
             raise ValidationError("星期需在 0-6（周一=0）")
     if (window_start is None) != (window_end is None):
         raise ValidationError("时间窗起止需同时设置或同时留空")
-    if window_start is not None and window_end is not None and not (window_start < window_end):
-        raise ValidationError("时间窗起须早于止")
+    if window_start is not None and window_end is not None and window_start == window_end:
+        raise ValidationError("时间窗起止不能相同")
 
 
 def create_pipeline(
@@ -152,10 +161,9 @@ def patch_pipeline(db: Session, p: Pipeline, *, fields: dict) -> Pipeline:
         "window_end": p.window_end,
     }
     for k in merged:
-        if k in fields and fields[k] is not None:
+        if k in fields and (fields[k] is not None or k in _NULLABLE_CLEARABLE):
             merged[k] = fields[k]
     validate_agent_fields(**merged)
-    # 应用（含 description / 开关，None=不改）
     settable = [
         "name",
         "description",
@@ -171,18 +179,28 @@ def patch_pipeline(db: Session, p: Pipeline, *, fields: dict) -> Pipeline:
         "window_end",
     ]
     for k in settable:
-        if k in fields and fields[k] is not None:
-            if k == "name":
-                setattr(p, k, fields[k].strip())
-            elif k == "tags":
-                setattr(p, k, _dedup_tags(fields[k]))
-            else:
-                setattr(p, k, fields[k])
+        if k not in fields:
+            continue
+        if fields[k] is None and k not in _NULLABLE_CLEARABLE:
+            continue
+        if k == "name":
+            setattr(p, k, fields[k].strip())
+        elif k == "tags":
+            setattr(p, k, _dedup_tags(fields[k]))
+        else:
+            setattr(p, k, fields[k])
     db.flush()
     return p
 
 
 def delete_pipeline(db: Session, p: Pipeline) -> None:
+    active = (
+        db.query(PipelineRun.id)
+        .filter(PipelineRun.pipeline_id == p.id, PipelineRun.status.in_(("pending", "running")))
+        .first()
+    )
+    if active is not None:
+        raise ConflictError("该工作流有正在运行的任务，请等待其完成后再删除")
     db.query(PipelineNode).filter(PipelineNode.pipeline_id == p.id).delete()
     db.query(PipelineVersion).filter(PipelineVersion.pipeline_id == p.id).delete()
     db.query(PipelineRun).filter(PipelineRun.pipeline_id == p.id).delete()

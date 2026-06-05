@@ -19,6 +19,11 @@ def run_ai_generate(ctx: NodeRunContext) -> NodeResult:
     if not template_id or count <= 0:
         raise ValidationError("ai_generate 节点需配置 prompt_template_id 与 count>0")
 
+    from server.app.core.config import get_settings
+
+    if count > get_settings().ai_generate_max_count:
+        raise ValidationError(f"生成数量超过上限 {get_settings().ai_generate_max_count}")
+
     db = ctx.session_factory()
     try:
         tpl = get_visible_prompt_template(db, template_id, user_id=ctx.user_id, scope="generation")

@@ -96,6 +96,19 @@ def test_validate_schedule_consistency():
 
 
 def test_validate_window_order():
+    # overnight window (start > end) is now ACCEPTED
+    validate_agent_fields(
+        name="a",
+        type="general",
+        tags=[],
+        schedule_kind="none",
+        schedule_minute=None,
+        schedule_hour=None,
+        schedule_weekday=None,
+        window_start=dt.time(22, 0),
+        window_end=dt.time(6, 0),
+    )
+    # zero-length window (start == end) still rejected
     with pytest.raises(ValidationError):
         validate_agent_fields(
             name="a",
@@ -105,9 +118,39 @@ def test_validate_window_order():
             schedule_minute=None,
             schedule_hour=None,
             schedule_weekday=None,
-            window_start=dt.time(20, 0),
-            window_end=dt.time(8, 0),
+            window_start=dt.time(10, 0),
+            window_end=dt.time(10, 0),
         )
+    # paired-presence enforced: only one of start/end set → raises
+    with pytest.raises(ValidationError):
+        validate_agent_fields(
+            name="a",
+            type="general",
+            tags=[],
+            schedule_kind="none",
+            schedule_minute=None,
+            schedule_hour=None,
+            schedule_weekday=None,
+            window_start=dt.time(10, 0),
+            window_end=None,
+        )
+
+
+def test_in_window_overnight():
+    import datetime as dt
+    from zoneinfo import ZoneInfo
+
+    from server.app.modules.pipelines.schedule_calc import in_window
+
+    tz = ZoneInfo("Asia/Shanghai")
+
+    def L(h, mi):
+        return dt.datetime(2026, 6, 5, h, mi, tzinfo=tz)
+
+    ws, we = dt.time(22, 0), dt.time(6, 0)
+    assert in_window(ws, we, L(23, 0)) is True
+    assert in_window(ws, we, L(3, 0)) is True
+    assert in_window(ws, we, L(12, 0)) is False
 
 
 def test_current_slot_daily_hit_and_miss():
@@ -322,3 +365,156 @@ def test_ignore_exception_fail_fast_vs_continue(monkeypatch):
         assert "上游" not in str(r_on["node_results"]["1"])
     finally:
         test_app.cleanup()
+
+
+# ---------------------------------------------------------------------------
+# Pure-logic tests for last_due_slot (no DB needed)
+# ---------------------------------------------------------------------------
+from server.app.modules.pipelines.schedule_calc import last_due_slot  # noqa: E402
+
+_TZ = ZoneInfo("Asia/Shanghai")
+
+
+def _local(y, mo, d, h, mi):
+    return dt.datetime(y, mo, d, h, mi, tzinfo=_TZ)
+
+
+def test_last_due_slot_hourly_returns_recent_even_when_minute_passed():
+    slot = last_due_slot("hourly", 30, None, None, _local(2026, 6, 5, 9, 47))
+    assert (slot.hour, slot.minute) == (9, 30)
+
+
+def test_last_due_slot_hourly_wraps_prev_hour():
+    slot = last_due_slot("hourly", 30, None, None, _local(2026, 6, 5, 9, 10))
+    assert (slot.hour, slot.minute) == (8, 30)
+
+
+def test_last_due_slot_daily_before_time_wraps_prev_day():
+    slot = last_due_slot("daily", 30, 9, None, _local(2026, 6, 5, 8, 0))
+    assert (slot.day, slot.hour, slot.minute) == (4, 9, 30)
+
+
+def test_last_due_slot_none_kind():
+    assert last_due_slot("none", None, None, None, _local(2026, 6, 5, 9, 0)) is None
+
+
+# ---------------------------------------------------------------------------
+# DB tests: Task 6 (drift) + Task 7 (atomic claim)
+# ---------------------------------------------------------------------------
+from server.app.modules.system.models import User  # noqa: E402
+
+
+@pytest.mark.mysql
+def test_run_due_triggers_even_when_poll_minute_mismatch(monkeypatch):
+    app = build_test_app(monkeypatch)
+    try:
+        from server.app.modules.pipelines import scheduler as sched
+        from server.app.modules.pipelines import service as svc
+        from server.app.modules.pipelines.models import PipelineNode
+
+        with app.session_factory() as db:
+            admin_id = db.query(User).filter_by(username="testadmin").first().id
+            p = svc.create_pipeline(
+                db,
+                user_id=admin_id,
+                name="hourly",
+                description=None,
+                schedule_kind="hourly",
+                schedule_minute=30,
+            )
+            db.add(
+                PipelineNode(
+                    pipeline_id=p.id,
+                    node_type="input",
+                    name="in",
+                    node_index=0,
+                    config={"question_text": "x"},
+                    flow_meta=None,
+                )
+            )
+            db.commit()
+        monkeypatch.setattr(sched, "run_pipeline", lambda *a, **k: None)
+        now = _local(2026, 6, 5, 9, 47)  # schedule minute=30; poll at :47 — old impl would miss
+        assert sched.run_due_pipelines_once(app.session_factory, now=now) == 1
+        assert sched.run_due_pipelines_once(app.session_factory, now=now) == 0  # same slot deduped
+    finally:
+        app.cleanup()
+
+
+@pytest.mark.mysql
+def test_claim_rolled_back_when_create_run_fails(monkeypatch):
+    app = build_test_app(monkeypatch)
+    try:
+        from server.app.modules.pipelines import scheduler as sched
+        from server.app.modules.pipelines import service as svc
+        from server.app.modules.pipelines.models import Pipeline, PipelineNode
+
+        with app.session_factory() as db:
+            admin_id = db.query(User).filter_by(username="testadmin").first().id
+            p = svc.create_pipeline(
+                db,
+                user_id=admin_id,
+                name="hourly",
+                description=None,
+                schedule_kind="hourly",
+                schedule_minute=30,
+            )
+            db.add(
+                PipelineNode(
+                    pipeline_id=p.id,
+                    node_type="input",
+                    name="in",
+                    node_index=0,
+                    config={},
+                    flow_meta=None,
+                )
+            )
+            db.commit()
+            pid = p.id
+
+        def _boom(*a, **k):
+            raise RuntimeError("simulated create_run failure")
+
+        monkeypatch.setattr(sched, "create_run", _boom)
+        now = _local(2026, 6, 5, 9, 47)
+        assert sched.run_due_pipelines_once(app.session_factory, now=now) == 0
+        with app.session_factory() as db:
+            assert db.get(Pipeline, pid).last_scheduled_run_at is None  # claim rolled back
+    finally:
+        app.cleanup()
+
+
+@pytest.mark.mysql
+def test_patch_can_clear_window(monkeypatch):
+    """PATCH with None for window_start/window_end should clear those nullable fields."""
+    app = build_test_app(monkeypatch)
+    try:
+        from server.app.modules.pipelines import service as svc
+
+        with app.session_factory() as db:
+            admin_id = db.query(User).filter_by(username="testadmin").first().id
+            p = svc.create_pipeline(
+                db,
+                user_id=admin_id,
+                name="window-test",
+                description=None,
+                window_start=dt.time(9, 0),
+                window_end=dt.time(18, 0),
+            )
+            db.commit()
+            pid = p.id
+
+        with app.session_factory() as db:
+            p = db.get(type(p), pid)
+            assert p.window_start == dt.time(9, 0)
+            assert p.window_end == dt.time(18, 0)
+
+            svc.patch_pipeline(db, p, fields={"window_start": None, "window_end": None})
+            db.commit()
+
+        with app.session_factory() as db:
+            p = db.get(type(p), pid)
+            assert p.window_start is None
+            assert p.window_end is None
+    finally:
+        app.cleanup()

@@ -3,6 +3,15 @@ import pytest
 from server.tests.utils import build_test_app
 
 
+def test_recovery_skipped_when_flag_off(monkeypatch):
+    monkeypatch.setenv("GEO_RUN_STARTUP_RECOVERY", "false")
+    from server.app.core.config import get_settings
+
+    get_settings.cache_clear()
+    assert get_settings().run_startup_recovery is False
+    get_settings.cache_clear()
+
+
 @pytest.mark.mysql
 def test_recover_stuck_pipeline_runs_resets_running_and_pending(monkeypatch):
     from server.app.modules.pipelines.models import Pipeline, PipelineRun

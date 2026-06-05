@@ -15,7 +15,7 @@ from sqlalchemy import update
 from server.app.core.config import get_settings
 from server.app.modules.pipelines.executor import create_run, run_pipeline
 from server.app.modules.pipelines.models import Pipeline, PipelineNode, PipelineRun
-from server.app.modules.pipelines.schedule_calc import current_slot, in_window
+from server.app.modules.pipelines.schedule_calc import in_window, last_due_slot
 
 logger = logging.getLogger(__name__)
 SessionFactory = Callable[[], Any]
@@ -58,7 +58,7 @@ def run_due_pipelines_once(session_factory: SessionFactory, now: dt.datetime | N
 
     for pid, kind, minute, hour, weekday, w_start, w_end in rows:
         try:
-            slot_local = current_slot(kind, minute, hour, weekday, now)
+            slot_local = last_due_slot(kind, minute, hour, weekday, now)
             if slot_local is None or not in_window(w_start, w_end, now):
                 continue
             slot_utc = _to_utc_naive(slot_local)
@@ -91,13 +91,16 @@ def run_due_pipelines_once(session_factory: SessionFactory, now: dt.datetime | N
                     )
                     .values(last_scheduled_run_at=slot_utc)
                 )
-                db.commit()
                 if res.rowcount != 1:
+                    db.rollback()
                     continue
                 p = db.get(Pipeline, pid)
                 run = create_run(db, pipeline_id=pid, user_id=p.user_id)
-                db.commit()
+                db.commit()  # claim + run 一起提交
                 run_id = run.id
+            except Exception:
+                db.rollback()
+                raise
             finally:
                 db.close()
             threading.Thread(

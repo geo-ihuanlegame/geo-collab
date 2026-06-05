@@ -29,6 +29,7 @@ def upgrade() -> None:
     op.add_column("pipelines", sa.Column("window_start", sa.Time(), nullable=True))
     op.add_column("pipelines", sa.Column("window_end", sa.Time(), nullable=True))
     op.add_column("pipelines", sa.Column("last_scheduled_run_at", sa.DateTime(), nullable=True))
+    op.execute("UPDATE pipelines SET tags = JSON_ARRAY() WHERE tags IS NULL")
 
 
 def downgrade() -> None:

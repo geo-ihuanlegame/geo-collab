@@ -38,6 +38,8 @@ def _owned(db: Session, pipeline_id: int, user: User):
 
 
 def _to_read(db: Session, p) -> dict:
+    if p.tags is None:
+        p.tags = []
     nodes = svc.list_nodes(db, p.id)
     data = PipelineRead.model_validate(p).model_dump()
     data["nodes"] = [

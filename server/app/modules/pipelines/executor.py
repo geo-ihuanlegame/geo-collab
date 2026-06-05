@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import logging
+import threading as _threading
 from collections.abc import Callable
 from typing import Any
 
+from server.app.core.config import get_settings as _get_settings
 from server.app.core.time import utcnow
 from server.app.modules.articles.service import mark_pending_and_group
 from server.app.modules.pipelines.flow_meta import apply_input_mapping, should_skip
@@ -14,6 +16,9 @@ from server.app.shared.errors import ConflictError
 
 logger = logging.getLogger(__name__)
 SessionFactory = Callable[[], Any]
+
+# 全局并发闸：限制单进程同时执行的 pipeline run 数（与单 leader 约束配合即为全局上限）
+_RUN_SEMAPHORE = _threading.Semaphore(max(1, _get_settings().pipeline_max_concurrent_runs))
 
 
 def create_run(db, *, pipeline_id: int, user_id: int) -> PipelineRun:
@@ -41,7 +46,7 @@ def create_run(db, *, pipeline_id: int, user_id: int) -> PipelineRun:
     return run
 
 
-def run_pipeline(run_id: int, session_factory: SessionFactory) -> None:
+def _run_pipeline_inner(run_id: int, session_factory: SessionFactory) -> None:
     """后台线程入口：线性执行节点，聚合 run 状态。"""
     db = session_factory()
     try:
@@ -202,3 +207,21 @@ def run_pipeline(run_id: int, session_factory: SessionFactory) -> None:
                     db.commit()
             finally:
                 db.close()
+
+
+def run_pipeline(run_id: int, session_factory: SessionFactory) -> None:
+    try:
+        with _RUN_SEMAPHORE:
+            _run_pipeline_inner(run_id, session_factory)
+    except Exception:
+        logger.exception("pipeline run %s crashed at top level", run_id)
+        db = session_factory()
+        try:
+            run = db.get(PipelineRun, run_id)
+            if run is not None and run.status in ("pending", "running"):
+                run.status = "failed"
+                run.error_message = "执行器内部异常，运行已中止"
+                run.completed_at = utcnow()
+                db.commit()
+        finally:
+            db.close()

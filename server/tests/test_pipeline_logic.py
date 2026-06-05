@@ -107,3 +107,21 @@ def test_input_node_outputs_question_text():
     res = run_input(ctx)
     assert res.output == {"question_text": "今天写什么"}
     assert res.article_ids == []
+
+
+def test_ai_generate_rejects_excessive_count():
+    import pytest
+
+    from server.app.modules.pipelines.nodes.ai_generate_node import run_ai_generate
+    from server.app.modules.pipelines.nodes.base import NodeRunContext
+    from server.app.shared.errors import ValidationError
+
+    ctx = NodeRunContext(
+        session_factory=lambda: None,
+        user_id=1,
+        config={"prompt_template_id": 1, "count": 9999, "question_text": "x"},
+        inputs={},
+        upstream={},
+    )
+    with pytest.raises(ValidationError):
+        run_ai_generate(ctx)

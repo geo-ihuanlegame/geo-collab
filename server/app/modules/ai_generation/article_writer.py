@@ -106,6 +106,8 @@ def generate_article_from_prompt(
     db = session_factory()
     try:
         article = create_article(db, user_id, article_payload)
+        # AI 生文一律未审：不依赖 run 后 mark_pending_and_group 翻转
+        article.review_status = "pending"
         db.commit()
         return article.id
     except Exception:

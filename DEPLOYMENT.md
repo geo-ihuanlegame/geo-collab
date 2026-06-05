@@ -123,6 +123,10 @@ RUN PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright \
 
 EXPOSE 8000
 CMD ["sh", "-c", "alembic upgrade head && uvicorn server.app.main:app --host 0.0.0.0 --port 8000"]
+
+> **多实例部署注意（startup recovery leader）：** `GEO_RUN_STARTUP_RECOVERY`（默认 `true`）控制应用启动时是否执行卡住记录的恢复逻辑。多实例部署时，**只能有一个 web 实例开启此标志**（即保持默认 `true`），其余实例须显式设置 `GEO_RUN_STARTUP_RECOVERY=false`。原因与 `GEO_PIPELINE_SCHEDULER_ENABLED` 相同：若多个实例同时执行恢复，会把其他实例正在执行的 in-flight 记录误标为 `failed`。
+>
+> **定时智能体的权限语义（admin 跨租户）：** 定时调度（`GEO_PIPELINE_SCHEDULER_ENABLED`）会以**工作流属主**的身份无人值守地创建 run 并执行 distribute 节点。当属主是 **admin** 时，分发会沿用代码库既有的 "admin 全局权限" 语义——即**可分发任意用户的账号 / 分组**，绕过归属校验。这是有意为之的现状（非 bug），但请知悉：一个 admin 拥有的、启用了定时调度的工作流，会按 cron **跨租户**自动分发内容。若不希望如此，请勿用 admin 账号拥有定时分发类工作流，或后续改为按属主限定（详见整改计划 Task 15 方案 A）。
 ```
 
 ### 2.2 docker-compose.yml 优化
