@@ -452,3 +452,39 @@ def test_claim_rolled_back_when_create_run_fails(monkeypatch):
             assert db.get(Pipeline, pid).last_scheduled_run_at is None  # claim rolled back
     finally:
         app.cleanup()
+
+
+@pytest.mark.mysql
+def test_patch_can_clear_window(monkeypatch):
+    """PATCH with None for window_start/window_end should clear those nullable fields."""
+    app = build_test_app(monkeypatch)
+    try:
+        from server.app.modules.pipelines import service as svc
+
+        with app.session_factory() as db:
+            admin_id = db.query(User).filter_by(username="testadmin").first().id
+            p = svc.create_pipeline(
+                db,
+                user_id=admin_id,
+                name="window-test",
+                description=None,
+                window_start=dt.time(9, 0),
+                window_end=dt.time(18, 0),
+            )
+            db.commit()
+            pid = p.id
+
+        with app.session_factory() as db:
+            p = db.get(type(p), pid)
+            assert p.window_start == dt.time(9, 0)
+            assert p.window_end == dt.time(18, 0)
+
+            svc.patch_pipeline(db, p, fields={"window_start": None, "window_end": None})
+            db.commit()
+
+        with app.session_factory() as db:
+            p = db.get(type(p), pid)
+            assert p.window_start is None
+            assert p.window_end is None
+    finally:
+        app.cleanup()
