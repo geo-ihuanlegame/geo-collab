@@ -6,6 +6,31 @@ import pytest
 from server.tests.utils import build_test_app
 
 
+def test_beijing_day_to_utc_range():
+    from server.app.modules.pipelines.run_logs import beijing_day_to_utc_range
+
+    # 北京 2026-06-05 这一天 → UTC [2026-06-04 16:00, 2026-06-05 16:00)
+    start_dt, end_dt = beijing_day_to_utc_range("2026-06-05", "2026-06-05")
+    assert start_dt == datetime(2026, 6, 4, 16, 0, 0)
+    assert end_dt == datetime(2026, 6, 5, 16, 0, 0)
+
+    # 仅 start / 仅 end / 都空
+    s_only, e_none = beijing_day_to_utc_range("2026-06-05", None)
+    assert s_only == datetime(2026, 6, 4, 16, 0, 0) and e_none is None
+    n_start, e_only = beijing_day_to_utc_range(None, "2026-06-05")
+    assert n_start is None and e_only == datetime(2026, 6, 5, 16, 0, 0)
+    assert beijing_day_to_utc_range(None, None) == (None, None)
+
+
+def test_beijing_day_to_utc_range_bad_format():
+    import pytest as _pytest
+
+    from server.app.modules.pipelines.run_logs import beijing_day_to_utc_range
+
+    with _pytest.raises(ValueError):
+        beijing_day_to_utc_range("2026-13-99", None)
+
+
 def test_build_run_log_rows_levels_and_order():
     from server.app.modules.pipelines.run_logs import build_run_log_rows
 

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 from server.app.modules.pipelines.schemas import RunLogRow
+
+_BEIJING_OFFSET = timedelta(hours=8)
 
 
 def build_run_log_rows(run, name_by_index: dict[int, str]) -> list[RunLogRow]:
@@ -34,3 +38,20 @@ def build_run_log_rows(run, name_by_index: dict[int, str]) -> list[RunLogRow]:
             )
         )
     return rows
+
+
+def beijing_day_to_utc_range(
+    start_date: str | None, end_date: str | None
+) -> tuple[datetime | None, datetime | None]:
+    """把北京日历日 YYYY-MM-DD 起止转成朴素 UTC 的半开区间 [start, end)。
+
+    end_date 取「次日北京零点」作为开区间上界。解析失败抛 ValueError（调用方转 400）。
+    产品 China-only，固定 +08:00（与前端 fmtTime 的 Asia/Shanghai 一致）。
+    """
+    start_dt = None
+    end_dt = None
+    if start_date:
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d") - _BEIJING_OFFSET
+    if end_date:
+        end_dt = (datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)) - _BEIJING_OFFSET
+    return start_dt, end_dt
