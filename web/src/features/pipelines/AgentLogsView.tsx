@@ -55,8 +55,8 @@ export function AgentLogsView({ pipelineId, onBack }:
           </tr>
         </thead>
         <tbody>
-          {rows.map((r, i) => (
-            <tr key={`${r.batch}-${r.step}-${i}`}>
+          {rows.map((r) => (
+            <tr key={`${r.batch}-${r.step}`}>
               <td style={isErrBatch(r.run_status) ? ERR : undefined}>{r.batch}</td>
               <td>{r.task_name}</td>
               <td>{r.step}</td>
