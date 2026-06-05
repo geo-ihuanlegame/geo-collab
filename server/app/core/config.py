@@ -57,6 +57,9 @@ class Settings(BaseSettings):
     # 问题池定时镜像同步（应用内后台线程）。默认关闭，避免本地 / 测试打真实飞书。
     question_pool_auto_sync_enabled: bool = False  # GEO_QUESTION_POOL_AUTO_SYNC_ENABLED
     question_pool_sync_interval_seconds: int = 21600  # GEO_QUESTION_POOL_SYNC_INTERVAL_SECONDS (6h)
+    pipeline_scheduler_enabled: bool = False  # GEO_PIPELINE_SCHEDULER_ENABLED
+    pipeline_scheduler_interval_seconds: int = 60  # GEO_PIPELINE_SCHEDULER_INTERVAL_SECONDS
+    scheduler_tz: str = "Asia/Shanghai"  # GEO_SCHEDULER_TZ
     # AI 生文（LangGraph 写作 Agent）—— 保持 Claude
     ai_model: str = "claude-3-5-sonnet-20241022"  # GEO_AI_MODEL
     ai_api_key: str = ""  # GEO_AI_API_KEY

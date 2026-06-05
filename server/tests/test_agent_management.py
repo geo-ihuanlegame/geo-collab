@@ -6,6 +6,7 @@ import pytest
 from server.app.modules.pipelines.schedule_calc import current_slot, in_window
 from server.app.modules.pipelines.service import validate_agent_fields
 from server.app.shared.errors import ValidationError
+from server.tests.utils import build_test_app
 
 TZ = ZoneInfo("Asia/Shanghai")
 
@@ -135,3 +136,109 @@ def test_in_window():
     assert in_window(None, None, now) is True
     assert in_window(dt.time(7, 0), dt.time(23, 0), now) is True
     assert in_window(dt.time(10, 0), dt.time(23, 0), now) is False
+
+
+def _publish_simple_pipeline(client, name="定时体", schedule=None):
+    body = {"name": name}
+    if schedule:
+        body.update(schedule)
+    pid = client.post("/api/pipelines", json=body).json()["id"]
+    snap = {
+        "schemaVersion": 1,
+        "nodes": [
+            {
+                "node_type": "input",
+                "name": "源",
+                "node_index": 0,
+                "config": {"question_text": "x"},
+                "flow_meta": None,
+            }
+        ],
+    }
+    client.post(f"/api/pipelines/{pid}/draft", json={"snapshot": snap})
+    client.post(f"/api/pipelines/{pid}/publish", json={})
+    return pid
+
+
+@pytest.mark.mysql
+def test_run_due_triggers_once_and_claims(monkeypatch):
+    triggered = []
+    monkeypatch.setattr(
+        "server.app.modules.pipelines.scheduler.run_pipeline",
+        lambda run_id, sf: triggered.append(run_id),
+    )
+    test_app = build_test_app(monkeypatch)
+    client = test_app.client
+    try:
+        pid = _publish_simple_pipeline(
+            client,
+            schedule={
+                "schedule_kind": "daily",
+                "schedule_minute": 30,
+                "schedule_hour": 9,
+                "is_enabled": True,
+            },
+        )
+        from server.app.modules.pipelines.scheduler import run_due_pipelines_once
+
+        now = dt.datetime(2026, 6, 5, 9, 30, tzinfo=TZ)
+        n1 = run_due_pipelines_once(test_app.session_factory, now=now)
+        assert n1 == 1 and len(triggered) == 1
+        # 同 slot 再跑：claim 幂等
+        n2 = run_due_pipelines_once(test_app.session_factory, now=now)
+        assert n2 == 0
+        from server.app.modules.pipelines.models import Pipeline
+
+        with test_app.session_factory() as db:
+            assert db.get(Pipeline, pid).last_scheduled_run_at is not None
+    finally:
+        test_app.cleanup()
+
+
+@pytest.mark.mysql
+def test_run_due_skips_disabled_window_and_no_nodes(monkeypatch):
+    monkeypatch.setattr(
+        "server.app.modules.pipelines.scheduler.run_pipeline", lambda run_id, sf: None
+    )
+    test_app = build_test_app(monkeypatch)
+    client = test_app.client
+    try:
+        from server.app.modules.pipelines.scheduler import run_due_pipelines_once
+
+        now = dt.datetime(2026, 6, 5, 9, 30, tzinfo=TZ)
+        # disabled
+        _publish_simple_pipeline(
+            client,
+            name="停用",
+            schedule={
+                "schedule_kind": "daily",
+                "schedule_minute": 30,
+                "schedule_hour": 9,
+                "is_enabled": False,
+            },
+        )
+        # 窗外
+        _publish_simple_pipeline(
+            client,
+            name="窗外",
+            schedule={
+                "schedule_kind": "daily",
+                "schedule_minute": 30,
+                "schedule_hour": 9,
+                "window_start": "10:00:00",
+                "window_end": "23:00:00",
+            },
+        )
+        # 无已发布节点（建但不发布）
+        client.post(
+            "/api/pipelines",
+            json={
+                "name": "无节点",
+                "schedule_kind": "daily",
+                "schedule_minute": 30,
+                "schedule_hour": 9,
+            },
+        ).json()["id"]
+        assert run_due_pipelines_once(test_app.session_factory, now=now) == 0
+    finally:
+        test_app.cleanup()

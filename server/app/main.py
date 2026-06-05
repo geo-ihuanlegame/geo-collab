@@ -271,6 +271,16 @@ def create_app() -> FastAPI:
         _logging.getLogger(__name__).exception("Failed to start question-pool auto-sync thread")
 
     try:
+        from server.app.modules.pipelines.scheduler import start_pipeline_scheduler
+
+        if get_settings().pipeline_scheduler_enabled:
+            start_pipeline_scheduler(SessionLocal)
+    except Exception:
+        import logging as _logging
+
+        _logging.getLogger(__name__).exception("start_pipeline_scheduler failed")
+
+    try:
         # 挂载前端静态文件（Vite 构建产物）
         app.mount("/assets", StaticFiles(directory=f"{WEB_DIST_DIR}/assets"), name="web-assets")
 
