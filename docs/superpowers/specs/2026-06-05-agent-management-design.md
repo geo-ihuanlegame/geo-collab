@@ -79,7 +79,7 @@ last_scheduled_run_at  DateTime nullable            -- 上次定时触发的 slo
 - `in_window(window_start, window_end, now) -> bool`：窗为空恒 True；否则 `start <= now.time() <= end`。
 
 ### 5.2 扫描+触发一轮（`run_due_pipelines_once(session_factory, now=None) -> int`）
-- now 默认 `utcnow()`（注意：调度按 UTC 还是本地？沿用项目 `utcnow` 存储，slot 比较用同一基准——见风险）。
+- **时区**：调度按本地时区解释。`now = datetime.now(ZoneInfo(GEO_SCHEDULER_TZ))`（默认 `Asia/Shanghai`，可配置）。`current_slot` / `in_window` 都在该本地时区下比较 schedule_hour/minute/weekday 与 window。`last_scheduled_run_at` 存为该 slot 的 **UTC naive** 瞬间（`slot_local.astimezone(timezone.utc).replace(tzinfo=None)`），与列的 `utcnow()` 基准一致，便于 claim 的 `<` 比较。`run_due_pipelines_once(session_factory, now=None)` 的 `now` 参数为**带时区的本地 datetime**（单测传固定值，不依赖真实时钟/真实时区）。
 - 查 `is_enabled=True AND schedule_kind != 'none'` 的 pipeline。对每个：
   1. `slot = current_slot(...)`；None 跳过。
   2. `in_window(...)` 否则跳过。
@@ -90,7 +90,7 @@ last_scheduled_run_at  DateTime nullable            -- 上次定时触发的 slo
 - best-effort：单个 pipeline 异常只记日志、不影响其它。返回触发数（便于单测）。
 
 ### 5.3 后台线程
-`start_pipeline_scheduler(session_factory) -> bool` / `stop_pipeline_scheduler()`：`_loop: while not stop: run_due_pipelines_once(); stop.wait(interval)`，interval = `max(30, GEO_PIPELINE_SCHEDULER_INTERVAL_SECONDS默认60)`。`create_app()` 在 `GEO_PIPELINE_SCHEDULER_ENABLED=true` 时 `start_pipeline_scheduler(SessionLocal)`（紧随 `start_auto_sync` 之后）。新增 settings：`pipeline_scheduler_enabled` / `pipeline_scheduler_interval_seconds`（`core/config.py`，前缀 GEO_）。
+`start_pipeline_scheduler(session_factory) -> bool` / `stop_pipeline_scheduler()`：`_loop: while not stop: run_due_pipelines_once(); stop.wait(interval)`，interval = `max(30, GEO_PIPELINE_SCHEDULER_INTERVAL_SECONDS默认60)`。`create_app()` 在 `GEO_PIPELINE_SCHEDULER_ENABLED=true` 时 `start_pipeline_scheduler(SessionLocal)`（紧随 `start_auto_sync` 之后）。新增 settings：`pipeline_scheduler_enabled` / `pipeline_scheduler_interval_seconds` / `scheduler_tz`（默认 `Asia/Shanghai`）（`core/config.py`，前缀 GEO_）。
 
 ---
 
@@ -121,7 +121,7 @@ last_scheduled_run_at  DateTime nullable            -- 上次定时触发的 slo
 - **导航置首**：`types.ts` `NavKey` 加 `"agents"`，`navItems` 把 `{key:"agents",label:"智能体管理",icon:Bot/Boxes}` 放到**数组首位**（在「工作流编排」「AI 生文」之前）。`App.tsx` 加渲染块。
 - **`web/src/features/pipelines/AgentManagementWorkspace.tsx`**（新）：
   - 列表：名称 / 类型 / 标签 / 调度摘要（"每天 09:30" 之类）/ 启用开关 / 草稿标记 / 最近运行；操作：编辑、删除（`window.confirm` 二次确认）、立即运行、编辑流程（切到工作流编排并定位该 pipeline）。
-  - 新建/编辑表单：名称、类型(下拉)、标签(≤5 标签输入)、异常忽略(开关)、启用(开关)、调度选择器（kind 下拉 → 按 kind 显隐 minute/hour/weekday）、时间窗(可选 起止)。前端做基本校验，最终以后端为准。
+  - 新建/编辑表单：名称、类型(下拉)、标签(≤5 标签输入)、异常忽略(开关)、启用(开关)、调度选择器（kind 下拉 → 按 kind 显隐 minute/hour/weekday）、时间窗(可选 起止)。时间均为**本地时间（Asia/Shanghai）**，表单旁标注"（北京时间）"。前端做基本校验，最终以后端为准。
 - **API 客户端**：`web/src/api/pipelines.ts` 的 create/patch/类型扩字段；`web/src/types.ts` 的 `Pipeline` 扩字段。
 - 复用现有运行轮询展示（可选，列表里显示最近 run 状态）。
 
@@ -140,7 +140,7 @@ last_scheduled_run_at  DateTime nullable            -- 上次定时触发的 slo
 
 ## 10. 关键决策（已与用户确认）
 
-1. 调度 = 预设档位（hourly/daily/weekly）+ 时间窗。
+1. 调度 = 预设档位（hourly/daily/weekly）+ 时间窗；时间按**本地时区 Asia/Shanghai**解释（`GEO_SCHEDULER_TZ` 可配置），存储仍 UTC。
 2. 调度器 = web 后台线程（镜像 sync_scheduler）+ DB claim 防重 + 运行中不重叠 + env 开关。
 3. type 枚举 = generation / distribution / general。
 4. tags = Pipeline 上 JSON `list[str]`，≤5（自由标签，不新建分类实体）。
@@ -149,7 +149,7 @@ last_scheduled_run_at  DateTime nullable            -- 上次定时触发的 slo
 
 ## 11. 风险与缓解
 
-- **时区**：`utcnow` 存储为 UTC，运营填的"每天 09:30"通常指本地。**决策**：调度 slot 比较与 window 用 `utcnow()` 基准（即填的时间按 UTC 解释），并在 UI 标注"（UTC）"；若后续要本地时区，单独加 `GEO_SCHEDULER_TZ`（本次不做，避免范围膨胀）。spec 实现处注释清楚。
+- **时区**：调度按本地时区解释（`GEO_SCHEDULER_TZ` 默认 `Asia/Shanghai`，用 `zoneinfo.ZoneInfo`）。运营填"每天 09:30"= 北京时间 09:30。slot/window 比较在本地时区下进行；`last_scheduled_run_at` 仍存 UTC naive 瞬间（与 `utcnow()` 列基准一致）。DST 对 Asia/Shanghai 无影响（无夏令时）。UI 标注"（北京时间）"。
 - **多实例防重**：claim 用条件 UPDATE + rowcount，幂等到 slot。
 - **不重叠**：触发前查运行中 run；长任务跨过下一个 slot 时跳过该 slot（可接受）。
 - **后台线程 session**：scheduler 自建 session、本线程 commit/close；触发的 `run_pipeline` 仍自管 session。
