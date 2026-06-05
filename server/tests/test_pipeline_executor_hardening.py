@@ -346,3 +346,180 @@ def test_malformed_flow_meta_marks_run_failed_not_stuck(monkeypatch):
             db.close()
     finally:
         test_app.cleanup()
+
+
+# --- Task 12: 运行冻结快照（创建→执行之间改 live 节点不影响本次运行）---
+
+
+@pytest.mark.mysql
+def test_run_uses_frozen_snapshot_after_live_nodes_deleted(monkeypatch):
+    from server.app.modules.pipelines.executor import create_run, run_pipeline
+    from server.app.modules.pipelines.models import Pipeline, PipelineNode, PipelineRun
+    from server.app.modules.system.models import User
+
+    test_app = build_test_app(monkeypatch)
+    try:
+        with test_app.session_factory() as db:
+            user_id = db.query(User).filter(User.username == "testadmin").first().id
+            p = Pipeline(user_id=user_id, name="snap", has_draft=False)
+            db.add(p)
+            db.flush()
+            db.add(
+                PipelineNode(
+                    pipeline_id=p.id,
+                    node_type="input",
+                    name="in",
+                    node_index=0,
+                    config={"question_text": "X"},
+                    flow_meta=None,
+                )
+            )
+            db.commit()
+            pid = p.id
+
+        # create_run 冻结快照（此时有 1 个 input 节点）
+        with test_app.session_factory() as db:
+            run = create_run(db, pipeline_id=pid, user_id=user_id)
+            db.commit()
+            run_id = run.id
+            assert run.snapshot and len(run.snapshot["nodes"]) == 1
+
+        # 创建后、执行前删掉所有 live 节点（模拟期间被 publish / 改动）
+        with test_app.session_factory() as db:
+            db.query(PipelineNode).filter(PipelineNode.pipeline_id == pid).delete()
+            db.commit()
+
+        run_pipeline(run_id, test_app.session_factory)
+
+        with test_app.session_factory() as db:
+            run = db.get(PipelineRun, run_id)
+            # 读快照才会跑节点0；若读 live（已删）则 node_results 为空
+            assert "0" in run.node_results, run.node_results
+            assert run.node_results["0"].get("question_text") == "X"
+    finally:
+        test_app.cleanup()
+
+
+# --- Task 16: 终态一次写定（成组在终态写入之前，消除 done→partial_failed 闪烁）---
+
+
+@pytest.mark.mysql
+def test_terminal_status_written_once_after_grouping(monkeypatch):
+    from server.app.modules.articles.schemas import ArticleCreate
+    from server.app.modules.articles.service import create_article
+
+    def _fake_generate(*, session_factory, user_id, template_content, question_text, model=None):
+        db = session_factory()
+        try:
+            art = create_article(
+                db,
+                user_id,
+                ArticleCreate(
+                    title="AI",
+                    content_json={"type": "doc", "content": []},
+                    content_html="<p>a</p>",
+                    plain_text="a",
+                    word_count=1,
+                    client_request_id=str(uuid.uuid4()),
+                ),
+            )
+            db.commit()
+            return art.id
+        finally:
+            db.close()
+
+    observed: dict = {}
+
+    def _spy_group(session_factory, **kw):
+        from server.app.modules.pipelines.models import PipelineRun
+
+        with session_factory() as db:
+            run = db.query(PipelineRun).order_by(PipelineRun.id.desc()).first()
+            observed["status_during_grouping"] = run.status
+        return 999  # 成组成功
+
+    monkeypatch.setattr(
+        "server.app.modules.pipelines.nodes.ai_generate_node.generate_article_from_prompt",
+        _fake_generate,
+    )
+    monkeypatch.setattr(
+        "server.app.modules.pipelines.executor.mark_pending_and_group",
+        _spy_group,
+        raising=False,
+    )
+
+    test_app = build_test_app(monkeypatch)
+    client = test_app.client
+    try:
+        tpl = _make_generation_template(client)
+        pid = client.post("/api/pipelines", json={"name": "成组顺序流"}).json()["id"]
+        snapshot = {
+            "schemaVersion": 1,
+            "nodes": [
+                {
+                    "node_type": "input",
+                    "name": "源",
+                    "node_index": 0,
+                    "config": {"question_text": "主题"},
+                    "flow_meta": None,
+                },
+                {
+                    "node_type": "ai_generate",
+                    "name": "生文",
+                    "node_index": 1,
+                    "config": {"prompt_template_id": tpl, "count": 1},
+                    "flow_meta": {
+                        "inputMapping": [{"from": "question_text", "to": "question_text"}]
+                    },
+                },
+            ],
+        }
+        client.post(f"/api/pipelines/{pid}/draft", json={"snapshot": snapshot})
+        client.post(f"/api/pipelines/{pid}/publish", json={})
+
+        from server.app.modules.pipelines.executor import create_run, run_pipeline
+        from server.app.modules.pipelines.models import Pipeline
+
+        with test_app.session_factory() as db:
+            p = db.get(Pipeline, pid)
+            run = create_run(db, pipeline_id=p.id, user_id=p.user_id)
+            db.commit()
+            run_id = run.id
+        run_pipeline(run_id, test_app.session_factory)
+
+        # 成组期间 run 仍为 running（旧实现此时已写 done → 闪烁）
+        assert observed.get("status_during_grouping") == "running", observed
+        run = client.get(f"/api/pipelines/runs/{run_id}").json()
+        assert run["status"] == "done", run
+    finally:
+        test_app.cleanup()
+
+
+# --- Task 22: article_group_source 支持上游 inputMapping 注入 group_id ---
+
+
+@pytest.mark.mysql
+def test_article_group_source_reads_group_id_from_upstream_inputs(monkeypatch):
+    from server.app.modules.pipelines.nodes.article_group_source import run_article_group_source
+    from server.app.modules.pipelines.nodes.base import NodeRunContext
+    from server.app.modules.system.models import User
+    from server.app.shared.errors import ValidationError
+
+    test_app = build_test_app(monkeypatch)
+    try:
+        with test_app.session_factory() as db:
+            user_id = db.query(User).filter(User.username == "testadmin").first().id
+
+        ctx = NodeRunContext(
+            session_factory=test_app.session_factory,
+            user_id=user_id,
+            config={},  # config 不含 group_id
+            inputs={"group_id": 999999},  # 仅上游注入
+            upstream={},
+        )
+        # 旧代码：config 无 group_id → "需配置 group_id"；新代码：用上游 id 查库 → "分组不存在"
+        with pytest.raises(ValidationError) as exc:
+            run_article_group_source(ctx)
+        assert "分组不存在" in str(exc.value)
+    finally:
+        test_app.cleanup()
