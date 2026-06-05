@@ -7,4 +7,5 @@ from server.app.modules.pipelines.nodes import (
     distribute_node,  # noqa: F401
     input_node,  # noqa: F401
     question_source,  # noqa: F401
+    to_review,  # noqa: F401
 )

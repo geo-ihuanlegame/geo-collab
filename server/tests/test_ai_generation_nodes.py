@@ -160,3 +160,57 @@ def test_ai_compose_generates_with_random_template(monkeypatch):
         assert r3.output["article_ids"] == [] and r3.output["errors"]
     finally:
         app.cleanup()
+
+
+@pytest.mark.mysql
+def test_to_review_marks_pending_and_groups(monkeypatch):
+    app = build_test_app(monkeypatch)
+    client = app.client
+    try:
+        from server.app.modules.articles.models import Article, ArticleGroupItem
+        from server.app.modules.pipelines.nodes.base import NodeRunContext
+        from server.app.modules.pipelines.nodes.to_review import run_to_review
+
+        def _mk(title):
+            r = client.post(
+                "/api/articles",
+                json={
+                    "title": title,
+                    "content_json": {"type": "doc", "content": []},
+                    "content_html": "<p>x</p>",
+                    "plain_text": "x",
+                    "word_count": 1,
+                    "status": "ready",
+                },
+            )
+            return r.json()["id"]
+
+        a1, a2 = _mk("甲"), _mk("乙")
+        with app.session_factory() as db:
+            uid = db.query(Article).first().user_id
+        ctx = NodeRunContext(
+            session_factory=app.session_factory,
+            user_id=uid,
+            config={"group_name": "今日生成"},
+            inputs={"article_ids": [a1, a2]},
+            upstream={},
+        )
+        res = run_to_review(ctx)
+        gid = res.output["group_id"]
+        assert gid is not None
+        with app.session_factory() as db:
+            assert db.get(Article, a1).review_status == "pending"
+            assert db.get(Article, a2).review_status == "pending"
+            items = db.query(ArticleGroupItem).filter(ArticleGroupItem.group_id == gid).all()
+            assert {it.article_id for it in items} == {a1, a2}
+        # 空 article_ids → skipped 不建组
+        ctx_empty = NodeRunContext(
+            session_factory=app.session_factory,
+            user_id=uid,
+            config={},
+            inputs={"article_ids": []},
+            upstream={},
+        )
+        assert run_to_review(ctx_empty).output.get("skipped")
+    finally:
+        app.cleanup()
