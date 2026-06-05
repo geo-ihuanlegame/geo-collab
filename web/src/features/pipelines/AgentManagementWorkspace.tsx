@@ -5,6 +5,7 @@ import {
 } from "../../api/pipelines";
 import { useToast } from "../../components/Toast";
 import type { Pipeline } from "../../types";
+import { PipelineEditor } from "./PipelineEditor";
 
 const TYPES = [
   { v: "general", label: "通用" },
@@ -41,10 +42,11 @@ function scheduleSummary(p: Pipeline): string {
   return "—";
 }
 
-export function AgentManagementWorkspace({ onEditFlow }: { onEditFlow: (id: number) => void }) {
+export function AgentManagementWorkspace() {
   const { toast } = useToast();
   const [items, setItems] = useState<Pipeline[]>([]);
   const [form, setForm] = useState<FormState | null>(null);
+  const [editingId, setEditingId] = useState<number | null>(null);
 
   const reload = useCallback(async () => {
     try { setItems(await listPipelines()); }
@@ -96,76 +98,163 @@ export function AgentManagementWorkspace({ onEditFlow }: { onEditFlow: (id: numb
     catch (e) { toast(e instanceof Error ? e.message : "运行失败（需先发布节点）", "error"); }
   };
 
+  // 工作流编排绑定到具体智能体：进入某智能体 → 全页节点编辑器（复用 PipelineEditor）。
+  if (editingId != null) {
+    const agent = items.find((p) => p.id === editingId);
+    return (
+      <div className="agentsWorkspace">
+        <div className="topbar">
+          <div>
+            <p className="eyebrow">智能体 · 工作流</p>
+            <h1>{agent ? agent.name : `智能体 ${editingId}`}</h1>
+          </div>
+          <button onClick={() => { setEditingId(null); reload(); }}>← 返回智能体列表</button>
+        </div>
+        <PipelineEditor pipelineId={editingId} onChanged={reload} />
+      </div>
+    );
+  }
+
   return (
     <div className="agentsWorkspace">
-      <div className="topbar"><div><p className="eyebrow">智能体</p><h1>智能体管理</h1></div>
-        <button onClick={openCreate}>+ 新建智能体</button></div>
+      <div className="topbar">
+        <div><p className="eyebrow">智能体</p><h1>智能体管理</h1></div>
+        <button className="agentNewBtn" onClick={openCreate}>+ 新建智能体</button>
+      </div>
 
-      <table style={{ width: "100%" }}>
-        <thead><tr>
-          <th>名称</th><th>类型</th><th>标签</th><th>调度（北京时间）</th><th>启用</th><th>操作</th>
-        </tr></thead>
+      <table className="agentTable">
+        <thead>
+          <tr>
+            <th>名称</th><th>类型</th><th>标签</th><th>调度（北京时间）</th><th>启用</th><th>操作</th>
+          </tr>
+        </thead>
         <tbody>
           {items.map((p) => (
             <tr key={p.id}>
-              <td>{p.name}{p.has_draft ? " ●" : ""}</td>
-              <td>{TYPES.find((t) => t.v === p.type)?.label ?? p.type}</td>
-              <td>{(p.tags || []).join("、")}</td>
-              <td>{scheduleSummary(p)}</td>
-              <td>{p.is_enabled ? "是" : "否"}</td>
               <td>
-                <button onClick={() => openEdit(p)}>编辑</button>
-                <button onClick={() => onEditFlow(p.id)}>编辑流程</button>
-                <button onClick={() => runNow(p)}>立即运行</button>
-                <button onClick={() => remove(p)}>删除</button>
+                <span className="agentName">{p.name}</span>
+                {p.has_draft && <span className="agentDraftDot" title="有未发布草稿">●</span>}
+              </td>
+              <td>{TYPES.find((t) => t.v === p.type)?.label ?? p.type}</td>
+              <td>
+                {(p.tags || []).length
+                  ? (p.tags || []).map((t) => <span key={t} className="agentTag">{t}</span>)
+                  : <span className="agentHint">—</span>}
+              </td>
+              <td>{scheduleSummary(p)}</td>
+              <td>{p.is_enabled ? "启用" : "停用"}</td>
+              <td>
+                <div className="agentRowActions">
+                  <button onClick={() => openEdit(p)}>编辑</button>
+                  <button onClick={() => setEditingId(p.id)}>配置流程</button>
+                  <button onClick={() => runNow(p)}>立即运行</button>
+                  <button className="danger" onClick={() => remove(p)}>删除</button>
+                </div>
               </td>
             </tr>
           ))}
+          {items.length === 0 && (
+            <tr><td colSpan={6}><div className="agentEmpty">还没有智能体，点右上角「新建智能体」开始。</div></td></tr>
+          )}
         </tbody>
       </table>
 
       {form && (
-        <div className="agentForm" style={{ border: "1px solid #ccc", padding: 12, marginTop: 12 }}>
-          <h3>{form.id == null ? "新建智能体" : "编辑智能体"}</h3>
-          <label>名称<input value={form.name} maxLength={50}
-            onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
-          <label>类型
-            <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
-              {TYPES.map((t) => <option key={t.v} value={t.v}>{t.label}</option>)}
-            </select></label>
-          <label>标签（逗号分隔，≤5）
-            <input value={form.tagsText} onChange={(e) => setForm({ ...form, tagsText: e.target.value })} /></label>
-          <label><input type="checkbox" checked={form.ignore_exception}
-            onChange={(e) => setForm({ ...form, ignore_exception: e.target.checked })} /> 异常忽略（出错继续后续节点）</label>
-          <label><input type="checkbox" checked={form.is_enabled}
-            onChange={(e) => setForm({ ...form, is_enabled: e.target.checked })} /> 启用</label>
-          <hr />
-          <label>调度（北京时间）
-            <select value={form.schedule_kind} onChange={(e) => setForm({ ...form, schedule_kind: e.target.value })}>
-              {KINDS.map((k) => <option key={k.v} value={k.v}>{k.label}</option>)}
-            </select></label>
-          {form.schedule_kind === "weekly" && (
-            <label>星期
-              <select value={form.schedule_weekday}
-                onChange={(e) => setForm({ ...form, schedule_weekday: Number(e.target.value) })}>
-                {WEEKDAYS.map((w, i) => <option key={i} value={i}>{w}</option>)}
-              </select></label>
-          )}
-          {["daily", "weekly"].includes(form.schedule_kind) && (
-            <label>时<input type="number" min={0} max={23} value={form.schedule_hour}
-              onChange={(e) => setForm({ ...form, schedule_hour: Number(e.target.value) })} /></label>
-          )}
-          {["hourly", "daily", "weekly"].includes(form.schedule_kind) && (
-            <label>分<input type="number" min={0} max={59} value={form.schedule_minute}
-              onChange={(e) => setForm({ ...form, schedule_minute: Number(e.target.value) })} /></label>
-          )}
-          <label>时间窗起<input type="time" value={form.window_start}
-            onChange={(e) => setForm({ ...form, window_start: e.target.value })} /></label>
-          <label>时间窗止<input type="time" value={form.window_end}
-            onChange={(e) => setForm({ ...form, window_end: e.target.value })} /></label>
-          <div style={{ marginTop: 8 }}>
-            <button onClick={save}>保存</button>
-            <button onClick={() => setForm(null)}>取消</button>
+        <div className="modalBackdrop" role="dialog" aria-modal="true" onClick={() => setForm(null)}>
+          <div className="modal agentModal" onClick={(e) => e.stopPropagation()}>
+            <div className="modalHeader">
+              <div><h3>{form.id == null ? "新建智能体" : "编辑智能体"}</h3></div>
+              <button onClick={() => setForm(null)} aria-label="关闭">✕</button>
+            </div>
+            <div className="modalContent">
+              <div className="agentModalBody">
+                <label className="agentField">
+                  <span className="agentFieldLabel">名称（≤50）</span>
+                  <input type="text" value={form.name} maxLength={50} placeholder="智能体名称"
+                    onChange={(e) => setForm({ ...form, name: e.target.value })} />
+                </label>
+                <div className="agentFieldRow">
+                  <label className="agentField">
+                    <span className="agentFieldLabel">类型</span>
+                    <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
+                      {TYPES.map((t) => <option key={t.v} value={t.v}>{t.label}</option>)}
+                    </select>
+                  </label>
+                  <label className="agentField">
+                    <span className="agentFieldLabel">标签（逗号分隔，≤5）</span>
+                    <input type="text" value={form.tagsText} placeholder="如：营销, 日更"
+                      onChange={(e) => setForm({ ...form, tagsText: e.target.value })} />
+                  </label>
+                </div>
+                <div className="agentToggles">
+                  <label className="agentToggle">
+                    <input type="checkbox" checked={form.is_enabled}
+                      onChange={(e) => setForm({ ...form, is_enabled: e.target.checked })} />
+                    启用
+                  </label>
+                  <label className="agentToggle">
+                    <input type="checkbox" checked={form.ignore_exception}
+                      onChange={(e) => setForm({ ...form, ignore_exception: e.target.checked })} />
+                    异常忽略（出错继续后续节点）
+                  </label>
+                </div>
+
+                <div className="agentField">
+                  <span className="agentFieldLabel">定时调度（北京时间）</span>
+                  <div className="agentSchedule">
+                    <label className="agentField">
+                      <span className="agentFieldLabel">频率</span>
+                      <select value={form.schedule_kind}
+                        onChange={(e) => setForm({ ...form, schedule_kind: e.target.value })}>
+                        {KINDS.map((k) => <option key={k.v} value={k.v}>{k.label}</option>)}
+                      </select>
+                    </label>
+                    {form.schedule_kind === "weekly" && (
+                      <label className="agentField">
+                        <span className="agentFieldLabel">星期</span>
+                        <select value={form.schedule_weekday}
+                          onChange={(e) => setForm({ ...form, schedule_weekday: Number(e.target.value) })}>
+                          {WEEKDAYS.map((w, i) => <option key={i} value={i}>{w}</option>)}
+                        </select>
+                      </label>
+                    )}
+                    {["daily", "weekly"].includes(form.schedule_kind) && (
+                      <label className="agentField">
+                        <span className="agentFieldLabel">时</span>
+                        <input type="number" min={0} max={23} value={form.schedule_hour}
+                          onChange={(e) => setForm({ ...form, schedule_hour: Number(e.target.value) })} />
+                      </label>
+                    )}
+                    {["hourly", "daily", "weekly"].includes(form.schedule_kind) && (
+                      <label className="agentField">
+                        <span className="agentFieldLabel">分</span>
+                        <input type="number" min={0} max={59} value={form.schedule_minute}
+                          onChange={(e) => setForm({ ...form, schedule_minute: Number(e.target.value) })} />
+                      </label>
+                    )}
+                  </div>
+                </div>
+
+                {form.schedule_kind !== "none" && (
+                  <div className="agentFieldRow">
+                    <label className="agentField">
+                      <span className="agentFieldLabel">时间窗起（可选）</span>
+                      <input type="time" value={form.window_start}
+                        onChange={(e) => setForm({ ...form, window_start: e.target.value })} />
+                    </label>
+                    <label className="agentField">
+                      <span className="agentFieldLabel">时间窗止（可选）</span>
+                      <input type="time" value={form.window_end}
+                        onChange={(e) => setForm({ ...form, window_end: e.target.value })} />
+                    </label>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="modalActions">
+              <button onClick={() => setForm(null)}>取消</button>
+              <button onClick={save}>保存</button>
+            </div>
           </div>
         </div>
       )}
