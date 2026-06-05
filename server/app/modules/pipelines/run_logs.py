@@ -112,8 +112,9 @@ def list_run_log_page(
     if not window_ids:
         return [], total
 
-    runs = {r.id: r for r in base.filter(PipelineRun.id.in_(window_ids)).all()}
+    runs = {r.id: r for r in db.query(PipelineRun).filter(PipelineRun.id.in_(window_ids)).all()}
     rows: list[RunLogRow] = []
     for rid in window_ids:  # 保持时间倒序
         rows.extend(build_run_log_rows(runs[rid], name_by_index))
+    # skip_in_first：首个窗口 run 之前要丢弃的前导行数（窗口行已按时间倒序拼好）
     return rows[skip_in_first : skip_in_first + page_size], total
