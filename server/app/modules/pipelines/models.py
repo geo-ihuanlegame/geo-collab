@@ -11,6 +11,7 @@ from sqlalchemy import (
     String,
     Text,
     Time,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -46,7 +47,9 @@ class PipelineNode(Base):
     __tablename__ = "pipeline_nodes"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    pipeline_id: Mapped[int] = mapped_column(ForeignKey("pipelines.id"), index=True)
+    pipeline_id: Mapped[int] = mapped_column(
+        ForeignKey("pipelines.id", ondelete="CASCADE"), index=True
+    )
     node_type: Mapped[str] = mapped_column(String(64))
     name: Mapped[str] = mapped_column(String(200))
     node_index: Mapped[int] = mapped_column(Integer)
@@ -57,9 +60,18 @@ class PipelineNode(Base):
 
 class PipelineVersion(Base):
     __tablename__ = "pipeline_versions"
+    __table_args__ = (
+        UniqueConstraint(
+            "pipeline_id",
+            "version_no",
+            name="uq_pipeline_versions_pipeline_version",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    pipeline_id: Mapped[int] = mapped_column(ForeignKey("pipelines.id"), index=True)
+    pipeline_id: Mapped[int] = mapped_column(
+        ForeignKey("pipelines.id", ondelete="CASCADE"), index=True
+    )
     version_no: Mapped[int] = mapped_column(Integer)
     snapshot: Mapped[dict] = mapped_column(JSON)
     remark: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -77,7 +89,9 @@ class PipelineRun(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    pipeline_id: Mapped[int] = mapped_column(ForeignKey("pipelines.id"), index=True)
+    pipeline_id: Mapped[int] = mapped_column(
+        ForeignKey("pipelines.id", ondelete="CASCADE"), index=True
+    )
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
     node_results: Mapped[dict] = mapped_column(JSON, default=dict)

@@ -214,6 +214,32 @@ def run_scheme(run_id: int, session_factory: SessionFactory) -> None:
     _group_run_articles(run_id, session_factory)
 
 
+def recover_stuck_scheme_runs(db: Any) -> None:
+    """启动时复位崩溃残留的方案运行（running/pending → failed）。
+
+    与 pipeline run 对称：进程刚启动时没有 run 真正在执行，所有 running/pending 都是
+    上次崩溃的残留，直接置 failed（方案运行没有租约机制，故全量复位、不按阈值）。
+    """
+    from sqlalchemy import select
+
+    runs = list(
+        db.execute(
+            select(GenerationSchemeRun).where(
+                GenerationSchemeRun.status.in_(("running", "pending"))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for run in runs:
+        run.status = "failed"
+        run.error_message = "进程重启：运行在上次执行中意外中断"
+        run.completed_at = utcnow()
+    if runs:
+        logger.warning("Recovered %d stuck scheme runs: %s", len(runs), [r.id for r in runs])
+        db.commit()
+
+
 def _aggregate_run(run_id: int, session_factory: SessionFactory) -> None:
     db = session_factory()
     try:
@@ -243,88 +269,32 @@ def _aggregate_run(run_id: int, session_factory: SessionFactory) -> None:
 
 
 def _group_run_articles(run_id: int, session_factory: SessionFactory) -> None:
-    """方案运行产出文章：标记为未审核（pending）+ 全部归入一个新的方案组。
+    """方案运行产出文章：标 pending + 归入新方案组。复用 articles.mark_pending_and_group。"""
+    from server.app.modules.articles.service import mark_pending_and_group
 
-    best-effort：成组 / 标记失败只记日志，绝不影响已汇总的 run 状态。
-    用独立 DB session（session 非线程安全），本线程内 commit + close。
-    名称撞 (user_id, name) 唯一约束时追加 ` #{run.id}`（schema-from-models 测试库有该约束，
-    迁移 0021 在生产库已 drop —— 两边行为不同，所以这里既防 collision 又兜 IntegrityError）。
-    """
+    db = session_factory()
     try:
-        from sqlalchemy.exc import IntegrityError
+        run = db.get(GenerationSchemeRun, run_id)
+        if run is None:
+            return
+        article_ids = list(run.article_ids or [])
+        if not article_ids:
+            return
+        scheme = db.get(GenerationScheme, run.scheme_id)
+        scheme_name = scheme.name if scheme is not None else f"方案 {run.scheme_id}"
+        base_name = f"{run.created_at:%Y/%m/%d %H:%M} · {scheme_name}"
+        uid = run.user_id
+        rid = run.id
+    finally:
+        db.close()
 
-        from server.app.modules.articles.models import (
-            Article,
-            ArticleGroup,
-            ArticleGroupItem,
-        )
-
-        db = session_factory()
-        try:
-            run = db.get(GenerationSchemeRun, run_id)
-            if run is None:
-                return
-            article_ids = list(run.article_ids or [])
-            if not article_ids:
-                return
-            user_id = run.user_id
-
-            # 1. 标记生成文章为未审核（AI 内容必须审核）
-            for aid in article_ids:
-                article = db.get(Article, aid)
-                if article is not None:
-                    article.review_status = "pending"
-
-            # 2. 组名：created_at + 方案名
-            scheme = db.get(GenerationScheme, run.scheme_id)
-            scheme_name = scheme.name if scheme is not None else f"方案 {run.scheme_id}"
-            base_name = f"{run.created_at:%Y/%m/%d %H:%M} · {scheme_name}"
-
-            # 同名防御：已存在同名（同 user，未删）→ 直接带后缀建
-            exists = (
-                db.query(ArticleGroup.id)
-                .filter(
-                    ArticleGroup.user_id == user_id,
-                    ArticleGroup.name == base_name,
-                    ArticleGroup.is_deleted.is_(False),
-                )
-                .first()
-            )
-            name = f"{base_name} #{run.id}" if exists is not None else base_name
-
-            group = ArticleGroup(user_id=user_id, name=name)
-            db.add(group)
-            try:
-                db.flush()
-            except IntegrityError:
-                # 唯一约束兜底：重试一次带后缀的名字
-                db.rollback()
-                run = db.get(GenerationSchemeRun, run_id)
-                article_ids = list(run.article_ids or []) if run is not None else []
-                if not article_ids:
-                    return
-                for aid in article_ids:
-                    article = db.get(Article, aid)
-                    if article is not None:
-                        article.review_status = "pending"
-                group = ArticleGroup(user_id=user_id, name=f"{base_name} #{run_id}")
-                db.add(group)
-                db.flush()
-
-            # 3. 按 article_ids 顺序加入分组
-            for idx, aid in enumerate(article_ids):
-                db.add(ArticleGroupItem(group_id=group.id, article_id=aid, sort_order=idx))
-            db.commit()
-            logger.info(
-                "scheme run %s grouped %s articles into group %s (pending)",
-                run_id,
-                len(article_ids),
-                group.id,
-            )
-        finally:
-            db.close()
-    except Exception:  # noqa: BLE001 — 成组 / 标 pending 失败不影响 run 状态
-        logger.exception("group_run_articles failed for run %s", run_id)
+    mark_pending_and_group(
+        session_factory,
+        article_ids=article_ids,
+        user_id=uid,
+        base_name=base_name,
+        fallback_suffix=f"#{rid}",
+    )
 
 
 def _auto_format_article(

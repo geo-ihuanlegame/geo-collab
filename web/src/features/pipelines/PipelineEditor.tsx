@@ -102,11 +102,21 @@ export function PipelineEditor({ pipelineId, onChanged }:
       const { run_id } = await startRun(pipelineId);
       setRunStatus("running");
       if (pollRef.current != null) { clearInterval(pollRef.current); pollRef.current = null; }
+      let failures = 0;
       pollRef.current = setInterval(async () => {
-        const r = await getRun(run_id);
-        setRunStatus(`${r.status}（文章 ${r.article_ids.length} 篇）`);
-        if (["done", "failed", "partial_failed"].includes(r.status)) {
-          if (pollRef.current != null) { clearInterval(pollRef.current); pollRef.current = null; }
+        try {
+          const r = await getRun(run_id);
+          failures = 0;
+          setRunStatus(`${r.status}（文章 ${r.article_ids.length} 篇）`);
+          if (["done", "failed", "partial_failed"].includes(r.status)) {
+            if (pollRef.current != null) { clearInterval(pollRef.current); pollRef.current = null; }
+          }
+        } catch {
+          failures += 1;
+          if (failures >= 5 && pollRef.current != null) {
+            clearInterval(pollRef.current); pollRef.current = null;
+            setRunStatus("运行状态获取失败，请刷新");
+          }
         }
       }, 1500);
     } catch (e) {

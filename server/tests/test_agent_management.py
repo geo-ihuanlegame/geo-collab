@@ -298,7 +298,7 @@ def test_ignore_exception_fail_fast_vs_continue(monkeypatch):
                         "name": "后",
                         "node_index": 1,
                         "config": {"question_text": "y"},
-                        "flow_meta": None,
+                        "flow_meta": {"dependsOnIndex": 0},
                     },
                 ],
             }
@@ -312,12 +312,13 @@ def test_ignore_exception_fail_fast_vs_continue(monkeypatch):
             run_pipeline(rid, test_app.session_factory)
             return client.get(f"/api/pipelines/runs/{rid}").json()
 
-        # fail-fast：第二个节点不应执行
+        # ignore_exception=False：上游(节点0)失败 → 依赖它的节点1 被阻断（带"上游"错误）
         r_off = _build(False)
         assert r_off["status"] == "failed"
-        assert "1" not in r_off["node_results"]  # 后续节点没跑
-        # 继续：第二个节点应执行
+        assert "上游" in r_off["node_results"].get("1", {}).get("error", "")
+        # ignore_exception=True：不阻断依赖 → 节点1 仍执行（input 产出 question_text，无"上游"阻断）
         r_on = _build(True)
-        assert "1" in r_on["node_results"]
+        assert r_on["node_results"]["1"].get("question_text") == "y"
+        assert "上游" not in str(r_on["node_results"]["1"])
     finally:
         test_app.cleanup()

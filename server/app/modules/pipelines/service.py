@@ -203,6 +203,8 @@ def discard_draft(db: Session, p: Pipeline) -> None:
 
 
 def publish_draft(db: Session, p: Pipeline, *, remark: str | None, user_id: int) -> int:
+    # 串行化同一 pipeline 的并发发布，避免 version_no 重号
+    db.query(Pipeline).filter(Pipeline.id == p.id).with_for_update().first()
     if not p.has_draft or not p.draft_snapshot:
         raise ClientError("没有可发布的草稿")
     node_dicts = snapshot_to_node_dicts(p.draft_snapshot)

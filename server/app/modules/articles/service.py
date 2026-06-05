@@ -473,14 +473,20 @@ def approve_group(db: Session, group_id: int, user_id: int, role: str) -> Articl
 
 
 def mark_pending_and_group(
-    session_factory, *, article_ids: list[int], user_id: int, base_name: str
+    session_factory,
+    *,
+    article_ids: list[int],
+    user_id: int,
+    base_name: str,
+    fallback_suffix: str | None = None,
 ) -> int | None:
     """把文章标 review_status='pending' 并归入一个新 ArticleGroup（名 base_name）。
-    撞 (user_id, name) 唯一约束时追加后缀。best-effort：失败记日志、不抛。
-    用独立 session、本函数内 commit+close。返回 group_id 或 None。
-    镜像 ai_generation.scheme_executor._group_run_articles。"""
+    撞 (user_id, name) 唯一约束时改用 base_name + fallback_suffix（调用方应传稳定唯一值，
+    如 run_id；未传则回退到不稳定的 #article_ids[0] 旧行为）。best-effort：失败记日志、不抛。
+    用独立 session、本函数内 commit+close。返回 group_id 或 None。"""
     if not article_ids:
         return None
+    suffix = fallback_suffix or f"#{article_ids[0]}"
     try:
         from sqlalchemy.exc import IntegrityError
 
@@ -500,7 +506,7 @@ def mark_pending_and_group(
                 )
                 .first()
             )
-            name = f"{base_name} #{article_ids[0]}" if exists is not None else base_name
+            name = f"{base_name} {suffix}" if exists is not None else base_name
             group = ArticleGroup(user_id=user_id, name=name)
             db.add(group)
             try:
@@ -511,7 +517,7 @@ def mark_pending_and_group(
                     art = db.get(Article, aid)
                     if art is not None:
                         art.review_status = "pending"
-                group = ArticleGroup(user_id=user_id, name=f"{base_name} #{article_ids[0]}")
+                group = ArticleGroup(user_id=user_id, name=f"{base_name} {suffix}")
                 db.add(group)
                 db.flush()
 

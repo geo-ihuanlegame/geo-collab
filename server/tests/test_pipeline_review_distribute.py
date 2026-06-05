@@ -242,6 +242,40 @@ def test_distribute_node_creates_round_robin_task_for_approved_group(monkeypatch
 
 
 @pytest.mark.mysql
+def test_mark_pending_and_group_fallback_suffix_is_stable(monkeypatch):
+    from server.app.modules.articles.models import Article, ArticleGroup
+    from server.app.modules.articles.service import mark_pending_and_group
+
+    test_app = build_test_app(monkeypatch)
+    client = test_app.client
+    try:
+        a1 = _make_article(client, "甲")
+        a2 = _make_article(client, "乙")
+        with test_app.session_factory() as db:
+            uid = db.query(Article).first().user_id
+        gid1 = mark_pending_and_group(
+            test_app.session_factory,
+            article_ids=[a1],
+            user_id=uid,
+            base_name="撞名组",
+            fallback_suffix="#101",
+        )
+        gid2 = mark_pending_and_group(
+            test_app.session_factory,
+            article_ids=[a2],
+            user_id=uid,
+            base_name="撞名组",
+            fallback_suffix="#202",
+        )
+        assert gid1 is not None and gid2 is not None and gid1 != gid2
+        with test_app.session_factory() as db:
+            names = {g.name for g in db.query(ArticleGroup).all()}
+            assert "撞名组" in names and "撞名组 #202" in names
+    finally:
+        test_app.cleanup()
+
+
+@pytest.mark.mysql
 def test_distribute_node_fails_when_group_has_pending(monkeypatch):
     from server.app.modules.tasks.models import PublishTask
 
