@@ -414,3 +414,96 @@ def test_post_run_endpoint_executes_async(monkeypatch):
         assert data["tasks"][0]["actual_prompt_template_id"] == tpl
     finally:
         app.cleanup()
+
+
+def test_post_run_returns_503_when_bg_not_injected(monkeypatch):
+    """Task 21: bg_session_factory 未注入时标 run failed + 返回 503，不再撒谎 202。"""
+    app = build_test_app(monkeypatch)
+    try:
+        from server.app.modules.ai_generation import scheme_router
+        from server.app.modules.ai_generation.models import GenerationSchemeRun
+
+        pool_id, ids, uid, tpl = _seed(app)
+        scheme_id = _create_scheme(
+            app,
+            pool_id,
+            [
+                {
+                    "question_type": "A",
+                    "question_item_ids": [ids["a1"]],
+                    "article_count": 1,
+                    "allowed_prompt_template_ids": [tpl],
+                }
+            ],
+            uid,
+        )
+        monkeypatch.setattr(scheme_router, "bg_session_factory", None)
+
+        r = app.client.post(f"/api/generation/schemes/{scheme_id}/runs")
+        assert r.status_code == 503, r.text
+        body = r.json()
+        assert body["status"] == "failed"
+        with app.session_factory() as db:
+            run = db.get(GenerationSchemeRun, body["run_id"])
+            assert run is not None and run.status == "failed"
+            assert run.error_message
+    finally:
+        app.cleanup()
+
+
+def test_group_failure_downgrades_run_to_partial_failed(monkeypatch):
+    """Task 17: 成组失败（mark_pending_and_group 返回 None）时把 done 降级 partial_failed。"""
+    app = build_test_app(monkeypatch)
+    try:
+        from server.app.modules.ai_generation.models import GenerationSchemeRun
+
+        pool_id, ids, uid, tpl = _seed(app)
+        scheme_id = _create_scheme(
+            app,
+            pool_id,
+            [
+                {
+                    "question_type": "A",
+                    "question_item_ids": [ids["a1"]],
+                    "article_count": 1,
+                    "allowed_prompt_template_ids": [tpl],
+                }
+            ],
+            uid,
+        )
+        monkeypatch.setattr("litellm.completion", lambda **kw: _fake_completion("# T\n\nx"))
+        monkeypatch.setattr(
+            "server.app.modules.articles.service.mark_pending_and_group",
+            lambda *a, **k: None,
+        )
+
+        run_id = _run_now(app, scheme_id, uid)
+        with app.session_factory() as db:
+            run = db.get(GenerationSchemeRun, run_id)
+            assert run.status == "partial_failed"  # 旧实现：停在 done
+            assert "成组" in (run.error_message or "") or "审核" in (run.error_message or "")
+    finally:
+        app.cleanup()
+
+
+def test_temp_cover_skipped_when_bucket_not_configured(monkeypatch):
+    """Task 24: GEO_TEMP_COVER_BUCKET 为空时整段跳过，不开数据库会话。"""
+    monkeypatch.setenv("GEO_TEMP_COVER_BUCKET", "")
+    from server.app.core.config import get_settings
+
+    get_settings.cache_clear()
+    try:
+        from server.app.modules.ai_generation.scheme_executor import (
+            _assign_temp_cover_from_bucket,
+        )
+
+        calls = {"n": 0}
+
+        def _factory():
+            calls["n"] += 1
+            raise RuntimeError("禁用封面时不应打开会话")  # 旧实现会吞掉，故用计数断言
+
+        _assign_temp_cover_from_bucket(article_id=1, user_id=1, session_factory=_factory)
+        assert calls["n"] == 0  # 新实现：bucket 空 → 提前 return
+    finally:
+        get_settings.cache_clear()
