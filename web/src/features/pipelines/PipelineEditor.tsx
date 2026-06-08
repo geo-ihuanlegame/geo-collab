@@ -277,6 +277,10 @@ export function PipelineEditor({ pipelineId, onChanged }:
                           <option key={a.id} value={a.id}>{a.display_name}</option>
                         ))}
                       </select>
+                    : f.type === "checkbox"
+                    ? <input type="checkbox" checked={!!sel.config[f.key]}
+                        onChange={(e) => updateNode(selected!,
+                          { config: { ...sel.config, [f.key]: e.target.checked } })} />
                     : f.type === "textarea"
                     ? <textarea value={String(sel.config[f.key] ?? "")}
                         onChange={(e) => updateNode(selected!,
