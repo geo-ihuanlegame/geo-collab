@@ -181,3 +181,72 @@ def test_manual_invalid_group_raises(monkeypatch):
             _run_node(app, uid, {"group_id": 999999})
     finally:
         app.cleanup()
+
+
+def _give_record(app, uid, acc, article_id, status, deleted=False):
+    """给文章产出一条指定 status / is_deleted 的 PublishRecord（镜像 test_auto_distribute）。"""
+    from server.app.modules.tasks.models import PublishRecord
+    from server.app.modules.tasks.schemas import TaskAccountInput, TaskCreate
+    from server.app.modules.tasks.service import create_task
+
+    with app.session_factory() as db:
+        tc = TaskCreate(
+            name=f"t-{article_id}-{status}",
+            task_type="article_round_robin",
+            article_ids=[article_id],
+            accounts=[TaskAccountInput(account_id=acc, sort_order=0)],
+            stop_before_publish=False,
+        )
+        task = create_task(db, uid, tc, role="admin")
+        db.flush()
+        rec = db.query(PublishRecord).filter(PublishRecord.task_id == task.id).first()
+        rec.status = status
+        rec.is_deleted = deleted
+        db.commit()
+
+
+@pytest.mark.mysql
+def test_failed_and_softdeleted_records_do_not_bury_article(monkeypatch):
+    """手动选组的子集去重应对齐 approved_content_source：
+    成功 + 在途(pending) → 排除；失败、软删记录 → 不排除（文章可重试，不被永久埋没）。"""
+    app = build_test_app(monkeypatch)
+    client = app.client
+    try:
+        uid = _uid(app)
+        a_ok = _make_approved_article(client, "成功已发")
+        a_pending = _make_approved_article(client, "在途")
+        a_fail = _make_approved_article(client, "失败")
+        a_del = _make_approved_article(client, "软删记录")
+        g = _make_group(app, uid, "混合组", [a_ok, a_pending, a_fail, a_del])
+        acc = _make_account(app, client, key="rk", name="重试号")
+        _give_record(app, uid, acc, a_ok, "succeeded")
+        _give_record(app, uid, acc, a_pending, "pending")
+        _give_record(app, uid, acc, a_fail, "failed")
+        _give_record(app, uid, acc, a_del, "succeeded", deleted=True)
+
+        ids = set(_run_node(app, uid, {"group_id": g}).output["article_ids"])
+        assert a_ok not in ids  # 成功 → 排除
+        assert a_pending not in ids  # 在途 → 排除
+        assert a_fail in ids  # 失败 → 可重试，不排除
+        assert a_del in ids  # 软删记录 → 不排除
+    finally:
+        app.cleanup()
+
+
+@pytest.mark.mysql
+def test_auto_picks_group_whose_only_candidate_is_failed(monkeypatch):
+    """自动选组：某组唯一文章只有 failed 记录 → 仍算候选（可重试），不应被跳过/埋没。"""
+    app = build_test_app(monkeypatch)
+    client = app.client
+    try:
+        uid = _uid(app)
+        a_fail = _make_approved_article(client, "失败可重试")
+        g = _make_group(app, uid, "只含失败的组", [a_fail])
+        acc = _make_account(app, client, key="rk2", name="重试号2")
+        _give_record(app, uid, acc, a_fail, "failed")
+
+        res = _run_node(app, uid, {})  # 自动模式
+        assert res.output["group_id"] == g
+        assert res.output["article_ids"] == [a_fail]
+    finally:
+        app.cleanup()
