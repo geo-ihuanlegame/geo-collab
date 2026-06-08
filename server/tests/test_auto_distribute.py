@@ -292,13 +292,14 @@ def _make_group(app, uid, article_ids):
 
 
 @pytest.mark.mysql
-def test_distribute_prefers_group_over_passthrough_article_ids(monkeypatch):
+def test_distribute_prefers_article_ids_over_passthrough_group(monkeypatch):
     """article_group_source → distribute 默认透传时 group_id 与 article_ids 都在，
-    distribute 必须走 group_round_robin（保留分组语义/关联），不能被 article_ids 劫持。"""
+    distribute 必须优先 article_ids（走 article_round_robin、只发过滤后的子集），
+    不能走分组路径重拉全组——否则架空源节点「已审+未分发」过滤，重复发布/未审即失败（#45）。"""
     from server.app.modules.articles.models import Article
     from server.app.modules.pipelines.nodes.base import NodeRunContext
     from server.app.modules.pipelines.nodes.distribute_node import run_distribute
-    from server.app.modules.tasks.models import PublishTask
+    from server.app.modules.tasks.models import PublishRecord, PublishTask
 
     app = build_test_app(monkeypatch)
     client = app.client
@@ -310,26 +311,68 @@ def test_distribute_prefers_group_over_passthrough_article_ids(monkeypatch):
             uid = db.get(Article, a1).user_id
         gid = _make_group(app, uid, [a1, a2])
 
+        # 模拟源节点输出：组含 a1/a2，但「已审+未分发」子集只剩 a1（a2 已被源节点过滤掉）
         ctx = NodeRunContext(
             session_factory=app.session_factory,
             user_id=uid,
             config={"account_ids": [acc1]},
-            inputs={"group_id": gid, "article_ids": [a1, a2]},  # 模拟默认透传
+            inputs={"group_id": gid, "article_ids": [a1]},  # group_id + 子集都透传
             upstream={},
         )
         res = run_distribute(ctx)
         with app.session_factory() as db:
             t = db.get(PublishTask, res.output["task_id"])
-            assert t.task_type == "group_round_robin"
-            assert t.group_id == gid
+            assert t.task_type == "article_round_robin"  # 优先 article_ids，而非 group_round_robin
+            assert t.group_id is None
+            covered = {
+                rec.article_id
+                for rec in db.query(PublishRecord).filter(PublishRecord.task_id == t.id).all()
+            }
+            assert covered == {a1}  # 只发子集 a1，不重拉 a2
+
     finally:
         app.cleanup()
 
 
 @pytest.mark.mysql
-def test_distribute_empty_group_passthrough_raises_not_skips(monkeypatch):
-    """空分组经 distribute 透传(article_ids=[]) 时，必须报错（与旧 group 路径一致），
-    不能静默跳过报 done —— 防回归「假成功」。"""
+def test_distribute_empty_passthrough_skips(monkeypatch):
+    """源节点选中组的「已审+未分发」子集为空（article_ids=[]）经透传到 distribute 时，
+    应跳过（无新内容、done），不报错——定时自动分发跑完后不该每轮变红。
+    （手动配置 group_id、无上游 article_ids 的真·空分组仍报错，见下一个测试。）"""
+    from server.app.modules.articles.models import Article
+    from server.app.modules.pipelines.nodes.base import NodeRunContext
+    from server.app.modules.pipelines.nodes.distribute_node import run_distribute
+    from server.app.modules.tasks.models import PublishTask
+
+    app = build_test_app(monkeypatch)
+    client = app.client
+    try:
+        a1 = _make_approved_article(client, "x")
+        acc1 = _make_account(app, client, "ke", "空号")
+        with app.session_factory() as db:
+            uid = db.get(Article, a1).user_id
+        gid = _make_group(app, uid, [a1])
+
+        ctx = NodeRunContext(
+            session_factory=app.session_factory,
+            user_id=uid,
+            config={"account_ids": [acc1]},
+            inputs={"group_id": gid, "article_ids": []},  # 子集为空（全已分发）
+            upstream={},
+        )
+        res = run_distribute(ctx)
+        assert res.output.get("skipped")  # 跳过、非报错
+        with app.session_factory() as db:
+            assert db.query(PublishTask).count() == 0  # 没建任务
+
+    finally:
+        app.cleanup()
+
+
+@pytest.mark.mysql
+def test_distribute_manual_empty_group_config_raises(monkeypatch):
+    """手动把 distribute 配成 group_id（无上游 article_ids）指向空分组时，仍应报错。
+    这是 article_ids is None（真·手动分组路径）的场景，保留 #37 对空分组的报错语义。"""
     from server.app.modules.articles.models import Article
     from server.app.modules.pipelines.nodes.base import NodeRunContext
     from server.app.modules.pipelines.nodes.distribute_node import run_distribute
@@ -339,7 +382,7 @@ def test_distribute_empty_group_passthrough_raises_not_skips(monkeypatch):
     client = app.client
     try:
         a1 = _make_approved_article(client, "x")
-        acc1 = _make_account(app, client, "ke", "空号")
+        acc1 = _make_account(app, client, "kem", "手动空号")
         with app.session_factory() as db:
             uid = db.get(Article, a1).user_id
         empty_gid = _make_group(app, uid, [])  # 空分组
@@ -347,12 +390,98 @@ def test_distribute_empty_group_passthrough_raises_not_skips(monkeypatch):
         ctx = NodeRunContext(
             session_factory=app.session_factory,
             user_id=uid,
-            config={"account_ids": [acc1]},
-            inputs={"group_id": empty_gid, "article_ids": []},
+            config={"account_ids": [acc1], "group_id": empty_gid},  # 手动配置，无上游
+            inputs={},
             upstream={},
         )
         with pytest.raises((ClientError, ValidationError)):
             run_distribute(ctx)
+    finally:
+        app.cleanup()
+
+
+@pytest.mark.mysql
+def test_end_to_end_group_source_to_distribute_honors_subset(monkeypatch):
+    """#45 端到端回归：article_group_source → distribute。
+    组里 a_ok 未分发、a_dup 已分发；distribute 必须只发 a_ok（article_round_robin），
+    不能走分组路径重拉全组把已分发的 a_dup 重复发布。"""
+    from server.app.modules.articles.models import Article
+    from server.app.modules.pipelines.executor import create_run, run_pipeline
+    from server.app.modules.pipelines.models import Pipeline
+    from server.app.modules.tasks.models import PublishRecord, PublishTask
+    from server.app.modules.tasks.schemas import TaskAccountInput, TaskCreate
+    from server.app.modules.tasks.service import create_task
+
+    app = build_test_app(monkeypatch)
+    client = app.client
+    try:
+        a_ok = _make_approved_article(client, "未分发")
+        a_dup = _make_approved_article(client, "已分发")
+        acc1 = _make_account(app, client, "kg45", "号45")
+        with app.session_factory() as db:
+            uid = db.get(Article, a_ok).user_id
+        gid = _make_group(app, uid, [a_ok, a_dup])
+
+        # 预置：把 a_dup 标记为已分发（pending 记录即算在途），源节点应将其过滤出子集
+        with app.session_factory() as db:
+            create_task(
+                db,
+                uid,
+                TaskCreate(
+                    name="预置已分发",
+                    task_type="article_round_robin",
+                    article_ids=[a_dup],
+                    accounts=[TaskAccountInput(account_id=acc1, sort_order=0)],
+                ),
+                role="admin",
+            )
+            db.commit()
+
+        snap = {
+            "schemaVersion": 1,
+            "nodes": [
+                {
+                    "node_type": "article_group_source",
+                    "name": "分组源",
+                    "node_index": 0,
+                    "config": {"group_id": gid},
+                    "flow_meta": None,
+                },
+                {
+                    "node_type": "distribute",
+                    "name": "内容分发",
+                    "node_index": 1,
+                    "config": {"account_ids": [acc1]},
+                    "flow_meta": None,
+                },
+            ],
+        }
+        pid = client.post(
+            "/api/pipelines", json={"name": "分组自动分发", "type": "distribution"}
+        ).json()["id"]
+        client.post(f"/api/pipelines/{pid}/draft", json={"snapshot": snap})
+        client.post(f"/api/pipelines/{pid}/publish", json={})
+
+        with app.session_factory() as db:
+            p = db.get(Pipeline, pid)
+            run = create_run(db, pipeline_id=pid, user_id=p.user_id)
+            db.commit()
+            rid = run.id
+        run_pipeline(rid, app.session_factory)
+        r = client.get(f"/api/pipelines/runs/{rid}").json()
+        assert r["status"] == "done", r
+
+        with app.session_factory() as db:
+            auto = [
+                t for t in db.query(PublishTask).all() if t.name and t.name.startswith("自动分发")
+            ]
+            assert len(auto) == 1
+            assert auto[0].task_type == "article_round_robin"  # 非 group_round_robin（不重拉全组）
+            # a_dup 不被重复发布：仍只有预置那 1 条记录
+            dup_recs = db.query(PublishRecord).filter(PublishRecord.article_id == a_dup).all()
+            assert len(dup_recs) == 1, "a_dup 被重复发布了（重拉全组的 bug）"
+            ok_recs = db.query(PublishRecord).filter(PublishRecord.article_id == a_ok).all()
+            assert len(ok_recs) == 1  # a_ok 被分发 1 次
     finally:
         app.cleanup()
 

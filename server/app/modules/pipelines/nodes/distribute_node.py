@@ -17,21 +17,13 @@ def run_distribute(ctx: NodeRunContext) -> NodeResult:
 
     accounts = [TaskAccountInput(account_id=a, sort_order=i) for i, a in enumerate(account_ids)]
 
-    # 优先级：有 group_id（article_group_source）→ 分组路径，保留分组语义 + 空分组报错；
-    # 否则消费上游 article_ids（approved_content_source）。
-    # 不能反过来先判 article_ids：article_group_source 默认透传会同时带 group_id + article_ids，
-    # 先判 article_ids 会劫持分组路径，且空分组的 article_ids=[] 被静默跳过（假成功回归）。
-    if group_id:
-        name = cfg.get("name") or f"自动分发 分组 {group_id}"
-        task_create = TaskCreate(
-            name=name,
-            task_type="group_round_robin",
-            group_id=group_id,
-            accounts=accounts,
-            stop_before_publish=False,
-        )
-    elif article_ids is not None:
-        # 上游明确给了 article_ids（可能为空）；空表示无新内容，跳过是正确语义
+    # 优先级：上游给了 article_ids（即便为空）→ 消费它，走 article_round_robin。
+    # 必须优先 article_ids 而非 group_id：article_group_source 默认透传会同时带 group_id + article_ids，
+    # 其 article_ids 是「已审+未分发」子集；若先判 group_id 走分组路径会重拉全组、丢弃该子集，
+    # 导致已分发文章被重复发布、未审文章令整批失败（#45）。空子集表示无新内容，跳过是正确语义
+    # （定时分发跑完后不该每轮变红）。仅当无上游 article_ids（手动配置 group_id）时才走分组路径，
+    # 保留分组语义 + 空分组报错。
+    if article_ids is not None:
         if not article_ids:
             return NodeResult(output={"skipped": "无可分发内容"}, article_ids=[])
         name = cfg.get("name") or f"自动分发 {len(article_ids)} 篇"
@@ -39,6 +31,15 @@ def run_distribute(ctx: NodeRunContext) -> NodeResult:
             name=name,
             task_type="article_round_robin",
             article_ids=list(article_ids),
+            accounts=accounts,
+            stop_before_publish=False,
+        )
+    elif group_id:
+        name = cfg.get("name") or f"自动分发 分组 {group_id}"
+        task_create = TaskCreate(
+            name=name,
+            task_type="group_round_robin",
+            group_id=group_id,
             accounts=accounts,
             stop_before_publish=False,
         )
