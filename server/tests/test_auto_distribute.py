@@ -487,6 +487,65 @@ def test_end_to_end_group_source_to_distribute_honors_subset(monkeypatch):
 
 
 @pytest.mark.mysql
+def test_distribute_blocks_unapproved_article_on_article_ids_path(monkeypatch):
+    """审核门禁必须覆盖 #45/#46 的 article_ids 透传主路径。
+
+    若上游「已审+未分发」子集里混入了未审核文章（比如 inputMapping 配错、或并发改了审核态），
+    distribute → create_task 必须抛 ValidationError 并且不建任何任务——绝不能让未审内容被发布。
+
+    现有用例只在 group_round_robin（手动分组）路径上验证过门禁（test_pipeline_review_distribute.py）；
+    本用例补 article_round_robin 路径，而它正是源节点默认透传后的当前主路径。
+    """
+    from server.app.modules.articles.models import Article
+    from server.app.modules.pipelines.nodes.base import NodeRunContext
+    from server.app.modules.pipelines.nodes.distribute_node import run_distribute
+    from server.app.modules.tasks.models import PublishRecord, PublishTask
+    from server.app.shared.errors import ValidationError
+
+    app = build_test_app(monkeypatch)
+    client = app.client
+    try:
+        a_ok = _make_approved_article(client, "已审")
+        a_bad = _make_approved_article(client, "未审")
+        acc1 = _make_account(app, client, "kgate", "门禁号")
+        with app.session_factory() as db:
+            uid = db.get(Article, a_ok).user_id
+            db.get(Article, a_bad).review_status = "pending"  # 子集里混入一篇未审
+            db.commit()
+
+        ctx = NodeRunContext(
+            session_factory=app.session_factory,
+            user_id=uid,
+            config={"account_ids": [acc1]},
+            inputs={"article_ids": [a_ok, a_bad]},  # 透传子集混入未审文章
+            upstream={},
+        )
+        with pytest.raises(ValidationError):
+            run_distribute(ctx)
+        # 门禁在落库前拦截：不应残留任何任务
+        with app.session_factory() as db:
+            assert db.query(PublishTask).count() == 0
+
+        # 反向对照：把 a_bad 改回 approved，同一子集应能正常建任务，
+        # 证明上面的拦截确由「未审」状态触发，而非账号/文章缺失等其它原因。
+        with app.session_factory() as db:
+            db.get(Article, a_bad).review_status = "approved"
+            db.commit()
+        res = run_distribute(ctx)
+        assert res.output.get("task_id")
+        with app.session_factory() as db:
+            t = db.get(PublishTask, res.output["task_id"])
+            assert t.task_type == "article_round_robin"
+            covered = {
+                rec.article_id
+                for rec in db.query(PublishRecord).filter(PublishRecord.task_id == t.id).all()
+            }
+            assert covered == {a_ok, a_bad}
+    finally:
+        app.cleanup()
+
+
+@pytest.mark.mysql
 def test_approved_content_source_dedup_excludes_live_keeps_failed_softdeleted(monkeypatch):
     """去重：成功 + 在途(pending)记录都算「已分发/在途」→ 排除，不重复分发；
     失败、软删的记录不算 → 文章应重新可分发（可重试，不被永久埋没）。"""

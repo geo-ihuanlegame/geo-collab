@@ -173,6 +173,13 @@ def test_pipeline_run_marks_articles_pending_and_groups(monkeypatch):
 
 @pytest.mark.mysql
 def test_distribute_node_creates_round_robin_task_for_approved_group(monkeypatch):
+    """覆盖 *非默认* 的手动 group_id-only 分发路径。
+
+    注意：#45/#46 之后，distribute 的默认行为是透传上游 article_ids → article_round_robin。
+    本用例通过 inputMapping 只转发 group_id（不透传 article_ids），刻意走 group_round_robin
+    分支，因此它验证的是手动分组路径，*不是* 当前默认链路（默认链路见
+    test_auto_distribute.py 的 article_ids 透传用例）。
+    """
     from server.app.modules.tasks.models import PublishTask
 
     test_app = build_test_app(monkeypatch)
@@ -277,6 +284,12 @@ def test_mark_pending_and_group_fallback_suffix_is_stable(monkeypatch):
 
 @pytest.mark.mysql
 def test_distribute_node_fails_when_group_has_pending(monkeypatch):
+    """手动 group_id-only 路径下的审核门禁（非默认链路，见上一个用例的说明）。
+
+    默认链路下 article_group_source 已把 pending 文章过滤出 article_ids 子集，distribute
+    不会看到它；本用例靠只转发 group_id 的 inputMapping 才能让 distribute 自己去拉整组并
+    撞上 pending。article_ids 透传路径上的审核门禁另由 Block D 的用例覆盖。
+    """
     from server.app.modules.tasks.models import PublishTask
 
     test_app = build_test_app(monkeypatch)

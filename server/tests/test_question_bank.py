@@ -180,10 +180,18 @@ def test_sync_pool_soft_marks_missing_then_reactivates(monkeypatch):
         app.cleanup()
 
 
-# ── 管线：问题库模式 成功出队 / 失败保留 ────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# DORMANT 守卫：以下 4 个 test_pipeline_* 用例测的是「休眠」的 LangGraph 生文管线
+# （ai_generation.pipeline.run_pipeline + ai_generation.service.create_session +
+# skills.Skill）。该路径对应的 /api/generation/sessions 已硬切 410，现行主流程是
+# 「问题池→方案池→方案运行」（见 CLAUDE.md / test_generation_schemes.py /
+# test_scheme_runs.py）。按 CLAUDE.md「保留休眠不删」，这些用例保留以防回归，但
+# 它们 *不* 代表现行行为，统计现行覆盖时不应计入。
+# ══════════════════════════════════════════════════════════════════════════════
 
 
 def _seed_generation(app, *, fields):
+    # DORMANT：依赖休眠的 skills.Skill + ai_generation.service.create_session
     from server.app.modules.ai_generation.models import QuestionItem, QuestionPool
     from server.app.modules.ai_generation.service import create_session
     from server.app.modules.prompt_templates.models import PromptTemplate
@@ -216,6 +224,7 @@ def _seed_generation(app, *, fields):
 
 
 def test_question_bank_pipeline_consumes_on_success(monkeypatch):
+    """[DORMANT] 休眠 LangGraph 管线成功时出队问题项。非现行方案流路径。"""
     app = build_test_app(monkeypatch)
     try:
         from server.app.modules.ai_generation.models import GenerationSession, QuestionItem
@@ -242,6 +251,7 @@ def test_question_bank_pipeline_consumes_on_success(monkeypatch):
 
 
 def test_question_bank_pipeline_keeps_pending_on_failure(monkeypatch):
+    """[DORMANT] 休眠 LangGraph 管线失败时保留问题项可重试。非现行方案流路径。"""
     app = build_test_app(monkeypatch)
     try:
         from server.app.modules.ai_generation.models import GenerationSession, QuestionItem
@@ -529,6 +539,7 @@ def _seed_session(app, *, pool_id, item_ids=None, auto_count=None):
 
 
 def test_pipeline_manual_groups_by_category_into_one_article_per_category(monkeypatch):
+    """[DORMANT] 休眠 LangGraph 管线手动模式按板块分组成文。非现行方案流路径。"""
     app = build_test_app(monkeypatch)
     try:
         from server.app.modules.ai_generation.models import GenerationSession, QuestionItem
@@ -565,6 +576,7 @@ def test_pipeline_manual_groups_by_category_into_one_article_per_category(monkey
 
 
 def test_pipeline_auto_picks_and_marks_category_without_consuming_items(monkeypatch):
+    """[DORMANT] 休眠 LangGraph 管线自动模式选板块、不消费问题项。非现行方案流路径。"""
     app = build_test_app(monkeypatch)
     try:
         from server.app.modules.ai_generation.models import (

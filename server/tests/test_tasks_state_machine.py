@@ -453,6 +453,14 @@ def test_manual_confirm_does_not_block_with_next_record(monkeypatch):
             rec1.publish_url = None
             db2.commit()
             manual_confirm_record(db2, rec1, "succeeded", "https://example.com/ok", None)
+            # 确认确实落到 record 1 上（旧版本只调用不断言，等于空跑）
+            assert rec1.status == "succeeded"
+            assert rec1.publish_url == "https://example.com/ok"
+            assert rec1.finished_at is not None
+            assert rec1.queue_reason is None
+            # 非阻塞契约：确认 record 1 不应带动 record 2 同步执行，它仍 pending
+            rec2 = db2.get(PublishRecord, records[1]["id"])
+            assert rec2.status == "pending"
         finally:
             db2.close()
     finally:

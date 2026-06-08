@@ -220,3 +220,27 @@ def build_test_app(monkeypatch) -> TestApp:
     return TestApp(
         client=client, data_dir=data_dir, session_factory=TestingSessionLocal, engine=engine
     )
+
+
+def create_extra_user(
+    app: TestApp, username: str, role: str = "operator", password: str = "pw-123456"
+) -> tuple[int, TestClient]:
+    """在已建好的 test app 上再造一个用户，返回 (user_id, 带其登录 cookie 的新 TestClient)。
+
+    build_test_app 默认只建一个 admin；跨用户隔离 / 越权 404 测试需要第二个（通常是 operator）
+    身份。新 client 复用同一个 app（含 get_db override），只是带不同的 access_token cookie。
+    """
+    from server.app.core.security import create_access_token
+    from server.app.modules.system.models import User
+
+    with app.session_factory() as db:
+        user = User(username=username, role=role, is_active=True, must_change_password=False)
+        user.set_password(password)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        uid = user.id
+        token = create_access_token(user.id, user.role)
+    client = TestClient(app.client.app)
+    client.cookies["access_token"] = token
+    return uid, client
