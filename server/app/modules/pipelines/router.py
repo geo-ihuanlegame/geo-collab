@@ -101,7 +101,16 @@ def get_node_types() -> dict:
                 "label": "问题源",
                 "config_schema": [
                     {"key": "pool_id", "type": "question_pool", "label": "问题池"},
-                    {"key": "question_type", "type": "question_type", "label": "问题类型"},
+                    {
+                        "key": "question_types",
+                        "type": "question_types",
+                        "label": "问题类型（多选，留空=全部）",
+                    },
+                    {
+                        "key": "question_record_ids",
+                        "type": "question_records",
+                        "label": "具体问题（可选，留空=上述类型全部）",
+                    },
                 ],
             },
             {
