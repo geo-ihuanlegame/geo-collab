@@ -102,6 +102,7 @@ class _TiptapBuilder(HTMLParser):
 
 
 def markdown_to_tiptap(md: str) -> dict[str, Any]:
+    """Markdown → Tiptap doc JSON：先转 HTML，再流式解析成节点树（article_writer 落库前调用，与 markdown_to_html 一起生成三份并行正文之一）。"""
     html = markdown_to_html(md)
     builder = _TiptapBuilder()
     builder.feed(html)

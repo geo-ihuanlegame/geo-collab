@@ -100,7 +100,12 @@ def try_acquire_profile_lock(
     queue_reason: str | None = None,
     lease_seconds: int = PROFILE_LOCK_LEASE_SECONDS,
 ) -> bool:
-    """Acquire a cross-process lock for one persistent Chromium profile."""
+    """Acquire a cross-process lock for one persistent Chromium profile.
+
+    抢到返回 True，被别人占用返回 False。幂等可重入：同一 (owner_kind, owner_id)
+    再次调用视为续租而非冲突。通过 INSERT ... ON DUPLICATE KEY 让插入不报错，
+    再回读行主判断 owner 归属。任何异常都吞掉返回 False（宁可排队等待，也不误判抢到锁）。
+    """
     from server.app.modules.accounts.models import BrowserProfileLock
 
     owner_id = str(owner_id)
@@ -109,6 +114,7 @@ def try_acquire_profile_lock(
     lease_until = now + timedelta(seconds=lease_seconds)
     db = _get_db()
     try:
+        # 先清掉已过期的租约：owner 崩溃后留下的死锁靠这一步被新请求接管
         db.execute(
             sa_delete(BrowserProfileLock).where(
                 BrowserProfileLock.profile_key == profile_key,
@@ -137,6 +143,7 @@ def try_acquire_profile_lock(
         )
         db.commit()
 
+        # 回读这把锁：owner 是自己才算抢到（INSERT 可能撞上别人的既有行而被 ON DUPLICATE 忽略）
         lock = db.get(BrowserProfileLock, profile_key)
         if lock is None:
             return False
@@ -163,6 +170,7 @@ def heartbeat_profile_lock(
     owner_id: str | int,
     lease_seconds: int = PROFILE_LOCK_LEASE_SECONDS,
 ) -> None:
+    """续租 profile 锁：长操作（发布 / 登录）期间周期调用，把 lease_until 往后推，防被当过期回收。"""
     from server.app.modules.accounts.models import BrowserProfileLock
 
     now = utcnow()
@@ -223,6 +231,8 @@ def _worker_id() -> str | None:
 
 
 def _write_session_to_db(session: RemoteBrowserSession, worker_id: str | None) -> None:
+    # 把会话镜像进 browser_sessions 表，让 API 进程能读到 novnc_url、发停止请求。
+    # 写失败只记日志、不抛——本地句柄仍可用，只是丢了跨进程可见性。
     try:
         from server.app.core.time import utcnow
         from server.app.modules.accounts.models import BrowserSession
@@ -417,6 +427,7 @@ def get_session_for_record(record_id: int) -> Any | None:
                 return None
             from sqlalchemy.orm import make_transient
 
+            # 脱离 session 返回：调用方在 db.close() 之后还要读 .novnc_url，不能让它变 detached
             db.expunge(bs)
             make_transient(bs)
             return bs
@@ -509,6 +520,7 @@ def get_or_create_account_session(
         account_lock = _account_creation_locks[cache_key]
 
     with account_lock:
+        # 双重检查：拿到 per-account 锁后再 _try_reuse 一次，可能已被先到的并发者建好了
         if (existing := _try_reuse()) is not None:
             return existing
 
@@ -570,6 +582,12 @@ def start_remote_browser_session(
     platform_code: str = "",
     profile_key: str | None = None,
 ) -> RemoteBrowserSession:
+    """拉起一条 Xvfb → x11vnc → websockify 进程链，返回带 novnc_url 的会话句柄。
+
+    每步 spawn 后都等对应 X display / 端口就绪才继续。任一步失败则杀掉已起进程、
+    归还预留的 display/端口号再抛出（避免泄漏可复用的号段）。成功后注册进 _active_sessions
+    并镜像到 DB，按需启动空闲清理线程。
+    """
     import os as _os
 
     worker_id = _os.environ.get("GEO_WORKER_ID")
@@ -705,6 +723,11 @@ def stop_remote_browser_session(session_id: str) -> None:
 
 
 def _reserve_numbers() -> tuple[int, int, int]:
+    """在锁内挑一组互不冲突的 (display, vnc_port, novnc_port) 并登记到 _reserved_*。
+
+    _reserved_* 集合占着启动中（尚未进 _active_sessions）的号，防并发启动撞号；
+    会话起好后由调用方从 _reserved_* 移除，失败则走 _release_reserved_numbers 归还。
+    """
     settings = get_settings()
     with _sessions_lock:
         used_displays = {s.display_number for s in _active_sessions.values()} | _reserved_displays
@@ -868,6 +891,10 @@ def _resolve_command(command: str | None) -> str | None:
 
 
 def _start_idle_cleanup() -> None:
+    """惰性启动后台清理线程（已在跑则直接返回）。
+
+    每 2s 处理一轮 stop_requested（跨进程停止指令），每约 30s 再扫一次空闲超时 / 僵尸会话。
+    """
     global _idle_cleanup_thread
     if _idle_cleanup_thread is not None and _idle_cleanup_thread.is_alive():
         return
@@ -915,6 +942,7 @@ def _cleanup_stop_requested_sessions() -> None:
 
 
 def _cleanup_stale_sessions(idle_timeout: int) -> None:
+    """回收 keep_alive 但已超过空闲超时的会话（如人工接管 waiting_user_input 后无人完成）。"""
     now = time.monotonic()
     stale_ids: list[str] = []
     with _sessions_lock:
@@ -939,6 +967,7 @@ def _cleanup_stale_sessions(idle_timeout: int) -> None:
 
 
 def _cleanup_zombie_sessions() -> None:
+    """回收任一底层进程（Xvfb/x11vnc/websockify）已退出的会话——进程链断了，会话已不可用。"""
     zombie_ids: list[str] = []
     with _sessions_lock:
         for session_id, session in list(_active_sessions.items()):
@@ -968,6 +997,7 @@ def _stop_idle_cleanup() -> None:
 
 
 def _novnc_url(host: str, novnc_port: int) -> str:
+    # 经 80 端口反代访问：真实 websockify 端口编进 ws path，前端连 port=80 由反代转发到 novnc_port
     return f"http://{host}/novnc/vnc.html?host={host}&port=80&path=novnc/ws/{novnc_port}"
 
 

@@ -30,6 +30,7 @@ def insert_images_for_article(
     if not image_positions:
         return
 
+    # 懒导入 articles / inserter / selector：避免与生文链路互相 import 形成环
     from server.app.core.time import utcnow
     from server.app.modules.articles.parser import dumps_content_json, loads_content_json
     from server.app.modules.articles.service import get_article

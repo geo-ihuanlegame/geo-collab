@@ -1,3 +1,15 @@
+"""
+文章 / 文章分组 业务逻辑层（CRUD + 审核 + 全文检索）。
+
+约定：
+  - 软删除（is_deleted），查询一律过滤 is_deleted == False。
+  - 乐观锁：update_* 用 payload.version 对比 article/group.version，不一致抛 ConflictError；每次写 version+1。
+  - PATCH 语义：update_article 跳过值为 None 的字段（见 CLAUDE.md「ArticleUpdate 丢 null」），
+    唯一例外是 stock_category_id 允许显式置 None 来解除关联。
+  - 正文三份存储（content_json / content_html / plain_text）+ body_assets 由调用方/sync 同步。
+  - review_status：pending=待审 / approved=已审，未过审不可发布。
+"""
+
 from __future__ import annotations
 
 import logging
@@ -48,6 +60,7 @@ def ensure_asset_exists(db: Session, asset_id: str | None) -> None:
 
 
 def sync_article_body_assets(db: Session, article: Article, content_json: dict) -> None:
+    """按正文 JSON 里的图片节点重建 body_assets 关联（先全清再按文档顺序重建，position 即顺序）。"""
     image_nodes = extract_body_image_nodes(content_json)
     for asset_id, _ in image_nodes:
         ensure_asset_exists(db, asset_id)
@@ -76,6 +89,7 @@ def get_article(db: Session, article_id: int) -> Article | None:
 
 
 def _search_articles(db: Session, query: str, user_id: int | None = None) -> list[Article]:
+    # MySQL FULLTEXT（ngram parser）布尔检索 title/author/plain_text；无 FTS 索引时会抛，由调用方回退 LIKE
     stmt = select(Article).where(
         Article.is_deleted == False,  # noqa: E712
         func.match(Article.title, Article.author, Article.plain_text).against(query, "boolean") > 0,
@@ -95,6 +109,7 @@ def list_articles(
     user_id: int | None = None,
     review_status: str | None = None,
 ) -> list[Article]:
+    # query ≥3 字才走 FTS（ngram 最短 token）；FTS 不可用时 except 落到下面的 LIKE 回退
     if query and len(query) >= 3:
         try:
             matching = _search_articles(db, query, user_id=user_id)
@@ -144,6 +159,8 @@ def list_articles(
 
 
 def create_article(db: Session, user_id: int, payload: ArticleCreate) -> Article:
+    """新建文章。client_request_id 做幂等：已存在同 request_id 的文章直接返回，不重复创建。"""
+    # 软幂等：先按 client_request_id 全局预查（不限 user）；并发下由 per-user 唯一约束 uq_articles_user_client_request_id 兜底（router 捕 IntegrityError 再按 user 查一次）
     if payload.client_request_id:
         existing = db.execute(
             select(Article).where(
@@ -175,6 +192,7 @@ def create_article(db: Session, user_id: int, payload: ArticleCreate) -> Article
 
 
 def update_article(db: Session, article: Article, payload: ArticleUpdate) -> Article:
+    """局部更新文章（乐观锁 + None 跳过语义）。改 content_json 时同步 body_assets 并重算 version。"""
     update_data = payload.model_dump(exclude_unset=True)
     expected_version = update_data.pop("version", None)
     if expected_version is not None and article.version != expected_version:
@@ -189,6 +207,7 @@ def update_article(db: Session, article: Article, payload: ArticleUpdate) -> Art
     if "content_json" in update_data and update_data["content_json"] is not None:
         content_json = update_data["content_json"]
 
+    # 显式过滤 None：PATCH {"field": null} 不会清空字段（见 CLAUDE.md「ArticleUpdate 丢 null」）
     for field in (
         "title",
         "author",
@@ -247,6 +266,7 @@ def set_article_cover(db: Session, article: Article, cover_asset_id: str | None)
 
 
 def delete_article(db: Session, article: Article) -> None:
+    """软删除文章。存在未完成发布记录则拒删；删前清掉其所有分组关联（硬删 ArticleGroupItem）。"""
     article_id = article.id
 
     active = (
@@ -328,11 +348,13 @@ def list_groups(db: Session) -> list[ArticleGroup]:
 
 
 def create_group(db: Session, user_id: int, payload: ArticleGroupCreate) -> ArticleGroup:
+    """新建分组。撞到同名软删分组则原地复活（清空成员、刷新元数据），绕开 (user_id, name) 唯一约束。"""
     existing = db.execute(
         select(ArticleGroup).where(
             ArticleGroup.user_id == user_id, ArticleGroup.name == payload.name
         )
     ).scalar_one_or_none()
+    # 同名分组已软删 → 复活而非新建（否则唯一约束会冲突）
     if existing is not None and existing.is_deleted:
         existing.description = payload.description
         existing.is_deleted = False
@@ -367,6 +389,7 @@ def update_group(db: Session, group: ArticleGroup, payload: ArticleGroupUpdate) 
 def replace_group_items(
     db: Session, group: ArticleGroup, payload: ArticleGroupItemsUpdate
 ) -> ArticleGroup:
+    """整组替换成员（先校验去重 + 文章存在，再清空重建）。乐观锁，未传 sort_order 用下标兜底。"""
     if payload.version is not None and group.version != payload.version:
         raise ConflictError("Article group has been modified; refresh before saving")
 
@@ -409,6 +432,7 @@ def replace_group_items(
 
 
 def delete_group(db: Session, group: ArticleGroup) -> None:
+    """软删除分组。存在 pending/running 的发布任务则拒删。"""
     active_task = db.execute(
         select(PublishTask.id).where(
             PublishTask.group_id == group.id,
@@ -512,6 +536,8 @@ def mark_pending_and_group(
             try:
                 db.flush()
             except IntegrityError:
+                # 并发抢到了 base_name（唯一约束冲突）：rollback 丢掉本次未提交改动，
+                # 重新标 pending 并改用带 suffix 的名字重试一次
                 db.rollback()
                 for aid in article_ids:
                     art = db.get(Article, aid)

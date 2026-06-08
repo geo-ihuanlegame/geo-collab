@@ -1,3 +1,10 @@
+"""平台发布驱动注册表。
+
+每个平台驱动实现 PlatformDriver Protocol，在模块 import 时调 register(...) 注册；
+main.py 顶部按需 import 各驱动文件触发注册。同一平台可注册多个变体（variant），
+由 resolve_driver() 按环境变量 GEO_<PLATFORM>_DRIVER 选择，便于灰度与回滚。
+"""
+
 from __future__ import annotations
 
 import logging
@@ -36,6 +43,7 @@ _REGISTRY: dict[str, PlatformDriver] = {}
 
 
 def register(driver: PlatformDriver) -> None:
+    """注册平台默认驱动；同一 code 重复注册直接报错（防止覆盖）。"""
     if driver.code in _REGISTRY:
         raise ValueError(f"Driver already registered: {driver.code}")
     _REGISTRY[driver.code] = driver
@@ -57,6 +65,10 @@ _VARIANTS: dict[tuple[str, str], PlatformDriver] = {}
 def register_variant(
     platform_code: str, variant: str, driver: PlatformDriver, *, replace: bool = False
 ) -> None:
+    """注册某平台的命名变体驱动；replace=False 时重复注册报错。
+
+    变体不进默认注册表，只能由 resolve_driver() 经 GEO_<PLATFORM>_DRIVER 选中。
+    """
     key = (platform_code, variant)
     if key in _VARIANTS and not replace:
         raise ValueError(f"Driver variant already registered: {platform_code}/{variant}")

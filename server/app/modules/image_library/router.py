@@ -76,23 +76,32 @@ class StockImageRead(BaseModel):
 
 
 def _guess_image_size(data: bytes) -> tuple[int | None, int | None]:
+    """从字节头解析图片宽高，仅认 PNG / JPEG，识别不出返回 (None, None)。
+
+    不依赖 Pillow：PNG 读 IHDR，JPEG 扫描各段直到 SOF 标记（0xC0~0xC3）读宽高。
+    """
+    # PNG：宽高固定在 IHDR，data[16:24] 是两个大端 uint32
     if data.startswith(b"\x89PNG\r\n\x1a\n") and len(data) >= 24:
         w, h = struct.unpack(">II", data[16:24])
         return w, h
+    # JPEG：0xFFD8 开头，逐段跳过直到 SOF 帧头里取宽高
     if data[:2] == b"\xff\xd8":
         idx = 2
         while idx < len(data):
+            # 段以一个或多个 0xFF 填充开头，跳过它们定位真正的 marker
             while idx < len(data) and data[idx] == 0xFF:
                 idx += 1
             if idx >= len(data):
                 break
             marker = data[idx]
             idx += 1
+            # 0xD8/0xD9（SOI/EOI）无长度字段，跳过
             if marker in {0xD8, 0xD9}:
                 continue
             if idx + 2 > len(data):
                 break
             seg_len = struct.unpack(">H", data[idx : idx + 2])[0]
+            # SOF0~SOF3 帧头：段内偏移 +3 起为 height、width（各 2 字节大端）
             if marker in range(0xC0, 0xC4) and idx + 7 <= len(data):
                 h, w = struct.unpack(">HH", data[idx + 3 : idx + 7])
                 return w, h
@@ -101,6 +110,8 @@ def _guess_image_size(data: bytes) -> tuple[int | None, int | None]:
 
 
 def _normalize_official_url(value: Any) -> str | None:
+    # 由 Pydantic field_validator 调用：这里抛 ValueError 会被 Pydantic 收成 422，
+    # 是合规的（不同于 CLAUDE.md「service 层别抛裸 ValueError」那条约束）。
     if value is None:
         return None
     if not isinstance(value, str):
@@ -347,6 +358,7 @@ def delete_image(
         try:
             minio_store.delete_object(cat.bucket_name, img.minio_key)
         except Exception:
+            # MinIO 删失败不阻断：以 DB 记录为准，宁可残留孤儿对象也要删掉记录
             pass
     db.delete(img)
     db.commit()

@@ -6,6 +6,9 @@
 - planner：当前直接走预构造 specs，节点本身保留作图拓扑占位
 - parallel_write：ThreadPoolExecutor(max_workers=4)，每个 spec 独立写一篇文章
 - finalize：更新 GenerationSession 状态为 done/failed
+
+注：本图属旧 /sessions 直连流水线，入口 `run_pipeline` 已随 410 下线、休眠保留（仍 import
+下线的 skills.service）；新方案流走 scheme_executor，不经过这里。
 """
 
 import logging

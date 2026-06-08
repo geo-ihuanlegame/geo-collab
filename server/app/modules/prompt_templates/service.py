@@ -1,3 +1,10 @@
+"""提示词模板 service 层：CRUD + 可见性过滤 + scope 校验。
+
+可见性规则只作用于 *_visible_* 系列查询（list_visible_prompts / get_visible_prompt_template，
+生文流走这条）：用户只看得到自己的私有模板或系统模板。不带 visible 的 list/get 只排除软删、不做可见性过滤。
+软删（is_deleted）记录一律排除；所有写入只 flush 不 commit，事务边界交给上层（route 的 get_db）。
+"""
+
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
@@ -8,11 +15,13 @@ VALID_PROMPT_SCOPES = {"generation", "ai_format"}
 
 
 def _validate_scope(scope: str | None) -> None:
+    # 非法 scope 抛命名异常 ValidationError（→400），不抛裸 ValueError（无全局兜底）
     if scope is not None and scope not in VALID_PROMPT_SCOPES:
         raise ValidationError(f"Invalid prompt scope: {scope}")
 
 
 def _visible_query(db: Session, *, user_id: int, scope: str | None = None):
+    """构造"当前用户可见"的基础查询：未软删 且（属于本人 或 系统模板）。"""
     _validate_scope(scope)
     query = db.query(PromptTemplate).filter(
         PromptTemplate.is_deleted == False,  # noqa: E712
@@ -24,6 +33,7 @@ def _visible_query(db: Session, *, user_id: int, scope: str | None = None):
 
 
 def list_prompt_templates(db: Session, *, scope: str | None = None) -> list[PromptTemplate]:
+    """全量列出（不做可见性过滤），仅排除软删（不过滤 is_enabled）。当前无调用方——生文/校验流走 get_visible_prompt_template。"""
     _validate_scope(scope)
     query = db.query(PromptTemplate).filter(PromptTemplate.is_deleted == False)  # noqa: E712
     if scope is not None:
@@ -34,6 +44,7 @@ def list_prompt_templates(db: Session, *, scope: str | None = None) -> list[Prom
 def list_visible_prompts(
     db: Session, *, user_id: int, scope: str | None = None
 ) -> list[PromptTemplate]:
+    """列出当前用户可见的模板（本人私有 + 系统），系统模板排在前。"""
     return (
         _visible_query(db, user_id=user_id, scope=scope)
         .order_by(PromptTemplate.is_system.desc(), PromptTemplate.id)
@@ -125,5 +136,6 @@ def patch_prompt_template(
 
 
 def delete_prompt_template(db: Session, template: PromptTemplate) -> None:
+    # 软删：只置 is_deleted，不物理删行（历史引用/审计可追溯）
     template.is_deleted = True
     db.flush()

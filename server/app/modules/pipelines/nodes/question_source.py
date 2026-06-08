@@ -1,3 +1,8 @@
+"""question_source 源节点：从问题池按「精选问题 record_ids > 多选类型 > 整池」取问题，
+
+拼成带序号的多行 question_text 供下游生文。兼容旧单选 question_type；
+__uncategorized__ 表示「未分类」(category 为 None)。"""
+
 from server.app.modules.pipelines.nodes.base import NodeResult, NodeRunContext, register
 from server.app.shared.errors import ValidationError
 

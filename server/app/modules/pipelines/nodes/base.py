@@ -1,3 +1,6 @@
+"""节点注册表与运行上下文：节点类型按 register(node_type, handler) 注册（与 driver 同模式），
+执行器用 get_handler 按类型取处理函数。各内置节点模块在导入时调 register；nodes/__init__.py 触发导入。"""
+
 from __future__ import annotations
 
 from collections.abc import Callable

@@ -1,4 +1,7 @@
 # server/app/modules/pipelines/router.py
+"""Pipeline 编排 API（/api/pipelines/*，前端 UI 叫「智能体管理」）：CRUD、草稿 / 发布 / 版本、
+触发运行与运行日志。运行在 create_app() 注入的 bg_session_factory 后台线程里跑，无独立 worker。"""
+
 from __future__ import annotations
 
 import threading

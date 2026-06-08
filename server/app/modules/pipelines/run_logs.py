@@ -1,3 +1,7 @@
+"""运行日志：把 PipelineRun.node_results 摊平成「日志行」并按行做服务端分页。
+
+日志行的粒度是单个节点结果，一次 run 产出多行；分页跨多条 run 切片（见 list_run_log_page）。"""
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta

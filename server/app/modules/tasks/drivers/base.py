@@ -1,3 +1,10 @@
+"""平台驱动的共享数据契约：传给驱动的 PublishPayload、返回的 PublishResult，
+以及驱动级异常 PublishError / UserInputRequired。
+
+驱动只拿这里的纯数据结构，所有 asset 路径在进浏览器前已从 DB 预解析，
+驱动内不碰 ORM（见 CLAUDE.md「PlatformDriver」约束）。
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -40,7 +47,11 @@ class PublishError(Exception):
 
 
 class UserInputRequired(PublishError):
-    """Raised when publishing must pause for login, captcha, or similar input."""
+    """需要 noVNC 人工接管（登录失效 / 验证码等）时抛出。
+
+    携带 session_id / novnc_url 供前端接管；error_type 区分接管原因。
+    注意：stop_before_publish=True 的正常停顿不抛此异常（见 CLAUDE.md）。
+    """
 
     def __init__(
         self,

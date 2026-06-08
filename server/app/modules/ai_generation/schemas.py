@@ -7,6 +7,8 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 
 class GenerationSessionCreate(BaseModel):
+    """旧 /sessions 直连生成入参（已 410 下线，休眠保留）。手动(question_item_ids)与自动(auto_count)二选一。"""
+
     skill_id: int
     prompt_template_id: int
     extra_instruction: str | None = None

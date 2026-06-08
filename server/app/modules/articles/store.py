@@ -1,3 +1,11 @@
+"""
+Asset（上传资源）存储层：落盘 / 取尺寸 / 派生 WebP+缩略图 / 路径解析 / 孤儿清理。
+
+文件存到 data_dir/assets/YYYY/MM/<uuid><ext>，DB 里只记 storage_key（相对路径）。
+按 sha256 去重；存图时 best-effort 生成 WebP 全尺寸 + 400x400 缩略图供前端用。
+resolve_asset_path 做逃逸校验（路径必须在 data_dir 内）。孤儿 = 未被任何文章封面/正文/任务截图引用的资产。
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -27,6 +35,7 @@ class StoredAsset:
 
 
 def guess_image_size(data: bytes) -> tuple[int | None, int | None]:
+    """从字节头解析图片宽高（PNG 读 IHDR，JPEG 扫 SOF marker）；非图/解析失败返回 (None, None)。"""
     if data.startswith(b"\x89PNG\r\n\x1a\n") and len(data) >= 24:
         width, height = struct.unpack(">II", data[16:24])
         return width, height
@@ -82,6 +91,7 @@ def _generate_derivatives(asset: Asset, src_path: Path) -> None:
 
 
 def normalize_ext(filename: str, content_type: str | None, data: bytes) -> str:
+    """推断文件扩展名：优先用文件名后缀，否则按 magic bytes，再退而求其次用 content_type。"""
     suffix = Path(filename).suffix.lower()
     if suffix:
         return suffix
@@ -106,6 +116,7 @@ def asset_url(asset_id: str) -> str:
 
 
 def resolve_asset_path(asset: Asset) -> Path:
+    """把 storage_key 解析成磁盘绝对路径，并校验未逃出 data_dir（防路径穿越）。"""
     data_dir = get_data_dir().resolve()
     path = (data_dir / asset.storage_key).resolve()
     if data_dir != path and data_dir not in path.parents:
@@ -198,6 +209,12 @@ def _create_asset_from_path(
 
 
 async def store_upload(db: Session, user_id: int, upload: UploadFile) -> StoredAsset:
+    """小文件上传入口：边流式落临时文件边算 sha256/校验类型，按 sha256 去重命中则直接复用旧资产。
+
+    超过 MAX_ASSET_BYTES 抛 413、首块 magic bytes 不在 ALLOWED_MAGIC 抛 415。
+    实际建库+移动文件的同步活儿丢到 run_in_executor（DB session 非异步安全，由该线程独占完成）。
+    出错时在 except 块清掉临时文件（成功路径下临时文件已被移动落库消耗）。
+    """
     import aiofiles
     from fastapi import HTTPException
 
@@ -229,6 +246,7 @@ async def store_upload(db: Session, user_id: int, upload: UploadFile) -> StoredA
                 if first_chunk is None:
                     first_chunk = chunk
                     ok = any(chunk.startswith(m) for m in ALLOWED_MAGIC)
+                    # RIFF 容器要再确认是 WebP（offset 8 处 "WEBP"），排除 wav/avi 等同样 RIFF 开头的非图
                     if (
                         ok
                         and chunk.startswith(b"RIFF")
@@ -247,6 +265,7 @@ async def store_upload(db: Session, user_id: int, upload: UploadFile) -> StoredA
         # total > 0 guarantees the loop ran at least once, so first_chunk is set.
         assert first_chunk is not None
         digest = sha256.hexdigest()
+        # 去重：同 sha256 且磁盘文件还在 → 复用旧资产，不再落第二份
         existing = db.query(Asset).filter(Asset.sha256 == digest).first()
         if existing:
             existing_path = resolve_asset_path(existing)

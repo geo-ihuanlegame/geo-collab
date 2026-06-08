@@ -1,3 +1,12 @@
+"""认证与用户管理路由（/api/auth/* 与 /api/users/*）。
+
+登录写 httpOnly cookie `access_token`。鉴权写法不统一：
+- login 公开（仅限流）、logout 仅读 cookie，均不做鉴权；
+- me / change-password / create-user 手动 verify_token + 自开 SessionLocal（早期写法，保留）；
+- users 列表 / patch / reset-password 走 Depends(require_admin)。
+审计：登录、登出、改密、建/改用户、重置密码等写操作落 add_audit_entry；me、users 列表等读操作不落。
+"""
+
 import os
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -68,9 +77,14 @@ def _user_dict(u: User) -> dict:
 def login(
     request: Request, payload: LoginRequest, response: Response, db: Session = Depends(get_db)
 ) -> dict:
+    """校验账号密码 → 写 access_token cookie → 记审计。限流 5 次/分钟。
+
+    失败分支用 try/raise/except 包裹，只为在抛出前补一条 success=False 的审计后再 re-raise。
+    """
     user = db.query(User).filter(User.username == payload.username).first()
     if not user or not user.check_password(payload.password):
         try:
+            # 先抛再于 except 内补审计、最后 re-raise：保证失败登录也留痕
             raise HTTPException(status_code=401, detail="用户名或密码错误")
         except HTTPException:
             add_audit_entry(
@@ -129,6 +143,7 @@ def login(
 
 @router.post("/logout")
 def logout(request: Request, response: Response, db: Session = Depends(get_db)) -> dict:
+    """清空 access_token cookie（max_age=0）并记审计。无需校验当前登录态。"""
     response.set_cookie(
         key="access_token",
         value="",
@@ -152,6 +167,7 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db)) 
 
 @router.get("/me")
 def me(request: Request) -> dict:
+    """返回当前登录用户概要。手动 verify_token + 自开 session（不走 Depends 鉴权）。"""
     from server.app.db.session import SessionLocal
 
     token = request.cookies.get("access_token")
@@ -181,6 +197,10 @@ def me(request: Request) -> dict:
 
 @router.post("/change-password")
 def change_password(payload: ChangePasswordRequest, request: Request) -> dict:
+    """用户自助改密：校验原密码 → set_password → 清 must_change_password。
+
+    改后调 invalidate_user_cache 让鉴权缓存失效，避免旧权限/状态被缓存命中。
+    """
     from server.app.db.session import SessionLocal
 
     token = request.cookies.get("access_token")
@@ -219,6 +239,11 @@ def change_password(payload: ChangePasswordRequest, request: Request) -> dict:
 
 @router.post("/users")
 def create_user(payload: CreateUserRequest, request: Request) -> dict:
+    """管理员创建用户（默认 must_change_password=True，首登需改密）。
+
+    admin 双重校验：先看 JWT role 声明，再回库核对 caller.role（防 token 签发后用户被降权 / 禁用）。
+    用户名冲突抛 409。
+    """
     from server.app.db.session import SessionLocal
 
     token = request.cookies.get("access_token")
@@ -287,6 +312,10 @@ def update_user(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ) -> dict:
+    """管理员改用户（启用/角色/显示名/飞书 open_id）。禁止改自己（防自锁/自降权）。
+
+    只对真正变化的字段记 before/after 审计；feishu_open_id 变更不计入审计 diff。
+    """
     if user_id == current_user.id:
         raise HTTPException(status_code=400, detail="不能修改自己的账号")
     user = db.get(User, user_id)
@@ -333,6 +362,7 @@ def reset_password(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ) -> dict:
+    """管理员重置他人密码：强制下次登录改密，并 invalidate_user_cache 失效鉴权缓存。"""
     user = db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")

@@ -1,3 +1,5 @@
+"""系统健康检查：返回服务状态与数据目录就绪情况（不查数据库）。"""
+
 from server.app.core.paths import DATA_SUBDIRS, ensure_data_dirs
 from server.app.modules.system.schemas import SystemStatus
 

@@ -110,6 +110,7 @@ def _verify_article_ownership(article: Article | None, current_user: User) -> Ar
 
 
 def _is_ai_lock_expired(article: Article) -> bool:
+    # 排版锁是否超时：started 为空（异常状态）视为过期；否则超过 ai_format_timeout_seconds 即过期
     if not article.ai_checking:
         return False
     started = article.ai_checking_started_at
@@ -120,6 +121,7 @@ def _is_ai_lock_expired(article: Article) -> bool:
 
 
 def _clear_ai_lock_if_expired(db: Session, article: Article) -> None:
+    # 惰性解锁：读/改文章时顺手清掉超时未释放的排版锁（后台线程崩了也不会让文章永久卡 ai_checking）
     if not _is_ai_lock_expired(article):
         return
     article.ai_checking = False
@@ -362,6 +364,10 @@ def trigger_ai_format_endpoint(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict[str, str]:
+    """触发 AI 排版：抢锁（置 ai_checking）后立即 spawn 后台线程跑 run_ai_format，202 返回。
+
+    is_checking 期间不可重复触发；含配图栏目时附带自动配图。线程崩溃由 _run 的 except 兜底解锁。
+    """
     article = _verify_article_ownership(get_article(db, article_id), current_user)
     _check_not_ai_locked(db, article)
     from server.app.modules.articles.ai_format import has_ai_format_targets
@@ -383,10 +389,12 @@ def trigger_ai_format_endpoint(
         if preset is None or not preset.is_enabled:
             raise HTTPException(status_code=404, detail="AI format prompt preset not found")
 
+    # lock_started_at 当锁指纹传给后台线程，run_ai_format 写回前据此判断锁是否仍属本次
     lock_started_at = datetime.now(UTC).replace(tzinfo=None, microsecond=0)
     include_images = (
         article.stock_category_id is not None or len(article.stock_categories or []) > 0
     )
+    # 抢锁并先 commit：让后台线程和后续请求都能立刻看到 ai_checking=True
     article.ai_checking = True
     article.ai_checking_started_at = lock_started_at
     article.ai_format_error = None
@@ -404,6 +412,8 @@ def trigger_ai_format_endpoint(
                 user_id=current_user.id,
             )
         except Exception as exc:
+            # 线程崩溃兜底：run_ai_format 内部异常已自解锁，但若它在解锁前就崩了，
+            # 这里用独立 session 强制解锁，绝不让文章永久卡在 ai_checking=True
             logging.getLogger(__name__).exception(
                 "ai_format background thread crashed for article %s", article_id
             )
@@ -722,6 +732,7 @@ def read_asset_file(
     request: Request,
     db: Session = Depends(get_db),
 ) -> Response:
+    """返回资产原图。Accept 带 image/webp 且有 webp 派生时改发 webp；GEO_NGINX_ACCEL 下走 X-Accel 卸载给 nginx。"""
     asset = db.get(Asset, asset_id)
     if asset is None or asset.is_deleted:
         raise HTTPException(status_code=404, detail="资源不存在")
@@ -931,6 +942,7 @@ async def complete_chunked_upload(
         return to_asset_read(stored.asset).model_dump()
 
     except HTTPException:
+        # 必须 re-raise（如 415），不要包成 500（见 CLAUDE.md「complete_chunked_upload」约束）
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

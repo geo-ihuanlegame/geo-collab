@@ -1,3 +1,9 @@
+"""把选好的图片节点插进 Tiptap 文档（content_json）的纯函数集合。
+
+只操作 content_json dict，不碰 DB；落库由调用方负责（按 CLAUDE.md 本应同步 content_html/plain_text，
+但现有调用方 hook.insert_images_for_article 目前只回写 content_json + version）。
+"""
+
 from __future__ import annotations
 
 from server.app.modules.image_library.selector import StockImageRef

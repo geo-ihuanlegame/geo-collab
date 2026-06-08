@@ -1,3 +1,5 @@
+"""system 模块的 Pydantic 响应模型：当前只有系统状态面板（/api/system/status）的响应体。"""
+
 from pydantic import BaseModel
 
 

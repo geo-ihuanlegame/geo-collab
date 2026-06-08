@@ -1,3 +1,5 @@
+"""文章模块包入口：聚合并重导出 parser / service / store 的公开 API，供 router 等统一从此处导入。"""
+
 from server.app.modules.articles.parser import (  # noqa: F401
     BodySegment,
     dumps_content_json,

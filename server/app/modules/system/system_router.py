@@ -1,3 +1,9 @@
+"""系统状态面板路由（/api/system/status，仅 admin）。
+
+汇总文章/账号/任务计数、浏览器可用性、worker 在线（30s 心跳窗口）、noVNC 就绪等。
+副作用：每次查询顺带清理一批已请求停止且 1 小时无活动的 BrowserSession（见下方注释）。
+"""
+
 import shutil
 from datetime import timedelta
 from pathlib import Path
@@ -50,6 +56,7 @@ def read_system_status(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ) -> SystemStatus:
+    """组装系统状态。任一 DB 计数失败则整组计数降级为 -1（不让面板整体报错）。"""
     from server.app.modules.accounts.models import Account, BrowserSession
     from server.app.modules.articles.models import Article
     from server.app.modules.tasks.models import PublishRecord, PublishTask
@@ -116,6 +123,7 @@ def read_system_status(
         data["active_browser_sessions"] = (
             db.scalar(select(func.count()).select_from(BrowserSession)) or 0
         )
+        # 30s 心跳窗口：超过即视为 worker 离线（worker 正常每轮刷新 heartbeat_at）
         data["worker_online"] = bool(
             db.scalar(
                 select(func.count())

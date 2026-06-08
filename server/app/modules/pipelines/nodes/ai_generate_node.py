@@ -1,3 +1,7 @@
+"""ai_generate 处理节点：按单个固定提示词模板并发生 count 篇文章（max_workers=4）。
+
+单篇失败不中断，错误收进 output["errors"] 交 run 聚合为 partial_failed。"""
+
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from server.app.modules.ai_generation.article_writer import generate_article_from_prompt

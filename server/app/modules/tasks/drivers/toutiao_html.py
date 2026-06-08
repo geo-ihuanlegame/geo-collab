@@ -1,3 +1,10 @@
+"""把解析后的正文段落序列化成头条号正文 HTML（页内驱动专用）。
+
+输出 `<p data-track="N">` / `<h1 class="pgc-h-forward-slash">`（头条小标题红点节点），
+正文图片先落成占位 token 段落（__GEO_IMG_k__），真正的上传 + token→<img> 替换
+延后到页内 JS 适配器里做。data-track 跨所有段落保持单调递增。
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

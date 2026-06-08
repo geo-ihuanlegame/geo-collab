@@ -1,4 +1,9 @@
 # server/app/modules/pipelines/recovery.py
+"""启动时复位 pipeline run：进程刚起时残留的 running/pending 必是上次崩溃留下的僵死记录。
+
+无租约机制，故全量置 failed——这也意味着不能跑多实例 web（见 CLAUDE.md Gotchas）。
+由 create_app() 启动时调用。"""
+
 from __future__ import annotations
 
 import logging

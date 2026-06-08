@@ -1,3 +1,8 @@
+"""Pipeline CRUD / 校验 / 草稿与版本服务层（无后台执行逻辑，那部分在 executor.py）。
+
+草稿态（draft_snapshot + has_draft）与 live 节点（PipelineNode）分离：编辑只动草稿，
+publish_draft 才把草稿落成 live 节点并写一份 PipelineVersion 快照。"""
+
 from __future__ import annotations
 
 from sqlalchemy import func, select
@@ -194,6 +199,7 @@ def patch_pipeline(db: Session, p: Pipeline, *, fields: dict) -> Pipeline:
 
 
 def delete_pipeline(db: Session, p: Pipeline) -> None:
+    """删除 pipeline 及其全部 live 节点 / 版本 / 运行记录。有活跃 run 时抛 ConflictError。"""
     active = (
         db.query(PipelineRun.id)
         .filter(PipelineRun.pipeline_id == p.id, PipelineRun.status.in_(("pending", "running")))
@@ -221,6 +227,10 @@ def discard_draft(db: Session, p: Pipeline) -> None:
 
 
 def publish_draft(db: Session, p: Pipeline, *, remark: str | None, user_id: int) -> int:
+    """把草稿落成 live 节点并写一份 PipelineVersion 快照，清空草稿态，返回新版本号。
+
+    全程在 pipeline 行锁内串行化，避免并发发布时 version_no 重号。
+    """
     # 串行化同一 pipeline 的并发发布，避免 version_no 重号
     db.query(Pipeline).filter(Pipeline.id == p.id).with_for_update().first()
     if not p.has_draft or not p.draft_snapshot:

@@ -1,3 +1,9 @@
+"""账号模块 HTTP 路由（挂在 /api/accounts）：账号 CRUD、登录会话、授权包导入导出。
+
+薄路由层——业务在 accounts.service / auth，这里只做鉴权、归属校验、序列化和审计。
+注意路由注册顺序：/{account_id:int}/login-session 必须在 /{platform_code}/login-session 之前。
+"""
+
 from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
@@ -40,6 +46,7 @@ router = APIRouter()
 
 
 def _verify_account_ownership(account: AccountModel | None, current_user: User) -> AccountModel:
+    """校验账号存在且归当前用户（admin 例外）。非自己的账号同样返回 404 而非 403，不泄露其存在。"""
     if account is None:
         raise HTTPException(status_code=404, detail="账号不存在")
     if current_user.role != "admin" and account.user_id != current_user.id:
@@ -261,6 +268,7 @@ async def import_accounts(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
+    """导入授权 ZIP。先做防护校验（总大小、条目数、每条目大小、路径白名单正则）再交 service 解包。"""
     import io
     import re
     import zipfile
