@@ -81,7 +81,11 @@ def get_node_types() -> dict:
                 "type": "article_group_source",
                 "label": "已审核分组源",
                 "config_schema": [
-                    {"key": "group_id", "type": "article_group", "label": "内容分组"},
+                    {
+                        "key": "group_id",
+                        "type": "article_group",
+                        "label": "内容分组（留空＝自动选最早未分发分组）",
+                    },
                 ],
             },
             {
