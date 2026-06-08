@@ -18,12 +18,19 @@ def run_article_group_source(ctx: NodeRunContext) -> NodeResult:
         user = db.get(User, ctx.user_id)
         is_admin = user is not None and user.role == "admin"
 
-        # 候选文章 = 已审核 + 未删 + 未分发(无 PublishRecord) + owner/admin
+        # 候选文章 = 已审核 + 未删 + 未分发或在途 + owner/admin。
+        # 「已分发/在途」= 有未软删、且非 failed/cancelled 的 PublishRecord（与
+        # approved_content_source 同口径）：失败 / 取消 / 软删的记录不算，文章可重试、不被永久埋没。
         def _candidate_filters(stmt):
             stmt = stmt.where(
                 Article.review_status == "approved",
                 Article.is_deleted == False,  # noqa: E712
-                Article.id.notin_(select(PublishRecord.article_id)),
+                Article.id.notin_(
+                    select(PublishRecord.article_id).where(
+                        PublishRecord.is_deleted == False,  # noqa: E712
+                        PublishRecord.status.notin_(["failed", "cancelled"]),
+                    )
+                ),
             )
             if not is_admin:
                 stmt = stmt.where(Article.user_id == ctx.user_id)
