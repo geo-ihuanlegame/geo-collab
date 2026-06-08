@@ -1,3 +1,13 @@
+"""
+文章正文解析：Tiptap JSON 文档 <-> 发布用的有序文本/图片片段。
+
+供发布运行器（runner）和正文资产同步（service.sync_article_body_assets）使用：
+  - extract_body_image_nodes / extract_body_stock_image_nodes — 按文档顺序抽出图片节点
+  - parse_body_segments — 把文档拍平成有序的 text/image 片段（驱动据此输出正文）
+  - has_publishable_body — 判断正文是否有可发布内容（纯文本/HTML/图片任一即可）
+图片节点的 asset_id / stock_image_id 既可能在 attrs 显式给出，也可能要从 src URL 反解。
+"""
+
 from __future__ import annotations
 
 import json
@@ -39,6 +49,7 @@ def _asset_id_from_image_node(node: dict[str, Any]) -> str | None:
         value = attrs.get(key)
         if isinstance(value, str) and value:
             return value
+    # attrs 没显式给 assetId 时，从 src（形如 /api/assets/<id>）反解，去掉尾斜杠和 query
     src = attrs.get("src")
     if isinstance(src, str) and "/api/assets/" in src:
         return src.rstrip("/").split("/api/assets/")[-1].split("?")[0]
@@ -102,6 +113,7 @@ def extract_body_stock_image_nodes(content_json: dict[str, Any]) -> list[int]:
 
 
 def has_publishable_body(article: Any) -> bool:
+    """正文是否有可发布内容：纯文本、去标签后的 HTML、或正文图片，任一非空即算有。"""
     if (article.plain_text or "").strip():
         return True
     if re.sub(r"<[^>]+>", "", article.content_html or "").strip():
@@ -115,6 +127,7 @@ def has_publishable_body(article: Any) -> bool:
 def _append_segments(
     node: Any, segments: list[BodySegment], depth: int = 0, _hlevel: int | None = None
 ) -> None:
+    # 递归把 Tiptap 节点树拍平成有序 BodySegment；_hlevel 沿 heading 子树下传，标记文本属于几级标题
     if isinstance(node, list):
         for child in node:
             _append_segments(child, segments, depth, _hlevel)
@@ -172,6 +185,7 @@ def _append_segments(
 
 
 def _compact(segments: list[BodySegment]) -> list[BodySegment]:
+    # 合并相邻同属性（bold + heading_level 一致）的文本片段，并裁掉末尾空白片段；换行片段单独保留
     compacted: list[BodySegment] = []
     for seg in segments:
         if seg.kind == "text":
@@ -217,5 +231,6 @@ def parse_body_segments(article: Any) -> list[BodySegment]:
     segments = _compact(segments)
     if segments:
         return segments
+    # content_json 解析不出片段时，回退到纯文本 / 去标签的 HTML 当单段正文
     body = (article.plain_text or re.sub(r"<[^>]+>", "", article.content_html or "")).strip()
     return [BodySegment(kind="text", text=body)] if body else []

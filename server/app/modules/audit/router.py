@@ -35,6 +35,7 @@ def read_audit_logs(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ) -> AuditLogList:
+    """查询审计日志（仅 admin）。各过滤参数可叠加，按 id 倒序游标分页。"""
     items, next_cursor = list_audit_logs(
         db,
         user_id=user_id,

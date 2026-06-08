@@ -1,4 +1,8 @@
 # server/app/modules/pipelines/models.py
+"""Pipeline 编排的 ORM 模型：Pipeline（含草稿 draft_snapshot + 调度配置）、
+PipelineNode（按 node_index 线性排列的 live 节点）、PipelineVersion（发布版本快照）、
+PipelineRun（一次运行，创建时冻结 snapshot，执行只读它）。"""
+
 from datetime import datetime
 
 from sqlalchemy import (

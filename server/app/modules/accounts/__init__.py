@@ -1,3 +1,8 @@
+"""账号模块包入口：把 auth / browser / service 三个子模块的公开名集中再导出。
+
+router.py 和 worker 从这里统一 import，无需知道每个符号具体落在哪个子文件。
+"""
+
 from server.app.modules.accounts.auth import (  # noqa: F401
     LOGIN_SESSION_CANCEL_TIMEOUT_SECONDS,
     LOGIN_SESSION_FINISH_TIMEOUT_SECONDS,

@@ -1,3 +1,13 @@
+"""头条号默认发布驱动（DOM 自动化）。
+
+用 Playwright 操作头条号图文发布页的 ProseMirror/SylEditor 富文本编辑器：
+逐段插标题 / 加粗 / 正文 / 图片，上传封面，最后两步点「预览并发布」→「确认发布」。
+编辑器用的是字节自家设计系统（byte-btn / syl-toolbar-tool，非 Ant Design），
+本文件大量函数靠 page.evaluate 注入 JS 直接操作 contenteditable，绕开 ProseMirror
+对键盘事件 / inputRule / selection 的各种坑（详见各函数 docstring）。
+register() 注册为 toutiao 默认驱动。页内 API 驱动见 toutiao_inpage.py。
+"""
+
 from __future__ import annotations
 
 import logging
@@ -32,6 +42,8 @@ PublishFillResult = PublishResult
 
 @dataclass(frozen=True)
 class BodyParagraph:
+    """一个逻辑段落：文本 / 标题 / 图片三选一，供逐段插入编辑器。"""
+
     kind: str  # "text" | "heading" | "image"
     runs: tuple[tuple[str, bool], ...] = ()  # (text, is_bold)
     heading_level: int | None = None
@@ -236,6 +248,11 @@ def _focus_body_editor(page: Any) -> None:
 
 
 def _focus_body_editor_end(page: Any) -> None:
+    """聚焦正文编辑区并把光标移到文档末尾。
+
+    每次插段前调用：确保新内容追加在已插入内容之后，避免光标残留在中途
+    导致后续段落 / 图片插错位置（关键在于 selectNodeContents + collapse(false) 把光标压到末尾）。
+    """
     moved = page.evaluate(
         """() => {
             const editor = Array.from(document.querySelectorAll("[contenteditable='true']"))
@@ -319,6 +336,11 @@ def _compact_body_text(text: str) -> str:
 
 
 def _verify_body_text_complete(page: Any, paragraphs: list[BodyParagraph]) -> None:
+    """校验正文文本是否完整写入：按段落顺序在编辑器实际文本里依次匹配。
+
+    去空白后逐片 find（cursor 单调前移，保证顺序）；任一片缺失即抛错并附截图——
+    防止 ProseMirror inputRule / 时序问题悄悄吞掉部分文字却当作成功发布。
+    """
     expected_chunks = [
         _compact_body_text("".join(text for text, _ in para.runs))
         for para in paragraphs
@@ -462,6 +484,11 @@ def _body_image_count(page: Any) -> int:
 
 
 def _paste_body_image_path(page: Any, image_path: Path, asset_id: str | None) -> None:
+    """把一张正文图片经「打开图片抽屉→上传→确认→等插入」完整流程插入编辑器。
+
+    以插入前后的 img 计数变化判定是否真的插入成功；失败时连同 before/after 计数、
+    页面是否已关闭、原始异常一起打包成 ToutiaoPublishError 附截图，便于诊断。
+    """
     if not image_path.exists():
         raise ToutiaoPublishError(f"正文图片文件不存在: {asset_id or image_path}")
 
@@ -582,6 +609,11 @@ def _wait_body_image_ready(page: Any, before_count: int, timeout_ms: int = 30000
 
 
 def _wait_publish_images_ready(page: Any, timeout_ms: int = 60000) -> None:
+    """发布前等所有正文图片落到正式 CDN 地址（不再是 blob:/data:/本地临时 URI）。
+
+    要求连续 2 轮状态干净（无临时图、无 pending、无进度条 / 上传中文案）才放行，
+    超时仍有临时 URI 则抛错附截图——否则会把指向本地 / blob 的图片发出去坏图。
+    """
     deadline = time.monotonic() + timeout_ms / 1000
     stable_rounds = 0
     last_state: dict[str, Any] | None = None
@@ -722,6 +754,7 @@ def _handle_cover(page: Any, cover_path: Path, cover_asset_id: str | None) -> No
 
 
 def _cover_already_present(page: Any) -> bool:
+    """探测页面上是否已存在一张已上传的封面（「编辑替换」/「已上传 1 张图片」+ 可见图）。"""
     try:
         return bool(
             page.evaluate(

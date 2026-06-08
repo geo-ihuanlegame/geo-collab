@@ -1,3 +1,7 @@
+"""approved_content_source 源节点（「已审核待发布」）：取最近更新的已审文章 id（默认排除已分发/在途）。
+
+「已分发/在途」口径与 article_group_source 一致：failed/cancelled/软删的记录不算占用。"""
+
 from server.app.modules.pipelines.nodes.base import NodeResult, NodeRunContext, register
 
 

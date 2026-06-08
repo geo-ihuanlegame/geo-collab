@@ -1,3 +1,13 @@
+"""账号登录态获取与导入导出。
+
+交互式登录走 worker 驱动的命令/状态机：API 端写一行 account_login_sessions
+（status=pending）并立即返回 request_id，worker 轮询 process_account_login_session_requests
+认领、拉起远程浏览器、推进状态（pending/queued → starting → active →
+finish_requested/cancel_requested → finished/cancelled/failed）；API 端的
+finish/stop 只改状态并轮询等 worker 落地。所有 Playwright sync API 调用都包在
+_run_in_plain_thread 里，避开 FastAPI/AnyIO 的事件循环。
+"""
+
 from __future__ import annotations
 
 import io
@@ -131,6 +141,11 @@ def register_account_from_storage_state(
     platform_code: str,
     payload: PlatformLoginRequest,
 ) -> Account:
+    """从磁盘上已有的 storage_state.json 登记 / 更新一个账号（不开浏览器）。
+
+    upsert：按 (user_id, platform_id, state_path) 命中则复活并刷新，否则新建，状态直接置 valid。
+    use_browser=True 属于交互登录，必须改走 start_login_session。
+    """
     if payload.use_browser:
         raise ClientError("Browser login must use login-session")
 
@@ -145,6 +160,7 @@ def register_account_from_storage_state(
         raise ClientError(f"Storage state not found: {state_path}")
 
     relative_state_path = relative_to_data_dir(state_path)
+    # 同时匹配新的按用户隔离路径与旧的无用户层路径，避免旧账号被当成新账号重复建
     legacy_relative_state_path = relative_to_data_dir(
         state_path_for_key(platform_code, account_key)
     )
@@ -190,6 +206,11 @@ def start_login_session(
     platform_code: str,
     payload: PlatformLoginRequest,
 ) -> AccountBrowserSessionResult:
+    """发起新平台的交互式登录：upsert 账号（置 unknown）并下一条 worker 登录命令，立即返回。
+
+    不等浏览器起来——只回 request_id（=session_id）与 status=pending，后续靠 worker 推进、
+    前端轮询 /status。previous_status 透传给 worker，登录被取消时用于回滚账号状态。
+    """
     driver = _get_driver(platform_code)
     platform = get_or_create_platform(db, driver.code, driver.name, driver.home_url)
     account_key = normalize_account_key(payload.account_key)
@@ -255,6 +276,7 @@ def start_login_session(
 def _copy_legacy_state_if_needed(
     platform_code: str, account_key: str, user_state_path: Path
 ) -> None:
+    """旧布局（无用户层）的登录态目录整体复制到新的按用户隔离目录，做一次性数据迁移。"""
     if user_state_path.exists():
         return
     legacy_dir = state_dir_for_key(platform_code, account_key)
@@ -275,6 +297,7 @@ def _copy_legacy_state_if_needed(
 def start_account_login_session(
     db: Session, account: Account, payload: AccountCheckRequest
 ) -> AccountBrowserSessionResult:
+    """对已有账号重新登录（如登录态失效）：置 unknown 并下 worker 登录命令，立即返回 pending。"""
     platform_code, account_key = account_key_from_state_path(account.state_path)
     previous_status = account.status
     account.status = "unknown"
@@ -304,6 +327,11 @@ def start_account_login_session(
 def finish_account_login_session(
     db: Session, account: Account, session_id: str
 ) -> tuple[Account, BrowserCheckResult]:
+    """完成登录：保存登录态并据此刷新账号 valid/expired。
+
+    有 worker 命令行就走 worker 路径（改状态 + 轮询等 finished）；否则按本地路径直接收尾
+    （API 与 worker 同进程的开发场景）。
+    """
     request = _find_account_login_request(db, account.id, session_id)
     if request is not None:
         return _finish_login_browser_via_worker(db, account, request)
@@ -316,6 +344,7 @@ def finish_account_login_session(
 
 
 def stop_account_login_session(db: Session, account: Account, session_id: str) -> None:
+    """中止登录会话：有 worker 命令行则请求取消，否则本地直接停掉远程浏览器。"""
     request = _find_account_login_request(db, account.id, session_id)
     if request is not None:
         _cancel_login_browser_via_worker(db, request)
@@ -336,6 +365,7 @@ def _touch_login_request(request: AccountLoginSession) -> None:
 def _find_account_login_request(
     db: Session, account_id: int, session_id: str
 ) -> AccountLoginSession | None:
+    # session_id 可能是登录命令行 id，也可能是底层 browser_session_id：两者都匹配，取最新一条
     return db.execute(
         select(AccountLoginSession)
         .where(
@@ -364,8 +394,13 @@ def _wait_for_account_login_request(
     timeout_seconds: float,
     timeout_message: str,
 ) -> AccountLoginSession:
+    """轮询登录命令行直到进入 desired_statuses；遇 failed / 其它终态 / 超时则抛 ClientError。
+
+    每轮先 rollback + expire_all，强制下次读重新查库，才能看到 worker 进程刚 commit 的状态变更。
+    """
     deadline = time.monotonic() + timeout_seconds
     while True:
+        # 丢弃本事务快照 + 失效已加载对象，否则读到的是缓存、看不到 worker 的提交
         db.rollback()
         db.expire_all()
         request = db.get(AccountLoginSession, request_id)
@@ -472,7 +507,13 @@ def _cancel_login_browser_via_worker(db: Session, request: AccountLoginSession) 
 
 
 def process_account_login_session_requests(db: Session, worker_id: str) -> bool:
-    """Claim and process one account-login browser command for this worker."""
+    """Claim and process one account-login browser command for this worker.
+
+    Worker 轮询入口：认领并处理一条登录命令，处理了返回 True，无活儿返回 False。
+    认领两类命令：(a) 未被占用的 pending/queued 新登录；(b) 本 worker 名下待 finish/cancel 的命令。
+    认领靠条件 UPDATE：只有把 status 从旧值推进到 *ing 且 rowcount==1 才算抢到（跨 worker 去重）。
+    新登录在推进前先抢 profile 锁，抢不到则置 queued 让出。
+    """
     row = db.execute(
         select(AccountLoginSession.id, AccountLoginSession.status)
         .where(
@@ -514,6 +555,7 @@ def process_account_login_session_requests(db: Session, worker_id: str) -> bool:
     else:
         where_clause.append(AccountLoginSession.worker_id == worker_id)
 
+    # claim：条件 UPDATE（旧状态 + worker 归属都进 where），rowcount==1 才算抢到、跨 worker 去重
     result = db.execute(
         sa_update(AccountLoginSession)
         .where(*where_clause)
@@ -522,7 +564,7 @@ def process_account_login_session_requests(db: Session, worker_id: str) -> bool:
     rows = result.rowcount  # type: ignore[attr-defined]  # DML execute returns CursorResult
     db.commit()
     if rows == 0:
-        return False
+        return False  # 被别的 worker 抢先了
 
     request = db.get(AccountLoginSession, request_id)
     if request is None:
@@ -537,6 +579,10 @@ def process_account_login_session_requests(db: Session, worker_id: str) -> bool:
 
 
 def _try_acquire_login_profile_lock(db: Session, request: AccountLoginSession) -> bool:
+    """登录前抢账号 profile 锁。抢到返回 True；被发布 / 别的登录占用则置 queued 让出返回 False。
+
+    与发布、check_account 共用同一把 profile 锁，保证同一 Chromium profile 目录串行使用。
+    """
     from server.app.modules.accounts.browser import try_acquire_profile_lock
 
     account = db.get(Account, request.account_id)
@@ -564,6 +610,10 @@ def _try_acquire_login_profile_lock(db: Session, request: AccountLoginSession) -
 
 
 def _worker_start_login_session(db: Session, request: AccountLoginSession) -> None:
+    """Worker：拉起远程浏览器并打开登录页，成功置 active 并记下 browser_session_id/novnc_url。
+
+    失败置 failed 并立刻释放 profile 锁（active 时不释放——浏览器还开着，要留到 finish/cancel）。
+    """
     try:
         account = db.get(Account, request.account_id)
         if account is None:
@@ -600,6 +650,7 @@ def _worker_start_login_session(db: Session, request: AccountLoginSession) -> No
 
 
 def _worker_finish_login_session(db: Session, request: AccountLoginSession) -> None:
+    """Worker：读回登录态存盘、据此刷新账号 valid/expired、置 finished；finally 释放 profile 锁。"""
     account = db.get(Account, request.account_id)
     if account is None:
         request.status = LOGIN_STATUS_FAILED
@@ -636,6 +687,7 @@ def _worker_finish_login_session(db: Session, request: AccountLoginSession) -> N
 
 
 def _worker_cancel_login_session(db: Session, request: AccountLoginSession) -> None:
+    """Worker：停掉浏览器、置 cancelled，并把账号状态从 unknown 回滚到登录前的 previous_status。"""
     try:
         if request.browser_session_id:
             _stop_login_browser_impl(request.account_key, request.browser_session_id)
@@ -751,6 +803,11 @@ def _start_login_browser_impl(
     executable_path: str | None,
     load_login_page: bool = True,
 ):
+    """实际开浏览器：起远程会话、launch_persistent_context、把句柄挂到会话并保活。
+
+    必须在 plain thread 里跑（Playwright sync API）。keep_session_alive 让会话不被空闲清理，
+    一直开着等用户在 noVNC 里扫码登录，直到 finish/cancel。失败时关闭句柄并停掉会话。
+    """
     from playwright.sync_api import sync_playwright
 
     from server.app.modules.accounts.browser import (
@@ -866,6 +923,8 @@ def _load_login_page_for_session(
 def _start_login_page_loader(
     session_id: str, platform_code: str, account_key: str, home_url: str
 ) -> None:
+    """后台线程异步把登录页 goto 到 home_url（在 operation_lock 内操作 page），失败仅记日志。"""
+
     def _load() -> None:
         from server.app.modules.accounts.browser import get_session
 
@@ -897,6 +956,7 @@ def _start_login_page_loader(
 def _read_and_save_login_state_from_remote_session(
     session, platform_code: str, state_path: Path
 ) -> BrowserCheckResult:
+    """在 operation_lock 内判定登录态并把 storage_state.json 写盘（与会话其它操作串行）。"""
     with session.operation_lock:
         result = _read_login_state_from_remote_session(session, platform_code)
         session.browser_context.storage_state(path=str(state_path))
@@ -935,6 +995,11 @@ def _read_login_state_from_remote_session(session, platform_code: str) -> Browse
 
 
 def check_account(db: Session, account: Account, payload: AccountCheckRequest) -> Account:
+    """检查账号登录态是否仍有效，刷新 status 为 valid/expired。
+
+    use_browser 时无头开浏览器载入登录态、由 driver.detect_logged_in 判定，并抢同一把 profile 锁
+    （和发布 / 登录互斥，抢不到直接 ClientError，不排队）；否则仅按 storage_state 文件是否存在粗判。
+    """
     platform_code, _ = account_key_from_state_path(account.state_path)
     driver = _get_driver(platform_code)
     abs_state_path = get_data_dir() / account.state_path
@@ -1001,6 +1066,7 @@ def _check_account_in_browser(driver, abs_state_path: Path, payload: AccountChec
 
 
 def relogin_account(db: Session, account: Account, payload: AccountCheckRequest) -> Account:
+    """从磁盘已有登录态重新登记账号（use_browser=False），不开浏览器、复用现有 state 文件。"""
     platform_code, account_key = account_key_from_state_path(account.state_path)
     request = PlatformLoginRequest(
         display_name=account.display_name,
@@ -1014,6 +1080,11 @@ def relogin_account(db: Session, account: Account, payload: AccountCheckRequest)
 
 
 def export_accounts_auth_package(db: Session, payload: AccountExportRequest) -> Path:
+    """把账号元数据 + 各自的 storage_state.json 打包成授权 ZIP，返回落盘路径。
+
+    只导出账号与登录态（manifest 里列了显式排除的 articles/assets/publish_tasks 等）；
+    某账号 state 文件缺失只跳过不致命。account_ids 为空表示导出全部。
+    """
     ensure_data_dirs()
     accounts = _accounts_for_export(db, payload.account_ids)
     if not accounts:
@@ -1089,6 +1160,12 @@ def _assess_imported_status(state_path: Path) -> str:
 def import_accounts_auth_package(
     db: Session, user_id: int, zip_bytes: bytes
 ) -> dict[str, list[str]]:
+    """导入授权 ZIP：逐账号落 storage_state 文件并 upsert 到当前 user_id 名下。
+
+    已存在（同 state_path 且未软删）的跳过；格式 / 路径异常的逐条 skip 不中断整包。
+    写盘前用 is_relative_to 校验目标在 data 目录内，防 ZIP 路径穿越逃逸。
+    返回 {"imported": [...], "skipped": [...]}（按 display_name 记账）。
+    """
     ensure_data_dirs()
     imported: list[str] = []
     skipped: list[str] = []
@@ -1132,6 +1209,7 @@ def import_accounts_auth_package(
                 skipped.append(f"{display_name}（ZIP 中缺少 storage_state.json）")
                 continue
 
+            # 防 ZIP 路径穿越：解析后必须仍在 data 目录内，否则可能写到任意路径
             if not dest.resolve().is_relative_to(get_data_dir().resolve()):
                 raise ClientError(f"ZIP entry path escapes data directory: {state_path_rel}")
             dest.parent.mkdir(parents=True, exist_ok=True)
@@ -1183,6 +1261,7 @@ def import_accounts_auth_package(
 
 
 def _new_export_path(now) -> Path:
+    """生成唯一导出文件名；data/exports 不可写（探针写失败）时退回系统临时目录。"""
     filename = f"geo-auth-export-{now.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}.zip"
     export_dir = get_data_dir() / "exports"
     try:
@@ -1219,6 +1298,7 @@ def _accounts_for_export(db: Session, account_ids: list[int] | None) -> list[Acc
 
 
 def _resolve_data_file(relative_path: str) -> Path:
+    """把相对路径解析为 data 目录下的真实文件，越界或不存在则抛 ClientError（防路径穿越）。"""
     data_dir = get_data_dir().resolve()
     path = (data_dir / relative_path).resolve()
     if not path.is_relative_to(data_dir) or not path.is_file():

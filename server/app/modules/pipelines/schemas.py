@@ -1,3 +1,5 @@
+"""Pipeline API 的 Pydantic 入参 / 出参模型（创建 / patch / 读出 / 草稿 / 版本 / 运行 / 运行日志分页）。"""
+
 from __future__ import annotations
 
 from datetime import datetime, time

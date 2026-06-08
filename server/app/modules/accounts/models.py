@@ -128,10 +128,12 @@ class BrowserProfileLock(Base):
     __tablename__ = "browser_profile_locks"
 
     profile_key: Mapped[str] = mapped_column(String(255), primary_key=True)
+    # owner_kind 取值：publish / login / account_check
     owner_kind: Mapped[str] = mapped_column(String(40), nullable=False)
     owner_id: Mapped[str] = mapped_column(String(80), nullable=False)
     worker_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     queue_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     acquired_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     heartbeat_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    # 租约到期时间：过期锁会被下一个 try_acquire_profile_lock 直接删掉抢占（防 owner 崩溃后死锁）
     lease_until: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)

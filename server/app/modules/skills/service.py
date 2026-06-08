@@ -1,3 +1,5 @@
+"""技能模块 service 层 CRUD（已下线休眠）：/api/skills 不再挂载，新方案流不用 Skill，仅保留休眠。"""
+
 from sqlalchemy.orm import Session
 
 from server.app.modules.skills.models import Skill

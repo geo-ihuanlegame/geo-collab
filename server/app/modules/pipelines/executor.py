@@ -1,4 +1,8 @@
 # server/app/modules/pipelines/executor.py
+"""Pipeline 运行执行器：create_run 冻结节点快照并行锁去重，run_pipeline 在后台线程线性
+跑节点、按上游成败聚合 run 终态。无独立 worker，跑在 API server 后台线程；全局并发受
+_RUN_SEMAPHORE（GEO_PIPELINE_MAX_CONCURRENT_RUNS）限制。"""
+
 from __future__ import annotations
 
 import logging
@@ -23,6 +27,11 @@ _RUN_SEMAPHORE = _threading.Semaphore(max(1, _get_settings().pipeline_max_concur
 
 
 def create_run(db, *, pipeline_id: int, user_id: int) -> PipelineRun:
+    """创建一条 pending run 并冻结当前 live 节点为 snapshot。
+
+    在 pipeline 行锁内检查活跃 run，已有 pending/running 时抛 ConflictError（同一 pipeline 不并发）。
+    不提交事务，由调用方 commit。
+    """
     # 串行化同一 pipeline 的 run 创建：锁住 pipeline 行后检查活跃 run，避免并发重复运行
     db.query(Pipeline).filter(Pipeline.id == pipeline_id).with_for_update().first()
     active = (
@@ -230,6 +239,7 @@ def _run_pipeline_inner(run_id: int, session_factory: SessionFactory) -> None:
 
 
 def run_pipeline(run_id: int, session_factory: SessionFactory) -> None:
+    """后台线程入口：占全局并发信号量后执行 run；顶层异常兜底把 pending/running 置 failed。"""
     try:
         with _RUN_SEMAPHORE:
             _run_pipeline_inner(run_id, session_factory)

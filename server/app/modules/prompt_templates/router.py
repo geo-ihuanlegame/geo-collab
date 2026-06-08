@@ -29,6 +29,7 @@ router = APIRouter()
 
 
 def _ensure_can_modify(template: Any, current_user: User) -> None:
+    """改/删权限：admin 通吃；普通用户只能动自己的非系统模板（系统模板对其只读）。"""
     if current_user.role == "admin":
         return
     if template.is_system or template.user_id != current_user.id:
@@ -36,6 +37,7 @@ def _ensure_can_modify(template: Any, current_user: User) -> None:
 
 
 def _ensure_system_allowed(is_system: bool | None, current_user: User) -> None:
+    """仅 admin 可创建/设置系统模板；普通用户传 is_system=True 直接 403。"""
     if is_system and current_user.role != "admin":
         raise HTTPException(
             status_code=403, detail="Only admin can create or manage system prompt templates"

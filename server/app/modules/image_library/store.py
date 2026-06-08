@@ -1,3 +1,8 @@
+"""图片库 MinIO 对象存储封装：bucket / 对象的增删读，被 router 与配图链路复用。
+
+每次调用都新建 Minio 客户端（无连接池），凭据从 settings 读取。
+"""
+
 from __future__ import annotations
 
 import io
@@ -8,6 +13,7 @@ _logger = logging.getLogger(__name__)
 
 
 def _client():
+    # 懒导入 minio 与 settings：避免模块导入期就拉起依赖 / 读配置
     from minio import Minio
 
     from server.app.core.config import get_settings
@@ -26,7 +32,7 @@ def ensure_bucket(bucket_name: str) -> None:
     client = _client()
     if not client.bucket_exists(bucket_name):
         client.make_bucket(bucket_name)
-    # 设置公开读策略，使图片 URL 永久有效
+    # 设置 bucket 公开读策略（s3:GetObject 放行）；注意嵌入文章的图片实际走 /api/stock-images/{id}/file 代理读取，并不依赖此策略
     policy = {
         "Version": "2012-10-17",
         "Statement": [

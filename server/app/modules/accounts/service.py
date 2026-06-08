@@ -1,3 +1,10 @@
+"""账号 CRUD 与本地存储路径换算。
+
+核心是一组在 platform_code/account_key 与 data 目录下相对路径之间互转的纯函数：
+storage_state.json（Playwright 登录态）、profile（Chromium 持久化目录）、
+profile_key（跨进程 profile 锁的键）都由这里统一推导，确保 worker 与 API 端算法一致。
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -18,6 +25,7 @@ from server.app.shared.errors import ClientError
 
 
 def normalize_account_key(account_key: str | None) -> str:
+    """把账号标识收敛成只含字母数字 _-的安全目录名；为空 / 清洗后为空则随机生成一个。"""
     raw = account_key or uuid.uuid4().hex
     value = re.sub(r"[^a-zA-Z0-9_-]+", "-", raw).strip("-")
     return value or uuid.uuid4().hex
@@ -46,6 +54,10 @@ def profile_dir_from_state_path(state_path: str) -> Path:
 
 
 def profile_key_from_state_path(state_path: str) -> str:
+    """从 state_path 推出 profile 锁的键（即 storage_state.json 所在目录的相对路径）。
+
+    超过列宽（profile_key 列 255）时退化成 sha256 摘要，保证能落进 DB 主键列。
+    """
     key = Path(state_path).parent.as_posix()
     if len(key) <= 240:
         return key
@@ -53,6 +65,10 @@ def profile_key_from_state_path(state_path: str) -> str:
 
 
 def clear_profile_locks(profile_dir: Path) -> None:
+    """删掉 Chromium 留在持久化 profile 目录里的 Singleton* 残锁。
+
+    上次浏览器进程非正常退出会遗留这些文件，导致下次 launch_persistent_context 拒绝启动。
+    """
     for name in ("SingletonLock", "SingletonSocket", "SingletonCookie"):
         lock = profile_dir / name
         try:
@@ -66,6 +82,11 @@ def relative_to_data_dir(path: Path) -> str:
 
 
 def account_key_from_state_path(state_path: str) -> tuple[str, str]:
+    """从 state_path 反解出 (platform_code, account_key)，是 state_path_for_key 的逆运算。
+
+    兼容两种布局：新版带用户隔离 browser_states/users/<uid>/<platform>/<key>/...，
+    旧版无用户层 browser_states/<platform>/<key>/...（由 idx+1 是否为 "users" 区分）。
+    """
     parts = Path(state_path).parts
     try:
         idx = parts.index("browser_states")
@@ -133,6 +154,7 @@ def rename_account(db: Session, account: Account, display_name: str) -> Account:
 
 
 def delete_account(db: Session, account: Account) -> None:
+    """软删账号（置 is_deleted）。仍有未完成发布记录时抛 ClientError 拒绝删除。"""
     account_id = account.id
 
     active = (

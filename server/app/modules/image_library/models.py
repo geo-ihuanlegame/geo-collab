@@ -10,6 +10,11 @@ from server.app.db.base import Base
 
 
 class StockCategory(Base):
+    """图库栏目（分桶）。一个栏目对应一个 MinIO bucket（bucket_name 唯一）。
+
+    删栏目级联删图片记录（cascade），但 MinIO 里的对象需调用方另行清理。
+    """
+
     __tablename__ = "stock_categories"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -23,6 +28,8 @@ class StockCategory(Base):
 
 
 class StockImage(Base):
+    """图库单图。minio_key 是其在所属栏目 bucket 内的对象 key（全局唯一）。"""
+
     __tablename__ = "stock_images"
 
     id: Mapped[int] = mapped_column(primary_key=True)

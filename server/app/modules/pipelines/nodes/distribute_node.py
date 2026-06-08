@@ -1,3 +1,8 @@
+"""distribute 动作节点（「内容分发」）：把上游文章建成发布任务（create_task，内部带审核门禁）。
+
+优先消费上游 article_ids（即便空也消费、跳过）而非 group_id——否则会重拉全组、丢弃「已审未分发」
+子集导致重复发布 / 整批失败（#45，详见 run_distribute 内联注释）。"""
+
 from server.app.modules.pipelines.nodes.base import NodeResult, NodeRunContext, register
 from server.app.shared.errors import ValidationError
 

@@ -168,6 +168,7 @@ def to_task_read(task: "PublishTask") -> TaskRead:
 
 
 def to_record_read(record: "PublishRecord") -> PublishRecordRead:
+    """序列化发布记录，并附带当前关联的远程浏览器会话 id / noVNC 接管链接（无会话则为 None）。"""
     from server.app.modules.accounts import get_session_for_record  # 避免循环 import
 
     session = get_session_for_record(record.id)

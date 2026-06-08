@@ -5,6 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+# scope 取值收敛在此处；service 层另有 VALID_PROMPT_SCOPES 做运行时校验，两处需保持一致
 PromptScope = Literal["generation", "ai_format"]
 
 
@@ -16,6 +17,8 @@ class PromptTemplateCreate(BaseModel):
 
 
 class PromptTemplateUpdate(BaseModel):
+    """全量更新（PUT）：name/content 必填覆盖；scope/is_system 为 None 时保持原值不动。"""
+
     name: str = Field(min_length=1, max_length=200)
     content: str = Field(min_length=1)
     scope: PromptScope | None = None
@@ -38,6 +41,8 @@ class PromptTemplateRead(BaseModel):
 
 
 class PromptTemplatePatch(BaseModel):
+    """局部更新（PATCH）：只有非 None 字段会被写入，主要用于启停开关 is_enabled。"""
+
     is_enabled: bool | None = None
     scope: PromptScope | None = None
     is_system: bool | None = None

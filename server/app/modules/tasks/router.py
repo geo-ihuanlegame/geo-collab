@@ -132,6 +132,10 @@ def auto_distribute_endpoint(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> TaskRead:
+    """一键自动分发：把「文章/分组 + 账号列表」简化请求映射成 TaskCreate 建任务并立即后台执行。
+
+    单文章→single，分组→group_round_robin。审核门禁/账号校验都在 create_task 内（抛命名异常→400）。
+    """
     is_group = payload.group_id is not None
     target_label = f"分组 {payload.group_id}" if is_group else f"文章 {payload.article_id}"
     task_create = TaskCreate(
@@ -190,6 +194,11 @@ def start_task_execution(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> _ExecuteResponse:
+    """触发任务执行，立即返回 202。
+
+    两条路径：bg_session_factory 已注入（测试/单机 dev）→ 直接起后台线程跑 execute_task；
+    否则（生产）→ 只清掉过期/空的 worker 认领，让独立 worker 轮询时捡走（不在 web 进程里发布）。
+    """
     from server.app.core.time import utcnow as _utcnow
 
     task = _verify_task_ownership(get_task(db, task_id), current_user)
@@ -298,6 +307,10 @@ def stream_task_events(
     after_log_id: int = Query(default=0, ge=0),
     current_user: User = Depends(get_current_user),
 ) -> StreamingResponse:
+    """SSE 推送任务执行进度：每秒轮询，task/records 变化才推（diff 去抖），增量推 log。
+
+    用独立 SessionLocal（不复用请求 db，连接要长持）；每轮 expire_all 强制读最新；task 到终态推 done 收流。
+    """
     from server.app.db.session import SessionLocal as _SL
 
     check_db = _SL()
@@ -384,6 +397,11 @@ def _verify_record_ownership(
 
 
 def _start_background_execute(task_id: int) -> None:
+    """用户操作（手动确认/重试/解决人工输入/自动分发）后在后台线程续跑任务。
+
+    仅在 bg_session_factory 注入时生效（测试/单机 dev）；生产模式 no-op，交给独立 worker 轮询。
+    后台线程自建并自管 session（与请求线程的 db 隔离，session 非线程安全）。
+    """
     if bg_session_factory is None:
         # Production mode: worker picks up the task when it finds pending records.
         return

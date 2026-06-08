@@ -1,4 +1,7 @@
-"""技能模块路由 —— 单文本模型，与 PromptTemplate 同构。"""
+"""技能模块路由 —— 单文本模型，与 PromptTemplate 同构。
+
+已下线休眠：main.py 不再 import / mount 本路由，新方案流不用 Skill；保留休眠不删。
+"""
 
 from typing import Any
 

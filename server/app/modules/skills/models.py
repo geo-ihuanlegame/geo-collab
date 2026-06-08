@@ -1,4 +1,7 @@
-"""技能模块 ORM 模型（从 models/skill.py 中提取 Skill 类）。"""
+"""技能模块 ORM 模型（从 models/skill.py 中提取 Skill 类）。
+
+已下线休眠：/api/skills 不再挂载，skills 表保留不 drop、不写迁移。
+"""
 
 from datetime import datetime
 

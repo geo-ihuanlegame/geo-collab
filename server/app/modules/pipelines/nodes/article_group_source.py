@@ -1,3 +1,8 @@
+"""article_group_source 源节点（「已审核分组源」）：选一个分组并输出其中「已审 + 未分发」文章子集。
+
+group_id 留空时按 FIFO 自动选最早一个含候选文章的分组。「已分发/在途」口径与
+approved_content_source 一致：failed/cancelled/软删的发布记录不算占用，文章可重试。"""
+
 from server.app.modules.pipelines.nodes.base import NodeResult, NodeRunContext, register
 from server.app.shared.errors import ValidationError
 

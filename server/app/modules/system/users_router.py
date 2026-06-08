@@ -28,6 +28,11 @@ def update_my_settings(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> UserSettingsRead:
+    """更新当前用户的 AI 排版预设。非空时先校验该模板对本人可见且启用，否则 404。
+
+    直接赋值，故传 null 会清空预设（与 ArticleUpdate 过滤 None 的语义不同）。
+    改后 invalidate_user_cache 失效鉴权缓存。
+    """
     if payload.ai_format_preset_id is not None:
         prompt = get_visible_prompt_template(
             db,

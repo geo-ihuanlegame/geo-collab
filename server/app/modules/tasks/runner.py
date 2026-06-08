@@ -1,3 +1,14 @@
+"""
+发布运行器：单条记录的浏览器自动化入口。
+
+run_publish 负责在 Playwright 持久化 context 里跑驱动的 publish 流程——按账号 platform 选驱动、
+复用或新建远程浏览器会话（Xvfb + noVNC 那套）、把 ORM 对象解析成 PublishPayload（含本地资源路径）
+后交给驱动。驱动只拿 page/context/payload，不碰 DB。
+
+注意：Playwright sync API 用 thread-local greenlet——context 若是在已退出的别的线程里建的，
+必须先销毁会话再重建（见 run_publish 里的 context_thread_id 检查），否则 new_page() 抛 greenlet.error。
+"""
+
 from __future__ import annotations
 
 import os
@@ -98,6 +109,10 @@ def _stock_image_suffix(filename: str, minio_key: str) -> str:
 
 
 def _resolve_stock_image_path(stock_image_id: int) -> Path:
+    """把图片库（MinIO）里的图拉到本地临时文件，返回路径（调用方负责后续清理 temp_files）。
+
+    自开独立 SessionLocal 查 StockImage/StockCategory（本函数可能在发布线程里调，不复用主 session）。
+    """
     from server.app.db.session import SessionLocal
     from server.app.modules.image_library import store as minio_store
     from server.app.modules.image_library.models import StockCategory, StockImage
@@ -187,6 +202,10 @@ def _build_payload_with_stock_images(
     platform_code: str,
     state_path: Path,
 ) -> PublishPayload:
+    """构建 PublishPayload，正文图既支持本地 body_asset 也支持图片库 stock_image（后者拉到临时文件）。
+
+    把生成的临时文件挂到 payload.temp_files，发布结束后由调用方清理；中途出错就地清空临时文件再抛。
+    """
     if article.cover_asset is None:
         raise PublishError("封面图片是必填项")
     cover_path = resolve_asset_path(article.cover_asset)
@@ -242,6 +261,7 @@ def _build_payload_with_stock_images(
         raise
 
 
+# 实际生效的 payload 构建器：覆盖上面的 _build_payload，启用图片库（stock image）正文图支持
 _build_payload = _build_payload_with_stock_images
 
 
@@ -328,6 +348,7 @@ def run_publish(
         context = session.browser_context
 
     page = None
+    # _keep_browser=True 时保活会话不拆（停在预览待手动确认 / 待人工接管），其余路径 finally 必拆
     _keep_browser = False
     try:
         page = context.new_page()

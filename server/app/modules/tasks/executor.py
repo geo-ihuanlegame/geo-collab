@@ -1,3 +1,18 @@
+"""
+任务执行引擎：把一个 PublishTask 的 pending 记录并发跑成发布。
+
+并发分层（见 CLAUDE.md「Task Execution」）：
+  per-task 锁（_task_locks，同一任务同时只能一个执行循环）
+    → 全局信号量 _global_publish_sem（MAX_CONCURRENT_RECORDS，跨任务封顶并发发布数）
+      → 每账号串行锁（_account_locks，同账号同时只发一条）
+        → 浏览器 profile 锁（accounts.try_acquire_profile_lock，跨进程，发布 vs 登录互斥）。
+
+DB session 非线程安全：实际发布在 ThreadPoolExecutor 线程里跑（_publish_record，纯浏览器自动化、
+不碰 db），所有 DB 读写都回到执行循环所在线程做。记录状态推进一律走条件 UPDATE
+（status='running' 才改），rowcount 为乐观锁，防止外部已改状态时误覆盖。
+本文件函数自带 db.commit()，与多数只 flush 的 service 函数不同。
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -56,6 +71,7 @@ _logger = logging.getLogger(__name__)
 
 
 def _profile_key_from_state_path(state_path: str) -> str:
+    # profile 锁的 key = state 文件所在目录（同 profile 共享一把锁）；超长则用 sha256 压到 DB 列宽内
     key = os.path.dirname(state_path).replace("\\", "/")
     if len(key) <= 240:
         return key
@@ -80,6 +96,11 @@ def _max_concurrent_records() -> int:
 
 
 def execute_task(db: Session, task: PublishTask) -> PublishTask:
+    """执行一个任务：把 pending 记录跑成发布，阻塞到本批次记录全部收口或暂停后返回。
+
+    进程内 per-task 锁串行化（同任务并发执行抛 ConflictError）。pending→running 用条件 UPDATE
+    抢占（rowcount==0 说明被别的执行者/worker 抢走，按其状态收尾），非 pending 则只续 worker 心跳。
+    """
     lock = _task_locks.setdefault(task.id, threading.Lock())
     locked = lock.acquire(blocking=False)
     if not locked:
@@ -96,6 +117,7 @@ def execute_task(db: Session, task: PublishTask) -> PublishTask:
 
         now = utcnow()
         if task.status == "pending":
+            # claim：pending→running 条件 UPDATE，rowcount==1 才算我抢到这次执行权
             stmt = (
                 sa_update(PublishTask)
                 .where(
@@ -139,6 +161,7 @@ def execute_task(db: Session, task: PublishTask) -> PublishTask:
 
 
 def _heartbeat_task_worker(db: Session, task_id: int) -> None:
+    # 续 worker 心跳/租约：只有生产 worker（设了 GEO_WORKER_ID）才续 lease，避免本机后台执行误占租约
     now = utcnow()
     values: dict[str, object] = {"worker_heartbeat_at": now}
     if os.environ.get("GEO_WORKER_ID"):
@@ -202,6 +225,13 @@ def _cancel_not_running_records(
 
 
 def _run_pending_records(db: Session, task: PublishTask) -> None:
+    """核心执行循环：每轮续心跳→检查取消/暂停→拉起可跑记录→等 future 完成并写回结果。
+
+    退出条件：取消且无在跑、暂停（waiting_user_input / stop_before_publish 停在 manual）且无在跑、
+    或无 pending 且无在跑（此时聚合 task 终态）。超过 publish_record_timeout_seconds 的 future
+    判超时：标失败 + 停会话（关 Chromium → Playwright 线程收到 TargetClosedError 自行结束）。
+    finally 兜底释放所有账号锁并 shutdown 线程池。
+    """
     cancel_evt = _task_cancel.get(task.id)
     running: dict[Future, RunningRecord] = {}
     executor = ThreadPoolExecutor(max_workers=_max_concurrent_records())
@@ -304,10 +334,16 @@ def _start_runnable_records(
     running: dict[Future, RunningRecord],
     records: list[PublishRecord],
 ) -> None:
+    """填满空闲并发槽：挑下一条可跑 pending 记录，逐级拿账号锁 + profile 锁，claim 后提交到线程池。
+
+    同账号同时只跑一条（running_accounts / blocked_accounts 跳过）。账号锁拿不到→记 blocked 跳过；
+    profile 锁拿不到→把记录标排队（queue_reason）后续重试。异常路径必须释放已拿的锁（profile + 账号）。
+    """
     running_accounts = {item.account_id for item in running.values()}
     blocked_accounts: set[int] = set()
     slots = _max_concurrent_records() - len(running)
     if task.stop_before_publish:
+        # stop_before_publish 串行：一次只拉一条，方便人工逐条确认
         slots = min(slots, 1)
     if slots <= 0:
         return
@@ -351,6 +387,7 @@ def _start_runnable_records(
                     db.commit()
                     continue
 
+            # claim：pending→running 条件 UPDATE，抢不到（被别人改了状态）就退还两把锁跳过
             if not _claim_record(db, task.id, next_record):
                 release_profile_lock_by_owner(owner_kind="publish", owner_id=next_record.id)
                 _release_account_lock(next_record.account_id)
@@ -368,6 +405,7 @@ def _start_runnable_records(
                 db.commit()
                 continue
 
+            # 把 ORM 对象从 session 摘下再交给发布线程：发布线程不碰 db（session 非线程安全）
             _detach_record_inputs(db, next_record, article, account)
             db.commit()
             future = executor.submit(
@@ -385,6 +423,7 @@ def _start_runnable_records(
 
 
 def _try_acquire_account_lock(account_id: int) -> bool:
+    # 进程内每账号串行锁：_account_locks_lock 只护住「取/建锁」这步，再 non-blocking 抢账号锁本身
     with _account_locks_lock:
         lock = _account_locks.setdefault(account_id, threading.Lock())
     return lock.acquire(blocking=False)
@@ -402,6 +441,10 @@ def _release_account_lock(account_id: int) -> None:
 def _defer_record_for_profile_lock(
     db: Session, task_id: int, record: PublishRecord, reason: str
 ) -> None:
+    """profile 锁被占（账号正在发布/登录）时把记录标记为排队，留 pending 等下一轮重试。
+
+    日志去重：reason 不变就不重复写 log，避免轮询循环刷屏。
+    """
     already_queued = getattr(record, "queue_reason", None) == reason
     db.execute(
         sa_update(PublishRecord)
@@ -439,6 +482,10 @@ def _stop_record_session(record_id: int) -> None:
 
 
 def _claim_record(db: Session, task_id: int, record: PublishRecord) -> bool:
+    """乐观锁认领记录：pending→running 条件 UPDATE，rowcount==1 才算抢到（返回 True）。
+
+    遇可重试的 DB 行锁/死锁错误（1205/1213/1684）回滚返回 False，让上层下轮再试。
+    """
     now = utcnow()
     lease_until = now + timedelta(seconds=get_settings().publish_record_timeout_seconds + 60)
     stmt = (
@@ -508,6 +555,11 @@ def _validate_record_inputs(article: Article | None, account: Account | None) ->
 def _detach_record_inputs(
     db: Session, record: PublishRecord, article: Article, account: Account
 ) -> None:
+    """把记录/文章/账号及关联资源从 session expunge，供发布线程脱离 db 使用。
+
+    expunge 前已 selectinload 的关系才安全；检测到关键关系（cover_asset/body_assets/asset）
+    仍 unloaded 就直接抛 RuntimeError——detached 对象再触发懒加载会因无 session 炸在发布线程里。
+    """
     objects: list[object] = [record, article, account]
     if article.cover_asset is not None:
         objects.append(article.cover_asset)
@@ -543,6 +595,11 @@ def _detach_record_inputs(
 def _publish_record(
     record: PublishRecord, article: Article, account: Account, stop_before_publish: bool
 ):
+    """跑在线程池里的实际发布：构建 runner 调驱动，全程不碰 db（入参均为 detached ORM 对象）。
+
+    受 _global_publish_sem 跨任务封顶并发数。诊断事件挂到异常的 publish_diagnostics 属性上随 raise
+    带回主线程持久化（finally 必释放信号量）。
+    """
     _logger.info(
         "Publishing record %d for article %d to account %d", record.id, article.id, account.id
     )
@@ -561,6 +618,12 @@ def _publish_record(
 
 
 def _finish_record_future(db: Session, task: PublishTask, record_id: int, future: Future) -> None:
+    """在主线程把一条发布 future 的结果写回 DB，按异常类型分流。
+
+    成功（else 分支）：stop_before_publish→waiting_manual_publish，否则→succeeded 并收尾会话。
+    UserInputRequired→waiting_user_input（保留会话供 noVNC 接管）；PublishError/ValueError/其它→failed
+    并截图存证 + 停会话。所有状态写回都用 status='running' 条件 UPDATE，rowcount=0 说明状态被外部改过。
+    """
     try:
         outcome = future.result()
         if isinstance(outcome, RecordPublishOutcome):
@@ -807,6 +870,10 @@ def _store_failure_screenshot(
 
 
 def build_publish_runner_for_record(record: PublishRecord):
+    """构造该记录的发布闭包：预绑 record_id + 浏览器 channel/可执行路径，返回 (article, account) → PublishResult。
+
+    驱动选择在 runner.run_publish 内按账号 state_path 的 platform_code 决定。懒导入 runner 避免循环依赖。
+    """
     from server.app.modules.tasks.runner import run_publish
 
     settings = get_settings()
@@ -828,6 +895,11 @@ def build_publish_runner_for_record(record: PublishRecord):
 
 
 def cancel_task(db: Session, task: PublishTask) -> PublishTask:
+    """请求取消任务：set 进程内取消事件 + 立刻取消所有非 running 记录。
+
+    在跑的 running 记录不强杀，留到执行循环的下一个安全点收口（此时 task 仍保持 running）；
+    若已无 running 记录则直接条件 UPDATE 把 task 置 cancelled。
+    """
     if task.status in TERMINAL_TASK_STATUSES:
         return task
 

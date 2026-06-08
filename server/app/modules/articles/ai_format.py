@@ -1,3 +1,18 @@
+"""
+AI 自动排版：让格式模型识别正文里哪些段落该升级成小标题，并（可选）自动配图。
+
+入口 run_ai_format（在 router 的后台线程里跑）：拉文章 → 拍平顶层 paragraph/heading 节点
+→ 渲染提示词（DB 模板优先，回退内置）→ 调 LiteLLM（模型/Key 走 GEO_AI_FORMAT_*，Key 缺失时回退 GEO_AI_API_KEY）→ 解析 JSON
+（heading_indices / image_positions）→ 只把段落升级为标题、绝不降级已有标题 → 同步回三份正文。
+
+并发/锁语义（关键）：
+  - Article.ai_checking / ai_checking_started_at 是这套排版的“锁”，由 router 在触发时置位。
+  - lock_started_at 是锁的指纹：模型调用前、写回前都用 _article_lock_matches 复核，
+    指纹对不上（被新一轮排版或超时清锁覆盖）就直接放弃本次写回，避免覆盖更新的结果。
+  - 全程独立 session（SessionLocal），finally 里 _unlock_ai_format 释放锁并落 error_message。
+  - 所有模型/网络/JSON 异常经 _describe_ai_format_error 翻成面向运营的中文提示存到 ai_format_error。
+"""
+
 from __future__ import annotations
 
 import json
@@ -131,6 +146,7 @@ def _non_empty_text_nodes(content_json: dict) -> list[tuple[int, dict]]:
 
 
 def has_ai_format_targets(raw_content_json: Any) -> bool:
+    """正文里是否有可排版对象（非空的顶层 paragraph/heading 节点）。空正文时 router 拒绝触发排版。"""
     if isinstance(raw_content_json, str):
         content_json = loads_content_json(raw_content_json)
     elif isinstance(raw_content_json, dict):
@@ -372,6 +388,7 @@ def _apply_headings(content_json: dict, heading_indices: set[int]) -> dict:
 
 
 def _article_lock_matches(article: Any, lock_started_at: datetime | None) -> bool:
+    # 锁指纹比对：本次排版仍持有锁吗？lock_started_at=None 表示不校验（无锁场景，如测试直调）
     if lock_started_at is None:
         return True
     return bool(article.ai_checking and article.ai_checking_started_at == lock_started_at)
@@ -382,6 +399,7 @@ class AIFormatConfigurationError(RuntimeError):
 
 
 def _describe_ai_format_error(exc: BaseException) -> str:
+    """把底层异常（余额/鉴权/限流/超时/网络/JSON 等）翻成面向运营的中文提示，存进 ai_format_error。"""
     raw = str(exc).strip()
     lower = raw.lower()
     if isinstance(exc, AIFormatConfigurationError):
@@ -440,6 +458,11 @@ def _maybe_insert_images(
     *,
     available_categories: list[dict[str, Any]] | None = None,
 ) -> tuple[dict, int]:
+    """按模型给的 image_positions 在指定位置插入配图，返回 (新文档, 实插图数)。
+
+    正文已含图则不动；每个位置按 requested_category_id 从该栏目选一张未用过的图（excluded_ids 去重），
+    选不到的位置静默跳过。返回的插图数可能小于请求数。
+    """
     if has_images_in_content(content_json):
         return content_json, 0
 
@@ -505,9 +528,11 @@ def _unlock_ai_format(
     *,
     error_message: str | None = None,
 ) -> None:
+    """释放排版锁（清 ai_checking）。仅当锁指纹仍匹配本次才动，避免误清新一轮排版的锁。"""
     from server.app.modules.articles.service import get_article
 
     article = get_article(db, article_id)
+    # 指纹不匹配（已被新一轮排版接管或被超时清锁）：不碰，直接返回
     if article is None or not _article_lock_matches(article, lock_started_at):
         return
     article.ai_checking = False
@@ -542,6 +567,7 @@ def run_ai_format(
         article = get_article(db, article_id)
         if article is None or article.is_deleted:
             return
+        # 第一道锁检查：模型调用前。锁已被接管/超时清掉就别白跑一次昂贵的模型请求
         if not _article_lock_matches(article, lock_started_at):
             logger.info("ai_format skipped stale lock before model call for article %s", article_id)
             return
@@ -554,6 +580,7 @@ def run_ai_format(
             )
             return
 
+        # 清 lru_cache 再取：拿运行时最新的 AI Key/模型配置（Key 启动时不校验，运维可能中途改）
         get_settings.cache_clear()
         settings = get_settings()
         api_key = settings.ai_format_api_key or settings.ai_api_key or None
@@ -600,6 +627,8 @@ def run_ai_format(
                 new_content_json, parsed, article, db, available_categories=available_categories
             )
 
+        # 第二道锁检查：写回前 refresh 再比一次指纹。模型耗时长，期间可能有新一轮排版抢锁，
+        # 此时丢弃本次结果，避免覆盖更新的内容
         db.refresh(article)
         if not _article_lock_matches(article, lock_started_at):
             logger.info("ai_format skipped stale lock before write for article %s", article_id)

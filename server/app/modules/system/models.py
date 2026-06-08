@@ -34,11 +34,13 @@ class User(Base):
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     def set_password(self, raw: str) -> None:
+        """校验长度（<8 抛 ValueError）后用 bcrypt 加盐哈希写入 password_hash。"""
         if len(raw) < 8:
             raise ValueError("密码长度不能少于 8 位")
         self.password_hash = bcrypt.hashpw(raw.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
     def check_password(self, raw: str) -> bool:
+        """bcrypt 校验明文密码是否匹配已存哈希。"""
         return bcrypt.checkpw(raw.encode("utf-8"), self.password_hash.encode("utf-8"))
 
 

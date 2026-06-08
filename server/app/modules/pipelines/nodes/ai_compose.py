@@ -1,3 +1,8 @@
+"""ai_compose 处理节点（前端「AI创作」）：与 ai_generate 类似但允许多个提示词模板，
+
+每篇运行时从允许集合里随机挑一个有效模板再生文，并发 max_workers=4。
+问题文本（上游输出，缺则取 config.question_text 兜底）为空时安静跳过（不报错），单篇失败收进 errors 交 run 聚合 partial_failed。"""
+
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from server.app.modules.ai_generation.article_writer import generate_article_from_prompt

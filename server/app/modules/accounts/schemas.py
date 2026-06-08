@@ -1,3 +1,5 @@
+"""账号模块的 Pydantic 请求 / 响应模型，以及 ORM Account → AccountRead 的序列化函数。"""
+
 from datetime import datetime
 from typing import TYPE_CHECKING
 

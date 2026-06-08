@@ -1,3 +1,11 @@
+"""头条号「页内」发布驱动（variant=inpage）。
+
+不走 DOM 操作，而是把正文序列化成 HTML、图片 base64 编码后，整体交给页内 JS 适配器
+（adapters/toutiao_publish.js）在浏览器上下文里直接调头条官方上传 / 发布接口——
+借页面自带的 secsdk 请求签名钩子完成鉴权。注册为 toutiao 的 inpage 变体，
+由 GEO_TOUTIAO_DRIVER=inpage 启用，与默认 DOM 驱动并存便于灰度回滚。
+"""
+
 from __future__ import annotations
 
 import base64

@@ -20,6 +20,9 @@ from server.app.db.base import Base
 
 
 class GenerationSession(Base):
+    """旧 /sessions 生成批次（问题池直连 + LangGraph）。已硬切 410、休眠保留不删；
+    新方案流用 GenerationSchemeRun 取代。`skill_id` 同属下线的 skills 模块外键。"""
+
     __tablename__ = "generation_sessions"
     __table_args__ = (
         CheckConstraint(

@@ -1,3 +1,10 @@
+"""JWT 鉴权工具：签发 / 校验 access_token，以及 get_current_user 依赖。
+
+token 走 httpOnly cookie `access_token`（见 auth_router）。get_current_user 带一层
+内存用户缓存（60s TTL），避免每个请求查一次 DB；用户被禁用 / 改密码时由
+invalidate_user_cache 主动失效。require_local_token 是死代码（无路由依赖，勿照抄）。
+"""
+
 import hmac
 import os
 import time
@@ -57,6 +64,11 @@ def verify_token(token: str) -> dict | None:
 
 
 def get_current_user(request: Request) -> User:
+    """从 cookie 解析 JWT 并返回当前用户；命中缓存则跳过 DB 查询。
+
+    校验顺序：缺 token → 401；token 无效 / 过期 → 401；用户不存在 → 401；
+    被禁用 → 403；待改密码 → 403。返回的 User 是脱钩对象（detached）。
+    """
     from sqlalchemy.orm import Session
 
     from server.app.db.session import SessionLocal

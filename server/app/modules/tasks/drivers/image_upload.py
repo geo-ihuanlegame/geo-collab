@@ -1,3 +1,10 @@
+"""上传前图片瘦身的共享工具。
+
+被 DOM 驱动（toutiao.py）和页内驱动（toutiao_inpage.py）共用：超宽 / 超 2MB 的图
+临时降采样为 JPEG 再上传，缩小上传体积、规避平台大小限制。出错时静默回退原图，
+不阻断发布流程。
+"""
+
 from __future__ import annotations
 
 import logging

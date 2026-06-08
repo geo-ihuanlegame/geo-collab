@@ -1,3 +1,12 @@
+"""
+任务模块 service 层：PublishTask / PublishRecord 的 CRUD、装配（文章 × 账号轮询）、
+状态机推进与启动时的僵死恢复。
+
+约定：错误一律抛 shared.errors 的命名异常（ClientError / ValidationError / AccountError），
+由全局异常处理器映射成 4xx——本层不抛裸 ValueError（无兜底，会变 500）。
+实际的浏览器自动化发布执行在 executor.py / runner.py，本文件只管 DB 侧的编排与校验。
+"""
+
 from __future__ import annotations
 
 import logging
@@ -106,6 +115,13 @@ def delete_all_tasks(db: Session) -> None:
 def create_task(
     db: Session, user_id: int, payload: TaskCreate, role: str = "operator"
 ) -> PublishTask:
+    """建发布任务：校验输入、装配 文章×账号 记录，落 PublishTask + PublishTaskAccount + PublishRecord。
+
+    带 client_request_id 时做幂等——已存在则直接返回旧任务（并发重试不会重复建）。
+    admin 不按 user_id 过滤资源归属（user_id_filter=None），operator 只能用自己的文章/账号。
+    内部含发布前审核门禁（文章须 review_status=approved），不通过抛 ValidationError。
+    只 flush 不 commit，事务边界交给调用方（路由层）。
+    """
     if payload.client_request_id:
         existing = db.execute(
             select(PublishTask).where(
@@ -116,6 +132,7 @@ def create_task(
         if existing is not None:
             return get_task(db, existing.id) or existing
 
+    # admin 跳过归属过滤；operator 只能引用自己的文章/账号/分组
     user_id_filter = None if role == "admin" else user_id
     inputs = _validated_task_inputs(db, payload, user_id=user_id_filter)
     assignments = _build_assignments(inputs.article_ids, inputs.accounts)
@@ -158,6 +175,7 @@ def preview_task_assignment(
     user_id: int | None = None,
     role: str = "operator",
 ) -> TaskAssignmentPreviewRead:
+    """干跑装配：和 create_task 走同一套校验 + 轮询分配，只返回 文章↔账号 配对预览，不落库。"""
     user_id_filter = None if role == "admin" else user_id
     inputs = _validated_task_inputs(db, payload, user_id=user_id_filter)
     assignments = _build_assignments(inputs.article_ids, inputs.accounts)
@@ -194,6 +212,11 @@ def manual_confirm_record(
     publish_url: str | None,
     error_message: str | None,
 ) -> PublishRecord:
+    """人工确认 stop_before_publish 停在预览的记录：置 succeeded/failed，并收尾浏览器会话 + profile 锁。
+
+    只接受 waiting_manual_publish 状态、outcome ∈ {succeeded, failed}，否则抛 ClientError。
+    收尾后重新聚合整个 task 的状态。懒导入 accounts 避免 tasks↔accounts 包级循环依赖。
+    """
     from server.app.modules.accounts import (
         disassociate_record,
         get_session_for_record,
@@ -232,6 +255,10 @@ def manual_confirm_record(
 
 
 def resolve_user_input_record(db: Session, record: PublishRecord) -> PublishRecord:
+    """人工处理完验证码/登录态后，把 waiting_user_input 记录重置回 pending 重新排队。
+
+    收尾旧浏览器会话 + profile 锁，清空 started/finished/lease，并把所属非终态 task 拨回 running。
+    """
     from server.app.modules.accounts import (
         disassociate_record,
         get_session_for_record,
@@ -267,6 +294,11 @@ def resolve_user_input_record(db: Session, record: PublishRecord) -> PublishReco
 
 
 def retry_record(db: Session, record: PublishRecord) -> PublishRecord:
+    """对失败记录建一条新的 retry 记录（retry_of_record_id 指向原记录），并把 task 拨回 running。
+
+    只允许原始 failed 记录重试；重试记录本身不能再重试（见 CLAUDE.md「重试只对原始记录生效」）。
+    防重：同一原记录已有 retry、或同 文章/账号 仍有活跃/成功记录时拒绝（避免重复发布）。
+    """
     if record.status != "failed":
         raise ClientError(f"Only failed records can be retried: {record.status}")
     if record.retry_of_record_id is not None:
@@ -324,7 +356,11 @@ def retry_record(db: Session, record: PublishRecord) -> PublishRecord:
 
 
 def recover_stuck_records(db: Session) -> None:
-    """启动时恢复卡住的记录：status='running' 且 lease_until < utcnow()。"""
+    """启动 / worker 周期复位卡死记录：status='running' 且 lease 已过期的拨回 pending。
+
+    有租约保护（lease_until < now），只动真正过期的，不会误伤别的进程正在跑的记录。
+    本函数自带 commit（与多数只 flush 的 service 函数不同）。
+    """
     now = utcnow()
     records = list(
         db.execute(
@@ -354,7 +390,10 @@ def recover_stuck_records(db: Session) -> None:
 
 
 def recover_stuck_task_claims(db: Session) -> None:
-    """Worker 启动时释放过期的 worker 认领（worker 崩溃导致 lease 过期）。"""
+    """Worker 启动 / 周期释放过期的 worker 认领（worker 崩溃导致 lease 过期），清空 worker_id 让别人重抢。
+
+    条件 UPDATE 只挑 worker_lease_until 已过期的行；自带 commit。
+    """
     now = utcnow()
     result = db.execute(
         sa_update(PublishTask)
@@ -372,6 +411,10 @@ def recover_stuck_task_claims(db: Session) -> None:
 
 
 def aggregate_task_status(db: Session, task: PublishTask, records: list[PublishRecord]) -> None:
+    """由子记录状态汇总出 task 终态：全成→succeeded，部分失败→partial_failed，全失败→failed。
+
+    仍有 pending/running/waiting_* 记录时直接返回（不收口）。落到终态时写日志并推飞书通知。
+    """
     from server.app.shared.feishu import notify_task_finished
 
     now = utcnow()
@@ -462,6 +505,7 @@ def _validated_task_inputs(
 def _build_assignments(
     article_ids: list[int], accounts: list[tuple[int, Account]]
 ) -> list[AssignmentItem]:
+    # 文章按顺序轮询分配到账号（index % 账号数），第 i 篇 → 第 i mod N 个账号
     return [
         AssignmentItem(
             position=index,
@@ -543,6 +587,8 @@ def _validate_articles_approved(db: Session, article_ids: list[int]) -> None:
 def _article_ids_for_task(
     db: Session, payload: TaskCreate, user_id: int | None = None
 ) -> list[int]:
+    """按 task_type 解析目标文章 id 列表：single 用 article_id，article_round_robin 用 article_ids，
+    group_round_robin 展开分组成员（按 sort_order）。任一文章缺失/无权访问即抛 ClientError。"""
     if payload.task_type == "single":
         if payload.article_id is None:
             raise ClientError("article_id is required for single task")

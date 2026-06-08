@@ -1,4 +1,7 @@
-"""技能模块 Pydantic schemas。"""
+"""技能模块 Pydantic schemas。
+
+已下线休眠：/api/skills 不再挂载，仅保留休眠不删。
+"""
 
 from datetime import datetime
 

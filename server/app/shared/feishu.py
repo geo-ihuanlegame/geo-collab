@@ -1,3 +1,9 @@
+"""飞书 webhook 通知（发布任务完成播报）。
+
+走 GEO_FEISHU_WEBHOOK_URL，与问题库同步用的自建应用凭据（APP_ID/APP_SECRET，
+见 feishu_bitable）是两条不同凭据。未配置 webhook 时静默跳过。
+"""
+
 import json
 import logging
 import threading
