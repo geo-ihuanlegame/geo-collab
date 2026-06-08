@@ -125,7 +125,12 @@ def get_node_types() -> dict:
                 "label": "已审核待发布",
                 "config_schema": [
                     {"key": "limit", "type": "number", "label": "取多少篇(默认20)"},
-                    {"key": "exclude_distributed", "type": "checkbox", "label": "跳过已分发过的"},
+                    {
+                        "key": "exclude_distributed",
+                        "type": "checkbox",
+                        "label": "跳过已分发过的",
+                        "default": True,
+                    },
                 ],
             },
         ],
