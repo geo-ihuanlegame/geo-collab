@@ -209,3 +209,69 @@ def test_distribute_consumes_article_ids_and_skips_empty(monkeypatch):
             assert db.query(PublishTask).count() == 1  # 没新建第二个
     finally:
         app.cleanup()
+
+
+@pytest.mark.mysql
+def test_end_to_end_approved_to_distribute_dedup(monkeypatch):
+    from server.app.modules.pipelines.executor import create_run, run_pipeline
+    from server.app.modules.pipelines.models import Pipeline
+    from server.app.modules.tasks.models import PublishRecord, PublishTask
+
+    app = build_test_app(monkeypatch)
+    client = app.client
+    try:
+        a1 = _make_approved_article(client, "审1")
+        a2 = _make_approved_article(client, "审2")
+        acc1 = _make_account(app, client, "kk", "号")
+        snap = {
+            "schemaVersion": 1,
+            "nodes": [
+                {
+                    "node_type": "approved_content_source",
+                    "name": "已审核待发布",
+                    "node_index": 0,
+                    "config": {"limit": 50, "exclude_distributed": True},
+                    "flow_meta": None,
+                },
+                {
+                    "node_type": "distribute",
+                    "name": "内容分发",
+                    "node_index": 1,
+                    "config": {"account_ids": [acc1]},
+                    "flow_meta": {"inputMapping": [{"from": "article_ids", "to": "article_ids"}]},
+                },
+            ],
+        }
+        pid = client.post(
+            "/api/pipelines", json={"name": "自动分发智能体", "type": "distribution"}
+        ).json()["id"]
+        client.post(f"/api/pipelines/{pid}/draft", json={"snapshot": snap})
+        client.post(f"/api/pipelines/{pid}/publish", json={})
+
+        def _run():
+            with app.session_factory() as db:
+                p = db.get(Pipeline, pid)
+                run = create_run(db, pipeline_id=pid, user_id=p.user_id)
+                db.commit()
+                rid = run.id
+            run_pipeline(rid, app.session_factory)
+            return client.get(f"/api/pipelines/runs/{rid}").json()
+
+        # 第一次：建任务，覆盖 a1/a2
+        r1 = _run()
+        assert r1["status"] == "done", r1
+        with app.session_factory() as db:
+            assert (
+                db.query(PublishTask).filter(PublishTask.task_type == "article_round_robin").count()
+                == 1
+            )
+            distributed = {rec.article_id for rec in db.query(PublishRecord).all()}
+            assert {a1, a2}.issubset(distributed)
+
+        # 第二次：a1/a2 已分发 → 源去重为空 → distribute 跳过 → run done、不建第二个任务
+        r2 = _run()
+        assert r2["status"] == "done", r2
+        with app.session_factory() as db:
+            assert db.query(PublishTask).count() == 1  # 仍只有 1 个
+    finally:
+        app.cleanup()
