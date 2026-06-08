@@ -1,0 +1,31 @@
+flowchart TD
+  main["server/app/main.py<br/>create_app"] --> routers["各模块 router.py"]
+  routers --> security["core/security.py<br/>JWT cookie"]
+  routers --> db["db/session.py<br/>SQLAlchemy Session"]
+
+  webFeatures["web/src/features"] --> webApi["web/src/api"]
+  webApi --> routers
+
+  pipelines["pipelines"] --> pipelineNodes["pipelines/nodes"]
+  pipelines --> pipelineScheduler["pipelines/scheduler.py"]
+  pipelineNodes --> aiGeneration["ai_generation"]
+  pipelineNodes --> articles["articles"]
+  pipelineNodes --> tasks["tasks"]
+  pipelineNodes --> promptTemplates["prompt_templates"]
+
+  aiGeneration --> articles
+  aiGeneration --> promptTemplates
+  aiGeneration --> imageLibrary["image_library"]
+  aiGeneration --> feishu["shared/feishu_bitable"]
+
+  tasks --> articles
+  tasks --> accounts["accounts"]
+  tasks --> system["system/platforms"]
+  tasks --> drivers["tasks/drivers"]
+
+  drivers --> browser["accounts/browser.py"]
+  browser --> accounts
+
+  articles --> assets["assets / chunked-assets"]
+  articles --> imageLibrary
+  audit["audit"] --> system

@@ -1,0 +1,27 @@
+flowchart TD
+  editor["PipelineEditor.tsx<br/>编辑节点和属性"] --> draft["pipelines.draft_snapshot<br/>草稿快照"]
+  draft --> publish["POST /api/pipelines/{id}/publish<br/>发布草稿"]
+  publish --> version["pipeline_versions.snapshot<br/>版本快照"]
+  publish --> liveNodes["pipeline_nodes<br/>当前已发布节点"]
+
+  runReq["POST /api/pipelines/{id}/runs"] --> createRun["executor.create_run<br/>创建 pipeline_runs"]
+  liveNodes --> createRun
+  createRun --> freeze["冻结节点快照<br/>pipeline_runs.snapshot"]
+  freeze --> executor["executor.run_pipeline<br/>后台线程线性执行"]
+
+  executor --> input["input / question_source<br/>输入或问题池"]
+  executor --> generate["ai_generate / ai_compose<br/>调用 AI 生成文章"]
+  executor --> toReview["to_review<br/>进入未审核库/成组"]
+  executor --> source["approved_content_source<br/>article_group_source"]
+  executor --> distribute["distribute<br/>创建发布任务"]
+
+  input --> context["上下文 context<br/>node_index -> output"]
+  generate --> context
+  toReview --> context
+  source --> context
+  distribute --> context
+
+  generate --> articles["articles"]
+  toReview --> groups["article_groups"]
+  distribute --> tasks["publish_tasks"]
+  executor --> results["pipeline_runs<br/>status / node_results / article_ids / error_message"]
