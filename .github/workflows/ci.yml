@@ -32,6 +32,10 @@ jobs:
               - 'pyproject.toml'
               - 'alembic.ini'
               - '.github/workflows/**'
+              # 部署/构建相关：改这些不再算「纯文档」，否则会零验证直接报绿合并
+              - 'Dockerfile*'
+              - 'docker-compose*.yml'
+              - '.dockerignore'
 
   # ── 后端质量门禁：ruff / format / mypy（whole-codebase，不分片，与测试并行）──
   lint:
