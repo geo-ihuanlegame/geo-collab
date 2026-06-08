@@ -120,6 +120,14 @@ def get_node_types() -> dict:
                     {"key": "group_name", "type": "text", "label": "分组名(可空)"},
                 ],
             },
+            {
+                "type": "approved_content_source",
+                "label": "已审核待发布",
+                "config_schema": [
+                    {"key": "limit", "type": "number", "label": "取多少篇(默认20)"},
+                    {"key": "exclude_distributed", "type": "checkbox", "label": "跳过已分发过的"},
+                ],
+            },
         ],
         "registered": registered_types(),
     }

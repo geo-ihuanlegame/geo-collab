@@ -26,9 +26,10 @@ class TaskAccountInput(BaseModel):
 class TaskCreate(BaseModel):
     name: str = Field(min_length=1, max_length=300)
     client_request_id: str | None = Field(default=None, max_length=80)
-    task_type: str  # single / group_round_robin
+    task_type: str  # single / group_round_robin / article_round_robin
     article_id: int | None = None
     group_id: int | None = None
+    article_ids: list[int] | None = None  # 仅 article_round_robin 用
     platform_code: str = "toutiao"
     accounts: list[TaskAccountInput]
     stop_before_publish: bool = False
