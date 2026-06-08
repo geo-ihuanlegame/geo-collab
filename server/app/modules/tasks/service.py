@@ -22,7 +22,7 @@ from server.app.shared.errors import AccountError, ClientError, ValidationError
 
 _logger = logging.getLogger(__name__)
 
-VALID_TASK_TYPES = {"single", "group_round_robin"}
+VALID_TASK_TYPES = {"single", "group_round_robin", "article_round_robin"}
 TERMINAL_TASK_STATUSES = {"succeeded", "partial_failed", "failed", "cancelled"}
 PAUSED_RECORD_STATUSES = {"waiting_manual_publish", "waiting_user_input"}
 ACTIVE_RECORD_STATUSES = {"running", *PAUSED_RECORD_STATUSES}
@@ -555,6 +555,22 @@ def _article_ids_for_task(
         if article is None or (user_id is not None and article.user_id != user_id):
             raise ClientError(f"Article not found: {payload.article_id}")
         return [payload.article_id]
+
+    if payload.task_type == "article_round_robin":
+        ids = list(payload.article_ids or [])
+        if not ids:
+            raise ClientError("article_ids is required for article_round_robin task")
+        rows = db.execute(
+            select(Article.id, Article.user_id).where(
+                Article.id.in_(ids),
+                Article.is_deleted == False,  # noqa: E712
+            )
+        ).all()
+        owner_by_id = {r[0]: r[1] for r in rows}
+        for aid in ids:
+            if aid not in owner_by_id or (user_id is not None and owner_by_id[aid] != user_id):
+                raise ClientError(f"Article not found: {aid}")
+        return ids
 
     if payload.group_id is None:
         raise ClientError("group_id is required for group_round_robin task")
