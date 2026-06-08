@@ -275,3 +275,143 @@ def test_end_to_end_approved_to_distribute_dedup(monkeypatch):
             assert db.query(PublishTask).count() == 1  # 仍只有 1 个
     finally:
         app.cleanup()
+
+
+def _make_group(app, uid, article_ids):
+    """直接用 ORM 造一个分组 + 条目，返回 group_id。"""
+    from server.app.modules.articles.models import ArticleGroup, ArticleGroupItem
+
+    with app.session_factory() as db:
+        g = ArticleGroup(user_id=uid, name="组", version=1)
+        db.add(g)
+        db.flush()
+        for i, aid in enumerate(article_ids):
+            db.add(ArticleGroupItem(group_id=g.id, article_id=aid, sort_order=i))
+        db.commit()
+        return g.id
+
+
+@pytest.mark.mysql
+def test_distribute_prefers_group_over_passthrough_article_ids(monkeypatch):
+    """article_group_source → distribute 默认透传时 group_id 与 article_ids 都在，
+    distribute 必须走 group_round_robin（保留分组语义/关联），不能被 article_ids 劫持。"""
+    from server.app.modules.articles.models import Article
+    from server.app.modules.pipelines.nodes.base import NodeRunContext
+    from server.app.modules.pipelines.nodes.distribute_node import run_distribute
+    from server.app.modules.tasks.models import PublishTask
+
+    app = build_test_app(monkeypatch)
+    client = app.client
+    try:
+        a1 = _make_approved_article(client, "g1")
+        a2 = _make_approved_article(client, "g2")
+        acc1 = _make_account(app, client, "kg", "组号")
+        with app.session_factory() as db:
+            uid = db.get(Article, a1).user_id
+        gid = _make_group(app, uid, [a1, a2])
+
+        ctx = NodeRunContext(
+            session_factory=app.session_factory,
+            user_id=uid,
+            config={"account_ids": [acc1]},
+            inputs={"group_id": gid, "article_ids": [a1, a2]},  # 模拟默认透传
+            upstream={},
+        )
+        res = run_distribute(ctx)
+        with app.session_factory() as db:
+            t = db.get(PublishTask, res.output["task_id"])
+            assert t.task_type == "group_round_robin"
+            assert t.group_id == gid
+    finally:
+        app.cleanup()
+
+
+@pytest.mark.mysql
+def test_distribute_empty_group_passthrough_raises_not_skips(monkeypatch):
+    """空分组经 distribute 透传(article_ids=[]) 时，必须报错（与旧 group 路径一致），
+    不能静默跳过报 done —— 防回归「假成功」。"""
+    from server.app.modules.articles.models import Article
+    from server.app.modules.pipelines.nodes.base import NodeRunContext
+    from server.app.modules.pipelines.nodes.distribute_node import run_distribute
+    from server.app.shared.errors import ClientError, ValidationError
+
+    app = build_test_app(monkeypatch)
+    client = app.client
+    try:
+        a1 = _make_approved_article(client, "x")
+        acc1 = _make_account(app, client, "ke", "空号")
+        with app.session_factory() as db:
+            uid = db.get(Article, a1).user_id
+        empty_gid = _make_group(app, uid, [])  # 空分组
+
+        ctx = NodeRunContext(
+            session_factory=app.session_factory,
+            user_id=uid,
+            config={"account_ids": [acc1]},
+            inputs={"group_id": empty_gid, "article_ids": []},
+            upstream={},
+        )
+        with pytest.raises((ClientError, ValidationError)):
+            run_distribute(ctx)
+    finally:
+        app.cleanup()
+
+
+@pytest.mark.mysql
+def test_approved_content_source_dedup_excludes_live_keeps_failed_softdeleted(monkeypatch):
+    """去重：成功 + 在途(pending)记录都算「已分发/在途」→ 排除，不重复分发；
+    失败、软删的记录不算 → 文章应重新可分发（可重试，不被永久埋没）。"""
+    from server.app.modules.articles.models import Article
+    from server.app.modules.pipelines.nodes.approved_content_source import (
+        run_approved_content_source,
+    )
+    from server.app.modules.pipelines.nodes.base import NodeRunContext
+    from server.app.modules.tasks.models import PublishRecord
+    from server.app.modules.tasks.schemas import TaskAccountInput, TaskCreate
+    from server.app.modules.tasks.service import create_task
+
+    app = build_test_app(monkeypatch)
+    client = app.client
+    try:
+        a_ok = _make_approved_article(client, "成功已发")
+        a_pending = _make_approved_article(client, "在途")
+        a_fail = _make_approved_article(client, "失败")
+        a_del = _make_approved_article(client, "软删记录")
+        acc1 = _make_account(app, client, "dd", "去重号")
+        with app.session_factory() as db:
+            uid = db.get(Article, a_ok).user_id
+
+            def _record_for(aid, status, deleted=False):
+                tc = TaskCreate(
+                    name=f"t-{aid}",
+                    task_type="article_round_robin",
+                    article_ids=[aid],
+                    accounts=[TaskAccountInput(account_id=acc1, sort_order=0)],
+                    stop_before_publish=False,
+                )
+                task = create_task(db, uid, tc, role="admin")
+                db.flush()
+                rec = db.query(PublishRecord).filter(PublishRecord.task_id == task.id).first()
+                rec.status = status
+                rec.is_deleted = deleted
+
+            _record_for(a_ok, "succeeded")
+            _record_for(a_pending, "pending")
+            _record_for(a_fail, "failed")
+            _record_for(a_del, "succeeded", deleted=True)
+            db.commit()
+
+        ctx = NodeRunContext(
+            session_factory=app.session_factory,
+            user_id=uid,
+            config={"limit": 50, "exclude_distributed": True},
+            inputs={},
+            upstream={},
+        )
+        ids = set(run_approved_content_source(ctx).output["article_ids"])
+        assert a_ok not in ids  # 成功 → 排除
+        assert a_pending not in ids  # 在途 → 排除（不重复入队）
+        assert a_fail in ids  # 失败 → 不排除（应能重试）
+        assert a_del in ids  # 软删记录 → 不排除
+    finally:
+        app.cleanup()

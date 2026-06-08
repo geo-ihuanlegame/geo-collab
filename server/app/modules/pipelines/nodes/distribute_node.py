@@ -12,14 +12,26 @@ def run_distribute(ctx: NodeRunContext) -> NodeResult:
     if not account_ids:
         raise ValidationError("distribute 节点需配置至少一个分发账号")
 
-    # 优先消费上游 article_ids（已审核待发布源）；否则走旧 group_id 路径（兼容 article_group_source）
     article_ids = ctx.inputs.get("article_ids")
     group_id = ctx.inputs.get("group_id") or cfg.get("group_id")
 
     accounts = [TaskAccountInput(account_id=a, sort_order=i) for i, a in enumerate(account_ids)]
 
-    if article_ids is not None:
-        # 上游明确给了 article_ids（可能为空）
+    # 优先级：有 group_id（article_group_source）→ 分组路径，保留分组语义 + 空分组报错；
+    # 否则消费上游 article_ids（approved_content_source）。
+    # 不能反过来先判 article_ids：article_group_source 默认透传会同时带 group_id + article_ids，
+    # 先判 article_ids 会劫持分组路径，且空分组的 article_ids=[] 被静默跳过（假成功回归）。
+    if group_id:
+        name = cfg.get("name") or f"自动分发 分组 {group_id}"
+        task_create = TaskCreate(
+            name=name,
+            task_type="group_round_robin",
+            group_id=group_id,
+            accounts=accounts,
+            stop_before_publish=False,
+        )
+    elif article_ids is not None:
+        # 上游明确给了 article_ids（可能为空）；空表示无新内容，跳过是正确语义
         if not article_ids:
             return NodeResult(output={"skipped": "无可分发内容"}, article_ids=[])
         name = cfg.get("name") or f"自动分发 {len(article_ids)} 篇"
@@ -27,15 +39,6 @@ def run_distribute(ctx: NodeRunContext) -> NodeResult:
             name=name,
             task_type="article_round_robin",
             article_ids=list(article_ids),
-            accounts=accounts,
-            stop_before_publish=False,
-        )
-    elif group_id:
-        name = cfg.get("name") or f"自动分发 分组 {group_id}"
-        task_create = TaskCreate(
-            name=name,
-            task_type="group_round_robin",
-            group_id=group_id,
             accounts=accounts,
             stop_before_publish=False,
         )

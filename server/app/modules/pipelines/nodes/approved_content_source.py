@@ -25,7 +25,13 @@ def run_approved_content_source(ctx: NodeRunContext) -> NodeResult:
         if not is_admin:
             stmt = stmt.where(Article.user_id == ctx.user_id)
         if exclude_distributed:
-            stmt = stmt.where(Article.id.notin_(select(PublishRecord.article_id).distinct()))
+            # 「已分发或在途」才排除：成功 + 在途(pending/running/待人工)都不重复分发；
+            # 只有 failed/cancelled 或软删的记录允许该文章重新进入分发（可重试，不永久埋没）。
+            distributed = select(PublishRecord.article_id).where(
+                PublishRecord.is_deleted == False,  # noqa: E712
+                PublishRecord.status.notin_(["failed", "cancelled"]),
+            )
+            stmt = stmt.where(Article.id.notin_(distributed))
         stmt = stmt.order_by(Article.updated_at.desc()).limit(limit)
         article_ids = [r[0] for r in db.execute(stmt).all()]
     finally:
