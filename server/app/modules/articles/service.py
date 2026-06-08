@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import logging
 
+from sqlalchemy import bindparam, func, select, text
 from sqlalchemy import delete as sa_delete
-from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from server.app.core.time import utcnow
@@ -89,10 +89,18 @@ def get_article(db: Session, article_id: int) -> Article | None:
 
 
 def _search_articles(db: Session, query: str, user_id: int | None = None) -> list[Article]:
-    # MySQL FULLTEXT（ngram parser）布尔检索 title/author/plain_text；无 FTS 索引时会抛，由调用方回退 LIKE
+    # MySQL FULLTEXT（ngram parser）自然语言检索 title/author/plain_text。
+    # 自然语言模式（不带 IN BOOLEAN MODE）：用户输入里的 + - " * ( ) 等被当词分隔符、不当布尔操作符，
+    #   故无需转义、不会因特殊字符触发 syntax error 或返回诡异空集。query 走绑定参数 :q（防注入）；
+    #   列名写死在 SQL 文本里（非用户可控）。无 FTS 索引（如某些环境漏建）时本句会抛，由调用方 except 回退 LIKE。
+    # 注意：SQLAlchemy 的 func.match(...).against(...) 在 2.x 不可用（Function 无 .against），曾导致检索
+    #   永远静默退化成 LIKE、ngram 索引空转（见 issue #50），故这里直接用 text() 显式构造。
+    match_clause = text(
+        "MATCH (articles.title, articles.author, articles.plain_text) AGAINST (:q) > 0"
+    ).bindparams(bindparam("q", query))
     stmt = select(Article).where(
         Article.is_deleted == False,  # noqa: E712
-        func.match(Article.title, Article.author, Article.plain_text).against(query, "boolean") > 0,
+        match_clause,
     )
 
     if user_id is not None:
