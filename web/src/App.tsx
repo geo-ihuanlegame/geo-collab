@@ -11,6 +11,7 @@ import { PromptsWorkspace } from "./features/prompt-templates/PromptsWorkspace";
 import { AccountsWorkspace } from "./features/accounts/AccountsWorkspace";
 import { TasksWorkspace } from "./features/tasks/TasksWorkspace";
 import { SystemWorkspace } from "./features/system/SystemWorkspace";
+import { HotListsWorkspace } from "./features/hot-lists/HotListsWorkspace";
 import { AuthProvider, useAuth } from "./features/auth/AuthContext";
 import { LoginPage } from "./features/auth/LoginPage";
 import { ChangePasswordPage } from "./features/auth/ChangePasswordPage";
@@ -161,6 +162,13 @@ function AppShell() {
               <div style={{ display: activeNav === "system" ? undefined : "none" }}>
                 <ErrorBoundary fallback={<p role="alert">系统状态出错，请刷新重试</p>}>
                   <SystemWorkspace />
+                </ErrorBoundary>
+              </div>
+            )}
+            {visitedTabs.has("hot-lists") && (
+              <div style={{ display: activeNav === "hot-lists" ? undefined : "none" }}>
+                <ErrorBoundary fallback={<p role="alert">热榜出错，请刷新重试</p>}>
+                  <HotListsWorkspace />
                 </ErrorBoundary>
               </div>
             )}

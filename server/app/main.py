@@ -52,6 +52,7 @@ from server.app.modules.articles.router import (
     chunked_assets_router,
 )
 from server.app.modules.audit.router import router as audit_router
+from server.app.modules.hot_lists.router import router as hot_lists_router
 from server.app.modules.image_library.router import files_router as stock_files_router
 from server.app.modules.image_library.router import router as stock_images_router
 from server.app.modules.pipelines.router import router as pipelines_router
@@ -256,6 +257,12 @@ def create_app() -> FastAPI:
         audit_router,
         prefix="/api/audit-logs",
         tags=["audit-logs"],
+        dependencies=[Depends(get_current_user)],
+    )
+    app.include_router(
+        hot_lists_router,
+        prefix="/api/hot-lists",
+        tags=["hot-lists"],
         dependencies=[Depends(get_current_user)],
     )
 
