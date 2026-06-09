@@ -319,9 +319,10 @@ type UnifiedListItem =
 interface Props {
   dirtyCheckRef?: MutableRefObject<() => boolean>;
   isActive?: boolean;
+  reviewTab?: ReviewStatus;
 }
 
-export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
+export function ContentWorkspace({ dirtyCheckRef, isActive, reviewTab: reviewTabProp }: Props = {}) {
   const { toast } = useToast();
   const { user } = useAuth();
   const [articles, setArticles] = useState<ArticleSummary[]>([]);
@@ -446,17 +447,6 @@ export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
   }
 
   // Tab counts: standalone (ungrouped) articles split by review_status.
-  const reviewCounts = useMemo(() => {
-    let pending = 0;
-    let approved = 0;
-    for (const article of articles) {
-      if (groupedArticleIdSet.has(article.id)) continue;
-      if (article.review_status === "approved") approved += 1;
-      else pending += 1;
-    }
-    return { pending, approved };
-  }, [articles, groupedArticleIdSet]);
-
   const unifiedList = useMemo(() => {
     const items: UnifiedListItem[] = [];
     for (const article of articles) {
@@ -565,6 +555,14 @@ export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
     void refreshArticles();
     void refreshGroups();
   }, [isActive]);
+
+  // 审核子页（未审核/已审核）由侧边栏父菜单驱动
+  useEffect(() => {
+    if (!reviewTabProp) return;
+    setReviewTab(reviewTabProp);
+    setArticlePage(0);
+    setSelectedArticleIds([]);
+  }, [reviewTabProp]);
 
   useEffect(() => {
     setSelectedAiFormatPresetId(user?.ai_format_preset_id ?? "");
@@ -1041,12 +1039,6 @@ export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
     setDraft((prev) => (prev.id === updated.id ? { ...prev, version: updated.version } : prev));
   }
 
-  function selectReviewTab(tab: ReviewStatus) {
-    setReviewTab(tab);
-    setArticlePage(0);
-    setSelectedArticleIds([]);
-  }
-
   async function approveOne(articleId: number) {
     setReviewBusyId(articleId);
     try {
@@ -1143,25 +1135,6 @@ export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
           </button>
         </div>
       </header>
-
-      <div className="contentSubTabs">
-        <button
-          type="button"
-          className={`reviewTabBtn ${reviewTab === "pending" ? "active" : ""}`}
-          onClick={() => selectReviewTab("pending")}
-        >
-          未审核
-          <span className="reviewTabCount">{reviewCounts.pending}</span>
-        </button>
-        <button
-          type="button"
-          className={`reviewTabBtn ${reviewTab === "approved" ? "active" : ""}`}
-          onClick={() => selectReviewTab("approved")}
-        >
-          已审核
-          <span className="reviewTabCount">{reviewCounts.approved}</span>
-        </button>
-      </div>
 
       <section className="contentGrid">
         <aside className="listPane">

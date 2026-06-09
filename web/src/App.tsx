@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { navItems } from "./types";
-import type { NavKey } from "./types";
+import type { NavKey, ReviewStatus } from "./types";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ToastProvider } from "./components/Toast";
 import { AgentManagementWorkspace } from "./features/pipelines/AgentManagementWorkspace";
@@ -16,14 +16,25 @@ import { LoginPage } from "./features/auth/LoginPage";
 import { ChangePasswordPage } from "./features/auth/ChangePasswordPage";
 import { UsersWorkspace } from "./features/auth/UsersWorkspace";
 import { AuditLogsWorkspace } from "./features/system/AuditLogsWorkspace";
-import { LogOut, ScrollText, Users } from "lucide-react";
+import { ChevronDown, LogOut, ScrollText, Users } from "lucide-react";
 import "./styles.css";
 
 function AppShell() {
   const { user, loading, logout } = useAuth();
   const [activeNav, setActiveNav] = useState<NavKey>("content");
   const [visitedTabs, setVisitedTabs] = useState<Set<NavKey>>(new Set(["content"]));
+  const [openGroups, setOpenGroups] = useState<Set<NavKey>>(new Set(["content"]));
+  const [contentReviewTab, setContentReviewTab] = useState<ReviewStatus>("pending");
   const contentDirtyRef = useRef<() => boolean>(() => false);
+
+  function toggleGroup(key: NavKey) {
+    setOpenGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
 
   function handleNavClick(key: NavKey) {
     if (activeNav === "content" && key !== "content" && contentDirtyRef.current()) {
@@ -65,6 +76,50 @@ function AppShell() {
           <nav className="nav">
             {navItems.map((item) => {
               const Icon = item.icon;
+              if (item.children && item.children.length > 0) {
+                const isOpen = openGroups.has(item.key);
+                return (
+                  <div className="navGroup" key={item.key}>
+                    <button
+                      className={`navItem navParent ${activeNav === item.key ? "active" : ""}`}
+                      type="button"
+                      onClick={() => {
+                        if (activeNav === item.key) {
+                          toggleGroup(item.key);
+                        } else {
+                          handleNavClick(item.key);
+                          setOpenGroups((prev) => new Set(prev).add(item.key));
+                        }
+                      }}
+                    >
+                      <Icon size={17} />
+                      <span>{item.label}</span>
+                      <ChevronDown size={15} className={`navChevron${isOpen ? " open" : ""}`} />
+                    </button>
+                    {isOpen && (
+                      <div className="navChildren">
+                        {item.children.map((child) => {
+                          const childActive =
+                            activeNav === item.key && contentReviewTab === child.reviewTab;
+                          return (
+                            <button
+                              className={`navChild ${childActive ? "active" : ""}`}
+                              key={child.key}
+                              type="button"
+                              onClick={() => {
+                                setContentReviewTab(child.reviewTab);
+                                handleNavClick(item.key);
+                              }}
+                            >
+                              {child.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              }
               return (
                 <button
                   className={`navItem ${activeNav === item.key ? "active" : ""}`}
@@ -126,7 +181,11 @@ function AppShell() {
             )}
             <div style={{ display: activeNav === "content" ? undefined : "none" }}>
               <ErrorBoundary fallback={<p role="alert">内容管理出错，请刷新重试</p>}>
-                <ContentWorkspace dirtyCheckRef={contentDirtyRef} isActive={activeNav === "content"} />
+                <ContentWorkspace
+                  dirtyCheckRef={contentDirtyRef}
+                  isActive={activeNav === "content"}
+                  reviewTab={contentReviewTab}
+                />
               </ErrorBoundary>
             </div>
             {visitedTabs.has("prompts") && (
