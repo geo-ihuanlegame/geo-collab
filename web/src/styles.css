@@ -78,7 +78,7 @@ p { margin: 0; }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--hair-2); border-radius: 10px; border: 3px solid var(--cream); }
+::-webkit-scrollbar-thumb { background: var(--hair-2); border-radius: 10px; border: 3px solid transparent; background-clip: padding-box; }
 ::-webkit-scrollbar-thumb:hover { background: var(--fg-3); }
 ::selection { background: var(--accent-soft); color: var(--accent-deep); }
 
@@ -366,10 +366,12 @@ h2 {
 
 /* ═══════════════════════════════ PANEL ═══════════════════════════════ */
 .panel {
-  background: var(--paper);
+  background: var(--glass);
   border: 1px solid var(--hair);
   border-radius: var(--r-lg);
   padding: 24px 26px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
 /* ═══════════════════════════════ BADGES ═══════════════════════════════ */
@@ -378,13 +380,14 @@ h2 {
   align-items: center;
   gap: 6px;
   padding: 3px 9px;
-  border-radius: 4px;
+  border-radius: 99px;
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 600;
   letter-spacing: 0.3px;
   white-space: nowrap;
   background: var(--cream-2);
   color: var(--fg-2);
+  border: 1px solid var(--hair);
 }
 
 .badge::before {
@@ -394,6 +397,11 @@ h2 {
   background: var(--fg-3);
   flex-shrink: 0;
 }
+
+.badge.valid, .badge.succeeded { border-color: rgba(52,211,153,0.30); }
+.badge.failed, .badge.expired  { border-color: rgba(248,113,113,0.30); }
+.badge.running                  { border-color: rgba(109,107,246,0.30); }
+.badge.waiting_manual_publish, .badge.partial_failed { border-color: rgba(251,191,36,0.30); }
 
 .badge.valid        { background: var(--green-soft); color: var(--green); }
 .badge.valid::before { background: var(--green); }
@@ -435,6 +443,14 @@ input:focus, select:focus, textarea:focus {
   border-color: var(--accent) !important;
   box-shadow: 0 0 0 3px var(--accent-soft) !important;
 }
+
+input[type="text"], input[type="url"], input:not([type]), select, textarea {
+  background: var(--glass);
+  border: 1px solid var(--hair-2);
+  border-radius: var(--r-sm);
+  color: var(--fg);
+}
+input::placeholder, textarea::placeholder { color: var(--fg-3); }
 
 /* ═══════════════════════════════ CONTENT WORKSPACE ═══════════════════════════════ */
 .contentGrid {
