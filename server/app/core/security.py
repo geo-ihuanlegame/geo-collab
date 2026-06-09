@@ -1,7 +1,7 @@
 """JWT 鉴权工具：签发 / 校验 access_token，以及 get_current_user 依赖。
 
-token 走 httpOnly cookie `access_token`（见 auth_router）。get_current_user 带一层
-内存用户缓存（60s TTL），避免每个请求查一次 DB；用户被禁用 / 改密码时由
+令牌走 httpOnly Cookie `access_token`（见 auth_router）。get_current_user 带一层
+内存用户缓存（60 秒有效期），避免每个请求查一次数据库；用户被禁用 / 改密码时由
 invalidate_user_cache 主动失效。require_local_token 是死代码（无路由依赖，勿照抄）。
 """
 
@@ -17,10 +17,10 @@ from server.app.modules.system.models import User
 
 JWT_ALGORITHM = "HS256"
 
-# 内存用户缓存：避免每个请求都查一次 DB
-# key=user_id, value=(User detached object, expire_monotonic)
+# 内存用户缓存：避免每个请求都查一次数据库
+# 键=user_id，值=(已脱钩的 User 对象，过期 monotonic 时间)
 _user_cache: dict[int, tuple[User, float]] = {}
-_USER_CACHE_TTL = 60.0  # 60 秒 TTL，对 5 人内部平台足够
+_USER_CACHE_TTL = 60.0  # 60 秒有效期，对 5 人内部平台足够
 
 
 def _get_cached_user(user_id: int) -> User | None:
@@ -64,9 +64,9 @@ def verify_token(token: str) -> dict | None:
 
 
 def get_current_user(request: Request) -> User:
-    """从 cookie 解析 JWT 并返回当前用户；命中缓存则跳过 DB 查询。
+    """从 Cookie 解析 JWT 并返回当前用户；命中缓存则跳过数据库查询。
 
-    校验顺序：缺 token → 401；token 无效 / 过期 → 401；用户不存在 → 401；
+    校验顺序：缺令牌 → 401；令牌无效 / 过期 → 401；用户不存在 → 401；
     被禁用 → 403；待改密码 → 403。返回的 User 是脱钩对象（detached）。
     """
     from sqlalchemy.orm import Session
@@ -108,8 +108,8 @@ async def require_admin(current_user: User = Depends(get_current_user)) -> User:
     return current_user
 
 
-# NOTE: This function is currently unused (no route depends on it).
-# Kept for potential future use. Remove if never adopted.
+# 注意：此函数当前未使用（没有路由依赖它）。
+# 仅为未来可能的本地令牌鉴权保留；若长期未采用，可以删除。
 async def require_local_token(request: Request) -> None:
     token = os.environ.get("GEO_LOCAL_API_TOKEN")
     if not token:

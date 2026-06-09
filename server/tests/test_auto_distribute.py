@@ -71,7 +71,7 @@ def test_article_round_robin_task_built(monkeypatch):
             assert t.task_type == "article_round_robin"
             recs = db.query(PublishRecord).filter(PublishRecord.task_id == tid).all()
             assert {r.article_id for r in recs} == {a1, a2, a3}  # 3 篇都派发
-            assert len({r.account_id for r in recs}) == 2  # round-robin 到 2 账号
+            assert len({r.account_id for r in recs}) == 2  # 轮询分发到 2 个账号
     finally:
         app.cleanup()
 
@@ -268,7 +268,7 @@ def test_end_to_end_approved_to_distribute_dedup(monkeypatch):
             distributed = {rec.article_id for rec in db.query(PublishRecord).all()}
             assert {a1, a2}.issubset(distributed)
 
-        # 第二次：a1/a2 已分发 → 源去重为空 → distribute 跳过 → run done、不建第二个任务
+        # 第二次：a1/a2 已分发 → 源去重为空 → distribute 跳过 → run 完成，不建第二个任务
         r2 = _run()
         assert r2["status"] == "done", r2
         with app.session_factory() as db:

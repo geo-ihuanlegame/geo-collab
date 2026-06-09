@@ -1,8 +1,8 @@
-"""问题池定时镜像同步：应用内后台 daemon 线程。
+"""问题池定时镜像同步：应用内后台守护线程。
 
 设计要点：
-- `run_sync_once(session_factory)` 是纯函数式的"扫描+同步一轮"，**不 sleep、可单测**——
-  测试直接调它并 monkeypatch `list_bitable_records`，不跑真实 sleep、不打真实飞书。
+- `run_sync_once(session_factory)` 是纯函数式的"扫描+同步一轮"，**不休眠、可单测**——
+  测试直接调它并 monkeypatch `list_bitable_records`，不跑真实休眠、不打真实飞书。
 - 后台线程只负责 `wait(interval) → run_sync_once` 循环；由 `create_app()` 在
   `GEO_QUESTION_POOL_AUTO_SYNC_ENABLED=true` 时启动。
 - 每个池用独立 session + 独立事务，单池失败只记 `last_sync_error`，不影响其他池。

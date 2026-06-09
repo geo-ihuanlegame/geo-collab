@@ -1,6 +1,6 @@
 """to_review 动作节点（「进入未审核库」）：把上游文章置 pending 并成一个组，输出 group_id。
 
-输出 group_id 即向执行器表明「已成组」，执行器不再兜底成组（见 executor 的 grouped 逻辑）。"""
+输出 group_id 即向执行器表明「已成组」，执行器不再兜底成组（见 executor 的成组逻辑）。"""
 
 from server.app.modules.articles.service import mark_pending_and_group
 from server.app.modules.pipelines.nodes.base import NodeResult, NodeRunContext, register

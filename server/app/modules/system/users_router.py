@@ -1,4 +1,4 @@
-"""Current-user settings routes."""
+"""当前用户设置路由。"""
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel

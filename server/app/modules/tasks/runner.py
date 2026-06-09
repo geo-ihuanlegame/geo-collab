@@ -151,10 +151,10 @@ def _build_payload(
     platform_code: str,
     state_path: Path,
 ) -> PublishPayload:
-    """Resolve all asset paths from ORM objects and build PublishPayload.
+    """从 ORM 对象解析全部 asset 路径并构建 PublishPayload。
 
-    Must be called before entering the Playwright session so ORM relationships
-    are still accessible and drivers never need DB access during automation.
+    必须在进入 Playwright 会话前调用，确保 ORM 关系仍可访问，并让驱动在自动化期间
+    不需要访问 DB。
     """
     if article.cover_asset is None:
         raise PublishError("封面图片是必填项")
@@ -274,7 +274,7 @@ def run_publish(
     executable_path: str | None = None,
     stop_before_publish: bool = False,
 ) -> PublishResult:
-    """Generic publish entry point. Looks up driver by account platform, reuses or starts remote session, runs driver.publish."""
+    """通用发布入口：按账号平台找驱动，复用或启动远程会话，然后执行 driver.publish。"""
     if not article.title or not article.title.strip():
         raise PublishError("标题不能为空")
     if article.cover_asset is None:
@@ -289,25 +289,22 @@ def run_publish(
 
     driver = resolve_driver(platform_code)
 
-    # Resolve all asset paths before entering the browser session — ORM objects
-    # may become detached once we hand control to Playwright threads.
+    # 进入浏览器会话前解析全部 asset 路径；控制权交给 Playwright 线程后，ORM 对象可能 detached。
     payload = _build_payload(article, account, account_key, platform_code, state_path)
 
     with publish_step("remote browser session"):
         session = get_or_create_account_session(platform_code, account_key, profile_key=profile_key)
-        # Associate immediately so the timeout handler can stop this session.
+        # 立即建立关联，让超时处理器可以停止该会话。
         if record_id is not None:
             associate_record_with_session(record_id, session.id)
 
-    # Playwright sync API uses greenlets that are thread-local. If the context
-    # was created in a different thread (which has since exited), we must tear
-    # down that session and start fresh; attempting context.new_page() from
-    # the wrong thread raises greenlet.error.
+    # Playwright 同步 API 使用 thread-local greenlet。如果 context 是在另一个已退出线程
+    # 中创建的，必须销毁该会话并重新开始；从错误线程调用 context.new_page() 会抛
+    # greenlet.error。
     current_thread_id = threading.get_ident()
     if session.browser_context is not None and session.context_thread_id != current_thread_id:
-        # stop_remote_browser_session kills the Chromium process via OS signals
-        # and wraps all Playwright API calls in try/except, so it is safe to
-        # call from any thread even when the original greenlet thread has exited.
+        # stop_remote_browser_session 通过 OS 信号杀掉 Chromium 进程，并用 try/except
+        # 包住所有 Playwright API 调用；即使原 greenlet 线程已退出，也可从任意线程调用。
         stop_remote_browser_session(session.id)
         with publish_step("remote browser session (re-acquire after thread switch)"):
             session = get_or_create_account_session(
@@ -371,8 +368,7 @@ def run_publish(
         exc.novnc_url = session.novnc_url
         raise
     except Exception:
-        # Destroy the session so the broken context is not reused on the
-        # next publish attempt for this account.
+        # 销毁会话，避免下次为该账号发布时复用已损坏的 context。
         stop_remote_browser_session(session.id)
         raise
     finally:

@@ -1,6 +1,6 @@
-# server/app/modules/pipelines/executor.py
+# Pipeline 运行执行器
 """Pipeline 运行执行器：create_run 冻结节点快照并行锁去重，run_pipeline 在后台线程线性
-跑节点、按上游成败聚合 run 终态。无独立 worker，跑在 API server 后台线程；全局并发受
+跑节点、按上游成败聚合运行终态。无独立工作进程，跑在 API 服务后台线程；全局并发受
 _RUN_SEMAPHORE（GEO_PIPELINE_MAX_CONCURRENT_RUNS）限制。"""
 
 from __future__ import annotations
@@ -22,17 +22,17 @@ from server.app.shared.errors import ConflictError
 logger = logging.getLogger(__name__)
 SessionFactory = Callable[[], Any]
 
-# 全局并发闸：限制单进程同时执行的 pipeline run 数（与单 leader 约束配合即为全局上限）
+# 全局并发闸：限制单进程同时执行的 pipeline 运行数（与单主实例约束配合即为全局上限）
 _RUN_SEMAPHORE = _threading.Semaphore(max(1, _get_settings().pipeline_max_concurrent_runs))
 
 
 def create_run(db, *, pipeline_id: int, user_id: int) -> PipelineRun:
-    """创建一条 pending run 并冻结当前 live 节点为 snapshot。
+    """创建一条待处理运行并冻结当前实时节点为快照。
 
-    在 pipeline 行锁内检查活跃 run，已有 pending/running 时抛 ConflictError（同一 pipeline 不并发）。
-    不提交事务，由调用方 commit。
+    在 pipeline 行锁内检查活跃运行，已有 pending/running 时抛 ConflictError（同一 pipeline 不并发）。
+    不提交事务，由调用方提交。
     """
-    # 串行化同一 pipeline 的 run 创建：锁住 pipeline 行后检查活跃 run，避免并发重复运行
+    # 串行化同一 pipeline 的运行创建：锁住 pipeline 行后检查活跃运行，避免并发重复运行
     db.query(Pipeline).filter(Pipeline.id == pipeline_id).with_for_update().first()
     active = (
         db.query(PipelineRun.id)
@@ -44,7 +44,7 @@ def create_run(db, *, pipeline_id: int, user_id: int) -> PipelineRun:
     )
     if active is not None:
         raise ConflictError("该工作流已有正在运行的任务，请等待其完成后再运行")
-    # 冻结当前 live 节点为快照：执行只读快照，创建→执行之间的 publish 不影响本次运行
+    # 冻结当前实时节点为快照：执行只读快照，创建→执行之间的发布不影响本次运行
     nodes = (
         db.query(PipelineNode)
         .filter(PipelineNode.pipeline_id == pipeline_id)
@@ -65,7 +65,7 @@ def create_run(db, *, pipeline_id: int, user_id: int) -> PipelineRun:
 
 
 def _run_pipeline_inner(run_id: int, session_factory: SessionFactory) -> None:
-    """后台线程入口：线性执行节点，聚合 run 状态。"""
+    """后台线程入口：线性执行节点，聚合运行状态。"""
     db = session_factory()
     try:
         run = db.get(PipelineRun, run_id)
@@ -77,7 +77,7 @@ def _run_pipeline_inner(run_id: int, session_factory: SessionFactory) -> None:
         pipeline = db.get(Pipeline, pipeline_id)
         ignore_exception = bool(pipeline.ignore_exception) if pipeline is not None else False
         if run.snapshot:
-            # 优先读运行快照（创建时冻结）；旧 run 无快照时回退 live 节点
+            # 优先读运行快照（创建时冻结）；旧运行无快照时回退实时节点
             node_specs = [
                 {
                     "node_type": d["node_type"],
@@ -126,7 +126,7 @@ def _run_pipeline_inner(run_id: int, session_factory: SessionFactory) -> None:
         else:
             upstream = {k: v for out in context.values() for k, v in out.items()}
 
-        # 上游依赖失败 → 阻断本节点，避免拿空 upstream 静默回退 config 产生副作用。
+        # 上游依赖失败 → 阻断本节点，避免拿空上游输出静默回退 config 产生副作用。
         # ignore_exception=True 时不阻断：允许"忽略异常、继续往下跑"（出错的下游自负其责）。
         dep = meta.get("dependsOnIndex") if meta else None
         if dep is not None and dep in failed_indices and not ignore_exception:
@@ -158,9 +158,9 @@ def _run_pipeline_inner(run_id: int, session_factory: SessionFactory) -> None:
                 grouped = True
             if result.output.get("errors"):
                 had_failure = True
-            # had_success 仅在真正产出业务结果时置位：
+            # 成功标记仅在真正产出业务结果时置位：
             # ai_generate 产文(result.article_ids) 或 distribute 建任务(output.task_id)。
-            # input / 读取类节点(article_group_source) 不计入成功，避免零产出被误判 partial。
+            # input / 读取类节点(article_group_source) 不计入成功，避免零产出被误判为部分失败。
             if result.article_ids or result.output.get("task_id"):
                 had_success = True
         except Exception as exc:
@@ -187,8 +187,8 @@ def _run_pipeline_inner(run_id: int, session_factory: SessionFactory) -> None:
                 error_parts.append(f"node#{k}: {'; '.join(str(e) for e in v['errors'])}")
     error_message = "; ".join(error_parts)[:2000] or None
 
-    # Track A: 产出文章 → pending + 成组。先成组拿到结果，再一次性写终态，消除 done→partial_failed 闪烁。
-    # to_review 节点已成组时（grouped）由它接管，执行器不重复成组；否则执行器兜底成组，
+    # 路径 A：产出文章 → pending + 成组。先成组拿到结果，再一次性写终态，消除 done→partial_failed 闪烁。
+    # to_review 节点已成组时由它接管，执行器不重复成组；否则执行器兜底成组，
     # 防止 to_review 被跳过/漏配/失败留下孤儿文章。失败不能静默——会让未审文章被误用：
     # 成组失败时把 done 降级 partial_failed 并写明原因。
     if article_ids and not grouped:
@@ -239,7 +239,7 @@ def _run_pipeline_inner(run_id: int, session_factory: SessionFactory) -> None:
 
 
 def run_pipeline(run_id: int, session_factory: SessionFactory) -> None:
-    """后台线程入口：占全局并发信号量后执行 run；顶层异常兜底把 pending/running 置 failed。"""
+    """后台线程入口：占全局并发信号量后执行运行；顶层异常兜底把 pending/running 置 failed。"""
     try:
         with _RUN_SEMAPHORE:
             _run_pipeline_inner(run_id, session_factory)

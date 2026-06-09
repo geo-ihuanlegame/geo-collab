@@ -1,4 +1,4 @@
-"""Tests for server.app.modules.tasks.runner."""
+"""server.app.modules.tasks.runner 的测试。"""
 
 from __future__ import annotations
 
@@ -14,14 +14,14 @@ from server.app.modules.tasks.drivers.toutiao import (
 )
 
 # ---------------------------------------------------------------------------
-# Helpers / stubs
+# 辅助函数 / 桩对象
 # ---------------------------------------------------------------------------
 
 
 def _make_stub_article(tmp_path: Path) -> types.SimpleNamespace:
     return types.SimpleNamespace(
         title="Test Article",
-        cover_asset=object(),  # non-None → passes the cover check
+        cover_asset=object(),  # 非 None → 通过封面检查
         content_json="",
         plain_text="body text",
         content_html="",
@@ -41,7 +41,7 @@ def _make_stub_session() -> types.SimpleNamespace:
         id="sess1",
         display=":99",
         novnc_url="http://localhost:6080",
-        browser_context=None,  # None → triggers first-launch path in run_publish
+        browser_context=None,  # None → 触发 run_publish 的首次启动分支
     )
 
 
@@ -58,7 +58,7 @@ def _make_stub_payload(tmp_path: Path) -> PublishPayload:
 
 
 def _make_stub_pw_context_page():
-    """Return (pw, context, page) stubs."""
+    """返回 (pw, context, page) 桩对象。"""
     page = types.SimpleNamespace(on=lambda *args, **kwargs: None)
     context = types.SimpleNamespace(
         set_default_navigation_timeout=lambda ms: None,
@@ -70,19 +70,19 @@ def _make_stub_pw_context_page():
         chromium=chromium,
         stop=lambda: None,
     )
-    # sync_playwright() returns a context manager, so we simulate .start()
+    # sync_playwright() 返回上下文管理器，这里模拟 .start()。
     pw_cm = types.SimpleNamespace(start=lambda: pw)
     return pw_cm, context, page
 
 
 # ---------------------------------------------------------------------------
-# Shared monkeypatching helper
+# 共享 monkeypatch 辅助函数
 # ---------------------------------------------------------------------------
 
 
 def _patch_common(monkeypatch, tmp_path: Path, stub_session, pw_cm, context, page):
-    """Apply all patches common to both tests."""
-    # Create the state file so the existence check passes
+    """应用两个测试共用的全部 patch。"""
+    # 创建 state 文件，让存在性检查通过。
     state_rel = "browser_states/testplat/k1/storage_state.json"
     state_file = tmp_path / state_rel
     state_file.parent.mkdir(parents=True, exist_ok=True)
@@ -102,13 +102,13 @@ def _patch_common(monkeypatch, tmp_path: Path, stub_session, pw_cm, context, pag
         lambda state_path: ("testplat", "k1"),
     )
 
-    # _build_payload → returns a stub PublishPayload without touching ORM
+    # _build_payload → 返回桩 PublishPayload，不触碰 ORM
     monkeypatch.setattr(
         "server.app.modules.tasks.runner._build_payload",
         lambda article, account, account_key, platform_code, state_path: stub_payload,
     )
 
-    # profile_dir_for_key → a path that doesn't need to exist
+    # profile_dir_for_key → 一个无需真实存在的路径
     monkeypatch.setattr(
         "server.app.modules.tasks.runner.profile_key_from_state_path",
         lambda state_path: "browser_states/testplat/k1",
@@ -119,25 +119,25 @@ def _patch_common(monkeypatch, tmp_path: Path, stub_session, pw_cm, context, pag
         lambda state_path: tmp_path / "profile",
     )
 
-    # get_or_create_account_session → returns stub_session directly
+    # get_or_create_account_session → 直接返回 stub_session
     monkeypatch.setattr(
         "server.app.modules.tasks.runner.get_or_create_account_session",
         lambda platform_code, account_key, profile_key=None: stub_session,
     )
 
-    # stop_remote_browser_session → no-op (called on launch failure path)
+    # stop_remote_browser_session → 空操作（在启动失败分支被调用）
     monkeypatch.setattr(
         "server.app.modules.tasks.runner.stop_remote_browser_session",
         lambda session_id: None,
     )
 
-    # sync_playwright → pw_cm
+    # sync_playwright → 返回 pw_cm
     monkeypatch.setattr(
         "server.app.modules.tasks.runner.sync_playwright",
         lambda: pw_cm,
     )
 
-    # launch_options → minimal dict so options["env"] assignment works
+    # launch_options → 返回最小 dict，让 options["env"] 赋值能工作
     monkeypatch.setattr(
         "server.app.modules.tasks.runner.launch_options",
         lambda channel, executable_path: {},
@@ -151,12 +151,12 @@ def _patch_common(monkeypatch, tmp_path: Path, stub_session, pw_cm, context, pag
 
 
 # ---------------------------------------------------------------------------
-# Test 1
+# 测试 1
 # ---------------------------------------------------------------------------
 
 
 def test_run_publish_routes_by_platform_code(monkeypatch, tmp_path):
-    """run_publish calls the driver matched by the platform code in state_path."""
+    """run_publish 会调用 state_path 里平台编码匹配的驱动。"""
     from server.app.modules.tasks import runner as publish_runner
 
     stub_session = _make_stub_session()
@@ -201,12 +201,12 @@ def test_run_publish_routes_by_platform_code(monkeypatch, tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Test 2
+# 测试 2
 # ---------------------------------------------------------------------------
 
 
 def test_run_publish_keeps_session_on_user_input_required(monkeypatch, tmp_path):
-    """When driver.publish raises ToutiaoUserInputRequired, session is kept alive and exception has session_id/novnc_url."""
+    """driver.publish 抛 ToutiaoUserInputRequired 时保留会话，并在异常中带 session_id/novnc_url。"""
     from server.app.modules.tasks import runner as publish_runner
 
     stub_session = _make_stub_session()

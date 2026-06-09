@@ -1,4 +1,4 @@
-"""Tests for AI format lock handling and正文小标题 conversion."""
+"""测试 AI 排版锁处理与正文小标题转换。"""
 
 from __future__ import annotations
 
@@ -323,9 +323,8 @@ def test_ai_format_button_path_triggers_image_insertion_when_categories_selected
         monkeypatch.setattr(
             "server.app.modules.articles.ai_format._maybe_insert_images", fake_maybe_insert_images
         )
-        # The flow re-reads settings from the env (get_settings.cache_clear) and
-        # requires an API key before the (mocked) model call. Set it here so the
-        # test is hermetic instead of depending on the dev's ambient GEO_AI_* env.
+        # 流程会从环境重新读取配置（get_settings.cache_clear），并且在模拟模型调用前要求有 API key。
+        # 这里显式设置，避免测试依赖开发机环境中的 GEO_AI_* 变量。
         monkeypatch.setenv("GEO_AI_FORMAT_API_KEY", "test-key")
 
         response = client.post(f"/api/articles/{article_id}/ai-format")
@@ -734,9 +733,8 @@ def test_run_ai_format_uses_candidate_categories_when_article_has_none(monkeypat
                 inserted.update({"refs": refs, "positions": positions}) or content_json
             ),
         )
-        # run_ai_format re-reads settings (get_settings.cache_clear) and requires an
-        # API key before the (mocked) model call. Set it here so the test is hermetic
-        # instead of depending on the dev's ambient GEO_AI_* env (CI has none).
+        # run_ai_format 会重新读取配置（get_settings.cache_clear），并且在模拟模型调用前要求有 API key。
+        # 这里显式设置，避免测试依赖开发机环境中的 GEO_AI_* 变量（CI 中没有）。
         monkeypatch.setenv("GEO_AI_FORMAT_API_KEY", "test-key")
 
         candidate = [{"id": 777, "name": "王者荣耀", "description": "MOBA"}]

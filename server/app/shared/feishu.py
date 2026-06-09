@@ -1,7 +1,7 @@
-"""飞书 webhook 通知（发布任务完成播报）。
+"""飞书 Webhook 通知（发布任务完成播报）。
 
 走 GEO_FEISHU_WEBHOOK_URL，与问题库同步用的自建应用凭据（APP_ID/APP_SECRET，
-见 feishu_bitable）是两条不同凭据。未配置 webhook 时静默跳过。
+见 feishu_bitable）是两条不同凭据。未配置 Webhook 时静默跳过。
 """
 
 import json
@@ -22,7 +22,7 @@ def notify_task_finished(
     succeeded: int,
     failed: int,
 ) -> None:
-    """异步发送飞书通知（fire-and-forget，不阻塞调用方）"""
+    """异步发送飞书通知（发出即不等待，不阻塞调用方）。"""
     url = get_settings().feishu_webhook_url
     if not url:
         return

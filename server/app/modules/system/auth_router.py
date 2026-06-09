@@ -79,12 +79,12 @@ def login(
 ) -> dict:
     """校验账号密码 → 写 access_token cookie → 记审计。限流 5 次/分钟。
 
-    失败分支用 try/raise/except 包裹，只为在抛出前补一条 success=False 的审计后再 re-raise。
+    失败分支用 try/raise/except 包裹，只为在重新抛出前补一条 success=False 的审计。
     """
     user = db.query(User).filter(User.username == payload.username).first()
     if not user or not user.check_password(payload.password):
         try:
-            # 先抛再于 except 内补审计、最后 re-raise：保证失败登录也留痕
+            # 先抛再于 except 内补审计、最后重新抛出：保证失败登录也留痕
             raise HTTPException(status_code=401, detail="用户名或密码错误")
         except HTTPException:
             add_audit_entry(

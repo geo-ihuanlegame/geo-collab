@@ -1,8 +1,8 @@
-"""question bank: category + question_text columns, category_usages tracking table
+"""问题库：category / question_text 列与 category_usages 跟踪表
 
-Revision ID: 0032
-Revises: 0031
-Create Date: 2026-05-28
+修订 ID: 0032
+上一修订: 0031
+创建日期: 2026-05-28
 """
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ def upgrade() -> None:
             )
             op.create_index(op.f("ix_question_items_category"), "question_items", ["category"], unique=False)
         if "question_text" not in cols:
-            # TEXT 不能有字面 DEFAULT；nullable，ORM 写入时填值
+            # TEXT 不能有字面 DEFAULT；设为可空，ORM 写入时填值
             op.add_column(
                 "question_items",
                 sa.Column("question_text", sa.Text(), nullable=True),

@@ -24,7 +24,7 @@ class PlatformDriver(Protocol):
     publish_url: str
 
     def detect_logged_in(self, *, url: str, title: str, body: str) -> bool:
-        """Return True if the current page indicates the user is logged in."""
+        """当前页面表明用户已登录时返回 True。"""
 
     def publish(
         self,
@@ -34,7 +34,7 @@ class PlatformDriver(Protocol):
         payload: PublishPayload,
         stop_before_publish: bool,
     ) -> PublishResult:
-        """Fill form, upload assets, click publish. Does not manage browser lifecycle."""
+        """填写表单、上传资源并点击发布；不负责浏览器生命周期。"""
 
 
 logger = logging.getLogger(__name__)
@@ -76,7 +76,7 @@ def register_variant(
 
 
 def resolve_driver(platform_code: str) -> PlatformDriver:
-    """Pick a driver honoring GEO_<PLATFORM>_DRIVER; fall back to the registry."""
+    """按 GEO_<PLATFORM>_DRIVER 选择驱动；未配置则回退到默认注册表。"""
     variant = os.environ.get(f"GEO_{platform_code.upper()}_DRIVER", "").strip()
     if variant:
         chosen = _VARIANTS.get((platform_code, variant))

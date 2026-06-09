@@ -1,4 +1,4 @@
-"""账号模块 HTTP 路由（挂在 /api/accounts）：账号 CRUD、登录会话、授权包导入导出。
+"""账号模块 HTTP 路由（挂在 /api/accounts）：账号增删改查、登录会话、授权包导入导出。
 
 薄路由层——业务在 accounts.service / auth，这里只做鉴权、归属校验、序列化和审计。
 注意路由注册顺序：/{account_id:int}/login-session 必须在 /{platform_code}/login-session 之前。
@@ -114,7 +114,7 @@ def login_platform_account(
     return to_account_read(account)
 
 
-# NOTE: /{account_id:int}/login-session routes MUST appear before /{platform_code}/login-session
+# 注意：/{account_id:int}/login-session 路由必须先于 /{platform_code}/login-session 注册
 @router.post("/{account_id:int}/login-session", response_model=AccountBrowserSessionRead)
 def start_existing_account_login_session_endpoint(
     account_id: int,

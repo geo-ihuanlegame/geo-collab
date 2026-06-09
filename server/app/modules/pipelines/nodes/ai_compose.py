@@ -1,7 +1,7 @@
 """ai_compose 处理节点（前端「AI创作」）：与 ai_generate 类似但允许多个提示词模板，
 
-每篇运行时从允许集合里随机挑一个有效模板再生文，并发 max_workers=4。
-问题文本（上游输出，缺则取 config.question_text 兜底）为空时安静跳过（不报错），单篇失败收进 errors 交 run 聚合 partial_failed。"""
+每篇运行时从允许集合里随机挑一个有效模板再生文，并发数 max_workers=4。
+问题文本（上游输出，缺则取 config.question_text 兜底）为空时安静跳过（不报错），单篇失败收进错误列表，交由运行聚合为 partial_failed。"""
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -38,7 +38,7 @@ def run_ai_compose(ctx: NodeRunContext) -> NodeResult:
     errors: list[str] = []
 
     def _one() -> int:
-        # 每篇运行时从允许模板里随机挑一个有效的（每线程自建 session）
+        # 每篇运行时从允许模板里随机挑一个有效的（每个线程自建会话）
         db = ctx.session_factory()
         try:
             tpl = _pick_valid_template(db, template_ids, ctx.user_id)
@@ -60,7 +60,7 @@ def run_ai_compose(ctx: NodeRunContext) -> NodeResult:
         for fut in as_completed(futures):
             try:
                 article_ids.append(fut.result())
-            except Exception as exc:  # 单篇失败不中断，交由 run 聚合 partial_failed
+            except Exception as exc:  # 单篇失败不中断，交由运行聚合为 partial_failed
                 errors.append(str(exc))
 
     return NodeResult(

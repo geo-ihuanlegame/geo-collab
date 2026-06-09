@@ -86,7 +86,7 @@ def _upload_cover_image(client) -> str:
 
 
 def test_empty_body_fails_publish(monkeypatch):
-    """Article with empty body -> record fails with '正文' in error message."""
+    """正文为空的文章会发布失败，记录错误消息包含“正文”。"""
     test_app = build_test_app(monkeypatch)
     client = test_app.client
 
@@ -172,7 +172,7 @@ def test_image_only_body_is_publishable(monkeypatch):
 
 
 def test_no_cover_fails_publish(monkeypatch):
-    """Article without cover -> record fails with '封面' in error message."""
+    """无封面的文章会发布失败，记录错误消息包含“封面”。"""
     test_app = build_test_app(monkeypatch)
     client = test_app.client
 
@@ -208,7 +208,7 @@ def test_no_cover_fails_publish(monkeypatch):
 
 
 def test_empty_title_fails_publish(monkeypatch):
-    """Article with empty title -> record fails with '标题' in error message."""
+    """标题为空的文章会发布失败，记录错误消息包含“标题”。"""
     test_app = build_test_app(monkeypatch)
     client = test_app.client
 

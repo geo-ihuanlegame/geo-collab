@@ -14,7 +14,7 @@
   GEO_PUBLISH_X11VNC_PATH             x11vnc 可执行路径
   GEO_PUBLISH_WEBSOCKIFY_PATH         websockify 可执行路径
   GEO_PUBLISH_NOVNC_WEB_DIR           noVNC 静态文件目录
-  GEO_PUBLISH_REMOTE_BROWSER_HOST     对外暴露的 host（默认 127.0.0.1）
+  GEO_PUBLISH_REMOTE_BROWSER_HOST     对外暴露的主机地址（默认 127.0.0.1）
 """
 
 from functools import lru_cache
@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     app_version: str = "0.1.0"
     data_dir: Path | None = None
     database_url: str | None = None
-    # 独立 DB 凭据（当 database_url 未设时自动拼接 MySQL URL，密码无需手动 URL-encode）
+    # 独立数据库凭据（当 database_url 未设时自动拼接 MySQL 连接 URL，密码无需手动做 URL 编码）
     db_host: str | None = None
     db_port: int = 3306
     db_user: str | None = None
@@ -56,20 +56,22 @@ class Settings(BaseSettings):
     feishu_app_secret: str | None = None  # GEO_FEISHU_APP_SECRET
     # 问题池定时镜像同步（应用内后台线程）。默认关闭，避免本地 / 测试打真实飞书。
     question_pool_auto_sync_enabled: bool = False  # GEO_QUESTION_POOL_AUTO_SYNC_ENABLED
-    question_pool_sync_interval_seconds: int = 21600  # GEO_QUESTION_POOL_SYNC_INTERVAL_SECONDS (6h)
+    question_pool_sync_interval_seconds: int = (
+        21600  # GEO_QUESTION_POOL_SYNC_INTERVAL_SECONDS（6 小时）
+    )
     pipeline_scheduler_enabled: bool = False  # GEO_PIPELINE_SCHEDULER_ENABLED
     pipeline_scheduler_interval_seconds: int = 60  # GEO_PIPELINE_SCHEDULER_INTERVAL_SECONDS
     scheduler_tz: str = "Asia/Shanghai"  # GEO_SCHEDULER_TZ
     run_startup_recovery: bool = True  # GEO_RUN_STARTUP_RECOVERY；多实例只在单一实例开启
     ai_generate_max_count: int = 20  # GEO_AI_GENERATE_MAX_COUNT
     pipeline_max_concurrent_runs: int = 3  # GEO_PIPELINE_MAX_CONCURRENT_RUNS
-    # [临时] 方案生文封面兜底 bucket（GEO_TEMP_COVER_BUCKET）。空字符串=禁用整段临时封面逻辑。
+    # [临时] 方案生文封面兜底存储桶（GEO_TEMP_COVER_BUCKET）。空字符串=禁用整段临时封面逻辑。
     temp_cover_bucket: str = "cantingyangchengji"
-    # AI 生文（LangGraph 写作 Agent）—— 保持 Claude
+    # AI 生文（LangGraph 写作智能体）—— 保持 Claude
     ai_model: str = "claude-3-5-sonnet-20241022"  # GEO_AI_MODEL
     ai_api_key: str = ""  # GEO_AI_API_KEY
     # 方案级可选 AI 引擎列表（为后续接入更多写作模型留接口）。
-    # 每项 {"label": 展示名, "model": litellm model 字符串}；model 为空 = 用 ai_model 默认。
+    # 每项 {"label": 展示名, "model": litellm 模型字符串}；model 字段为空 = 用 ai_model 默认值。
     # 通过 GEO_AI_ENGINES 传 JSON 覆盖，例如：
     #   [{"label":"默认写作模型","model":""},{"label":"DeepSeek","model":"deepseek/deepseek-chat"}]
     ai_engines: list[dict[str, str]] = [{"label": "默认写作模型", "model": ""}]  # GEO_AI_ENGINES
@@ -93,15 +95,15 @@ def get_settings() -> Settings:
     return Settings()
 
 
-# File upload limits
+# 文件上传大小限制
 MAX_ASSET_BYTES: int = 20 * 1024 * 1024  # 20 MB
 MAX_ZIP_BYTES: int = 50 * 1024 * 1024  # 50 MB
 
-# Allowed magic bytes for image uploads
+# 允许上传图片的文件魔数
 ALLOWED_MAGIC: list[bytes] = [
     b"\x89PNG\r\n\x1a\n",  # PNG
     b"\xff\xd8",  # JPEG
-    b"RIFF",  # WebP (also check bytes 8:12 == b"WEBP")
+    b"RIFF",  # WebP（还需检查 bytes 8:12 == b"WEBP"）
     b"GIF87a",  # GIF
     b"GIF89a",  # GIF
 ]

@@ -1,8 +1,8 @@
-"""question bank: question_pools and question_items
+"""问题库：question_pools 和 question_items
 
-Revision ID: 0031
-Revises: 0030
-Create Date: 2026-05-28
+修订 ID: 0031
+上一修订: 0030
+创建日期: 2026-05-28
 """
 from __future__ import annotations
 
@@ -65,7 +65,7 @@ def upgrade() -> None:
     if "generation_sessions" in tables:
         gen_cols = [c["name"] for c in inspector.get_columns("generation_sessions")]
         if "question_item_ids" not in gen_cols:
-            # MySQL 不允许 TEXT 列有 DEFAULT；nullable + ORM 端 default="[]" 处理（同 article_ids）
+            # MySQL 不允许 TEXT 列有 DEFAULT；设为可空，由 ORM 端 default="[]" 处理（同 article_ids）
             op.add_column(
                 "generation_sessions",
                 sa.Column("question_item_ids", sa.Text(), nullable=True),

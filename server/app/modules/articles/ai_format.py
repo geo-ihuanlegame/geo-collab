@@ -93,12 +93,11 @@ _SYSTEM_PROMPT_HEADINGS_ONLY = (
 
 
 def _image_prompt_params(text_nodes: list[tuple[int, dict]]) -> tuple[int, int]:
-    """Derive (max_images, min_spacing) from article structure.
+    """根据文章结构推导 (max_images, min_spacing)。
 
-    List-style articles (Top N, ranked items) typically have several headings or
-    many short paragraph nodes.  For those we cap at 3 images total and require a
-    5-node gap to keep the article from feeling image-heavy.  Narrative articles
-    use the same 5-node spacing with a 3-image ceiling.
+    清单型文章（Top N、榜单项）通常有多个标题或大量短段落。此类文章最多配
+    3 张图，并要求 5 个节点间距，避免图片过密。叙事型文章也使用 5 节点间距
+    和最多 3 张图的上限。
     """
     existing_headings = sum(1 for _, n in text_nodes if n.get("type") == "heading")
     short_paragraphs = sum(
@@ -106,22 +105,20 @@ def _image_prompt_params(text_nodes: list[tuple[int, dict]]) -> tuple[int, int]:
         for _, n in text_nodes
         if n.get("type") == "paragraph" and len(_node_text(n).strip()) <= 25
     )
-    # Use existing headings first; fall back to counting short paragraphs that
-    # are likely to become headings after the LLM pass.
+    # 优先使用已有标题估算分节数；不足时再统计可能被 LLM 升级成标题的短段落。
     section_estimate = (
         existing_headings
         if existing_headings >= 3
         else (short_paragraphs if short_paragraphs >= 3 else 0)
     )
     if section_estimate >= 3:
-        # Cap at 3 images regardless of section count; require 5-node spacing
-        # to avoid images appearing after every few sentences.
+        # 不论分节数多少，最多 3 张图；要求 5 节点间距，避免每隔几句就插图。
         return min(section_estimate, 3), 5
-    return 3, 5  # narrative articles: same spacing, 3-image ceiling
+    return 3, 5  # 叙事型文章：同样的间距和 3 张图上限
 
 
 def _extract_json(raw: str) -> str:
-    """Extract the first JSON object from a model response."""
+    """从模型响应中提取第一个 JSON 对象。"""
     m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.DOTALL)
     if m:
         return m.group(1)
@@ -130,7 +127,7 @@ def _extract_json(raw: str) -> str:
 
 
 def _top_level_text_nodes(content_json: dict) -> list[tuple[int, dict]]:
-    """Return top-level paragraph/heading nodes with their original content indices."""
+    """返回顶层 paragraph/heading 节点及其原始 content 下标。"""
     content = content_json.get("content") or []
     return [
         (i, node)
@@ -372,11 +369,10 @@ def _normalize_heading_indices(value: Any, valid_indices: set[int]) -> set[int]:
 
 
 def _apply_headings(content_json: dict, heading_indices: set[int]) -> dict:
-    """Only upgrade paragraphs to headings; never demote existing headings.
+    """只把段落升级为标题，绝不降级已有标题。
 
-    The LLM identifies which paragraphs should become headings.  Existing
-    headings NOT selected by the LLM are preserved as-is — the prompt says
-    "保留" (retain), so absence from heading_indices does NOT mean demote.
+    LLM 只识别哪些段落应成为标题。未被 LLM 选中的已有标题原样保留：提示词说
+    “保留”，所以不在 heading_indices 中并不表示要降级。
     """
     content = list(content_json.get("content") or [])
     for i, node in enumerate(content):
@@ -395,7 +391,7 @@ def _article_lock_matches(article: Any, lock_started_at: datetime | None) -> boo
 
 
 class AIFormatConfigurationError(RuntimeError):
-    """Raised when AI format cannot start because local model config is incomplete."""
+    """本地模型配置不完整，导致 AI 排版无法启动时抛出。"""
 
 
 def _describe_ai_format_error(exc: BaseException) -> str:
@@ -551,7 +547,7 @@ def run_ai_format(
     user_id: int | None = None,
     candidate_categories: list[dict[str, Any]] | None = None,
 ) -> None:
-    """Identify body subheadings and write the updated Tiptap document back to the article.
+    """识别正文小标题，并把更新后的 Tiptap 文档写回文章。
 
     candidate_categories 非 None 时用它当配图候选栏目（方案自动配图用全部 bucket）；
     None 时回退到文章已分配的类别（手动 AI 排版按钮的现状行为）。

@@ -1,5 +1,5 @@
 """
-Phase 4 feature tests:
+Phase 4 功能测试：
 - 4.4 ToutiaoUserInputRequired.error_type 分类
 - 4.5 recover_stuck_records 写 TaskLog
 - 4.1 resolve-user-input / manual-confirm 端点可访问
@@ -231,7 +231,7 @@ class TestManualInterventionEndpoints:
             resp = test_app.client.post(f"/api/publish-records/{record_id}/resolve-user-input")
             assert resp.status_code == 200, resp.text
             data = resp.json()
-            # resolve resets to pending, then background may move it to running/failed
+            # resolve 会先重置为 pending，随后后台可能推进到 running/failed。
             assert data["status"] in ("pending", "running", "failed")
         finally:
             test_app.cleanup()
@@ -276,7 +276,7 @@ class TestManualInterventionEndpoints:
             test_app.cleanup()
 
 
-# ── 4.3: zombie session detection ────────────────────────────────────────────
+# ── 4.3：僵尸 session 检测 ────────────────────────────────────────────
 
 
 class TestZombieSessionDetection:
@@ -284,7 +284,7 @@ class TestZombieSessionDetection:
         """_cleanup_zombie_sessions 函数存在且在没有活动 session 时不抛出。"""
         from server.app.modules.accounts.browser import _cleanup_zombie_sessions
 
-        _cleanup_zombie_sessions()  # should not raise
+        _cleanup_zombie_sessions()  # 不应抛出
 
     def test_cleanup_zombie_sessions_skips_healthy_sessions(self, monkeypatch):
         """有活跃但进程健康的 session 时不应误清理。"""
@@ -334,7 +334,7 @@ class TestZombieSessionDetection:
         bs._active_sessions["healthy01"] = session
         try:
             bs._cleanup_zombie_sessions()
-            # healthy session should NOT be removed
+            # 健康会话不应被移除。
             assert "healthy01" in bs._active_sessions
         finally:
             bs._active_sessions.clear()

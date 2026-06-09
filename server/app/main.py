@@ -1,9 +1,9 @@
 """
-Geo Collab API 应用工厂与全局配置。
+Geo 协作 API 应用工厂与全局配置。
 
 入口点：
   - 开发: uvicorn server.app.main:app --reload
-  - 生产: docker-compose up（Dockerfile CMD 先跑 alembic upgrade head）
+  - 生产: docker-compose up（Dockerfile 的 CMD 先跑 alembic upgrade head）
 
 阅读顺序建议：
   1. create_app() → 了解路由注册、全局异常处理、启动行为
@@ -17,7 +17,7 @@ from datetime import datetime
 from pathlib import Path
 
 # ── datetime 序列化补丁 ──
-# 在 Pydantic 模型定义之前安装，确保所有 naive datetime 输出带 "Z" 后缀
+# 在 Pydantic 模型定义之前安装，确保所有无时区 datetime 输出带 "Z" 后缀
 # 这样前端 new Date("2026-05-12T14:00:00Z") 能正确识别为 UTC
 # 涉及三个层级：Pydantic 模型、FastAPI 内置编码器、FastAPI 构造函数
 from pydantic import BaseModel
@@ -79,7 +79,7 @@ def create_app() -> FastAPI:
     # 确保数据目录存在（assets/ browser_states/ logs/ exports/）
     ensure_data_dirs()
 
-    # import 触发注册副作用：pipelines 节点类型 + 所有平台驱动
+    # 导入触发注册副作用：pipelines 节点类型 + 所有平台驱动
     import server.app.modules.pipelines.nodes  # noqa: F401
     import server.app.modules.tasks.drivers.toutiao  # noqa: F401
     import server.app.modules.tasks.drivers.toutiao_inpage  # noqa: F401
@@ -102,8 +102,8 @@ def create_app() -> FastAPI:
     from slowapi.errors import RateLimitExceeded
 
     app.state.limiter = limiter
-    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]  # slowapi handler is typed for its own exc
-    # 启动时恢复卡住的记录（上次运行时 crash 导致 status='running' 的记录）
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]  # slowapi 的处理器按自身异常类型标注
+    # 启动时恢复卡住的记录（上次运行时崩溃导致 status='running' 的记录）
     # 多实例部署时只允许一个实例执行恢复，其他实例设 GEO_RUN_STARTUP_RECOVERY=false
     from server.app.db.session import SessionLocal
     from server.app.modules.tasks import recover_stuck_records
@@ -171,7 +171,7 @@ def create_app() -> FastAPI:
         finally:
             db.close()
 
-    # 注册 auth 路由（不加鉴权依赖）
+    # 注册认证路由（不加鉴权依赖）
     app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
     app.include_router(users_router, prefix="/api/users", tags=["users"])
 
@@ -259,7 +259,7 @@ def create_app() -> FastAPI:
         dependencies=[Depends(get_current_user)],
     )
 
-    # 为方案运行后台线程提供 SessionLocal（generation 没有独立 worker，靠路由内后台线程执行）
+    # 为方案运行后台线程提供 SessionLocal（generation 没有独立工作进程，靠路由内后台线程执行）
     import server.app.modules.ai_generation.scheme_router as _scheme_routes
 
     _scheme_routes.bg_session_factory = SessionLocal
@@ -302,7 +302,7 @@ def create_app() -> FastAPI:
             return FileResponse(f"{WEB_DIST_DIR}/index.html")
 
     except RuntimeError:
-        # 开发模式下 static 目录可能不存在，静默跳过
+        # 开发模式下静态目录可能不存在，静默跳过
         pass
 
     return app

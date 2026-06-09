@@ -55,7 +55,7 @@ def run_distribute(ctx: NodeRunContext) -> NodeResult:
     try:
         user = db.get(User, ctx.user_id)
         role = user.role if user is not None else "operator"
-        # create_task 内部做审核门禁(_validate_articles_approved)+账号校验，抛命名异常
+        # create_task 内部做审核门禁（_validate_articles_approved）+ 账号校验，抛命名异常
         task = create_task(db, ctx.user_id, task_create, role=role)
         db.commit()
         task_id = task.id

@@ -1,8 +1,8 @@
-"""add article_stock_categories many-to-many table
+"""添加 article_stock_categories 多对多表
 
-Revision ID: 0028
-Revises: 0027
-Create Date: 2026-05-26
+修订 ID: 0028
+上一修订: 0027
+创建日期: 2026-05-26
 """
 from typing import Sequence, Union
 

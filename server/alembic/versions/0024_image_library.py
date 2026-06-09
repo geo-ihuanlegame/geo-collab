@@ -1,8 +1,8 @@
-"""image library: stock_categories, stock_images, articles.stock_category_id
+"""图片库：stock_categories、stock_images、articles.stock_category_id
 
-Revision ID: 0024
-Revises: 0023
-Create Date: 2026-05-22
+修订 ID: 0024
+上一修订: 0023
+创建日期: 2026-05-22
 """
 from typing import Sequence, Union
 

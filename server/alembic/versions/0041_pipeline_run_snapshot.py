@@ -1,8 +1,8 @@
-"""pipeline_runs: frozen execution snapshot
+"""pipeline_runs：冻结的执行快照
 
-Revision ID: 0041
-Revises: 0040
-Create Date: 2026-06-05
+修订 ID: 0041
+上一修订: 0040
+创建日期: 2026-06-05
 """
 from __future__ import annotations
 

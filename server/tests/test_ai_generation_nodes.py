@@ -238,7 +238,7 @@ def test_ai_compose_generates_with_random_template(monkeypatch):
         res = run_ai_compose(ctx)
         assert len(res.output["article_ids"]) == 3
         assert res.article_ids == res.output["article_ids"]
-        # 空问题 → skipped
+        # 空问题 → 跳过
         ctx_empty = NodeRunContext(
             session_factory=app.session_factory,
             user_id=uid,
@@ -304,7 +304,7 @@ def test_to_review_marks_pending_and_groups(monkeypatch):
             assert db.get(Article, a2).review_status == "pending"
             items = db.query(ArticleGroupItem).filter(ArticleGroupItem.group_id == gid).all()
             assert {it.article_id for it in items} == {a1, a2}
-        # 空 article_ids → skipped 不建组
+        # 空 article_ids → 跳过且不建组
         ctx_empty = NodeRunContext(
             session_factory=app.session_factory,
             user_id=uid,
@@ -539,7 +539,7 @@ def _fake_generate_factory():
 
 @pytest.mark.mysql
 def test_executor_groups_orphans_when_to_review_present_but_did_not_group(monkeypatch):
-    """Bug 2: to_review 节点存在 ≠ 真的成了组。
+    """缺陷 2：to_review 节点存在不等于真的成了组。
 
     to_review 被 condition 跳过（不执行）→ 不成组。执行器不能因为"存在 to_review 节点"
     就放手，否则 ai_compose 产的文章成孤儿。期望：执行器兜底把这些文章成组（一个组），不留孤儿。
@@ -622,7 +622,7 @@ def test_executor_groups_orphans_when_to_review_present_but_did_not_group(monkey
 
 @pytest.mark.mysql
 def test_grouping_failure_surfaces_partial_failed_not_silent_done(monkeypatch):
-    """Bug 1: 成组真失败时不能静默报 done。
+    """缺陷 1：成组真失败时不能静默报 done。
 
     mark_pending_and_group best-effort 失败返回 None。含 to_review 时，原代码短路掉
     执行器自带的 gid-None 降级保护、to_review 自己又不上报 → run 假报 done。

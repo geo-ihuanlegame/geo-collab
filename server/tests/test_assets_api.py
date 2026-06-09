@@ -96,7 +96,7 @@ def test_thumbnail_request_falls_back_to_original_when_generation_fails(monkeypa
             files={"file": ("cover.png", PNG_1X1, "image/png")},
         ).json()
 
-        # Assets uploaded without thumbnail generation redirect to the original file
+        # 未生成缩略图的资源访问会重定向到原始文件
         response = client.get(f"/api/assets/{uploaded['id']}/thumbnail", follow_redirects=True)
 
         assert response.status_code == 200

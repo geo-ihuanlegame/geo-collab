@@ -19,7 +19,7 @@ def apply_input_mapping(meta: dict | None, upstream: dict[str, Any] | None) -> d
         return {}
     mapping = meta.get("inputMapping") if isinstance(meta, dict) else None
     if not mapping:
-        # 无显式映射 → 透传上游（浅拷贝，避免下游 handler 误改 context 中的原 output）
+        # 无显式映射 → 透传上游（浅拷贝，避免下游处理函数误改上下文中的原始输出）
         return dict(upstream)
     out: dict[str, Any] = {}
     for m in mapping:
@@ -32,7 +32,7 @@ def apply_input_mapping(meta: dict | None, upstream: dict[str, Any] | None) -> d
 
 
 def should_skip(meta: dict | None, ctx: dict[str, Any] | None) -> bool:
-    """condition 不满足则返回 True（跳过本节点）。无 condition 永不跳过。op∈eq/neq/contains。"""
+    """跳过条件不满足则返回 True（跳过本节点）。无 condition 永不跳过。op∈eq/neq/contains。"""
     if not isinstance(meta, dict):
         return False
     cond = meta.get("condition")

@@ -103,15 +103,15 @@ LOGIN_SESSION_POLL_SECONDS = 0.25
 
 
 def _run_in_plain_thread(fn: Callable[[], Any]) -> Any:
-    """Run Playwright sync API work outside FastAPI/AnyIO worker threads."""
+    """在 FastAPI/AnyIO worker 线程之外运行 Playwright 同步 API 工作。"""
     result: list[Any] = []
     error: list[tuple[type[BaseException], BaseException, Any]] = []
 
     def _target() -> None:
-        # Python 3.10+ copies the parent's contextvars Context into new threads
-        # via threading.Thread. On Python 3.13+ asyncio stores _running_loop as
-        # a ContextVar, so the spawned thread inherits the main event loop and
-        # Playwright's sync-API guard fires. Reset it before any Playwright call.
+        # Python 3.10+ 会通过 threading.Thread 把父线程的 contextvars Context
+        # 复制到新线程。Python 3.13+ 的 asyncio 把 _running_loop 存成 ContextVar，
+        # 因而新线程会继承主事件循环并触发 Playwright 同步 API 的保护逻辑。
+        # 在任何 Playwright 调用前先重置它。
         try:
             import asyncio.events as _ae
 
@@ -383,7 +383,7 @@ def _find_account_login_request(
 def get_login_session_status(
     db: Session, account: Account, session_id: str
 ) -> AccountLoginSession | None:
-    """Return the AccountLoginSession row for status polling."""
+    """返回用于状态轮询的 AccountLoginSession 记录。"""
     return _find_account_login_request(db, account.id, session_id)
 
 
@@ -426,7 +426,7 @@ def _start_login_browser_via_worker(
     executable_path: str | None,
     previous_status: str | None = None,
 ) -> str:
-    """Create a login-session request row and return the request ID immediately."""
+    """创建登录会话请求行，并立即返回请求 ID。"""
     request = AccountLoginSession(
         id=_new_login_session_request_id(),
         account_id=account_id,
@@ -507,7 +507,7 @@ def _cancel_login_browser_via_worker(db: Session, request: AccountLoginSession) 
 
 
 def process_account_login_session_requests(db: Session, worker_id: str) -> bool:
-    """Claim and process one account-login browser command for this worker.
+    """为当前 worker 抢占并处理一条账号登录浏览器命令。
 
     Worker 轮询入口：认领并处理一条登录命令，处理了返回 True，无活儿返回 False。
     认领两类命令：(a) 未被占用的 pending/queued 新登录；(b) 本 worker 名下待 finish/cancel 的命令。
@@ -561,7 +561,7 @@ def process_account_login_session_requests(db: Session, worker_id: str) -> bool:
         .where(*where_clause)
         .values(status=next_status, worker_id=worker_id, queue_reason=None, updated_at=utcnow())
     )
-    rows = result.rowcount  # type: ignore[attr-defined]  # DML execute returns CursorResult
+    rows = result.rowcount  # type: ignore[attr-defined]  # DML 执行返回 CursorResult
     db.commit()
     if rows == 0:
         return False  # 被别的 worker 抢先了

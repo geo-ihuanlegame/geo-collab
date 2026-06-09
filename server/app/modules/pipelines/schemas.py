@@ -1,4 +1,4 @@
-"""Pipeline API 的 Pydantic 入参 / 出参模型（创建 / patch / 读出 / 草稿 / 版本 / 运行 / 运行日志分页）。"""
+"""Pipeline API 的 Pydantic 入参 / 出参模型（创建 / 局部更新 / 读出 / 草稿 / 版本 / 运行 / 运行日志分页）。"""
 
 from __future__ import annotations
 
@@ -103,7 +103,7 @@ class RunLogRow(BaseModel):
     run_status: str
     step: int
     task_name: str
-    level: str  # "INFO" | "ERROR"
+    level: str  # "ERROR" | "INFO"（错误 | 信息）
     message: str
     time: datetime | None = None
 

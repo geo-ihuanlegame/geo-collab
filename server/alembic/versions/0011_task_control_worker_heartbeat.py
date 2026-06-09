@@ -1,8 +1,8 @@
-"""Add task control fields and worker heartbeats
+"""添加任务控制字段和 worker 心跳
 
-Revision ID: 0011
-Revises: 0010
-Create Date: 2026-05-14
+修订 ID: 0011
+上一修订: 0010
+创建日期: 2026-05-14
 """
 from typing import Sequence, Union
 

@@ -54,7 +54,7 @@ publish_records_router = APIRouter()
 bg_session_factory: Any = None
 
 
-# ── Task helpers ──────────────────────────────────────────────────────────────
+# ── 任务辅助函数 ────────────────────────────────────────────────────────────
 
 
 def _verify_task_ownership(task: PublishTask | None, current_user: User) -> PublishTask:
@@ -65,7 +65,7 @@ def _verify_task_ownership(task: PublishTask | None, current_user: User) -> Publ
     return task
 
 
-# ── Task routes ───────────────────────────────────────────────────────────────
+# ── 任务路由 ────────────────────────────────────────────────────────────────
 
 
 @tasks_router.get("", response_model=list[TaskRead])
@@ -114,12 +114,11 @@ def create_task_endpoint(
                 )
             ).scalar_one_or_none()
             if existing is not None:
-                # Idempotent retry: the concurrent request already created it.
+                # 幂等重试：并发请求已经创建了这个任务。
                 refreshed = get_task(db, existing.id)
                 return to_task_read(refreshed or existing)
-        # Any IntegrityError not resolved by the idempotency lookup above is a
-        # genuine constraint conflict — surface it as 409, never fall through to
-        # an implicit `return None` (which would serialize as an opaque 500).
+        # 上面的幂等查询无法消解的 IntegrityError 都是真实约束冲突；
+        # 明确抛 409，避免隐式 return None 被序列化成不透明的 500。
         raise HTTPException(
             status_code=409, detail="请求冲突：client_request_id 已存在或数据完整性约束失败"
         ) from exc
@@ -206,7 +205,7 @@ def start_task_execution(
         raise HTTPException(status_code=409, detail=f"Task is already terminal: {task.status}")
 
     if bg_session_factory is not None:
-        # Test/dev mode: execute immediately in a background thread
+        # 测试 / 开发模式：立即在后台线程执行
         def _run() -> None:
             bg_db = bg_session_factory()
             try:
@@ -222,9 +221,9 @@ def start_task_execution(
 
         threading.Thread(target=_run, daemon=True).start()
     else:
-        # Production mode: release any stale worker claim; worker will pick it up
+        # 生产模式：释放陈旧的 worker 认领；worker 会自行捡走
         db.execute(
-            select(PublishTask).where(PublishTask.id == task_id)  # re-lock for update
+            select(PublishTask).where(PublishTask.id == task_id)  # 重新加锁用于更新
         )
         db.execute(
             _upd(PublishTask)
@@ -380,7 +379,7 @@ def stream_task_events(
     )
 
 
-# ── Publish record helpers ────────────────────────────────────────────────────
+# ── 发布记录辅助函数 ────────────────────────────────────────────────────────
 
 
 def _verify_record_ownership(
@@ -403,7 +402,7 @@ def _start_background_execute(task_id: int) -> None:
     后台线程自建并自管 session（与请求线程的 db 隔离，session 非线程安全）。
     """
     if bg_session_factory is None:
-        # Production mode: worker picks up the task when it finds pending records.
+        # 生产模式：worker 发现 pending 记录时自行捡起任务。
         return
 
     def _run() -> None:
@@ -424,7 +423,7 @@ def _start_background_execute(task_id: int) -> None:
     threading.Thread(target=_run, daemon=True).start()
 
 
-# ── Publish record routes ─────────────────────────────────────────────────────
+# ── 发布记录路由 ────────────────────────────────────────────────────────────
 
 
 @publish_records_router.post("/{record_id}/manual-confirm", response_model=PublishRecordRead)

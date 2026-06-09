@@ -1,8 +1,8 @@
-"""agent management fields on pipelines
+"""pipeline 上的智能体管理字段
 
-Revision ID: 0040
-Revises: 0039
-Create Date: 2026-06-05
+修订 ID: 0040
+上一修订: 0039
+创建日期: 2026-06-05
 """
 from __future__ import annotations
 

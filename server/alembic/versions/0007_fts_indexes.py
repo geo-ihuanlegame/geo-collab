@@ -1,8 +1,8 @@
-"""fts and composite indexes
+"""全文索引和复合索引
 
-Revision ID: 0007
-Revises: 0006
-Create Date: 2026-05-12
+修订 ID: 0007
+上一修订: 0006
+创建日期: 2026-05-12
 """
 from typing import Sequence, Union
 

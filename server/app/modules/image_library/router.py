@@ -24,7 +24,7 @@ router = APIRouter()  # /api/image-library/* — 需要登录
 files_router = APIRouter()  # /api/stock-images/*  — 公开（图片嵌入文章）
 
 
-# ── Pydantic schemas ──────────────────────────────────────────────────────────
+# ── Pydantic 入参和出参模型 ─────────────────────────────────────────────────
 
 
 class CategoryCreate(BaseModel):
@@ -72,7 +72,7 @@ class StockImageRead(BaseModel):
     created_at: datetime
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── 辅助函数 ───────────────────────────────────────────────────────────────
 
 
 def _guess_image_size(data: bytes) -> tuple[int | None, int | None]:
@@ -88,7 +88,7 @@ def _guess_image_size(data: bytes) -> tuple[int | None, int | None]:
     if data[:2] == b"\xff\xd8":
         idx = 2
         while idx < len(data):
-            # 段以一个或多个 0xFF 填充开头，跳过它们定位真正的 marker
+            # 段以一个或多个 0xFF 填充开头，跳过它们定位真正的标记
             while idx < len(data) and data[idx] == 0xFF:
                 idx += 1
             if idx >= len(data):
@@ -101,7 +101,7 @@ def _guess_image_size(data: bytes) -> tuple[int | None, int | None]:
             if idx + 2 > len(data):
                 break
             seg_len = struct.unpack(">H", data[idx : idx + 2])[0]
-            # SOF0~SOF3 帧头：段内偏移 +3 起为 height、width（各 2 字节大端）
+            # SOF0~SOF3 帧头：段内偏移 +3 起为高度、宽度（各 2 字节大端）
             if marker in range(0xC0, 0xC4) and idx + 7 <= len(data):
                 h, w = struct.unpack(">HH", data[idx + 3 : idx + 7])
                 return w, h
@@ -110,8 +110,8 @@ def _guess_image_size(data: bytes) -> tuple[int | None, int | None]:
 
 
 def _normalize_official_url(value: Any) -> str | None:
-    # 由 Pydantic field_validator 调用：这里抛 ValueError 会被 Pydantic 收成 422，
-    # 是合规的（不同于 CLAUDE.md「service 层别抛裸 ValueError」那条约束）。
+    # 由 Pydantic 字段校验器调用：这里抛 ValueError 会被 Pydantic 收成 422，
+    # 是合规的（不同于 CLAUDE.md「服务层别抛裸 ValueError」那条约束）。
     if value is None:
         return None
     if not isinstance(value, str):
@@ -151,7 +151,7 @@ def _to_image_read(img: StockImage) -> StockImageRead:
     )
 
 
-# ── Category routes ───────────────────────────────────────────────────────────
+# ── 栏目路由 ───────────────────────────────────────────────────────────────
 
 
 @router.post("/categories", response_model=CategoryRead, status_code=201)
@@ -234,7 +234,7 @@ def update_category(
     return _to_category_read(cat)
 
 
-# ── Image routes ──────────────────────────────────────────────────────────────
+# ── 图片路由 ───────────────────────────────────────────────────────────────
 
 ALLOWED_IMAGE_MIME = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 

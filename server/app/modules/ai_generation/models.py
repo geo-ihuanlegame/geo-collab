@@ -39,8 +39,8 @@ class GenerationSession(Base):
     )
     extra_instruction: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
-    article_ids: Mapped[str] = mapped_column(Text, default="[]")  # JSON array of int
-    # 手动模式：选中的 question_item id 列表（JSON）；与 auto_count 互斥。
+    article_ids: Mapped[str] = mapped_column(Text, default="[]")  # int 数组的 JSON 字符串
+    # 手动模式：选中的 question_item ID 列表（JSON）；与 auto_count 互斥。
     question_item_ids: Mapped[str] = mapped_column(Text, default="[]")
     # 自动/手动都关联到某个问题池
     pool_id: Mapped[int | None] = mapped_column(ForeignKey("question_pools.id"), nullable=True)
@@ -73,7 +73,7 @@ class QuestionPool(Base):
 class QuestionItem(Base):
     """问题单元：飞书多维表一行的本地镜像。
 
-    镜像语义（方案流）：同步按 (pool_id, record_id) upsert；飞书存在则 source_active=True，
+    镜像语义（方案流）：同步按 (pool_id, record_id) 更新或插入；飞书存在则 source_active=True，
     飞书缺失则软标记 source_active=False（不物理删除），再次出现则恢复。
     `status` / `article_id` 是旧消费队列遗留字段，方案流不再写入，仅保留只读兼容。
     """
@@ -89,7 +89,7 @@ class QuestionItem(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     pool_id: Mapped[int] = mapped_column(ForeignKey("question_pools.id"), index=True)
-    # 飞书记录 id（同一池内唯一，用于 upsert 去重）
+    # 飞书记录 ID（同一池内唯一，用于更新或插入时去重）
     record_id: Mapped[str] = mapped_column(String(255))
     # 飞书记录全部字段原样镜像（保留以备后续需求变化）
     fields: Mapped[dict] = mapped_column(JSON, default=dict)
@@ -123,7 +123,7 @@ class CategoryUsage(Base):
     last_used_at: Mapped[datetime] = mapped_column(DateTime)
 
 
-# ── 方案池 / 方案运行（scheme flow）────────────────────────────────────────────
+# ── 方案池 / 方案运行（方案流）────────────────────────────────────────────
 
 
 class GenerationScheme(Base):
@@ -135,7 +135,7 @@ class GenerationScheme(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     pool_id: Mapped[int] = mapped_column(ForeignKey("question_pools.id"), index=True)
     name: Mapped[str] = mapped_column(String(200))
-    # 方案级 AI 引擎（litellm model 字符串；None / 空 = 用系统默认 GEO_AI_MODEL）。
+    # 方案级 AI 引擎（LiteLLM 模型字符串；None / 空 = 用系统默认 GEO_AI_MODEL）。
     # 为后续接入更多写作模型留接口，可选列表由 settings.ai_engines 暴露。
     ai_engine: Mapped[str | None] = mapped_column(String(100), nullable=True)
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
@@ -154,7 +154,7 @@ class GenerationSchemeLine(Base):
     # 问题类型 = QuestionItem.category（可为 None，对应"无分类"组）
     question_type: Mapped[str | None] = mapped_column(String(200), nullable=True)
     article_count: Mapped[int] = mapped_column(Integer, default=1)
-    # 该类型允许使用的提示词模板 id 列表（JSON 数组）；运行时每篇随机抽一个
+    # 该类型允许使用的提示词模板 ID 列表（JSON 数组）；运行时每篇随机抽一个
     allowed_prompt_template_ids: Mapped[list] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)

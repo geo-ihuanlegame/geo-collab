@@ -30,15 +30,15 @@ from server.app.modules.tasks.drivers.toutiao_html import (
 
 logger = logging.getLogger(__name__)
 
-# Image-upload endpoint. A single multipart POST done IN-PAGE so the page's
-# global secsdk hook signs it (field `file` = the image Blob). The response
-# carries the uploaded image's uri (tos-cn-i-…) + url + width/height.
+# 图片上传端点。单次 multipart POST 在页面内完成，让页面的全局 secsdk hook
+# 为请求签名（字段 `file` = 图片 Blob）。响应携带已上传图片的 uri
+# （tos-cn-i-…）、url 和 width/height。
 UPLOAD_URL = (
     "https://mp.toutiao.com/mp/agw/article_material/photo/upload_picture"
     "?type=ueditor&pgc_watermark=1&action=uploadimage&encode=utf-8"
 )
-# Publish endpoint (form-urlencoded). save=1 + entrance=main = real publish;
-# save=0 = draft. Passed to the JS via arg.publishUrl.
+# 发布端点（form-urlencoded）。save=1 + entrance=main 表示真实发布；
+# save=0 表示草稿。通过 arg.publishUrl 传给 JS。
 PUBLISH_API_URL = (
     "https://mp.toutiao.com/mp/agw/article/publish"
     "?source=mp&type=article&aid=1231&mp_publish_ab_val=0"
@@ -62,11 +62,11 @@ PUBLISH_URL = "https://mp.toutiao.com/profile_v4/graphic/publish"
 _ADAPTER_JS = (Path(__file__).parent / "adapters" / "toutiao_publish.js").read_text(
     encoding="utf-8"
 )
-# Confirmed logout redirect target is mp.toutiao.com/auth/page/login (spike 2026-06-02);
-# the others are defensive. Avoid a bare "login" substring — it false-positives.
+# 已确认登出重定向目标是 mp.toutiao.com/auth/page/login（2026-06-02 spike）；
+# 其它值是防御性匹配。避免裸 "login" 子串，防止误判。
 _LOGIN_HINTS = ("/auth/page/login", "passport", "sso.toutiao.com")
-# Editor title box placeholder — its presence is our "logged-in + editor ready"
-# signal (also implies the acrawler/secsdk request hook has loaded).
+# 编辑器标题框 placeholder：它出现即表示“已登录 + 编辑器就绪”，同时说明
+# acrawler/secsdk 请求 hook 已加载。
 _EDITOR_TITLE_PLACEHOLDER = "请输入文章标题"
 
 
@@ -82,10 +82,10 @@ _MIME_BY_SUFFIX = {
 
 
 def _b64_of(path: Path) -> tuple[str, str]:
-    """Read an image (downscaled if needed) as (base64-ascii, mime).
+    """读取图片（必要时降采样）并返回 (base64-ascii, mime)。
 
-    Reuses the shared upload resizer so oversized images are downscaled to JPEG
-    before being base64-encoded into the page.evaluate arg.
+    复用共享上传瘦身器，让过大图片先降采样成 JPEG，再 base64 编入 page.evaluate
+    参数。
     """
     with _maybe_resize_for_upload(path) as resolved:
         data = resolved.read_bytes()
@@ -99,7 +99,7 @@ def _build_evaluate_arg(
     image_order: list[ImageRef],
     save: int,
 ) -> dict[str, Any]:
-    """Assemble the single page.evaluate arg: form + base64 images + endpoints."""
+    """组装单个 page.evaluate 参数：form + base64 图片 + 端点。"""
     form = build_publish_form(title=payload.title, content_html=content_html, save=save)
 
     cover: dict[str, str] | None = None
@@ -130,10 +130,10 @@ def build_publish_form(
     save: int = 0,
     pgc_id: str | None = None,
 ) -> dict[str, str]:
-    """Build the application/x-www-form-urlencoded fields for the publish call.
+    """构建发布调用所需的 application/x-www-form-urlencoded 字段。
 
-    Constants mirror the real editor request captured 2026-06-02 (see design doc
-    §6 "Spike 结论 · phase 2"). Milestone 1 sends save=0 (draft) with no cover.
+    常量对齐 2026-06-02 抓到的真实编辑器请求（见设计文档 §6「Spike 结论 · phase 2」）。
+    Milestone 1 发送 save=0（草稿），不带封面。
     """
     extra = dict(_EXTRA_BASE)
     extra["content_word_cnt"] = _word_count(content_html)
@@ -171,12 +171,11 @@ def _is_logged_out(url: str) -> bool:
 
 
 def _wait_editor_ready(page: Any, timeout_ms: int = 15000) -> bool:
-    """True once the editor (title box) is present; False if a login wall persists.
+    """编辑器标题框出现时返回 True；登录墙持续存在时返回 False。
 
-    Tolerates a transient post-goto redirect: poll for the editor title box
-    instead of judging login state from the URL in a single shot (which caught
-    a momentary redirect and wrongly raised UserInputRequired). Only concludes
-    logged-out if the login URL is still showing after the timeout.
+    容忍 goto 后的短暂重定向：通过轮询编辑器标题框判断，而不是只看一次 URL
+    （曾捕捉到瞬时重定向并误抛 UserInputRequired）。只有超时后仍停在登录 URL
+    才判定为未登录。
     """
     waited, step = 0, 500
     while waited < timeout_ms:
@@ -193,17 +192,16 @@ def _wait_editor_ready(page: Any, timeout_ms: int = 15000) -> bool:
 def _map_publish_response(
     result: dict[str, Any], title: str, *, is_draft: bool = False
 ) -> PublishResult:
-    """Map the in-page XHR result into a PublishResult, or raise.
+    """把页内 XHR 结果映射成 PublishResult，或抛出异常。
 
-    The publish *response* shape is medium-confidence (the M1 spike captured
-    requests only). Success predicate: HTTP 200 AND ``code in (0, None)`` with no
-    error message. URL extraction falls back ``article_url`` → ``url`` →
-    ``display_url``; pgc_id falls back ``pgc_id`` → ``id``. Never crashes when
-    ``data.data`` is missing or non-dict — a missing inner payload yields a
-    graceful result (url None / pgc_id-less) rather than an exception.
+    发布响应结构只有中等置信度（M1 spike 只抓到了请求）。成功条件：HTTP 200，
+    且 ``code in (0, None)``，并且没有错误消息。URL 提取按 ``article_url`` →
+    ``url`` → ``display_url`` 回退；pgc_id 按 ``pgc_id`` → ``id`` 回退。
+    ``data.data`` 缺失或不是 dict 时不崩溃，而是返回温和结果（url 为 None /
+    无 pgc_id），不抛异常。
 
-    ``is_draft`` selects the message wording (draft saved vs. real publish); it
-    does NOT affect the success predicate or URL extraction.
+    ``is_draft`` 选择消息文案（保存草稿或真实发布）；它
+    不影响成功判定与 URL 提取。
     """
     http_status = result.get("httpStatus")
     data = result.get("data")
@@ -230,14 +228,13 @@ def _map_publish_response(
 
 
 def _map_full_response(result: Any, title: str, *, is_draft: bool = False) -> PublishResult:
-    """Map the single-round-trip envelope into a PublishResult, or raise.
+    """把单轮往返信封映射成 PublishResult，或抛出异常。
 
-    Envelope (from adapters/toutiao_publish.js):
+    信封结构（来自 adapters/toutiao_publish.js）：
       success:     {ok:true,  step:"publish", uploads:[...], publish:{...}}
       upload fail: {ok:false, step:"upload", index, httpStatus, raw}
 
-    ``is_draft`` is threaded through to ``_map_publish_response`` so the success
-    message reflects draft-vs-publish.
+    ``is_draft`` 会传给 ``_map_publish_response``，让成功消息区分草稿和发布。
     """
     if not isinstance(result, dict):
         raise PublishError(f"头条页内驱动返回意外结果: {result!r}")
@@ -272,20 +269,17 @@ class ToutiaoInPageDriver:
         payload: PublishPayload,
         stop_before_publish: bool,
     ) -> PublishResult:
-        """Publish (or draft) an article via the in-page adapter.
+        """通过页内适配器发布（或保存草稿）文章。
 
-        Default (``stop_before_publish=False``) is a full-auto ``save=1`` real
-        publish; a cover image is required and a non-zero API code raises
-        ``PublishError``. With ``stop_before_publish=True`` the adapter sends
-        ``save=0`` (draft only) and the result message says a draft was saved
-        awaiting manual confirm; the executor then parks the record at
-        ``waiting_manual_publish`` on its own — this driver does NOT set record
-        status, it just returns normally. Cover + body images upload regardless
-        of ``save``; ``save`` only controls the publish call's save/entrance
-        fields.
+        默认（``stop_before_publish=False``）是全自动 ``save=1`` 真实发布；必须有
+        封面图，非零 API code 会抛 ``PublishError``。当 ``stop_before_publish=True``
+        时，适配器发送 ``save=0``（仅草稿），结果消息说明草稿已保存、等待人工确认；
+        executor 随后自行把记录停在 ``waiting_manual_publish``。本驱动不设置记录状态，
+        只正常返回。封面和正文图片不论 ``save`` 值都会上传；``save`` 只控制发布调用的
+        save/entrance 字段。
 
-        NOTE: making manual-confirm actually re-publish the saved draft (design
-        §10 option A/B) is a LATER, out-of-M2 task — today a draft is just saved.
+        注意：让 manual-confirm 真正重新发布已保存草稿（设计 §10 option A/B）是
+        M2 之后的任务；当前只保存草稿。
         """
         content_html, image_order = body_segments_to_toutiao_html(payload.body_segments)
         page.goto(PUBLISH_URL, wait_until="domcontentloaded", timeout=60000)
@@ -294,9 +288,8 @@ class ToutiaoInPageDriver:
                 "头条账号未登录或登录态失效，需要人工接管",
                 error_type="login_required",
             )
-        # save=0 -> draft (honors stop_before_publish); save=1 -> real publish.
-        # Cover + body images upload REGARDLESS of save; save only controls the
-        # publish call's save/entrance fields.
+        # save=0 -> 草稿（遵守 stop_before_publish）；save=1 -> 真实发布。
+        # 封面和正文图片不论 save 值都会上传；save 只控制发布调用的 save/entrance 字段。
         save = 0 if stop_before_publish else 1
         is_draft = save == 0
         if save == 1 and payload.cover_asset_path is None:

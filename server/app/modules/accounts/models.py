@@ -44,7 +44,7 @@ class Account(Base):
     )  # 平台侧用户 ID
     status: Mapped[str] = mapped_column(
         String(30), default="unknown", index=True
-    )  # valid / expired / unknown
+    )  # 状态：valid / expired / unknown
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     state_path: Mapped[str] = mapped_column(
@@ -62,7 +62,7 @@ class Account(Base):
 
 
 class AccountLoginSession(Base):
-    """Worker-owned interactive account login session command/state row."""
+    """Worker 拥有的交互式账号登录会话命令 / 状态记录。"""
 
     __tablename__ = "account_login_sessions"
 
@@ -92,7 +92,7 @@ class AccountLoginSession(Base):
 
 
 class BrowserSession(Base):
-    """Cross-process browser session registry — written by worker, read by API."""
+    """跨进程浏览器会话注册表：由 worker 写入，API 读取。"""
 
     __tablename__ = "browser_sessions"
 
@@ -110,7 +110,7 @@ class BrowserSession(Base):
 
 
 class RecordBrowserSession(Base):
-    """Maps a publish record to the browser session handling it."""
+    """发布记录到处理它的浏览器会话的映射。"""
 
     __tablename__ = "record_browser_sessions"
 
@@ -123,7 +123,7 @@ class RecordBrowserSession(Base):
 
 
 class BrowserProfileLock(Base):
-    """Cross-process lock for one Chrome persistent profile directory."""
+    """单个 Chrome 持久化 profile 目录的跨进程锁。"""
 
     __tablename__ = "browser_profile_locks"
 

@@ -1,4 +1,4 @@
-"""AI 生文插图钩子 — 供 LangGraph 生文 fan-in 阶段调用。
+"""AI 生文插图钩子 — 供 LangGraph 生文汇合阶段调用。
 
 调用方式：
     from server.app.modules.image_library.hook import insert_images_for_article
@@ -30,7 +30,7 @@ def insert_images_for_article(
     if not image_positions:
         return
 
-    # 懒导入 articles / inserter / selector：避免与生文链路互相 import 形成环
+    # 懒导入 articles / inserter / selector：避免与生文链路互相导入形成环
     from server.app.core.time import utcnow
     from server.app.modules.articles.parser import dumps_content_json, loads_content_json
     from server.app.modules.articles.service import get_article

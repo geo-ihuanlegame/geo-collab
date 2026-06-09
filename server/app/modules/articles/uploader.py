@@ -18,8 +18,8 @@ from server.app.core.paths import get_data_dir
 _logger = logging.getLogger(__name__)
 
 CHUNK_SIZE = 3 * 1024 * 1024  # 3MB
-STREAM_BUFFER_SIZE = 64 * 1024  # 64KB buffer for streaming I/O
-MAGIC_BYTES_CHECK_SIZE = 512  # bytes to check for format validation
+STREAM_BUFFER_SIZE = 64 * 1024  # 流式 I/O 的 64KB 缓冲区
+MAGIC_BYTES_CHECK_SIZE = 512  # 用于格式验证的字节数
 
 
 @dataclass
@@ -79,7 +79,7 @@ class ChunkedUploadManager:
         import shutil
 
         now = time.time()
-        max_age = 86400  # 24 hours
+        max_age = 86400  # 24 小时
         for entry in self.sessions_dir.iterdir():
             if not entry.is_dir():
                 continue
@@ -140,12 +140,12 @@ class ChunkedUploadManager:
     def merge_chunks(self, upload_id: str) -> tuple[Path, str, bool, str | None]:
         """合并所有分块到单个临时文件，使用流式处理并执行早期格式验证。
 
-        Returns:
-            Tuple of (merged_path, sha256_hash, is_valid_format, format_error)
-            - merged_path: Path to merged file
-            - sha256_hash: Server-computed SHA256 hex digest
-            - is_valid_format: True if file magic bytes match ALLOWED_MAGIC
-            - format_error: Error message if format validation failed, None otherwise
+        返回：
+            (merged_path, sha256_hash, is_valid_format, format_error)
+            - merged_path：合并后文件路径
+            - sha256_hash：服务端计算出的 SHA256 十六进制摘要
+            - is_valid_format：文件魔数字节匹配 ALLOWED_MAGIC 时为 True
+            - format_error：格式验证失败时的错误消息，否则为 None
         """
         session = self.sessions.get(upload_id)
         if not session:
@@ -165,20 +165,20 @@ class ChunkedUploadManager:
                 if not chunk_path.exists():
                     raise ValueError(f"Missing chunk {i} in upload {upload_id}")
 
-                # Stream-read each chunk file in small buffers
+                # 用小缓冲区流式读取每个分块文件
                 with open(chunk_path, "rb") as chunk_file:
                     while True:
                         buffer = chunk_file.read(STREAM_BUFFER_SIZE)
                         if not buffer:
                             break
 
-                        # Collect magic bytes for format validation (first 512 bytes)
+                        # 收集用于格式验证的魔数字节（前 512 字节）
                         if not format_checked:
                             bytes_needed = MAGIC_BYTES_CHECK_SIZE - len(magic_bytes_buffer)
                             if bytes_needed > 0:
                                 magic_bytes_buffer.extend(buffer[:bytes_needed])
 
-                            # Check if we have enough data or reached end of file
+                            # 检查是否已收集足够数据，或是否已到文件末尾
                             will_have_checked = (
                                 len(magic_bytes_buffer) >= MAGIC_BYTES_CHECK_SIZE
                                 or total + len(buffer) >= session.total_size
@@ -191,7 +191,7 @@ class ChunkedUploadManager:
                                     format_error = "Unsupported file type"
                                 format_checked = True
 
-                        # Write to output and update hash
+                        # 写入输出文件并更新哈希
                         out.write(buffer)
                         sha256.update(buffer)
                         total += len(buffer)

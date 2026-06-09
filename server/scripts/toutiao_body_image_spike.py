@@ -218,7 +218,7 @@ def auto_capture_body_image_chooser(page: Any, wait_seconds: int) -> Any | None:
             if chooser is not None:
                 return chooser
 
-            # Some editors open a popover first. Try likely local-upload entries.
+            # 有些编辑器会先打开弹层，继续尝试可能的本地上传入口。
             page.wait_for_timeout(800)
             menu_candidates = [
                 page.get_by_text(re.compile("本地上传|上传图片|选择图片|图片上传")).first,
@@ -247,7 +247,7 @@ def auto_capture_body_image_chooser(page: Any, wait_seconds: int) -> Any | None:
 
 
 def confirm_image_drawer(page: Any) -> bool:
-    """Click the Toutiao body-image drawer confirm button after upload."""
+    """上传后点击头条正文图片抽屉中的确认按钮。"""
     candidates = [
         ".mp-ic-img-drawer button:has-text('确定')",
         ".byte-drawer button:has-text('确定')",

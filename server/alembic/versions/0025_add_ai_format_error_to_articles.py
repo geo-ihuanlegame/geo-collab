@@ -1,8 +1,8 @@
-"""add ai_format_error to articles
+"""为 articles 添加 ai_format_error
 
-Revision ID: 0025
-Revises: 0024
-Create Date: 2026-05-25
+修订 ID: 0025
+上一修订: 0024
+创建日期: 2026-05-25
 """
 from typing import Sequence, Union
 

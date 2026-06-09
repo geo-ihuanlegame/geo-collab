@@ -1,11 +1,11 @@
-"""方案运行 executor：展开 run tasks → 并发执行 → 汇总 run 状态。
+"""方案运行执行器：展开运行任务 → 并发执行 → 汇总运行状态。
 
 设计要点（对照可行性分析 Q3/Q4）：
-- 三段式：`create_run`（展开快照→pending tasks）/ `run_scheme`（并发执行+汇总）/ 纯函数易测。
-- 每篇文章一条 task，互不依赖（embarrassingly parallel），用 ThreadPoolExecutor(max_workers=4)。
-- 每个并行 worker 自带独立 DB session（session 非线程安全）。
-- 运行时每条 task 从该问题类型允许列表随机抽一个**有效**模板（不存在/停用/删除/非 generation
-  都视为无效）；若整列无效 → 该 task 失败、其他类型继续。
+- 三段式：`create_run`（展开快照→待处理任务）/ `run_scheme`（并发执行+汇总）/ 纯函数易测。
+- 每篇文章一条任务，互不依赖，使用 ThreadPoolExecutor(max_workers=4)。
+- 每个并行工作线程自带独立数据库会话（会话非线程安全）。
+- 运行时每条任务从该问题类型允许列表随机抽一个**有效**模板（不存在/停用/删除/非 generation
+  都视为无效）；若整列无效 → 该任务失败、其他类型继续。
 - 只读方案快照（question_text），不碰 QuestionItem.status/article_id。
 """
 
@@ -45,7 +45,7 @@ def _render_questions(questions: list[Any]) -> str:
 
 
 def create_run(db: Any, *, scheme: GenerationScheme, user_id: int) -> GenerationSchemeRun:
-    """按方案行展开 run tasks（每行 article_count 条）。使用方案快照，不读问题池最新文本。"""
+    """按方案行展开运行任务（每行 article_count 条）。使用方案快照，不读问题池最新文本。"""
     run = GenerationSchemeRun(
         scheme_id=scheme.id,
         user_id=user_id,
@@ -108,7 +108,7 @@ def _execute_task(
     session_factory: SessionFactory,
     model_override: str | None = None,
 ) -> int | None:
-    """执行一条 task：选模板 → 生文 → 写结果。返回 article_id 或 None（失败）。
+    """执行一条任务：选模板 → 生文 → 写结果。返回 article_id 或 None（失败）。
 
     model_override 为方案级 AI 引擎（None / 空 = 用系统默认写作模型）。
     """
@@ -170,7 +170,7 @@ def _execute_task(
     finally:
         db.close()
 
-    # 生文成功后自动 AI 排版 + 全 bucket 智能配图（best-effort，不影响 task 结果）
+    # 生文成功后自动 AI 排版 + 全 bucket 智能配图（尽力而为，不影响任务结果）
     _auto_format_article(article_id, user_id, session_factory)
     # [临时] 封面兜底：从 GEO_TEMP_COVER_BUCKET 随机取图当封面（后期删除本行 + _assign_temp_cover_from_bucket）
     _assign_temp_cover_from_bucket(article_id, user_id, session_factory)
@@ -178,7 +178,7 @@ def _execute_task(
 
 
 def run_scheme(run_id: int, session_factory: SessionFactory) -> None:
-    """方案运行入口（由后台线程调用）：并发执行所有 task，汇总 run 状态。"""
+    """方案运行入口（由后台线程调用）：并发执行所有任务，汇总运行状态。"""
     db = session_factory()
     try:
         run = db.get(GenerationSchemeRun, run_id)
@@ -297,7 +297,7 @@ def _group_run_articles(run_id: int, session_factory: SessionFactory) -> None:
         fallback_suffix=f"#{rid}",
     )
     if gid is None:
-        # 成组/送审失败：与 pipeline executor 对齐，降级 run 状态 + 写明原因，
+        # 成组/送审失败：与 pipeline 执行器对齐，降级运行状态 + 写明原因，
         # 避免 UI 显示成功而文章其实未送审/未成组。
         db = session_factory()
         try:
@@ -319,7 +319,7 @@ def _auto_format_article(
 ) -> None:
     """方案生文成功后自动 AI 排版 + 用全部图片 bucket 智能配图。
 
-    best-effort：任何失败只记日志，绝不影响已生成的文章 / task 状态。
+    尽力而为：任何失败只记日志，绝不影响已生成的文章 / 任务状态。
     """
     try:
         from server.app.modules.articles.ai_format import has_ai_format_targets
@@ -378,7 +378,7 @@ def _assign_temp_cover_from_bucket(
     - 未配置 GEO_TEMP_COVER_BUCKET（空字符串）时整段跳过，连会话都不开。
     - 走 store_bytes 落成真实 Asset（cover_asset_id 外键有效，发布驱动可上传文件）。
     - 已有封面的文章跳过，不覆盖。
-    - best-effort：任何失败只记日志，绝不影响已生成的文章 / task 状态。
+    - 尽力而为：任何失败只记日志，绝不影响已生成的文章 / 任务状态。
     """
     bucket = get_settings().temp_cover_bucket
     if not bucket:

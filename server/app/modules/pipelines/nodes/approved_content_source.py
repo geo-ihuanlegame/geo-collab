@@ -1,4 +1,4 @@
-"""approved_content_source 源节点（「已审核待发布」）：取最近更新的已审文章 id（默认排除已分发/在途）。
+"""approved_content_source 源节点（「已审核待发布」）：取最近更新的已审文章 ID（默认排除已分发/在途）。
 
 「已分发/在途」口径与 article_group_source 一致：failed/cancelled/软删的记录不算占用。"""
 
@@ -29,7 +29,7 @@ def run_approved_content_source(ctx: NodeRunContext) -> NodeResult:
         if not is_admin:
             stmt = stmt.where(Article.user_id == ctx.user_id)
         if exclude_distributed:
-            # 「已分发或在途」才排除：成功 + 在途(pending/running/待人工)都不重复分发；
+            # 「已分发或在途」才排除：成功 + 在途（pending/running/待人工）都不重复分发；
             # 只有 failed/cancelled 或软删的记录允许该文章重新进入分发（可重试，不永久埋没）。
             distributed = select(PublishRecord.article_id).where(
                 PublishRecord.is_deleted == False,  # noqa: E712

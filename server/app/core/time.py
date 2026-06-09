@@ -1,6 +1,6 @@
-"""时间工具：统一 naive-UTC 时间戳。
+"""时间工具：统一无时区 UTC 时间戳。
 
-全库时间戳字段都用 utcnow()（naive UTC），序列化时 main.py 的补丁补上 "Z" 后缀。
+全库时间戳字段都用 utcnow()（无时区 UTC），序列化时 main.py 的补丁补上 "Z" 后缀。
 """
 
 from datetime import UTC, datetime

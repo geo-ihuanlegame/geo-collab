@@ -1,7 +1,7 @@
-# server/app/modules/pipelines/models.py
+# Pipeline 编排 ORM 模型
 """Pipeline 编排的 ORM 模型：Pipeline（含草稿 draft_snapshot + 调度配置）、
-PipelineNode（按 node_index 线性排列的 live 节点）、PipelineVersion（发布版本快照）、
-PipelineRun（一次运行，创建时冻结 snapshot，执行只读它）。"""
+PipelineNode（按 node_index 线性排列的实时节点）、PipelineVersion（发布版本快照）、
+PipelineRun（一次运行，创建时冻结快照，执行只读它）。"""
 
 from datetime import datetime
 
@@ -100,7 +100,7 @@ class PipelineRun(Base):
     status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
     node_results: Mapped[dict] = mapped_column(JSON, default=dict)
     article_ids: Mapped[list] = mapped_column(JSON, default=list)
-    # 运行创建时冻结的节点快照：执行只读它，不读 live 节点（创建→执行之间被 publish 改了也不影响）
+    # 运行创建时冻结的节点快照：执行只读它，不读实时节点（创建→执行之间被发布改了也不影响）
     snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

@@ -1,8 +1,8 @@
-"""add scope, owner and system flag to prompt templates
+"""为 prompt_templates 添加 scope、owner 和 system 标记
 
-Revision ID: 0026
-Revises: 0025
-Create Date: 2026-05-25
+修订 ID: 0026
+上一修订: 0025
+创建日期: 2026-05-25
 """
 from typing import Sequence, Union
 

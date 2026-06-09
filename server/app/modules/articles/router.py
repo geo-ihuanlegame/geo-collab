@@ -98,7 +98,7 @@ class AIFormatRequest(BaseModel):
     preset_id: int | None = None
 
 
-# ── Article helpers ───────────────────────────────────────────────────────────
+# ── 文章辅助函数 ────────────────────────────────────────────────────────────
 
 
 def _verify_article_ownership(article: Article | None, current_user: User) -> Article:
@@ -132,14 +132,14 @@ def _clear_ai_lock_if_expired(db: Session, article: Article) -> None:
 
 
 def _check_not_ai_locked(db: Session, article: Article) -> None:
-    """Raise ConflictError if article is under active AI format check."""
+    """文章正在进行 AI 排版时抛 ConflictError。"""
     _clear_ai_lock_if_expired(db, article)
     if not article.ai_checking:
         return
     raise ConflictError("文章正在进行 AI 格式调整，请稍后再试")
 
 
-# ── Article routes ────────────────────────────────────────────────────────────
+# ── 文章路由 ────────────────────────────────────────────────────────────────
 
 
 @articles_router.get("", response_model=list[ArticleListRead])
@@ -222,11 +222,10 @@ def create_article_endpoint(
                 )
             ).scalar_one_or_none()
             if existing is not None:
-                # Idempotent retry: the concurrent request already created it.
+                # 幂等重试：并发请求已经创建了这篇文章。
                 return to_article_read(get_article(db, existing.id) or existing)
-        # Any IntegrityError not resolved by the idempotency lookup above is a
-        # genuine constraint conflict — surface it as 409, never fall through to
-        # an implicit `return None` (which would serialize as an opaque 500).
+        # 上面的幂等查询无法消解的 IntegrityError 都是真实约束冲突；
+        # 明确抛 409，避免隐式 return None 被序列化成不透明的 500。
         raise HTTPException(
             status_code=409, detail="请求冲突：client_request_id 已存在或数据完整性约束失败"
         ) from exc
@@ -364,7 +363,7 @@ def trigger_ai_format_endpoint(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict[str, str]:
-    """触发 AI 排版：抢锁（置 ai_checking）后立即 spawn 后台线程跑 run_ai_format，202 返回。
+    """触发 AI 排版：抢锁（置 ai_checking）后立即启动后台线程跑 run_ai_format，202 返回。
 
     is_checking 期间不可重复触发；含配图栏目时附带自动配图。线程崩溃由 _run 的 except 兜底解锁。
     """
@@ -450,7 +449,7 @@ def trigger_ai_format_endpoint(
     return {"status": "started"}
 
 
-# ── Article group helpers ─────────────────────────────────────────────────────
+# ── 文章分组辅助函数 ────────────────────────────────────────────────────────
 
 
 def _verify_group_ownership(group: ArticleGroup | None, current_user: User) -> ArticleGroup:
@@ -466,7 +465,7 @@ def _group_read_with_summary(db: Session, group: ArticleGroup) -> ArticleGroupRe
     return to_group_read(group, ReviewSummary(total=total, approved=approved))
 
 
-# ── Article group routes ──────────────────────────────────────────────────────
+# ── 文章分组路由 ────────────────────────────────────────────────────────────
 
 
 @article_groups_router.get("", response_model=list[ArticleGroupRead])
@@ -609,11 +608,11 @@ def approve_group_endpoint(
     return _group_read_with_summary(db, updated)
 
 
-# ── Asset helpers ─────────────────────────────────────────────────────────────
+# ── 资产辅助函数 ────────────────────────────────────────────────────────────
 
 
 def resolve_asset_path_from_storage_key(storage_key: str) -> Path | None:
-    """根据 storage_key 解析磁盘路径，返回 None 如果路径逃逸"""
+    """根据 storage_key 解析磁盘路径；路径逃逸时返回 None。"""
     try:
         data_dir = get_data_dir().resolve()
         path = (data_dir / storage_key).resolve()
@@ -640,7 +639,7 @@ def to_asset_read(asset: Asset) -> AssetRead:
     )
 
 
-# ── Asset routes ──────────────────────────────────────────────────────────────
+# ── 资产路由 ────────────────────────────────────────────────────────────────
 
 
 @assets_router.post("", response_model=AssetRead)
@@ -722,7 +721,7 @@ async def read_asset_thumbnail(
                 )
             return FileResponse(str(thumb_path), media_type="image/webp")
 
-    # fallback：缩略图不存在则 302 重定向到原图
+    # 回退：缩略图不存在则 302 重定向到原图
     return RedirectResponse(url=f"/api/assets/{asset_id}", status_code=302)
 
 
@@ -745,7 +744,7 @@ def read_asset_file(
     if not path.exists():
         raise HTTPException(status_code=404, detail="资源文件不存在")
 
-    # WebP content negotiation
+    # WebP 内容协商
     accept = request.headers.get("accept", "")
     mime_type = asset.mime_type
     if "image/webp" in accept and asset.webp_storage_key:
@@ -776,12 +775,12 @@ def read_asset_file(
     )
 
 
-# ── Chunked upload schemas ────────────────────────────────────────────────────
+# ── 分块上传请求模型 ────────────────────────────────────────────────────────
 
 
 class ChunkedUploadStartRequest(BaseModel):
     total_size: int
-    file_hash: str | None = None  # Deprecated: kept only for old clients.
+    file_hash: str | None = None  # 已弃用：仅为旧客户端保留。
 
 
 class ChunkedUploadCompleteRequest(BaseModel):
@@ -789,7 +788,7 @@ class ChunkedUploadCompleteRequest(BaseModel):
     content_type: str = "application/octet-stream"
 
 
-# ── Chunked asset routes ──────────────────────────────────────────────────────
+# ── 分块资产路由 ────────────────────────────────────────────────────────────
 
 
 @chunked_assets_router.post("/upload-start")
@@ -942,7 +941,7 @@ async def complete_chunked_upload(
         return to_asset_read(stored.asset).model_dump()
 
     except HTTPException:
-        # 必须 re-raise（如 415），不要包成 500（见 CLAUDE.md「complete_chunked_upload」约束）
+        # 必须重新抛出（如 415），不要包成 500（见 CLAUDE.md「complete_chunked_upload」约束）
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

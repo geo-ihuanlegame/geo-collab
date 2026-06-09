@@ -1,7 +1,7 @@
-"""方案流生文内核：与 session/scheme/LangGraph 解耦的可复用单元。
+"""方案流生文内核：与会话、方案、LangGraph 解耦的可复用单元。
 
-未来自动化 pipeline 可把"生成一篇文章"当作一个节点直接复用本函数——它只依赖
-（模板内容 + 问题文本 + 用户 id + session 工厂），不感知方案/运行/会话。
+未来自动化工作流可把"生成一篇文章"当作一个节点直接复用本函数——它只依赖
+（模板内容 + 问题文本 + 用户 ID + 会话工厂），不感知方案、运行或会话。
 """
 
 from __future__ import annotations
@@ -55,10 +55,10 @@ def generate_article_from_prompt(
     question_text: str,
     model: str | None = None,
 ) -> int:
-    """组 prompt → LLM → 取标题 → 转 Tiptap/HTML → create_article。返回 article_id。
+    """组装提示词 → 调用 LLM → 取标题 → 转 Tiptap/HTML → create_article。返回 article_id。
 
     通用系统提示词（不拼 Skill）。`model` 为方案级 AI 引擎覆盖（None / 空 = 用 settings.ai_model）。
-    异常向上抛（由调用方记 task 失败）。每次调用自带独立 session。
+    异常向上抛（由调用方记任务失败）。每次调用自带独立会话。
     """
     import litellm
 
@@ -106,7 +106,7 @@ def generate_article_from_prompt(
     db = session_factory()
     try:
         article = create_article(db, user_id, article_payload)
-        # AI 生文一律未审：不依赖 run 后 mark_pending_and_group 翻转
+        # AI 生文一律未审：不依赖运行后的 mark_pending_and_group 翻转
         article.review_status = "pending"
         db.commit()
         return article.id

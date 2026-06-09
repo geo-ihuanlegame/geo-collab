@@ -1,4 +1,4 @@
-"""图片库 MinIO 对象存储封装：bucket / 对象的增删读，被 router 与配图链路复用。
+"""图片库 MinIO 对象存储封装：分桶 / 对象的增删读，被路由与配图链路复用。
 
 每次调用都新建 Minio 客户端（无连接池），凭据从 settings 读取。
 """
@@ -28,11 +28,11 @@ def _client():
 
 
 def ensure_bucket(bucket_name: str) -> None:
-    """创建 bucket（幂等），设置 public-read 策略。"""
+    """创建分桶（幂等），设置公开读策略。"""
     client = _client()
     if not client.bucket_exists(bucket_name):
         client.make_bucket(bucket_name)
-    # 设置 bucket 公开读策略（s3:GetObject 放行）；注意嵌入文章的图片实际走 /api/stock-images/{id}/file 代理读取，并不依赖此策略
+    # 设置分桶公开读策略（s3:GetObject 放行）；注意嵌入文章的图片实际走 /api/stock-images/{id}/file 代理读取，并不依赖此策略
     policy = {
         "Version": "2012-10-17",
         "Statement": [

@@ -1,4 +1,4 @@
-"""任务模块包导出：聚合 executor（执行引擎）与 service（CRUD/状态机）的公共入口。"""
+"""任务模块包导出：聚合 executor（执行引擎）与 service（增删改查 / 状态机）的公共入口。"""
 
 from server.app.modules.tasks.executor import (  # noqa: F401
     MAX_CONCURRENT_RECORDS,

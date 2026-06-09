@@ -1,4 +1,4 @@
-"""飞书多维表格(Bitable)读客户端。
+"""飞书多维表格（Bitable）读客户端。
 
 用 GEO_FEISHU_APP_ID / GEO_FEISHU_APP_SECRET 换 tenant_access_token（带缓存+到期刷新），
 读取多维表记录（自动翻页）。问题库同步、以及第二阶段"发布采集写回"都复用此模块。
@@ -21,11 +21,11 @@ from server.app.core.config import get_settings
 _logger = logging.getLogger(__name__)
 _FEISHU_BASE = "https://open.feishu.cn/open-apis"
 
-# 模块级 token 缓存（tenant_access_token 有效期约 7200s）
+# 模块级令牌缓存（tenant_access_token 有效期约 7200 秒）
 _token_cache: dict[str, Any] = {"token": None, "expire_at": 0.0}
 _token_lock = Lock()
 
-# 飞书 token 失效错误码
+# 飞书令牌失效错误码
 _TOKEN_INVALID_CODES = {99991663, 99991661, 99991664}
 
 

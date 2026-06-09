@@ -34,12 +34,12 @@ def test_live_draft_save_round_trip():
         ctx = p.chromium.launch_persistent_context(PROFILE, headless=False, locale="zh-CN")
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         try:
-            # save=0 draft — no cover required (confirmed by spike capture)
+            # save=0 草稿不需要封面（已通过 spike 抓包确认）
             result = ToutiaoInPageDriver().publish(
                 page=page, context=ctx, payload=payload, stop_before_publish=True
             )
         finally:
             ctx.close()
-    # The driver logs the raw response; result.message carries the pgc_id on success.
+    # 驱动会记录原始响应；成功时 result.message 携带 pgc_id。
     assert result.title == "架构验证草稿-请忽略"
     assert "成功" in result.message

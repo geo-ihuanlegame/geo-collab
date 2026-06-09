@@ -15,15 +15,15 @@ from server.app.modules.articles.parser import BodySegment
 
 
 class ToutiaoBodyError(Exception):
-    """Raised when the article body cannot be serialized for Toutiao."""
+    """文章正文无法序列化为头条格式时抛出。"""
 
 
 @dataclass(frozen=True)
 class ImageRef:
-    """Ordered reference to a body image emitted as a placeholder token.
+    """以占位 token 输出的正文图片有序引用。
 
-    The actual upload + token→`<img>` substitution happens later (in JS); the
-    serializer only records what each placeholder stands for, in document order.
+    实际上传和 token→`<img>` 替换稍后在 JS 中完成；序列化器只按文档顺序记录
+    每个占位符对应的图片。
     """
 
     token: str
@@ -40,21 +40,20 @@ def _run_html(text: str, bold: bool) -> str:
 def body_segments_to_toutiao_html(
     segments: list[BodySegment],
 ) -> tuple[str, list[ImageRef]]:
-    """Serialize parsed body segments into Toutiao `<p data-track="N">` HTML.
+    """把解析后的正文片段序列化成头条 `<p data-track="N">` HTML。
 
-    Returns ``(html, image_order)`` where ``image_order`` lists, in document
-    order, an :class:`ImageRef` per body image. Each image becomes its own
-    placeholder paragraph ``<p data-track="N">__GEO_IMG_k__</p>`` (k = 0-based
-    image index); the real upload + token substitution happens later in JS.
+    返回 ``(html, image_order)``，其中 ``image_order`` 按文档顺序列出每张正文图
+    对应的 :class:`ImageRef`。每张图都会变成自己的占位段落
+    ``<p data-track="N">__GEO_IMG_k__</p>``（k 从 0 开始）；真实上传和 token
+    替换稍后在 JS 中完成。
 
-    Paragraph break = a text segment whose text is exactly "\\n".
-    Headings (h1/h2 alike) render as Toutiao's 小标题 node
-    ``<h1 class="pgc-h-forward-slash">`` — the red-dot subheading the DOM driver
-    produces via the editor's "# " input rule; everything else as ``<p>``.
-    ``data-track`` stays monotonic 1-based across ALL paragraphs.
+    段落分隔符是 text 正好为 "\\n" 的文本片段。标题（h1/h2 都一样）渲染成
+    头条的小标题节点 ``<h1 class="pgc-h-forward-slash">``，即 DOM 驱动通过
+    编辑器 "# " input rule 生成的红点小标题；其它内容渲染为 ``<p>``。
+    ``data-track`` 在所有段落中保持从 1 开始单调递增。
     """
-    # Each entry is (inner_html, is_heading); the heading flag selects the
-    # wrapping tag at the end while data-track stays monotonic across both.
+    # 每项是 (inner_html, is_heading)；heading 标记决定最后包哪种标签，
+    # data-track 在两类段落之间保持单调递增。
     paragraphs: list[tuple[str, bool]] = []
     image_order: list[ImageRef] = []
     current: list[str] = []
@@ -90,7 +89,7 @@ def body_segments_to_toutiao_html(
         if not seg.text:
             continue
         if seg.heading_level is not None:
-            # 小标题: the heading node supplies the emphasis — don't also bold it.
+            # 小标题：heading 节点本身提供强调，不再额外加粗。
             current_is_heading = True
             current.append(_run_html(seg.text, False))
         else:

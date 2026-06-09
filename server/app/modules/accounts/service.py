@@ -1,4 +1,4 @@
-"""账号 CRUD 与本地存储路径换算。
+"""账号增删改查与本地存储路径换算。
 
 核心是一组在 platform_code/account_key 与 data 目录下相对路径之间互转的纯函数：
 storage_state.json（Playwright 登录态）、profile（Chromium 持久化目录）、

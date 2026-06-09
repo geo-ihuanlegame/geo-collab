@@ -1,5 +1,5 @@
 """
-任务模块 service 层：PublishTask / PublishRecord 的 CRUD、装配（文章 × 账号轮询）、
+任务模块 service 层：PublishTask / PublishRecord 的增删改查、装配（文章 × 账号轮询）、
 状态机推进与启动时的僵死恢复。
 
 约定：错误一律抛 shared.errors 的命名异常（ClientError / ValidationError / AccountError），
@@ -404,7 +404,7 @@ def recover_stuck_task_claims(db: Session) -> None:
         )
         .values(worker_id=None, worker_lease_until=None, worker_heartbeat_at=None)
     )
-    rows = result.rowcount  # type: ignore[attr-defined]  # DML execute returns CursorResult
+    rows = result.rowcount  # type: ignore[attr-defined]  # DML 执行返回 CursorResult
     if rows:
         _logger.warning("Released %d expired worker task claims", rows)
         db.commit()

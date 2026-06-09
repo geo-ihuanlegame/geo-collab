@@ -1,8 +1,8 @@
-"""tasks: add article_round_robin to task_type check constraint
+"""任务：将 article_round_robin 加入 task_type 检查约束
 
-Revision ID: 0042
-Revises: 0041
-Create Date: 2026-06-05
+修订 ID: 0042
+上一修订: 0041
+创建日期: 2026-06-05
 """
 
 from __future__ import annotations

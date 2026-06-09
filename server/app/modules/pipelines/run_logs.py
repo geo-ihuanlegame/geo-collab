@@ -1,6 +1,6 @@
 """运行日志：把 PipelineRun.node_results 摊平成「日志行」并按行做服务端分页。
 
-日志行的粒度是单个节点结果，一次 run 产出多行；分页跨多条 run 切片（见 list_run_log_page）。"""
+日志行的粒度是单个节点结果，一次运行产出多行；分页跨多条运行切片（见 list_run_log_page）。"""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ _BEIJING_OFFSET = timedelta(hours=8)
 def build_run_log_rows(run, name_by_index: dict[int, str]) -> list[RunLogRow]:
     """把单条 PipelineRun 的 node_results 摊平成日志行（按节点下标升序）。
 
-    run 需具备 id / status / node_results / completed_at / created_at 属性。
+    运行对象需具备 id / status / node_results / completed_at / created_at 属性。
     纯函数、无 DB 依赖，便于单测。
     """
     rows: list[RunLogRow] = []
@@ -52,7 +52,7 @@ def beijing_day_to_utc_range(
     """把北京日历日 YYYY-MM-DD 起止转成朴素 UTC 的半开区间 [start, end)。
 
     end_date 取「次日北京零点」作为开区间上界。解析失败抛 ValueError（调用方转 400）。
-    产品 China-only，固定 +08:00（与前端 fmtTime 的 Asia/Shanghai 一致）。
+    产品仅面向中国时区，固定 +08:00（与前端 fmtTime 的 Asia/Shanghai 一致）。
     """
     start_dt = None
     end_dt = None
@@ -69,7 +69,7 @@ def list_run_log_page(
     """按「日志行」服务端分页。返回 (当前页行, 满足筛选的总行数)。
 
     A 方案：SUM(JSON_LENGTH) 取精确总行数；游走 (id, 行数) 整型找到覆盖
-    [offset, offset+page_size) 的 run，只对这些 run 加载 node_results 摊平后精确切片。
+    [offset, offset+page_size) 的运行，只对这些运行加载 node_results 摊平后精确切片。
     """
     from server.app.modules.pipelines.models import PipelineNode, PipelineRun
 
@@ -120,5 +120,5 @@ def list_run_log_page(
     rows: list[RunLogRow] = []
     for rid in window_ids:  # 保持时间倒序
         rows.extend(build_run_log_rows(runs[rid], name_by_index))
-    # skip_in_first：首个窗口 run 之前要丢弃的前导行数（窗口行已按时间倒序拼好）
+    # 首个窗口内第一条运行之前要丢弃的前导行数（窗口行已按时间倒序拼好）
     return rows[skip_in_first : skip_in_first + page_size], total

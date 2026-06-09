@@ -1,4 +1,4 @@
-"""审计日志 Pydantic 模型。"""
+"""审计日志 Pydantic 入参和出参模型。"""
 
 from datetime import datetime
 from typing import Any

@@ -21,12 +21,12 @@ from typing import Any
 @dataclass(frozen=True)
 class BodySegment:
     kind: str  # "text" | "image"
-    text: str = ""  # populated for kind="text"
-    bold: bool = False  # text 节点有 bold mark
+    text: str = ""  # kind="text" 时填充
+    bold: bool = False  # text 节点有 bold 标记
     heading_level: int | None = None  # 来自 heading 节点时为 1 或 2
-    image_path: Path | None = None  # populated after resolution in publish_Runner
-    image_asset_id: str | None = None  # populated by parser; used for tracing
-    stock_image_id: int | None = None  # populated for image-library images
+    image_path: Path | None = None  # 发布运行器解析后填充
+    image_asset_id: str | None = None  # parser 填充，用于追踪
+    stock_image_id: int | None = None  # 图片库图片时填充
 
 
 def _iter_nodes(node: Any) -> Iterable[dict[str, Any]]:
@@ -86,7 +86,7 @@ def dumps_content_json(content_json: dict[str, Any]) -> str:
 
 
 def extract_body_image_nodes(content_json: dict[str, Any]) -> list[tuple[str, str | None]]:
-    """Return list of (asset_id, editor_node_id) for every image node in document order."""
+    """按文档顺序返回每个图片节点的 (asset_id, editor_node_id)。"""
     result = []
     for node in _iter_nodes(content_json):
         if node.get("type") != "image":
@@ -220,10 +220,10 @@ def _compact(segments: list[BodySegment]) -> list[BodySegment]:
 
 
 def parse_body_segments(article: Any) -> list[BodySegment]:
-    """Parse article body into ordered text/image segments.
+    """把文章正文解析成有序的文本 / 图片片段。
 
-    Image segments have image_asset_id set and image_path=None.
-    publish_Runner resolves image_path before passing to drivers.
+    图片片段会设置 image_asset_id，image_path 保持 None；发布运行器在传给驱动前
+    解析 image_path。
     """
     content_json = loads_content_json(article.content_json)
     segments: list[BodySegment] = []

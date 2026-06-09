@@ -1,6 +1,6 @@
-"""ai_generate 处理节点：按单个固定提示词模板并发生 count 篇文章（max_workers=4）。
+"""ai_generate 处理节点：按单个固定提示词模板并发生成 count 指定篇数的文章（max_workers=4）。
 
-单篇失败不中断，错误收进 output["errors"] 交 run 聚合为 partial_failed。"""
+单篇失败不中断，错误收进 output["errors"] 交由运行聚合为 partial_failed。"""
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -12,7 +12,7 @@ from server.app.shared.errors import ValidationError
 
 def run_ai_generate(ctx: NodeRunContext) -> NodeResult:
     cfg = ctx.config or {}
-    # question_text：优先来自上游注入，其次 config 兜底
+    # question_text：优先来自上游注入，其次用 config 兜底
     question_text = ctx.inputs.get("question_text") or cfg.get("question_text") or ""
     if not question_text:
         raise ValidationError("ai_generate 节点缺少 question_text（上游未传且未配置）")
@@ -54,7 +54,7 @@ def run_ai_generate(ctx: NodeRunContext) -> NodeResult:
         for fut in as_completed(futures):
             try:
                 article_ids.append(fut.result())
-            except Exception as exc:  # 单篇失败不中断，交由 run 聚合 partial_failed
+            except Exception as exc:  # 单篇失败不中断，交由运行聚合为 partial_failed
                 errors.append(str(exc))
 
     return NodeResult(

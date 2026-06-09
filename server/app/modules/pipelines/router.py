@@ -1,6 +1,6 @@
-# server/app/modules/pipelines/router.py
-"""Pipeline 编排 API（/api/pipelines/*，前端 UI 叫「智能体管理」）：CRUD、草稿 / 发布 / 版本、
-触发运行与运行日志。运行在 create_app() 注入的 bg_session_factory 后台线程里跑，无独立 worker。"""
+# Pipeline 编排路由
+"""Pipeline 编排 API（/api/pipelines/*，前端 UI 叫「智能体管理」）：增删改查、草稿 / 发布 / 版本、
+触发运行与运行日志。运行在 create_app() 注入的 bg_session_factory 后台线程里跑，无独立工作进程。"""
 
 from __future__ import annotations
 
@@ -61,7 +61,7 @@ def _to_read(db: Session, p) -> dict:
 
 @router.get("/node-types")
 def get_node_types() -> dict:
-    # 节点 config 字段 schema，供前端属性面板渲染
+    # 节点 config 字段结构，供前端属性面板渲染
     return {
         "node_types": [
             {
@@ -263,7 +263,7 @@ def list_versions(
     return out
 
 
-# 预留给「版本详情/diff」UI（当前前端未调用，勿当死代码删）
+# 预留给「版本详情/差异」UI（当前前端未调用，勿当死代码删）
 @router.get("/versions/{version_id}")
 def get_version(
     version_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
@@ -328,7 +328,7 @@ def create_run(
     return JSONResponse(status_code=202, content={"run_id": run_id, "status": "pending"})
 
 
-# 预留给「运行历史」列表 UI（当前前端只轮询单个 run，勿当死代码删）
+# 预留给「运行历史」列表 UI（当前前端只轮询单个运行，勿当死代码删）
 @router.get("/{pipeline_id}/runs")
 def list_runs(
     pipeline_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)

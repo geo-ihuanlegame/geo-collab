@@ -1,4 +1,4 @@
-"""节点注册表与运行上下文：节点类型按 register(node_type, handler) 注册（与 driver 同模式），
+"""节点注册表与运行上下文：节点类型按 register(node_type, handler) 注册（与驱动同模式），
 执行器用 get_handler 按类型取处理函数。各内置节点模块在导入时调 register；nodes/__init__.py 触发导入。"""
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ class NodeRunContext:
     config: dict
     inputs: dict  # 经 flow_meta inputMapping 注入
     upstream: dict  # 上游累积 context（node_index -> output 的合并视图）
-    # 预留：节点可直接读全量上游输出；当前内置节点只用 inputs
+    # 预留：节点可直接读全量上游输出；当前内置节点只用输入
 
 
 @dataclass

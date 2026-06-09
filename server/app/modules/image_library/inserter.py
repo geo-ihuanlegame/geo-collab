@@ -1,7 +1,7 @@
 """把选好的图片节点插进 Tiptap 文档（content_json）的纯函数集合。
 
 只操作 content_json dict，不碰 DB；落库由调用方负责（按 CLAUDE.md 本应同步 content_html/plain_text，
-但现有调用方 hook.insert_images_for_article 目前只回写 content_json + version）。
+    但现有调用方 hook.insert_images_for_article 目前只回写 content_json + version）。
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from server.app.modules.image_library.selector import StockImageRef
 
 
 def has_images_in_content(content_json: dict) -> bool:
-    """检查 Tiptap doc 顶层节点是否已有 image 节点。"""
+    """检查 Tiptap 文档顶层节点是否已有 image 节点。"""
     for node in content_json.get("content") or []:
         if isinstance(node, dict) and node.get("type") == "image":
             return True
@@ -45,7 +45,7 @@ def insert_images_at_positions(
     """在指定位置之后插入图片节点。
 
     positions 是顶层 content 数组的索引，表示"在该节点之后插入"。
-    positions 和 image_refs 按顺序一一对应，多余的 refs 或 positions 被忽略。
+    positions 和 image_refs 按顺序一一对应，多余的图片引用或位置会被忽略。
     自动处理插入后的索引偏移。
     """
     if not image_refs or not positions:

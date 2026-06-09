@@ -1,8 +1,8 @@
-"""create assets, articles, article_body_assets
+"""创建 assets、articles、article_body_assets 表
 
-Revision ID: 0003
-Revises: 0002
-Create Date: 2026-05-12
+修订 ID: 0003
+上一修订: 0002
+创建日期: 2026-05-12
 """
 from typing import Sequence, Union
 

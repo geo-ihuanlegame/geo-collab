@@ -1,7 +1,7 @@
-"""Pipeline CRUD / 校验 / 草稿与版本服务层（无后台执行逻辑，那部分在 executor.py）。
+"""Pipeline 增删改查 / 校验 / 草稿与版本服务层（无后台执行逻辑，那部分在 executor.py）。
 
-草稿态（draft_snapshot + has_draft）与 live 节点（PipelineNode）分离：编辑只动草稿，
-publish_draft 才把草稿落成 live 节点并写一份 PipelineVersion 快照。"""
+草稿态（draft_snapshot + has_draft）与实时节点（PipelineNode）分离：编辑只动草稿，
+publish_draft 才把草稿落成实时节点并写一份 PipelineVersion 快照。"""
 
 from __future__ import annotations
 
@@ -199,7 +199,7 @@ def patch_pipeline(db: Session, p: Pipeline, *, fields: dict) -> Pipeline:
 
 
 def delete_pipeline(db: Session, p: Pipeline) -> None:
-    """删除 pipeline 及其全部 live 节点 / 版本 / 运行记录。有活跃 run 时抛 ConflictError。"""
+    """删除 pipeline 及其全部实时节点 / 版本 / 运行记录。有活跃运行时抛 ConflictError。"""
     active = (
         db.query(PipelineRun.id)
         .filter(PipelineRun.pipeline_id == p.id, PipelineRun.status.in_(("pending", "running")))
@@ -227,7 +227,7 @@ def discard_draft(db: Session, p: Pipeline) -> None:
 
 
 def publish_draft(db: Session, p: Pipeline, *, remark: str | None, user_id: int) -> int:
-    """把草稿落成 live 节点并写一份 PipelineVersion 快照，清空草稿态，返回新版本号。
+    """把草稿落成实时节点并写一份 PipelineVersion 快照，清空草稿态，返回新版本号。
 
     全程在 pipeline 行锁内串行化，避免并发发布时 version_no 重号。
     """
@@ -238,7 +238,7 @@ def publish_draft(db: Session, p: Pipeline, *, remark: str | None, user_id: int)
     node_dicts = snapshot_to_node_dicts(p.draft_snapshot)
     if not node_dicts:
         raise ClientError("草稿内容为空")
-    # 重建 live 节点
+    # 重建实时节点
     db.query(PipelineNode).filter(PipelineNode.pipeline_id == p.id).delete()
     for nd in node_dicts:
         db.add(
@@ -252,7 +252,7 @@ def publish_draft(db: Session, p: Pipeline, *, remark: str | None, user_id: int)
             )
         )
     db.flush()
-    # 写版本快照（用 live 节点规范化）
+    # 写版本快照（用实时节点规范化）
     live = list_nodes(db, p.id)
     next_no = _next_version_no(db, p.id)
     db.add(

@@ -1,4 +1,4 @@
-"""纯逻辑：判定某 pipeline 在给定本地时刻 now 是否到点、所属 slot；时间窗判定。无 DB。"""
+"""纯逻辑：判定某 pipeline 在给定本地时刻 now 是否到点、所属时间槽；时间窗判定。无 DB。"""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import datetime as dt
 def current_slot(
     kind: str, minute: int | None, hour: int | None, weekday: int | None, now: dt.datetime
 ) -> dt.datetime | None:
-    """now 为带本地时区的 datetime。命中返回截到分钟的 slot datetime，否则 None。"""
+    """now 为带本地时区的 datetime。命中返回截到分钟的时间槽 datetime，否则 None。"""
     if kind == "hourly":
         if minute is not None and now.minute == minute:
             return now.replace(second=0, microsecond=0)
@@ -43,9 +43,9 @@ def in_window(window_start: dt.time | None, window_end: dt.time | None, now: dt.
 def last_due_slot(
     kind: str, minute: int | None, hour: int | None, weekday: int | None, now: dt.datetime
 ) -> dt.datetime | None:
-    """返回 <= now 的最近一个计划 slot（截到分钟）；none/未配置返回 None。
+    """返回 <= now 的最近一个计划时间槽（截到分钟）；none/未配置返回 None。
     与 current_slot 不同：不要求 now 恰好落在计划分钟，从而轮询漂移 / 间隔>60s 也不漏跑，
-    由调度器结合 last_scheduled_run_at claim 去重保证每个 slot 只触发一次。
+    由调度器结合 last_scheduled_run_at 抢占去重保证每个时间槽只触发一次。
     依赖 GEO_SCHEDULER_TZ 为无 DST 时区（如 Asia/Shanghai）。"""
     if kind == "hourly":
         if minute is None:

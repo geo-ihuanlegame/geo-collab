@@ -1,8 +1,8 @@
-"""audit_logs: system-level user action audit table
+"""audit_logs：系统级用户操作审计表
 
-Revision ID: 0034
-Revises: 0033
-Create Date: 2026-05-29
+修订 ID: 0034
+上一修订: 0033
+创建日期: 2026-05-29
 """
 from __future__ import annotations
 

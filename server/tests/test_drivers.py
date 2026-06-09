@@ -1,4 +1,4 @@
-"""Tests for PlatformDriver registry and ToutiaoDriver implementation."""
+"""测试 PlatformDriver 注册表和 ToutiaoDriver 实现。"""
 
 import pytest
 

@@ -1,10 +1,10 @@
 """
-Phase 5 tests: 飞书通知功能
+Phase 5 测试：飞书通知功能
 
 场景：
-1. notify_task_finished 在 webhook url 为 None 时不报错、不发送
-2. _send 发送正确的 JSON payload（monkeypatch urllib.request.urlopen）
-3. 发送失败（urlopen 抛异常）时不抛出（静默 warning）
+1. notify_task_finished 在 webhook URL 为 None 时不报错、不发送
+2. _send 发送正确的 JSON 载荷（monkeypatch urllib.request.urlopen）
+3. 发送失败（urlopen 抛异常）时不抛出（静默记录 warning）
 4. 任务完成后飞书通知被触发（monkeypatch notify_task_finished，
    在 _aggregate_task_status 调用结束后可观察到）
 """
@@ -18,7 +18,7 @@ from server.app.core.config import get_settings
 from server.app.shared.feishu import _send, notify_task_finished
 from server.tests.utils import build_test_app
 
-# ── helpers ──────────────────────────────────────────────────────────────────
+# ── 辅助函数 ────────────────────────────────────────────────────────────────
 
 _PNG = (
     b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
@@ -64,7 +64,7 @@ def _create_task(client, article_id: int, account_id: int, name: str = "Feishu t
     ).json()
 
 
-# ── 场景 1: webhook url 为 None 时不报错、不发送 ──────────────────────────────
+# ── 场景 1: webhook URL 为 None 时不报错、不发送 ──────────────────────────────
 
 
 class TestNotifyNoWebhook:
@@ -109,7 +109,7 @@ class TestNotifyNoWebhook:
         get_settings.cache_clear()
 
 
-# ── 场景 2: _send 发送正确的 JSON payload ─────────────────────────────────────
+# ── 场景 2: _send 发送正确的 JSON 载荷 ───────────────────────────────────────
 
 
 class TestSendPayload:
@@ -153,7 +153,7 @@ class TestSendPayload:
         assert "我的任务" in text
         assert "#42" in text
         assert "succeeded" in text
-        assert "3" in text  # total
+        assert "3" in text  # 总数
 
     def test_sends_correct_emoji_for_each_status(self):
         """_send 应为不同状态发送对应的 emoji。"""
@@ -211,12 +211,12 @@ class TestSendPayload:
 
         body = json.loads(captured[0].data.decode())
         text = body["content"]["text"]
-        assert "2" in text  # failed count
-        assert "3" in text  # succeeded count
-        assert "5" in text  # total
+        assert "2" in text  # 失败数
+        assert "3" in text  # 成功数
+        assert "5" in text  # 总数
 
 
-# ── 场景 3: 发送失败时静默 warning，不抛出 ────────────────────────────────────
+# ── 场景 3: 发送失败时静默记录 warning，不抛出 ────────────────────────────────
 
 
 class TestSendFailureSilent:
@@ -305,7 +305,7 @@ class TestNotifyTriggeredOnTaskCompletion:
 
             test_app.client.post(f"/api/tasks/{task_id}/execute")
 
-            # Wait for background thread to finish
+            # 等待后台线程结束
             deadline = time.time() + 5.0
             while time.time() < deadline:
                 task = test_app.client.get(f"/api/tasks/{task_id}").json()
@@ -419,7 +419,7 @@ class TestNotifyTriggeredOnTaskCompletion:
                     break
                 time.sleep(0.05)
 
-            # Give any background threads a moment to potentially call urlopen
+            # 给后台线程一点时间，观察是否会调用 urlopen
             time.sleep(0.2)
             assert not urlopen_calls, "urlopen should not have been called"
         finally:

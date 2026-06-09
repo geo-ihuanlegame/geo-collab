@@ -22,11 +22,10 @@ _MAX_UPLOAD_BYTES = 2 * 1024 * 1024  # 2 MB
 
 @contextmanager
 def _maybe_resize_for_upload(image_path: Path) -> Iterator[Path]:
-    """Yield a possibly-resized copy of image_path for Toutiao upload.
+    """为头条上传产出可能已降采样的 image_path 副本。
 
-    If the image exceeds 1920 px wide or 2 MB, a downscaled JPEG temp file is
-    yielded and cleaned up on exit.  Falls back to the original path silently
-    on any PIL error so as not to block the publish flow.
+    图片宽度超过 1920 px 或大小超过 2 MB 时，产出降采样后的 JPEG 临时文件，
+    退出时清理。任何 PIL 错误都会静默回退原图，避免阻断发布流程。
     """
     tmp_path: Path | None = None
     try:

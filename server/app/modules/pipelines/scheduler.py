@@ -1,5 +1,5 @@
 """Pipeline 定时调度：镜像 ai_generation.sync_scheduler。run_due_pipelines_once 纯函数式可测，
-后台线程只负责 wait→run_once。create_app 在 GEO_PIPELINE_SCHEDULER_ENABLED 时启动。"""
+后台线程只负责等待→执行一轮。create_app 在 GEO_PIPELINE_SCHEDULER_ENABLED 时启动。"""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ def _to_utc_naive(slot_local: dt.datetime) -> dt.datetime:
 
 def run_due_pipelines_once(session_factory: SessionFactory, now: dt.datetime | None = None) -> int:
     """扫描到期 pipeline 并触发。now 为带本地时区 datetime（默认按 GEO_SCHEDULER_TZ 取当前）。
-    返回触发数。best-effort：单个失败只记日志。"""
+    返回触发数。尽力而为：单个失败只记日志。"""
     if now is None:
         now = dt.datetime.now(ZoneInfo(get_settings().scheduler_tz))
     triggered = 0
@@ -81,7 +81,7 @@ def run_due_pipelines_once(session_factory: SessionFactory, now: dt.datetime | N
                 )
                 if running is not None:
                     continue
-                # claim：条件 UPDATE，rowcount==1 才算抢到
+                # 抢占：条件 UPDATE，rowcount==1 才算抢到
                 res = db.execute(
                     update(Pipeline)
                     .where(

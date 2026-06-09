@@ -41,7 +41,7 @@ from server.app.modules.system.models import User
 logger = logging.getLogger(__name__)
 scheme_router = APIRouter()
 
-# 后台执行方案运行使用的 Session 工厂（create_app() 注入 SessionLocal；测试用 TestingSessionLocal）
+# 后台执行方案运行使用的会话工厂（create_app() 注入 SessionLocal；测试用 TestingSessionLocal）
 bg_session_factory: Any = None
 
 
@@ -259,8 +259,8 @@ def create_scheme_run(
     )
 
     if bg_session_factory is None:
-        # 与 pipelines/router 对齐：后台执行器未就绪时标 run failed + 返回 503，
-        # 不再撒谎回 202（否则 run 永远卡 pending、调用方以为在跑）。
+        # 与 pipelines/router 对齐：后台执行器未就绪时标记运行失败 + 返回 503，
+        # 不再返回虚假的 202（否则运行永远卡在 pending、调用方以为仍在执行）。
         logger.error("bg_session_factory 未注入，方案运行无法执行（run_id=%d）", run_id)
         from server.app.modules.ai_generation.models import GenerationSchemeRun
 

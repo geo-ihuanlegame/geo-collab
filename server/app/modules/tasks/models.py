@@ -48,7 +48,7 @@ class PublishTask(Base):
     name: Mapped[str] = mapped_column(String(300))
     task_type: Mapped[str] = mapped_column(
         String(40), index=True
-    )  # single / group_round_robin / article_round_robin
+    )  # 任务类型：single / group_round_robin / article_round_robin
     status: Mapped[str] = mapped_column(String(40), default="pending", index=True)
     platform_id: Mapped[int | None] = mapped_column(
         ForeignKey("platforms.id"), nullable=True, index=True

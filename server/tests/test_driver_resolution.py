@@ -1,7 +1,7 @@
 import pytest
 
 import server.app.modules.tasks.drivers as _drivers_mod
-import server.app.modules.tasks.drivers.toutiao  # noqa: F401  (registers the real driver)
+import server.app.modules.tasks.drivers.toutiao  # noqa: F401  （注册真实驱动）
 from server.app.modules.tasks.drivers import (
     get_driver,
     register_variant,

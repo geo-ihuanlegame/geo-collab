@@ -92,7 +92,7 @@ def _create_account(client, data_dir, account_key: str, display_name: str) -> in
 
 
 # ---------------------------------------------------------------------------
-# Test 1: stop_before_publish=True → record enters waiting_manual_publish
+# 测试 1：stop_before_publish=True 时记录进入 waiting_manual_publish
 # ---------------------------------------------------------------------------
 @pytest.mark.mysql
 def test_stop_before_publish_enters_waiting_state(monkeypatch):
@@ -271,7 +271,7 @@ def test_resolve_user_input_requeues_and_continues(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Test 2: manual_confirm_record() with outcome=succeeded
+# 测试 2：manual_confirm_record() 传 outcome=succeeded
 # ---------------------------------------------------------------------------
 @pytest.mark.mysql
 def test_manual_confirm_succeeded(monkeypatch):
@@ -327,7 +327,7 @@ def test_manual_confirm_succeeded(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Test 3: manual_confirm_record() with outcome=failed
+# 测试 3：manual_confirm_record() 传 outcome=failed
 # ---------------------------------------------------------------------------
 @pytest.mark.mysql
 def test_manual_confirm_failed(monkeypatch):
@@ -382,8 +382,8 @@ def test_manual_confirm_failed(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Test 4: manual_confirm_record() does NOT block HTTP request with
-#         Playwright execution (next record not run synchronously)
+# 测试 4：manual_confirm_record() 不会因 Playwright 执行阻塞 HTTP 请求
+#         （下一条记录不会同步执行）
 # ---------------------------------------------------------------------------
 @pytest.mark.mysql
 def test_manual_confirm_does_not_block_with_next_record(monkeypatch):
@@ -441,13 +441,13 @@ def test_manual_confirm_does_not_block_with_next_record(monkeypatch):
         assert records[0]["status"] == "waiting_manual_publish"
         assert records[1]["status"] == "pending"
 
-        # Direct unit test: manual_confirm_record service function
+        # 直接单测 manual_confirm_record 服务函数。
         from server.app.modules.tasks import manual_confirm_record
 
         db2 = test_app.session_factory()
         try:
             rec1 = db2.get(PublishRecord, records[0]["id"])
-            # Revert record 1 to waiting state for direct test
+            # 将第 1 条记录恢复到等待态，供直接单测使用。
             rec1.status = "waiting_manual_publish"
             rec1.finished_at = None
             rec1.publish_url = None
@@ -468,8 +468,8 @@ def test_manual_confirm_does_not_block_with_next_record(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Test 5: Non-ToutiaoPublishError exceptions mark record as failed,
-#         clear lease_until, write TaskLog
+# 测试 5：非 ToutiaoPublishError 异常会把记录标为 failed，
+#         清空 lease_until，并写入 TaskLog
 # ---------------------------------------------------------------------------
 def test_unexpected_exception_marks_record_failed(monkeypatch):
     test_app = build_test_app(monkeypatch)
@@ -515,7 +515,7 @@ def test_unexpected_exception_marks_record_failed(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Test 6: Executing terminal-state task returns 409, not queued
+# 测试 6：执行终态任务返回 409，不会入队
 # ---------------------------------------------------------------------------
 def test_execute_terminal_task_returns_409(monkeypatch):
     test_app = build_test_app(monkeypatch)
@@ -546,13 +546,13 @@ def test_execute_terminal_task_returns_409(monkeypatch):
         task_detail = client.get(f"/api/tasks/{task['id']}").json()
         assert task_detail["status"] == "succeeded"
 
-        # Try executing the already-succeeded task
+        # 尝试执行已经成功的任务。
         resp = client.post(f"/api/tasks/{task['id']}/execute")
         assert resp.status_code == 409
         assert "terminal" in resp.json()["detail"].lower()
         assert "queued" not in resp.json()
 
-        # Also test failed task
+        # 同时覆盖失败任务。
         task2 = client.post(
             "/api/tasks",
             json={
@@ -574,7 +574,7 @@ def test_execute_terminal_task_returns_409(monkeypatch):
         assert resp2.status_code == 409
         assert "terminal" in resp2.json()["detail"].lower()
 
-        # Test cancelled task
+        # 覆盖已取消任务。
         task3 = client.post(
             "/api/tasks",
             json={
@@ -595,7 +595,7 @@ def test_execute_terminal_task_returns_409(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Test 7: Concurrent execute on same task: only one path succeeds
+# 测试 7：同一任务并发执行时只有一条路径成功
 # ---------------------------------------------------------------------------
 def test_concurrent_execute_only_one_succeeds(monkeypatch):
     test_app = build_test_app(monkeypatch)
@@ -620,22 +620,22 @@ def test_concurrent_execute_only_one_succeeds(monkeypatch):
             },
         ).json()
 
-        # Pre-populate with a held lock to simulate a running execution
+        # 预先放入一把已持有的锁，模拟正在执行。
         fake_lock = threading.Lock()
         fake_lock.acquire()
         tasks_mod._task_locks[task["id"]] = fake_lock
 
-        # First execute — background thread will fail to acquire the lock
+        # 第一次执行：后台线程会因拿不到锁而失败。
         resp1 = client.post(f"/api/tasks/{task['id']}/execute")
         assert resp1.status_code == 202
 
         _time.sleep(0.3)
 
-        # Task should still be pending (lock was held, execution failed)
+        # 任务应仍为 pending（锁被占用，执行未成功）。
         task_status = client.get(f"/api/tasks/{task['id']}").json()
         assert task_status["status"] == "pending"
 
-        # Release the lock and execute again — should succeed
+        # 释放锁后再次执行，应能成功。
         fake_lock.release()
         monkeypatch.setattr(
             "server.app.modules.tasks.executor.build_publish_runner_for_record",
@@ -699,10 +699,9 @@ def test_group_task_runs_different_accounts_concurrently_with_cap(monkeypatch):
     entered = 0
     cap = 5  # MAX_CONCURRENT_RECORDS
     lock = threading.Lock()
-    # Deterministically prove peak concurrency reaches `cap`: the first `cap`
-    # records to grab a slot rendezvous at a barrier that only trips once all
-    # `cap` are simultaneously in-flight. The old `sleep(0.25)` approach merely
-    # hoped the threads would overlap, which flaked under CI scheduling jitter.
+    # 确定性证明峰值并发能达到 `cap`：前 `cap` 条抢到槽位的记录会在屏障处会合，
+    # 只有当这 `cap` 条同时在途时屏障才放行。旧的 `sleep(0.25)` 方案只是寄希望于
+    # 线程自然重叠，在 CI 调度抖动下会不稳定。
     barrier = threading.Barrier(cap)
 
     class SlowPublisher:
@@ -714,8 +713,8 @@ def test_group_task_runs_different_accounts_concurrently_with_cap(monkeypatch):
                 index = entered
                 entered += 1
             if index < cap:
-                # A genuine cap regression (fewer than `cap` ever concurrent)
-                # makes this time out -> max_active stays < cap -> assert red.
+                # 如果并发上限真的回归（永远少于 `cap` 条并发），这里会超时，
+                # max_active 保持小于 cap，最终断言失败。
                 try:
                     barrier.wait(timeout=5)
                 except threading.BrokenBarrierError:
@@ -847,7 +846,7 @@ def test_failed_record_does_not_block_next_record(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Test: Concurrent execute + cancel race does not leave corrupt state
+# 测试：执行与取消并发竞争不会留下损坏状态
 # ---------------------------------------------------------------------------
 class SlowFakePublisher:
     def __call__(self, article, account, *, stop_before_publish=False):

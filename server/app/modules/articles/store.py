@@ -2,7 +2,7 @@
 Asset（上传资源）存储层：落盘 / 取尺寸 / 派生 WebP+缩略图 / 路径解析 / 孤儿清理。
 
 文件存到 data_dir/assets/YYYY/MM/<uuid><ext>，DB 里只记 storage_key（相对路径）。
-按 sha256 去重；存图时 best-effort 生成 WebP 全尺寸 + 400x400 缩略图供前端用。
+按 sha256 去重；存图时尽力生成 WebP 全尺寸 + 400x400 缩略图供前端用。
 resolve_asset_path 做逃逸校验（路径必须在 data_dir 内）。孤儿 = 未被任何文章封面/正文/任务截图引用的资产。
 """
 
@@ -91,7 +91,7 @@ def _generate_derivatives(asset: Asset, src_path: Path) -> None:
 
 
 def normalize_ext(filename: str, content_type: str | None, data: bytes) -> str:
-    """推断文件扩展名：优先用文件名后缀，否则按 magic bytes，再退而求其次用 content_type。"""
+    """推断文件扩展名：优先用文件名后缀，否则按魔数字节，再退而求其次用 content_type。"""
     suffix = Path(filename).suffix.lower()
     if suffix:
         return suffix
@@ -211,7 +211,7 @@ def _create_asset_from_path(
 async def store_upload(db: Session, user_id: int, upload: UploadFile) -> StoredAsset:
     """小文件上传入口：边流式落临时文件边算 sha256/校验类型，按 sha256 去重命中则直接复用旧资产。
 
-    超过 MAX_ASSET_BYTES 抛 413、首块 magic bytes 不在 ALLOWED_MAGIC 抛 415。
+    超过 MAX_ASSET_BYTES 抛 413、首块魔数字节不在 ALLOWED_MAGIC 抛 415。
     实际建库+移动文件的同步活儿丢到 run_in_executor（DB session 非异步安全，由该线程独占完成）。
     出错时在 except 块清掉临时文件（成功路径下临时文件已被移动落库消耗）。
     """
@@ -233,7 +233,7 @@ async def store_upload(db: Session, user_id: int, upload: UploadFile) -> StoredA
     try:
         async with aiofiles.open(str(tmp_path), "wb") as tmp:
             while True:
-                chunk = await upload.read(8388608)  # 8MB chunks
+                chunk = await upload.read(8388608)  # 8MB 分块
                 if not chunk:
                     break
                 total += len(chunk)
@@ -262,7 +262,7 @@ async def store_upload(db: Session, user_id: int, upload: UploadFile) -> StoredA
         if total == 0:
             raise ClientError("Uploaded file is empty")
 
-        # total > 0 guarantees the loop ran at least once, so first_chunk is set.
+        # total > 0 保证循环至少跑过一次，因此 first_chunk 已设置。
         assert first_chunk is not None
         digest = sha256.hexdigest()
         # 去重：同 sha256 且磁盘文件还在 → 复用旧资产，不再落第二份
@@ -308,7 +308,7 @@ async def store_upload(db: Session, user_id: int, upload: UploadFile) -> StoredA
 
 def find_orphan_asset_ids(db: Session) -> list[str]:
     """返回未被任何文章（封面/正文）或任务日志截图引用的 asset id 列表。"""
-    from server.app.modules.tasks.models import TaskLog  # lazy import to avoid circular dependency
+    from server.app.modules.tasks.models import TaskLog  # 懒导入，避免循环依赖
 
     stmt = select(Asset.id).where(
         Asset.is_deleted == False,  # noqa: E712
@@ -330,7 +330,7 @@ def soft_delete_assets(db: Session, asset_ids: list[str]) -> int:
         .values(is_deleted=True, deleted_at=now)
     )
     db.flush()
-    return result.rowcount  # type: ignore[attr-defined]  # DML execute returns CursorResult
+    return result.rowcount  # type: ignore[attr-defined]  # DML 执行返回 CursorResult
 
 
 def get_asset_stats(db: Session) -> dict:

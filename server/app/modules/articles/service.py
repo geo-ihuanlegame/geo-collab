@@ -1,5 +1,5 @@
 """
-文章 / 文章分组 业务逻辑层（CRUD + 审核 + 全文检索）。
+文章 / 文章分组业务逻辑层（增删改查 + 审核 + 全文检索）。
 
 约定：
   - 软删除（is_deleted），查询一律过滤 is_deleted == False。
@@ -299,7 +299,7 @@ def delete_article(db: Session, article: Article) -> None:
     db.flush()
 
 
-# --- Article review (审核) ---
+# --- 文章审核 ---
 
 
 def _get_owned_article(db: Session, article_id: int, user_id: int, role: str) -> Article:
@@ -333,7 +333,7 @@ def revoke_article_approval(db: Session, article_id: int, user_id: int, role: st
     return get_article(db, article.id) or article
 
 
-# --- Article Group CRUD ---
+# --- 文章分组增删改查 ---
 
 
 def get_group(db: Session, group_id: int) -> ArticleGroup | None:
@@ -456,7 +456,7 @@ def delete_group(db: Session, group: ArticleGroup) -> None:
     db.flush()
 
 
-# --- Article group review (整组审核) ---
+# --- 文章分组审核 ---
 
 
 def compute_group_review_summary(db: Session, group_id: int) -> tuple[int, int]:
@@ -514,7 +514,7 @@ def mark_pending_and_group(
 ) -> int | None:
     """把文章标 review_status='pending' 并归入一个新 ArticleGroup（名 base_name）。
     撞 (user_id, name) 唯一约束时改用 base_name + fallback_suffix（调用方应传稳定唯一值，
-    如 run_id；未传则回退到不稳定的 #article_ids[0] 旧行为）。best-effort：失败记日志、不抛。
+    如 run_id；未传则回退到不稳定的 #article_ids[0] 旧行为）。尽力执行：失败记日志、不抛。
     用独立 session、本函数内 commit+close。返回 group_id 或 None。"""
     if not article_ids:
         return None
@@ -562,7 +562,7 @@ def mark_pending_and_group(
             return gid
         finally:
             db.close()
-    except Exception:  # noqa: BLE001 — best-effort
+    except Exception:  # noqa: BLE001 — 尽力而为
         _logger.exception(
             "mark_pending_and_group failed (user=%s, n=%s)", user_id, len(article_ids)
         )

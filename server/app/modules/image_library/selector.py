@@ -43,7 +43,7 @@ class StockImageRef:
     official_url: str | None = None
 
 
-# ══ THE UPGRADE POINT ════════════════════════════════════════════════════════
+# ══ 预留升级点 ═════════════════════════════════════════════════════════════
 def pick_image_id(query: ImageQuery, db: Session) -> int | None:
     """从指定栏目随机取一张图的 ID，排除已选 ID。
 
@@ -84,7 +84,7 @@ def fetch_image_by_id(image_id: int, db: Session) -> StockImageRef | None:
 
 
 def select_images(query: ImageQuery, db: Session) -> list[StockImageRef]:
-    """取 query.count 张不重复的图，不足时按实际数量返回。"""
+    """按 query.count 取不重复图片，不足时按实际数量返回。"""
     excluded: list[int] = list(query.excluded_ids)
     results: list[StockImageRef] = []
     for _ in range(query.count):

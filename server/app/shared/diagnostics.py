@@ -66,7 +66,7 @@ def _safe_screenshot(page: Any | None) -> bytes | None:
 
 @contextmanager
 def publish_step(name: str, *, page: Any | None = None) -> Iterator[None]:
-    """包裹一个发布步骤：记录耗时；失败时记 error 并附截图后 re-raise。"""
+    """包裹一个发布步骤：记录耗时；失败时记录 error 级别事件并附截图后重新抛出。"""
     started = time.monotonic()
     try:
         yield

@@ -1,8 +1,8 @@
-"""add skills, prompt_templates, generation_sessions tables
+"""添加 skills、prompt_templates、generation_sessions 表
 
-Revision ID: 0022
-Revises: 0021
-Create Date: 2026-05-21
+修订 ID: 0022
+上一修订: 0021
+创建日期: 2026-05-21
 """
 from typing import Sequence, Union
 

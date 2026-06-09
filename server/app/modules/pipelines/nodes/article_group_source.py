@@ -15,7 +15,7 @@ def run_article_group_source(ctx: NodeRunContext) -> NodeResult:
     from server.app.modules.tasks.models import PublishRecord
 
     cfg = ctx.config or {}
-    # group_id 可选：上游注入 > 节点配置 > 空(=自动按 FIFO 选组)
+    # group_id 可选：上游注入 > 节点配置 > 空（自动按 FIFO 选组）
     configured_group_id = ctx.inputs.get("group_id") or cfg.get("group_id")
 
     db = ctx.session_factory()
@@ -23,7 +23,7 @@ def run_article_group_source(ctx: NodeRunContext) -> NodeResult:
         user = db.get(User, ctx.user_id)
         is_admin = user is not None and user.role == "admin"
 
-        # 候选文章 = 已审核 + 未删 + 未分发或在途 + owner/admin。
+        # 候选文章 = 已审核 + 未删 + 未分发或在途 + 所有者/管理员。
         # 「已分发/在途」= 有未软删、且非 failed/cancelled 的 PublishRecord（与
         # approved_content_source 同口径）：失败 / 取消 / 软删的记录不算，文章可重试、不被永久埋没。
         def _candidate_filters(stmt):
@@ -49,7 +49,7 @@ def run_article_group_source(ctx: NodeRunContext) -> NodeResult:
                 raise ValidationError("无权访问该分组")
             chosen_group_id = configured_group_id
         else:
-            # 自动 FIFO：含 ≥1 篇候选文章、未删、owner/admin 的最早分组
+            # 自动 FIFO：含 ≥1 篇候选文章、未删、所有者/管理员的最早分组
             grp_stmt = (
                 select(ArticleGroup.id)
                 .join(ArticleGroupItem, ArticleGroupItem.group_id == ArticleGroup.id)

@@ -1,8 +1,8 @@
-"""drop global unique index on article_groups.name, keep per-user constraint
+"""删除 article_groups.name 全局唯一索引，保留按用户约束
 
-Revision ID: 0021
-Revises: 0020
-Create Date: 2026-05-20
+修订 ID: 0021
+上一修订: 0020
+创建日期: 2026-05-20
 """
 from typing import Sequence, Union
 

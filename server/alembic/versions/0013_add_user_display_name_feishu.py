@@ -1,8 +1,8 @@
-"""Add display_name and feishu_open_id to users
+"""为 users 添加 display_name 和 feishu_open_id
 
-Revision ID: 0013
-Revises: 0012
-Create Date: 2026-05-15
+修订 ID: 0013
+上一修订: 0012
+创建日期: 2026-05-15
 """
 from typing import Sequence, Union
 

@@ -15,10 +15,10 @@ from server.app.modules.articles.parser import BodySegment  # noqa: F401
 
 @dataclass(frozen=True)
 class PublishPayload:
-    """Fully-resolved article data passed to platform drivers.
+    """传给平台驱动的已完整解析文章数据。
 
-    All asset paths are pre-resolved from the DB before launching the browser,
-    so drivers never need to access ORM relationships or call resolve_asset_path.
+    所有 asset 路径都会在启动浏览器前从 DB 预解析，因此驱动不需要访问 ORM
+    关系，也不需要调用 resolve_asset_path。
     """
 
     title: str
@@ -39,7 +39,7 @@ class PublishResult:
 
 
 class PublishError(Exception):
-    """Platform-neutral publish failure with an optional diagnostic screenshot."""
+    """平台无关的发布失败异常，可附带诊断截图。"""
 
     def __init__(self, message: str, screenshot: bytes | None = None):
         super().__init__(message)

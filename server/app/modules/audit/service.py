@@ -1,10 +1,10 @@
 """审计日志写入与查询服务。
 
 设计原则：
-  - 审计失败不影响主流程：任何异常被 try/except 吞下，仅记 logger.warning。
+  - 审计失败不影响主流程：任何异常被捕获并吞下，仅记 logger.warning。
   - payload 敏感字段自动脱敏（密码、token、secret、api_key 等）。
   - target_id 统一转 str，兼容 int / UUID 主键。
-  - helper 内 db.add + db.commit，调用者无需额外 commit；如果 commit 失败，rollback 并继续。
+  - 辅助函数内 db.add + db.commit，调用者无需额外提交；如果提交失败，回滚并继续。
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from server.app.modules.system.models import User
 
 _logger = logging.getLogger(__name__)
 
-# 大小写不敏感匹配。key 命中即把 value 替换为 "***"。
+# 大小写不敏感匹配。键命中即把值替换为 "***"。
 _REDACT_KEYS = {
     "password",
     "old_password",
@@ -38,7 +38,7 @@ _REDACT_KEYS = {
 
 
 def _redact(payload: Any) -> Any:
-    """递归脱敏：对 dict/list 深度遍历，命中 _REDACT_KEYS 的 value 整体替换为 "***"。其余值原样返回。"""
+    """递归脱敏：对字典/列表深度遍历，命中 _REDACT_KEYS 的值整体替换为 "***"。其余值原样返回。"""
     if isinstance(payload, dict):
         result: dict[str, Any] = {}
         for k, v in payload.items():
@@ -106,10 +106,10 @@ def list_audit_logs(
     cursor: int | None = None,
     limit: int = 100,
 ) -> tuple[list[AuditLog], int | None]:
-    """按 id 倒序游标分页查询审计日志，返回 (本页记录, next_cursor)。
+    """按 id 倒序游标分页查询审计日志，返回 (本页记录, 下一页游标)。
 
     cursor 是上一页最后一条的 id，传入后只取 id 更小（更旧）的记录。
-    next_cursor 为 None 表示没有下一页。
+    下一页游标为 None 表示没有下一页。
     """
     q = db.query(AuditLog)
     if user_id is not None:
@@ -127,7 +127,7 @@ def list_audit_logs(
     if cursor is not None:
         q = q.filter(AuditLog.id < cursor)
 
-    # 多取一条（limit+1）探测是否还有下一页，再裁回 limit，避免额外 count 查询。
+    # 多取一条（limit+1）探测是否还有下一页，再裁回 limit，避免额外计数查询。
     rows = q.order_by(AuditLog.id.desc()).limit(limit + 1).all()
     has_more = len(rows) > limit
     items = rows[:limit]

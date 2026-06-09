@@ -1,1 +1,1 @@
-"""Operational spike scripts for manual platform investigation."""
+"""用于人工排查平台行为的临时验证脚本。"""

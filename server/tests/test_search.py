@@ -117,7 +117,7 @@ class TestArticleSearch:
         """查询长度 < 3 时直接走 LIKE 路径，plain_text 应被包含在搜索范围内。"""
         test_app = build_test_app(monkeypatch)
         try:
-            # Use a two-character keyword that appears only in plain_text (not title/author)
+            # 使用只出现在 plain_text 中、不会出现在 title/author 中的双字符关键词。
             _create_article(
                 test_app.client,
                 title="普通标题A",
@@ -129,7 +129,7 @@ class TestArticleSearch:
                 plain_text="完全不同的正文",
             )
 
-            # 2-char query forces LIKE path
+            # 双字符查询会强制走 LIKE 路径。
             resp = test_app.client.get("/api/articles?q=AB")
             assert resp.status_code == 200, resp.text
             articles = resp.json()

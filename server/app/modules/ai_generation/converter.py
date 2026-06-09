@@ -2,7 +2,7 @@
 
 Tiptap 支持的节点类型（本模块覆盖范围）：
   doc, paragraph, heading(level 1-6), bulletList, orderedList, listItem
-  text marks: bold, italic, code
+  文本标记：bold, italic, code
 """
 
 from html.parser import HTMLParser
@@ -41,7 +41,7 @@ class _TiptapBuilder(HTMLParser):
         node = self._stack.pop()
         self._commit(node)
 
-    # ── HTMLParser 回调 ───────────────────────────────────────────────────
+    # ── HTMLParser 回调函数 ───────────────────────────────────────────────
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag in ("h1", "h2", "h3", "h4", "h5", "h6"):
@@ -69,7 +69,7 @@ class _TiptapBuilder(HTMLParser):
             if not self._stack:
                 return
             item = self._stack.pop()
-            # markdown 紧凑列表 <li>text</li> 不含 <p>，需手动包一层 paragraph
+            # Markdown 紧凑列表 <li>text</li> 不含 <p>，需手动包一层 paragraph
             has_block = any(
                 c.get("type") in ("paragraph", "bulletList", "orderedList")
                 for c in item.get("content", [])

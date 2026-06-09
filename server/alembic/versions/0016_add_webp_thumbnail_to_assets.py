@@ -1,8 +1,8 @@
-"""Add WebP and thumbnail fields to assets
+"""为 assets 添加 WebP 和缩略图字段
 
-Revision ID: 0016
-Revises: 0015
-Create Date: 2026-05-19
+修订 ID: 0016
+上一修订: 0015
+创建日期: 2026-05-19
 """
 from typing import Sequence, Union
 

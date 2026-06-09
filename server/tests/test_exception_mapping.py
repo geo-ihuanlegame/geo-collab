@@ -48,7 +48,7 @@ def _mount_error_routes(app) -> None:
         raise ValueError("oops")
 
     # SPA 兜底路由 @app.get("/{full_path:path}") 在 create_app 时已注册，会先于后加的路由匹配
-    # （把非 API 路径返回 index.html，导致 200）。故把 throwaway 路由 prepend 到最前确保先命中。
+    # （把非 API 路径返回 index.html，导致 200）。故把临时路由插到最前确保先命中。
     before = len(app.router.routes)
     app.include_router(r, prefix=_PREFIX)
     added = app.router.routes[before:]
@@ -62,7 +62,7 @@ def test_named_exceptions_map_to_http_status(monkeypatch):
     try:
         app = test_app.client.app
         _mount_error_routes(app)
-        # raise_server_exceptions=False：让 catch-all Exception 处理器产出的 500 响应被返回，
+        # raise_server_exceptions=False：让兜底 Exception 处理器产出的 500 响应被返回，
         # 而不是把 ValueError 原样重新抛进测试进程。
         client = TestClient(app, raise_server_exceptions=False)
 
@@ -71,7 +71,7 @@ def test_named_exceptions_map_to_http_status(monkeypatch):
         assert client.get(f"{_PREFIX}/account").status_code == 400
         assert client.get(f"{_PREFIX}/client").status_code == 400
 
-        # 裸 ValueError 无命名处理器 → 落到 catch-all Exception → 500。
+        # 裸 ValueError 无命名处理器 → 落到兜底 Exception → 500。
         # 这条断言正是要固化「别用裸 ValueError 表达客户端错误」：否则真错被掩成 400 也好、
         # 客户端错误被暴成 500 也好，都会被这里捕捉到。
         ve = client.get(f"{_PREFIX}/valueerror")

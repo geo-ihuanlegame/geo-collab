@@ -40,7 +40,7 @@ def run_question_source(ctx: NodeRunContext) -> NodeResult:
             QuestionItem.source_active.is_(True),
         )
         if question_record_ids:
-            # 精选：record_id 命中且仍 active；失效/不存在的自动跳过
+            # 精选：record_id 命中且仍有效；失效/不存在的自动跳过
             query = query.filter(QuestionItem.record_id.in_(question_record_ids))
         elif question_types:
             named = [t for t in question_types if t != "__uncategorized__"]
@@ -51,7 +51,7 @@ def run_question_source(ctx: NodeRunContext) -> NodeResult:
                 conds.append(QuestionItem.category.is_(None))
             if conds:
                 query = query.filter(or_(*conds))
-        # else: 空 → 不过滤，取整池
+        # 未配置筛选：不过滤，取整池
         rows = query.order_by(QuestionItem.id.asc()).all()
         texts = [(r[0] or "").strip() for r in rows if (r[0] or "").strip()]
     finally:

@@ -1,4 +1,4 @@
-"""AI 生文模块 Pydantic schemas（原 schemas/generation.py）。"""
+"""AI 生文模块 Pydantic 入参和出参模型（原 schemas/generation.py）。"""
 
 import json
 from datetime import datetime
@@ -74,7 +74,7 @@ class QuestionBrief(BaseModel):
 
 
 class QuestionTypeRead(BaseModel):
-    """按问题类型（category）聚合，给方案录入页展示每个类型下有哪些 active 问题。"""
+    """按问题类型（category）聚合，给方案录入页展示每个类型下有哪些有效问题。"""
 
     question_type: str | None
     count: int
@@ -89,7 +89,7 @@ class SchemeLineInput(BaseModel):
 
 
 class AiEngineRead(BaseModel):
-    """方案可选的 AI 引擎（来自 settings.ai_engines）。model 为空 = 系统默认写作模型。"""
+    """方案可选的 AI 引擎（来自 settings.ai_engines）。模型为空 = 系统默认写作模型。"""
 
     label: str
     model: str
@@ -99,7 +99,7 @@ class SchemeCreate(BaseModel):
     name: str
     pool_id: int
     is_enabled: bool = True
-    # litellm model 字符串；None / 空 = 用系统默认 GEO_AI_MODEL
+    # LiteLLM 模型字符串；None / 空 = 用系统默认 GEO_AI_MODEL
     ai_engine: str | None = None
     lines: list[SchemeLineInput] = []
 

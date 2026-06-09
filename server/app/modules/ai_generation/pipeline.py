@@ -1,13 +1,13 @@
-"""LangGraph 三节点生成管道：planner → parallel_write → finalize。
+"""LangGraph 三节点生成管道：规划 → 并行写作 → 收尾。
 
 图结构：
   START → planner → parallel_write → finalize → END
 
-- planner：当前直接走预构造 specs，节点本身保留作图拓扑占位
-- parallel_write：ThreadPoolExecutor(max_workers=4)，每个 spec 独立写一篇文章
-- finalize：更新 GenerationSession 状态为 done/failed
+- 规划节点：当前直接走预构造任务规格，节点本身保留作图拓扑占位
+- 并行写作节点：ThreadPoolExecutor(max_workers=4)，每个任务规格独立写一篇文章
+- 收尾节点：更新 GenerationSession 状态为 done/failed
 
-注：本图属旧 /sessions 直连流水线，入口 `run_pipeline` 已随 410 下线、休眠保留（仍 import
+注：本图属旧 /sessions 直连流水线，入口 `run_pipeline` 已随 410 下线、休眠保留（仍导入
 下线的 skills.service）；新方案流走 scheme_executor，不经过这里。
 """
 
@@ -25,7 +25,7 @@ from server.app.modules.ai_generation.article_writer import render_question_prom
 logger = logging.getLogger(__name__)
 
 
-# ── State ────────────────────────────────────────────────────────────────────
+# ── 状态 ────────────────────────────────────────────────────────────────────
 
 
 class PipelineState(TypedDict):
@@ -37,10 +37,10 @@ class PipelineState(TypedDict):
     task_specs: list[dict]
     article_ids: list[int]
     errors: list[str]
-    session_factory: Any  # callable() → Session
+    session_factory: Any  # 可调用对象 → Session
 
 
-# ── 节点：planner ─────────────────────────────────────────────────────────────
+# ── 节点：规划 ─────────────────────────────────────────────────────────────
 
 
 def planner_node(state: PipelineState) -> dict:
@@ -49,7 +49,7 @@ def planner_node(state: PipelineState) -> dict:
     return {}
 
 
-# ── 节点：parallel_write ──────────────────────────────────────────────────────
+# ── 节点：并行写作 ──────────────────────────────────────────────────────
 
 
 def _write_one_article(
@@ -240,11 +240,11 @@ def _build_task_specs(db: Any, gen_session: Any, prompt_content: str) -> list[di
     """构造写作任务列表（单一 pipeline，两种触发方式）：
 
     - 手动模式（`question_item_ids` 非空）：按 category 分组 → 每组一篇，
-      该组所有问题词渲染成编号列表注入 user prompt。
+      该组所有问题词渲染成编号列表注入用户提示词。
     - 自动模式（`auto_count > 0` + `pool_id`）：按板块优先级轮转选 N 次，
       每次从该板块随机抽 K = randint(1, len(pending)) 条 → 一篇。
 
-    spec 字段：`{title, user_prompt, mode, category, pool_id, item_ids}`。
+    任务规格字段：`{title, user_prompt, mode, category, pool_id, item_ids}`。
     """
     import json
 

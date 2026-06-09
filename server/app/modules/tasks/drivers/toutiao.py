@@ -44,15 +44,15 @@ PublishFillResult = PublishResult
 class BodyParagraph:
     """一个逻辑段落：文本 / 标题 / 图片三选一，供逐段插入编辑器。"""
 
-    kind: str  # "text" | "heading" | "image"
-    runs: tuple[tuple[str, bool], ...] = ()  # (text, is_bold)
+    kind: str  # 类型："text" | "heading" | "image"
+    runs: tuple[tuple[str, bool], ...] = ()  # (文本, 是否加粗)
     heading_level: int | None = None
     image_path: Path | None = None
     image_asset_id: str | None = None
 
 
 def _group_paragraphs(segments: list[BodySegment]) -> list[BodyParagraph]:
-    """Group flat BodySegments into logical paragraphs for sequential insertion."""
+    """把扁平 BodySegment 合并成可顺序插入的逻辑段落。"""
     paragraphs: list[BodyParagraph] = []
     current_runs: list[tuple[str, bool]] = []
     current_hlevel: int | None = None
@@ -121,7 +121,7 @@ def _close_ai_drawer(page: Any) -> None:
 
 
 def _dismiss_blocking_popups(page: Any) -> None:
-    """Best-effort close for marketing/help popups that block the editor."""
+    """尽力关闭遮挡编辑器的营销 / 帮助弹窗。"""
     workflow_text_re = re.compile(
         r"确认发布|预览并发布|本地上传|已上传|选择封面|裁剪封面|封面设置|发布设置|定时发布"
     )
@@ -447,7 +447,7 @@ def _insert_text_atomic(page: Any, text: str) -> None:
 
 
 def _insert_runs(page: Any, runs: tuple[tuple[str, bool], ...]) -> None:
-    """Insert text runs into editor, toggling Ctrl+B around bold runs."""
+    """向编辑器插入文本 run；加粗片段前后切换 Ctrl+B。"""
     for text, is_bold in runs:
         if not text:
             continue

@@ -132,7 +132,7 @@ def execute_task(db: Session, task: PublishTask) -> PublishTask:
                     worker_heartbeat_at=now,
                 )
             )
-            if db.execute(stmt).rowcount == 0:  # type: ignore[attr-defined]  # DML execute returns CursorResult
+            if db.execute(stmt).rowcount == 0:  # type: ignore[attr-defined]  # DML 执行返回 CursorResult
                 db.flush()
                 refreshed = get_task(db, task.id)
                 if refreshed is None or refreshed.status in TERMINAL_TASK_STATUSES:
@@ -265,11 +265,10 @@ def _run_pending_records(db: Session, task: PublishTask) -> None:
 
                 if _paused_for_user or _paused_for_manual:
                     if not running:
-                        # All in-flight futures have completed — safe to exit.
+                        # 所有进行中的 future 都已完成，可以安全退出。
                         db.commit()
                         return
-                    # Running futures still exist. Fall through to the wait loop
-                    # so they complete and their results get written to DB.
+                    # 仍有运行中的 future，继续落到 wait 循环，等它们完成并把结果写回 DB。
                 else:
                     _start_runnable_records(db, task, executor, running, records)
 
@@ -298,8 +297,8 @@ def _run_pending_records(db: Session, task: PublishTask) -> None:
                         running_record.record_id,
                         "Timeout: record execution exceeded 300s",
                     )
-                    # Stopping the session closes Chromium context, causing the
-                    # Playwright thread to receive TargetClosedError and terminate.
+                    # 停止会话会关闭 Chromium context，让 Playwright 线程收到
+                    # TargetClosedError 后终止。
                     try:
                         _stop_record_session(running_record.record_id)
                     except Exception:
@@ -435,7 +434,7 @@ def _release_account_lock(account_id: int) -> None:
         try:
             lock.release()
         except RuntimeError:
-            pass  # already released — harmless
+            pass  # 已释放，无害
 
 
 def _defer_record_for_profile_lock(
@@ -498,7 +497,7 @@ def _claim_record(db: Session, task_id: int, record: PublishRecord) -> bool:
         .values(status="running", started_at=now, lease_until=lease_until, queue_reason=None)
     )
     try:
-        rowcount = db.execute(stmt).rowcount  # type: ignore[attr-defined]  # DML execute returns CursorResult
+        rowcount = db.execute(stmt).rowcount  # type: ignore[attr-defined]  # DML 执行返回 CursorResult
     except OperationalError as exc:
         if _is_retryable_db_lock_error(exc):
             db.rollback()
@@ -611,7 +610,7 @@ def _publish_record(
             result = runner(article, account, stop_before_publish=stop_before_publish)
             return RecordPublishOutcome(result=result, diagnostics=list(diagnostics))
     except Exception as exc:
-        exc.publish_diagnostics = list(diagnostics)  # type: ignore[attr-defined]  # dynamic attr to carry diagnostics through raise
+        exc.publish_diagnostics = list(diagnostics)  # type: ignore[attr-defined]  # 动态属性，用于随异常传递诊断
         raise
     finally:
         _global_publish_sem.release()
@@ -753,7 +752,7 @@ def _finish_record_future(db: Session, task: PublishTask, record_id: int, future
                 )
             )
             message = result.message
-        if db.execute(stmt).rowcount > 0:  # type: ignore[attr-defined]  # DML execute returns CursorResult
+        if db.execute(stmt).rowcount > 0:  # type: ignore[attr-defined]  # DML 执行返回 CursorResult
             add_log(db, task.id, record_id, "info", message)
             if not task.stop_before_publish:
                 _stop_record_session(record_id)
@@ -815,7 +814,7 @@ def _mark_record_failed(
             queue_reason=None,
         )
     )
-    if db.execute(stmt).rowcount > 0:  # type: ignore[attr-defined]  # DML execute returns CursorResult
+    if db.execute(stmt).rowcount > 0:  # type: ignore[attr-defined]  # DML 执行返回 CursorResult
         add_log(
             db, task_id, record_id, "error", error_message, screenshot_asset_id=screenshot_asset_id
         )
@@ -843,7 +842,7 @@ def _mark_record_waiting_user_input(
             queue_reason=None,
         )
     )
-    if db.execute(stmt).rowcount > 0:  # type: ignore[attr-defined]  # DML execute returns CursorResult
+    if db.execute(stmt).rowcount > 0:  # type: ignore[attr-defined]  # DML 执行返回 CursorResult
         add_log(db, task_id, record_id, "warn", message, screenshot_asset_id=screenshot_asset_id)
 
 
@@ -923,7 +922,7 @@ def cancel_task(db: Session, task: PublishTask) -> PublishTask:
             )
             .values(status="cancelled", finished_at=now)
         )
-        rows = result.rowcount  # type: ignore[attr-defined]  # DML execute returns CursorResult
+        rows = result.rowcount  # type: ignore[attr-defined]  # DML 执行返回 CursorResult
         if rows > 0:
             task.status = "cancelled"
             task.finished_at = now

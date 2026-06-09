@@ -1,4 +1,4 @@
-"""Prompt template routes."""
+"""提示词模板路由。"""
 
 from typing import Any
 

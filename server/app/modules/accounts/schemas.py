@@ -18,7 +18,7 @@ class AccountRead(BaseModel):
     platform_name: str
     display_name: str
     platform_user_id: str | None
-    status: str  # valid / expired / unknown
+    status: str  # 状态：valid / expired / unknown
     last_checked_at: datetime | None
     last_login_at: datetime | None
     state_path: str  # Playwright storage_state.json 路径
@@ -61,7 +61,7 @@ class PlatformLoginRequest(BaseModel):
     channel: str = "chromium"
     executable_path: str | None = None
     wait_seconds: int = Field(default=180, ge=5, le=600)  # 等待登录完成的超时时间（秒）
-    use_browser: bool = True  # True=打开浏览器交互登录，False=复用已有状态
+    use_browser: bool = True  # 为 True 时打开浏览器交互登录；为 False 时复用已有状态
     note: str | None = None
 
 
