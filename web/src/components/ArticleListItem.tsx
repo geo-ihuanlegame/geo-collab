@@ -33,7 +33,7 @@ export const ArticleListItem = React.memo(function ArticleListItem({
         <span>{article.author || "未填写作者"}</span>
         <small>
           {new Date(article.updated_at).toLocaleString()}
-          {article.published_count > 0 ? <span style={{ color: "#16a34a", marginLeft: 6 }}>· 已发布 {article.published_count} 次</span> : null}
+          {article.published_count > 0 ? <span style={{ color: "var(--green)", marginLeft: 6 }}>· 已发布 {article.published_count} 次</span> : null}
         </small>
       </button>
       <div className="articleItemBadge">

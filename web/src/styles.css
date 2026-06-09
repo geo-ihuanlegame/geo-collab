@@ -558,7 +558,7 @@ option, optgroup {
   max-height: none;
 }
 
-.contentArticleList { flex: 1; align-content: start; }
+.contentArticleList { flex: 1; align-content: start; gap: 10px; }
 .taskList { flex: 1; align-content: start; }
 
 .listViewport {
@@ -570,8 +570,20 @@ option, optgroup {
   align-items: flex-start;
   border-radius: var(--r);
   overflow: hidden;
+  background: var(--glass);
+  border: 1px solid var(--hair);
+  transition: border-color .15s, background .15s, box-shadow .15s, transform .15s var(--easing);
 }
-.articleItem.selected { background: var(--accent-soft); }
+.articleItem:hover {
+  background: var(--glass-strong);
+  border-color: var(--hair-2);
+  transform: translateY(-1px);
+}
+.articleItem.selected {
+  background: var(--accent-soft);
+  border-color: rgba(140,120,255,0.45);
+  box-shadow: 0 0 0 1px rgba(140,120,255,0.25), 0 8px 22px rgba(0,0,0,0.28);
+}
 
 .checkLine {
   display: flex;
@@ -603,7 +615,7 @@ option, optgroup {
   text-align: left;
   transition: background .12s;
 }
-.articleItem > button:not(.inlineMiniButton):hover { background: var(--cream); }
+.articleItem > button:not(.inlineMiniButton):hover { background: transparent; }
 .articleItem.selected > button:not(.inlineMiniButton) { background: transparent; }
 
 .articleItem strong {
@@ -2474,6 +2486,15 @@ option, optgroup {
   background: var(--cream-2);
 }
 .reviewTabBtn.active .reviewTabCount { color: var(--accent-deep); background: var(--accent-soft); }
+
+/* 内容管理 页级子 tab（未审核 / 已审核）*/
+.contentSubTabs {
+  display: flex;
+  gap: 4px;
+  margin: -20px 0 24px;
+  padding: 0 2px;
+  border-bottom: 1px solid var(--hair);
+}
 
 /* Bulk action bar (已审核 tab, when articles selected) */
 .bulkBar {

@@ -1144,27 +1144,27 @@ export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
         </div>
       </header>
 
+      <div className="contentSubTabs">
+        <button
+          type="button"
+          className={`reviewTabBtn ${reviewTab === "pending" ? "active" : ""}`}
+          onClick={() => selectReviewTab("pending")}
+        >
+          未审核
+          <span className="reviewTabCount">{reviewCounts.pending}</span>
+        </button>
+        <button
+          type="button"
+          className={`reviewTabBtn ${reviewTab === "approved" ? "active" : ""}`}
+          onClick={() => selectReviewTab("approved")}
+        >
+          已审核
+          <span className="reviewTabCount">{reviewCounts.approved}</span>
+        </button>
+      </div>
+
       <section className="contentGrid">
         <aside className="listPane">
-          <div className="reviewTabs">
-            <button
-              type="button"
-              className={`reviewTabBtn ${reviewTab === "pending" ? "active" : ""}`}
-              onClick={() => selectReviewTab("pending")}
-            >
-              未审核
-              <span className="reviewTabCount">{reviewCounts.pending}</span>
-            </button>
-            <button
-              type="button"
-              className={`reviewTabBtn ${reviewTab === "approved" ? "active" : ""}`}
-              onClick={() => selectReviewTab("approved")}
-            >
-              已审核
-              <span className="reviewTabCount">{reviewCounts.approved}</span>
-            </button>
-          </div>
-
           {reviewTab === "approved" && selectedArticleIds.length > 0 ? (
             <div className="bulkBar">
               <div className="bulkBarLeft">
@@ -1302,7 +1302,7 @@ export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
                             <span>{article.author || "未填写作者"}</span>
                             <small>
                               {formatDateTime(article.updated_at)}
-                              {article.published_count > 0 ? <span style={{ color: "#16a34a", marginLeft: 6 }}>· 已发布 {article.published_count} 次</span> : null}
+                              {article.published_count > 0 ? <span style={{ color: "var(--green)", marginLeft: 6 }}>· 已发布 {article.published_count} 次</span> : null}
                             </small>
                           </button>
                           <div className="articleItemBadge">
