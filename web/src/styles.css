@@ -227,6 +227,8 @@ p { margin: 0; }
   justify-content: space-between;
   gap: 24px;
   margin-bottom: 40px;
+  border-bottom: 1px solid var(--hair);
+  padding-bottom: 20px;
 }
 
 .eyebrow {
