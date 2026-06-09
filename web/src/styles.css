@@ -27,6 +27,7 @@
   --bg-2:    #0e1120;
   --glass:        rgba(255,255,255,0.045);
   --glass-strong: rgba(255,255,255,0.07);
+  --surface-2:    #161b2b;   /* 不透明的悬浮层（弹窗 / 下拉菜单），避免半透明露底 */
 
   --paper:   rgba(255,255,255,0.045);  /* 暗色下"卡片面"= 玻璃 */
   --cream:   #0e1120;                  /* 工作区底 */
@@ -668,7 +669,9 @@ option, optgroup {
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgba(26, 26, 26, 0.22);
+  background: rgba(4, 6, 12, 0.62);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
 }
 
 .groupPickerModal {
@@ -676,10 +679,10 @@ option, optgroup {
   max-height: min(560px, calc(100vh - 48px));
   display: flex;
   flex-direction: column;
-  background: var(--paper);
+  background: var(--surface-2);
   border: 1px solid var(--hair);
   border-radius: var(--r-lg);
-  box-shadow: 0 18px 48px rgba(26, 26, 26, .16);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, .55);
   overflow: hidden;
 }
 
@@ -688,10 +691,10 @@ option, optgroup {
   max-height: min(560px, calc(100vh - 48px));
   display: flex;
   flex-direction: column;
-  background: var(--paper);
+  background: var(--surface-2);
   border: 1px solid var(--hair);
   border-radius: var(--r-lg);
-  box-shadow: 0 18px 48px rgba(26, 26, 26, .16);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, .55);
   overflow: hidden;
 }
 
@@ -2173,8 +2176,8 @@ option, optgroup {
 
 .imageLibraryDropdown {
   position: absolute; top: 34px; right: 0; z-index: 20;
-  background: var(--paper); border: 1px solid var(--hair);
-  border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,.12);
+  background: var(--surface-2); border: 1px solid var(--hair);
+  border-radius: 6px; box-shadow: 0 12px 32px rgba(0,0,0,.5);
   min-width: 120px; overflow: hidden;
 }
 .imageLibraryDropdown button {
@@ -2346,10 +2349,10 @@ option, optgroup {
 
 /* 弹窗面板（编辑器 / 运行明细 / 池管理）*/
 .schemePanel {
-  background: var(--paper); border-radius: var(--r-lg);
-  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  background: var(--surface-2); border-radius: var(--r-lg);
+  border: 1px solid var(--hair);
   max-height: calc(100vh - 48px); display: flex; flex-direction: column;
-  overflow: hidden; box-shadow: 0 18px 50px rgba(0, 0, 0, 0.25);
+  overflow: hidden; box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
 }
 .schemePanelHead {
   display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;
@@ -2422,8 +2425,8 @@ option, optgroup {
 }
 .runsPopover {
   position: absolute; top: 44px; left: 0; z-index: 5; width: 252px;
-  background: var(--paper); border: 1px solid var(--hair); border-radius: var(--r);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18); padding: 6px;
+  background: var(--surface-2); border: 1px solid var(--hair); border-radius: var(--r);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5); padding: 6px;
   display: flex; flex-direction: column; gap: 2px;
 }
 .runsPopItem {
@@ -2755,26 +2758,59 @@ option, optgroup {
 }
 .agentNewBtn:hover { background: var(--accent); border-color: var(--accent); }
 
-.agentTable { width: 100%; border-collapse: collapse; font-size: 13px; }
-.agentTable thead th {
-  text-align: left;
-  font-size: 11px;
-  letter-spacing: 1.2px;
-  text-transform: uppercase;
-  color: var(--fg-3);
-  font-weight: 500;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--hair);
+/* ── 智能体卡片网格 ── */
+.agentGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
 }
-.agentTable tbody td {
-  padding: 13px 12px;
-  border-bottom: 1px solid var(--hair);
-  color: var(--fg-2);
-  vertical-align: middle;
+.agentCard {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 18px 16px;
+  background: var(--glass);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-lg);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition: transform .18s var(--easing), border-color .18s, box-shadow .18s;
 }
-.agentTable tbody tr:hover { background: var(--cream); }
-.agentName { font-weight: 600; color: var(--fg); }
+.agentCard:hover {
+  transform: translateY(-3px);
+  border-color: var(--hair-2);
+  box-shadow: 0 14px 36px rgba(0,0,0,0.28);
+}
+.agentCard.running {
+  border-color: rgba(52,211,153,0.40);
+  box-shadow: 0 0 0 1px rgba(52,211,153,0.15), 0 14px 36px rgba(0,0,0,0.28);
+}
+
+.agentCardTop { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.agentCardTitle { display: flex; align-items: center; min-width: 0; }
+.agentName { font-weight: 600; color: var(--fg); font-size: 15px; }
 .agentDraftDot { color: var(--accent); margin-left: 6px; font-size: 10px; }
+
+.agentStatus {
+  display: inline-flex; align-items: center; gap: 6px;
+  flex-shrink: 0;
+  padding: 3px 10px; border-radius: 999px;
+  font-size: 11px; font-weight: 600;
+  border: 1px solid var(--hair);
+}
+.agentStatus.idle { color: var(--fg-3); background: var(--cream-2); }
+.agentStatus.running { color: var(--green); background: var(--green-soft); border-color: rgba(52,211,153,0.30); }
+.agentStatusDot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--green); box-shadow: 0 0 8px var(--green);
+  animation: pip-blink 1.4s infinite;
+}
+
+.agentCardMeta { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 13px; color: var(--fg-2); }
+.agentMetaItem { display: inline-flex; align-items: center; gap: 7px; }
+.agentMetaLabel { font-size: 11px; letter-spacing: .5px; color: var(--fg-3); }
+
+.agentCardTags { display: flex; flex-wrap: wrap; min-height: 4px; }
 .agentTag {
   display: inline-block;
   padding: 2px 9px;
@@ -2784,19 +2820,26 @@ option, optgroup {
   color: var(--fg-2);
   border-radius: 999px;
 }
-.agentRowActions { display: flex; gap: 6px; flex-wrap: wrap; }
-.agentRowActions button {
+
+.agentCardActions {
+  display: flex; gap: 6px; flex-wrap: wrap;
+  margin-top: auto; padding-top: 12px;
+  border-top: 1px solid var(--hair);
+}
+.agentCardActions button {
   height: 28px;
   padding: 0 11px;
   font-size: 12px;
   border: 1px solid var(--hair-2);
   border-radius: var(--r-sm);
   color: var(--fg-2);
-  background: var(--paper);
+  background: var(--glass);
 }
-.agentRowActions button:hover { background: var(--cream); color: var(--fg); }
-.agentRowActions button.danger:hover { color: var(--red); border-color: var(--red); }
-.agentEmpty { padding: 44px 12px; text-align: center; color: var(--fg-3); font-size: 13px; }
+.agentCardActions button:hover { background: var(--glass-strong); color: var(--fg); border-color: var(--hair-2); }
+.agentCardActions button.agentRunBtn { color: var(--green); border-color: rgba(52,211,153,0.30); }
+.agentCardActions button.agentRunBtn:hover { background: var(--green-soft); color: var(--green); }
+.agentCardActions button.danger:hover { color: var(--red); border-color: var(--red); }
+.agentEmpty { padding: 44px 12px; text-align: center; color: var(--fg-3); font-size: 13px; grid-column: 1 / -1; }
 .agentLogsFilter {
   display: flex;
   align-items: flex-end;

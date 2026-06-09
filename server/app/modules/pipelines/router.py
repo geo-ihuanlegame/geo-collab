@@ -42,10 +42,22 @@ def _owned(db: Session, pipeline_id: int, user: User):
 
 
 def _to_read(db: Session, p) -> dict:
+    from server.app.modules.pipelines.models import PipelineRun
+
     if p.tags is None:
         p.tags = []
     nodes = svc.list_nodes(db, p.id)
     data = PipelineRead.model_validate(p).model_dump()
+    # 是否有在途运行（pending / running）——与 service 删除前的活跃运行判定一致
+    active_run = (
+        db.query(PipelineRun.id)
+        .filter(
+            PipelineRun.pipeline_id == p.id,
+            PipelineRun.status.in_(("pending", "running")),
+        )
+        .first()
+    )
+    data["is_running"] = active_run is not None
     data["nodes"] = [
         {
             "node_type": n.node_type,

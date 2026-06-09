@@ -501,6 +501,7 @@ export interface Pipeline {
   name: string;
   description: string | null;
   has_draft: boolean;
+  is_running: boolean;
   created_at: string;
   updated_at: string;
   type: string;

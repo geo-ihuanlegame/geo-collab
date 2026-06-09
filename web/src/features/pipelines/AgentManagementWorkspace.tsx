@@ -129,43 +129,55 @@ export function AgentManagementWorkspace() {
         <button className="agentNewBtn" onClick={openCreate}>+ 新建智能体</button>
       </div>
 
-      <table className="agentTable">
-        <thead>
-          <tr>
-            <th>名称</th><th>类型</th><th>标签</th><th>调度（北京时间）</th><th>启用</th><th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((p) => (
-            <tr key={p.id}>
-              <td>
+      <div className="agentGrid">
+        {items.map((p) => (
+          <div key={p.id} className={`agentCard${p.is_running ? " running" : ""}`}>
+            <div className="agentCardTop">
+              <div className="agentCardTitle">
                 <span className="agentName">{p.name}</span>
                 {p.has_draft && <span className="agentDraftDot" title="有未发布草稿">●</span>}
-              </td>
-              <td>{TYPES.find((t) => t.v === p.type)?.label ?? p.type}</td>
-              <td>
-                {(p.tags || []).length
-                  ? (p.tags || []).map((t) => <span key={t} className="agentTag">{t}</span>)
-                  : <span className="agentHint">—</span>}
-              </td>
-              <td>{scheduleSummary(p)}</td>
-              <td>{p.is_enabled ? "启用" : "停用"}</td>
-              <td>
-                <div className="agentRowActions">
-                  <button onClick={() => openEdit(p)}>编辑</button>
-                  <button onClick={() => setEditingId(p.id)}>配置流程</button>
-                  <button onClick={() => runNow(p)}>立即运行</button>
-                  <button onClick={() => setLogsId(p.id)}>日志</button>
-                  <button className="danger" onClick={() => remove(p)}>删除</button>
-                </div>
-              </td>
-            </tr>
-          ))}
-          {items.length === 0 && (
-            <tr><td colSpan={6}><div className="agentEmpty">还没有智能体，点右上角「新建智能体」开始。</div></td></tr>
-          )}
-        </tbody>
-      </table>
+              </div>
+              {p.is_running ? (
+                <span className="agentStatus running"><span className="agentStatusDot" />运行中</span>
+              ) : (
+                <span className="agentStatus idle">空闲</span>
+              )}
+            </div>
+
+            <div className="agentCardMeta">
+              <span className="agentMetaItem">
+                <span className="agentMetaLabel">类型</span>
+                {TYPES.find((t) => t.v === p.type)?.label ?? p.type}
+              </span>
+              <span className="agentMetaItem">
+                <span className="agentMetaLabel">启用</span>
+                {p.is_enabled ? "启用" : "停用"}
+              </span>
+              <span className="agentMetaItem">
+                <span className="agentMetaLabel">调度</span>
+                {scheduleSummary(p)}
+              </span>
+            </div>
+
+            <div className="agentCardTags">
+              {(p.tags || []).length
+                ? (p.tags || []).map((t) => <span key={t} className="agentTag">{t}</span>)
+                : <span className="agentHint">无标签</span>}
+            </div>
+
+            <div className="agentCardActions">
+              <button onClick={() => openEdit(p)}>编辑</button>
+              <button onClick={() => setEditingId(p.id)}>配置流程</button>
+              <button className="agentRunBtn" onClick={() => runNow(p)}>立即运行</button>
+              <button onClick={() => setLogsId(p.id)}>日志</button>
+              <button className="danger" onClick={() => remove(p)}>删除</button>
+            </div>
+          </div>
+        ))}
+        {items.length === 0 && (
+          <div className="agentEmpty">还没有智能体，点右上角「新建智能体」开始。</div>
+        )}
+      </div>
 
       {form && (
         <div className="modalBackdrop" role="dialog" aria-modal="true" onClick={() => setForm(null)}>
