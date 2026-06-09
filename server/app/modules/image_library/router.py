@@ -30,8 +30,16 @@ files_router = APIRouter()  # /api/stock-images/*  — 公开（图片嵌入文�
 class CategoryCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     bucket_name: str = Field(min_length=1, max_length=63)
+    kind: str = "companion"
     description: str | None = None
     official_url: str | None = None
+
+    @field_validator("kind")
+    @classmethod
+    def validate_kind(cls, value: str) -> str:
+        if value not in {"main", "companion"}:
+            raise ValueError("kind must be 'main' or 'companion'")
+        return value
 
     @field_validator("official_url", mode="before")
     @classmethod
@@ -41,8 +49,16 @@ class CategoryCreate(BaseModel):
 
 class CategoryUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=100)
+    kind: str | None = None
     description: str | None = None
     official_url: str | None = None
+
+    @field_validator("kind")
+    @classmethod
+    def validate_kind(cls, value: str | None) -> str | None:
+        if value is not None and value not in {"main", "companion"}:
+            raise ValueError("kind must be 'main' or 'companion'")
+        return value
 
     @field_validator("official_url", mode="before")
     @classmethod
@@ -54,6 +70,7 @@ class CategoryRead(BaseModel):
     id: int
     name: str
     bucket_name: str
+    kind: str
     description: str | None
     official_url: str | None
     created_at: datetime
@@ -130,6 +147,7 @@ def _to_category_read(cat: StockCategory) -> CategoryRead:
         id=cat.id,
         name=cat.name,
         bucket_name=cat.bucket_name,
+        kind=cat.kind,
         description=cat.description,
         official_url=cat.official_url,
         created_at=cat.created_at,
@@ -173,6 +191,7 @@ def create_category(
     cat = StockCategory(
         name=payload.name,
         bucket_name=payload.bucket_name,
+        kind=payload.kind,
         description=payload.description,
         official_url=payload.official_url,
     )
@@ -193,10 +212,14 @@ def create_category(
 
 @router.get("/categories", response_model=list[CategoryRead])
 def list_categories(
+    kind: str | None = None,
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ) -> Any:
-    cats = db.query(StockCategory).order_by(StockCategory.created_at.desc()).all()
+    q = db.query(StockCategory)
+    if kind in {"main", "companion"}:
+        q = q.filter(StockCategory.kind == kind)
+    cats = q.order_by(StockCategory.created_at.desc()).all()
     return [_to_category_read(c) for c in cats]
 
 
@@ -219,6 +242,8 @@ def update_category(
         cat.description = update_data["description"]
     if "official_url" in update_data:
         cat.official_url = update_data["official_url"]
+    if "kind" in update_data and update_data["kind"] is not None:
+        cat.kind = update_data["kind"]
 
     db.commit()
     db.refresh(cat)
