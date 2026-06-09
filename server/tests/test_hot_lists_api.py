@@ -10,12 +10,15 @@ pytestmark = pytest.mark.mysql
 def test_get_source_passthrough(monkeypatch):
     test_app = build_test_app(monkeypatch)
     try:
-        async def fake_fetch_source(source, *, limit, no_cache, client=None):
-            return 200, {"code": 200, "name": source, "data": [{"id": "1", "title": "x", "url": "u"}]}
 
-        monkeypatch.setattr(
-            "server.app.modules.hot_lists.service.fetch_source", fake_fetch_source
-        )
+        async def fake_fetch_source(source, *, limit, no_cache, client=None):
+            return 200, {
+                "code": 200,
+                "name": source,
+                "data": [{"id": "1", "title": "x", "url": "u"}],
+            }
+
+        monkeypatch.setattr("server.app.modules.hot_lists.service.fetch_source", fake_fetch_source)
         resp = test_app.client.get("/api/hot-lists/weibo")
         assert resp.status_code == 200
         assert resp.json()["name"] == "weibo"
@@ -26,6 +29,7 @@ def test_get_source_passthrough(monkeypatch):
 def test_upstream_down_returns_502(monkeypatch):
     test_app = build_test_app(monkeypatch)
     try:
+
         async def boom(source, *, limit, no_cache, client=None):
             raise service.HotListUpstreamError("down")
 
