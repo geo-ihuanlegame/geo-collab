@@ -1114,7 +1114,7 @@ export function ContentWorkspace({ dirtyCheckRef, isActive, reviewTab: reviewTab
       <header className="topbar">
         <div>
           <p className="eyebrow">内容管理</p>
-          <h1>图文工作台</h1>
+          <h1>{reviewTab === "approved" ? "已审核库" : "未审核库"}</h1>
         </div>
         <div className="topActions">
           <div className="statusHints">

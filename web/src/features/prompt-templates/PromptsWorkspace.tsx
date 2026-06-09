@@ -207,8 +207,8 @@ export function PromptsWorkspace({ scope: propScope }: { scope?: PromptScope } =
     <div className="promptsWorkspace">
       <header className="topbar">
         <div>
-          <p className="eyebrow">内容资产</p>
-          <h1>提示词管理</h1>
+          <p className="eyebrow">提示词管理</p>
+          <h1>{scope === "ai_format" ? "AI格式提示词" : "AI生文提示词"}</h1>
         </div>
         <div className="topActions">
           <button className="secondaryButton" type="button" disabled={loading} onClick={() => void reload()}>
