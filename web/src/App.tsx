@@ -52,6 +52,9 @@ function AppShell() {
     }
     setVisitedTabs((prev) => (prev.has(key) ? prev : new Set(prev).add(key)));
     setActiveNav(key);
+    // 选中非父级菜单时，收起所有含子页的父菜单
+    const hasChildren = navItems.some((i) => i.key === key && (i.children?.length ?? 0) > 0);
+    if (!hasChildren) setOpenGroup(null);
   }
 
   if (loading) {
