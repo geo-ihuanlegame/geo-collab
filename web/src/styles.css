@@ -500,25 +500,36 @@ h2 {
 /* ═══════════════════════════════ INPUTS (shared) ═══════════════════════════════ */
 input[type="text"],
 input[type="url"],
+input[type="password"],
+input[type="email"],
+input[type="number"],
+input[type="search"],
+input[type="tel"],
 input:not([type]),
 select,
-textarea {
+textarea,
+.input {
   outline: none;
   transition: border-color .15s, box-shadow .15s;
 }
 
-input:focus, select:focus, textarea:focus {
+input:focus, select:focus, textarea:focus, .input:focus {
   border-color: var(--accent) !important;
   box-shadow: 0 0 0 3px var(--accent-soft) !important;
 }
 
-input[type="text"], input[type="url"], input:not([type]), select, textarea {
+input[type="text"], input[type="url"], input[type="password"], input[type="email"],
+input[type="number"], input[type="search"], input[type="tel"], input:not([type]),
+select, textarea, .input {
   background: var(--glass);
   border: 1px solid var(--hair-2);
   border-radius: var(--r-sm);
   color: var(--fg);
 }
-input::placeholder, textarea::placeholder { color: var(--fg-3); }
+input::placeholder, textarea::placeholder, .input::placeholder { color: var(--fg-3); }
+
+/* 通用输入框类（多处弹窗/表单使用 className="input"，此前无定义）*/
+.input { width: 100%; padding: 8px 11px; font-size: 13px; }
 
 /* 原生 select 弹出选项：半透明 glass 会被浏览器合成成近白色导致浅字看不清，
    这里给控件和 option/optgroup 显式不透明深色背景 + 浅字 */
