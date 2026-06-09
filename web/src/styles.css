@@ -42,8 +42,9 @@
   --paper-fg-3:  #9a958d;
   --paper-hair:  #e8e5de;
 
-  --serif: "Fraunces", Georgia, "Noto Serif SC", "Source Han Serif SC", serif;
-  --sans:  -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+  --serif: "Fraunces", Georgia, "Songti SC", "Noto Serif SC", "Source Han Serif SC", serif;
+  --sans:  "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "HarmonyOS Sans SC", "MiSans", "PingFang SC", "Source Han Sans SC", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  --display: "Segoe UI Variable Display", "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "HarmonyOS Sans SC", "MiSans", "PingFang SC", "Source Han Sans SC", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
   --mono:  "JetBrains Mono", "SF Mono", "Cascadia Code", Consolas, monospace;
 
   --r-sm: 6px;
@@ -124,9 +125,9 @@ p { margin: 0; }
 .brandBody { display: flex; flex-direction: column; gap: 2px; }
 
 .brandName {
-  font-family: var(--serif);
+  font-family: var(--display);
   font-size: 20px;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: -0.4px;
   line-height: 1;
   color: var(--fg);
@@ -252,18 +253,18 @@ p { margin: 0; }
 }
 
 h1 {
-  font-family: var(--serif);
-  font-size: 46px;
-  font-weight: 600;
-  letter-spacing: -1.2px;
-  line-height: 1.03;
+  font-family: var(--display);
+  font-size: 42px;
+  font-weight: 680;
+  letter-spacing: -1.4px;
+  line-height: 1.06;
   color: var(--fg);
 }
 
 h2 {
-  font-family: var(--serif);
-  font-size: 20px;
-  font-weight: 600;
+  font-family: var(--display);
+  font-size: 19px;
+  font-weight: 640;
   letter-spacing: -0.3px;
   color: var(--fg);
 }
@@ -1590,9 +1591,9 @@ option, optgroup {
 }
 
 .authBrandName {
-  font-family: var(--serif);
+  font-family: var(--display);
   font-size: 22px;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: -0.4px;
   color: var(--fg);
   line-height: 1.2;
@@ -1909,7 +1910,7 @@ option, optgroup {
   flex-shrink: 0;
 }
 
-.aiColTitle { font-family: var(--serif); font-size: 17px; font-weight: 600; }
+.aiColTitle { font-family: var(--display); font-size: 17px; font-weight: 640; }
 
 .aiSearchInput {
   height: 34px;
@@ -2292,7 +2293,7 @@ option, optgroup {
 /* ── 方案库 / 方案编辑器 / 运行明细 ──────────────────────────────────────── */
 .schemeLib { display: flex; flex-direction: column; gap: 18px; }
 .schemeLibHead { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
-.schemeLibTitle { font-family: var(--serif); font-size: 22px; color: var(--fg); margin: 0; }
+.schemeLibTitle { font-family: var(--display); font-size: 22px; font-weight: 680; letter-spacing: -0.4px; color: var(--fg); margin: 0; }
 .schemeLibSub { font-size: 13px; color: var(--fg-3); margin: 4px 0 0; }
 .schemeList { display: flex; flex-direction: column; gap: 12px; }
 .schemeDot { width: 3px; height: 3px; border-radius: 50%; background: var(--hair-2); display: inline-block; }
@@ -2303,7 +2304,7 @@ option, optgroup {
   border: 1px solid var(--hair); border-radius: var(--r);
 }
 .schemeCardInfo { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
-.schemeCardName { font-family: var(--serif); font-size: 17px; color: var(--fg); }
+.schemeCardName { font-family: var(--display); font-size: 17px; font-weight: 640; color: var(--fg); }
 .schemeCardMeta { display: flex; gap: 12px; align-items: center; font-size: 13px; color: var(--fg-2); flex-wrap: wrap; }
 .schemeCardPool { display: inline-flex; gap: 5px; align-items: center; color: var(--fg-3); }
 .schemeCardCtrls { display: flex; gap: 10px; align-items: center; flex-shrink: 0; }
@@ -2348,7 +2349,7 @@ option, optgroup {
   display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;
   padding: 18px 24px; border-bottom: 1px solid var(--hair); flex-shrink: 0;
 }
-.schemePanelHead h3 { font-family: var(--serif); font-size: 18px; margin: 0; color: var(--fg); }
+.schemePanelHead h3 { font-family: var(--display); font-size: 18px; font-weight: 640; margin: 0; color: var(--fg); }
 .schemePanelHint { font-size: 12px; color: var(--fg-3); margin: 3px 0 0; }
 .schemePanelBody { padding: 20px 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
 .schemePanelFoot {
@@ -2966,7 +2967,7 @@ option, optgroup {
 
 .pePanel { flex: 1; min-width: 0; }
 .peCard { border: 1px solid var(--hair); border-radius: var(--r-lg); padding: 18px; display: flex; flex-direction: column; gap: 14px; }
-.peCardTitle { display: flex; align-items: baseline; gap: 8px; font-family: var(--serif); font-size: 18px; color: var(--fg); }
+.peCardTitle { display: flex; align-items: baseline; gap: 8px; font-family: var(--display); font-size: 18px; font-weight: 640; color: var(--fg); }
 .peCard textarea {
   width: 100%; min-height: 72px; resize: vertical;
   border: 1px solid var(--hair); border-radius: var(--r); padding: 9px 11px;
