@@ -452,6 +452,14 @@ input[type="text"], input[type="url"], input:not([type]), select, textarea {
 }
 input::placeholder, textarea::placeholder { color: var(--fg-3); }
 
+/* 原生 select 弹出选项：半透明 glass 会被浏览器合成成近白色导致浅字看不清，
+   这里给控件和 option/optgroup 显式不透明深色背景 + 浅字 */
+select { background-color: var(--bg-2); }
+option, optgroup {
+  background-color: #11141f;
+  color: var(--fg);
+}
+
 /* ═══════════════════════════════ CONTENT WORKSPACE ═══════════════════════════════ */
 .contentGrid {
   display: grid;
