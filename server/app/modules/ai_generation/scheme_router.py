@@ -45,9 +45,11 @@ scheme_router = APIRouter()
 bg_session_factory: Any = None
 
 
-def _get_owned_pool(db: Session, pool_id: int, current_user: User) -> Any:
+def _get_pool_or_404(db: Session, pool_id: int) -> Any:
+    """问题池全员共享：任意登录用户都可在任一池上建方案，仅不存在 / 已删除时 404。
+    （方案本身仍按用户私有，见 _get_owned_scheme。）"""
     pool = qb.get_pool(db, pool_id)
-    if pool is None or (current_user.role != "admin" and pool.user_id != current_user.id):
+    if pool is None:
         raise HTTPException(status_code=404, detail="问题池不存在")
     return pool
 
@@ -112,7 +114,7 @@ def create_scheme(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Any:
-    pool = _get_owned_pool(db, payload.pool_id, current_user)
+    pool = _get_pool_or_404(db, payload.pool_id)
     scheme = svc.create_scheme(db, user_id=current_user.id, pool_id=pool.id, payload=payload)
     db.commit()
     db.refresh(scheme)

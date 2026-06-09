@@ -28,11 +28,15 @@ FIELD_CATEGORY = "分类板块"
 # ── 池增删改查 ─────────────────────────────────────────────────────────────
 
 
-def list_pools(db: Session, *, user_id: int, is_admin: bool) -> list[QuestionPool]:
-    q = db.query(QuestionPool).filter(QuestionPool.is_deleted == False)  # noqa: E712
-    if not is_admin:
-        q = q.filter(QuestionPool.user_id == user_id)
-    return q.order_by(QuestionPool.created_at.desc()).all()
+def list_pools(db: Session) -> list[QuestionPool]:
+    """列出所有未删除问题池。问题池全员共享，不再按属主隔离（admin / operator 同看同一批）。
+    `QuestionPool.user_id` 仅保留为"创建者"溯源，不参与可见性过滤。"""
+    return (
+        db.query(QuestionPool)
+        .filter(QuestionPool.is_deleted == False)  # noqa: E712
+        .order_by(QuestionPool.created_at.desc())
+        .all()
+    )
 
 
 def get_pool(db: Session, pool_id: int) -> QuestionPool | None:
@@ -62,6 +66,41 @@ def create_pool(
     db.add(pool)
     db.flush()
     return pool
+
+
+def update_pool(
+    db: Session,
+    pool: QuestionPool,
+    *,
+    name: str | None = None,
+    feishu_app_token: str | None = None,
+    feishu_table_id: str | None = None,
+    auto_sync_enabled: bool | None = None,
+) -> QuestionPool:
+    """改名 / 重新绑定飞书表 / 开关自动同步。仅更新显式传入（非 None）的字段。
+
+    PATCH 语义与 ArticleUpdate 一致：None = "未提供、保持原值"，无法用来清空字段；
+    要清空飞书绑定请显式传空串（会被规整成 None）。
+    """
+    if name is not None:
+        if not name.strip():
+            raise ValidationError("问题池名称不能为空")
+        pool.name = name.strip()
+    if feishu_app_token is not None:
+        pool.feishu_app_token = feishu_app_token.strip() or None
+    if feishu_table_id is not None:
+        pool.feishu_table_id = feishu_table_id.strip() or None
+    if auto_sync_enabled is not None:
+        pool.auto_sync_enabled = auto_sync_enabled
+    db.flush()
+    return pool
+
+
+def soft_delete_pool(db: Session, pool: QuestionPool) -> None:
+    """软删除问题池：置 is_deleted=True（不物理删除，保留问题项与历史关联）。
+    删除后 get_pool / list_pools 不再返回它，绑定它的方案会显示"池不存在"。"""
+    pool.is_deleted = True
+    db.flush()
 
 
 # ── 同步（飞书 → 队列）──────────────────────────────────────────────────────

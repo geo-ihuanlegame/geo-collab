@@ -11,7 +11,6 @@ def run_question_source(ctx: NodeRunContext) -> NodeResult:
     from sqlalchemy import or_
 
     from server.app.modules.ai_generation.models import QuestionItem, QuestionPool
-    from server.app.modules.system.models import User
 
     cfg = ctx.config or {}
     pool_id = cfg.get("pool_id")
@@ -30,10 +29,7 @@ def run_question_source(ctx: NodeRunContext) -> NodeResult:
         pool = db.get(QuestionPool, pool_id)
         if pool is None or getattr(pool, "is_deleted", False):
             raise ValidationError("问题池不存在")
-        if pool.user_id != ctx.user_id:
-            user = db.get(User, ctx.user_id)
-            if user is None or user.role != "admin":
-                raise ValidationError("无权访问该问题池")
+        # 问题池全员共享：不再校验属主（admin / operator 同看同一批池）。
 
         query = db.query(QuestionItem.question_text).filter(
             QuestionItem.pool_id == pool_id,

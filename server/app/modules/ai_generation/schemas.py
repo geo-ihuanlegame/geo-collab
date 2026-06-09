@@ -29,6 +29,15 @@ class QuestionPoolCreate(BaseModel):
     feishu_table_id: str | None = None
 
 
+class QuestionPoolUpdate(BaseModel):
+    """问题池改名 / 重绑飞书 / 自动同步开关。PATCH 语义：未提供的字段保持原值。"""
+
+    name: str | None = None
+    feishu_app_token: str | None = None
+    feishu_table_id: str | None = None
+    auto_sync_enabled: bool | None = None
+
+
 class QuestionPoolRead(BaseModel):
     id: int
     name: str

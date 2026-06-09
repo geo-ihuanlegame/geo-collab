@@ -2,8 +2,11 @@
 
 所有归属守卫遵循同一规则：非 admin 访问他人资源一律 404（不泄露其存在），admin 可越权访问：
   - pipelines        `_owned`                    (router.py:39)
-  - ai_generation    `_get_owned_pool` / `_get_owned_scheme`  (scheme_router.py:50/57)
+  - ai_generation    `_get_owned_scheme`         (scheme_router.py，方案仍按用户私有)
   - accounts         `_verify_account_ownership` (router.py:48，注释明确「404 而非 403」)
+
+例外：**问题池（question pool）改为全员共享**，不再按属主隔离——任意登录用户都能看到 / 改名 /
+同步同一批池，新增也共享；唯独「删除」收归 admin（require_admin → 403）。下面的用例覆盖这一新契约。
 
 build_test_app 默认只有一个 admin，现有测试几乎都以这单个 admin 跑，从未真正触发「他人资源」分支。
 这里用 create_extra_user 再造一个 operator 来覆盖该越权分支。用 GET / DELETE 等无 body 动作断言，
@@ -60,7 +63,8 @@ def test_cross_user_pipeline_is_404_admin_bypasses(monkeypatch):
 
 
 @pytest.mark.mysql
-def test_cross_user_scheme_and_pool_are_404(monkeypatch):
+def test_scheme_private_but_pool_shared(monkeypatch):
+    """方案仍按用户私有（越权 404）；问题池改为全员共享（他人也能看到 / 读 question-types）。"""
     from server.app.modules.ai_generation.models import GenerationScheme, QuestionPool
     from server.app.modules.system.models import User
 
@@ -69,7 +73,7 @@ def test_cross_user_scheme_and_pool_are_404(monkeypatch):
     try:
         _op_id, op = create_extra_user(app, "op_scheme", role="operator")
 
-        # admin 拥有一个问题池 + 方案（ORM 直建，归属 admin）
+        # admin 直建一个问题池 + 方案（ORM 直建，user_id=admin）
         with app.session_factory() as db:
             admin_id = db.query(User).filter(User.username == "testadmin").first().id
             pool = QuestionPool(user_id=admin_id, name="admin池")
@@ -80,16 +84,55 @@ def test_cross_user_scheme_and_pool_are_404(monkeypatch):
             db.commit()
             pool_id, scheme_id = pool.id, scheme.id
 
-        # operator 越权 → 404（_get_owned_pool / _get_owned_scheme 在序列化前先拦）
-        assert op.get(f"/api/generation/question-pools/{pool_id}/question-types").status_code == 404
+        # 方案仍私有：operator 越权 → 404
         assert op.get(f"/api/generation/schemes/{scheme_id}").status_code == 404
         assert op.delete(f"/api/generation/schemes/{scheme_id}").status_code == 404
 
-        # 对照：admin 自己可见
-        assert (
-            admin.get(f"/api/generation/question-pools/{pool_id}/question-types").status_code == 200
-        )
+        # 问题池共享：operator 能读 question-types（200）且在列表里看到 admin 建的池
+        assert op.get(f"/api/generation/question-pools/{pool_id}/question-types").status_code == 200
+        listed = op.get("/api/generation/question-pools").json()
+        assert any(p["id"] == pool_id for p in listed)
+
+        # 对照：admin 自己可见方案
         assert admin.get(f"/api/generation/schemes/{scheme_id}").status_code == 200
+    finally:
+        app.cleanup()
+
+
+@pytest.mark.mysql
+def test_question_pool_shared_crud_permissions(monkeypatch):
+    """共享问题池权限矩阵：全员可建 / 看 / 改名 / 同步；删除仅 admin（operator → 403）。"""
+    from server.app.modules.ai_generation.models import QuestionPool
+    from server.app.modules.system.models import User
+
+    app = build_test_app(monkeypatch)
+    admin = app.client
+    try:
+        _op_id, op = create_extra_user(app, "op_pool", role="operator")
+
+        # admin 直建一个池
+        with app.session_factory() as db:
+            admin_id = db.query(User).filter(User.username == "testadmin").first().id
+            pool = QuestionPool(user_id=admin_id, name="原名")
+            db.add(pool)
+            db.commit()
+            pool_id = pool.id
+
+        # operator 改名（修改）→ 200
+        r = op.patch(f"/api/generation/question-pools/{pool_id}", json={"name": "改后名"})
+        assert r.status_code == 200, r.text
+        assert r.json()["name"] == "改后名"
+
+        # operator 新建 → 201（全员可建）
+        assert op.post("/api/generation/question-pools", json={"name": "op建的"}).status_code == 201
+
+        # operator 删除 → 403（仅 admin）
+        assert op.delete(f"/api/generation/question-pools/{pool_id}").status_code == 403
+
+        # admin 删除 → 204，删除后列表不再出现
+        assert admin.delete(f"/api/generation/question-pools/{pool_id}").status_code == 204
+        listed = admin.get("/api/generation/question-pools").json()
+        assert all(p["id"] != pool_id for p in listed)
     finally:
         app.cleanup()
 
