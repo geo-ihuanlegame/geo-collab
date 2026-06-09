@@ -253,6 +253,45 @@ def all_category_contexts(db: Any) -> list[dict[str, Any]]:
     return result
 
 
+def category_contexts_for(
+    db: Any,
+    *,
+    main_category_id: int,
+    include_companion: bool = True,
+) -> list[dict[str, Any]]:
+    """配图节点候选栏目：主推栏目 + (可选)全部 kind=companion 栏目。
+
+    返回 [{id,name,description}, ...]，主推排第一、去重。供 ai_illustrate 节点喂给
+    run_ai_format 的 candidate_categories。
+    """
+    from server.app.modules.image_library.models import StockCategory
+
+    result: list[dict[str, Any]] = []
+    seen: set[int] = set()
+
+    main = db.get(StockCategory, main_category_id)
+    if main is not None:
+        item = _category_context(main)
+        if item is not None:
+            result.append(item)
+            seen.add(item["id"])
+
+    if include_companion:
+        companions = (
+            db.query(StockCategory)
+            .filter(StockCategory.kind == "companion")
+            .order_by(StockCategory.id.asc())
+            .all()
+        )
+        for cat in companions:
+            item = _category_context(cat)
+            if item is not None and item["id"] not in seen:
+                result.append(item)
+                seen.add(item["id"])
+
+    return result
+
+
 def render_ai_format_prompt(
     template_source: str,
     *,
