@@ -132,7 +132,7 @@ class TestUpdateUser:
     def test_cannot_modify_own_account(self, monkeypatch):
         test_app = build_test_app(monkeypatch)
         try:
-    # 查找管理员自己的 ID
+            # 查找管理员自己的 ID
             users = test_app.client.get("/api/auth/users").json()
             admin_id = next(u["id"] for u in users if u["username"] == "testadmin")
             resp = test_app.client.patch(f"/api/auth/users/{admin_id}", json={"is_active": False})
@@ -220,8 +220,8 @@ class TestResetPassword:
     def test_nonexistent_user_404(self, monkeypatch):
         test_app = build_test_app(monkeypatch)
         try:
-    # 使用长度合法的密码，让请求体验证通过 min_length，
-    # 这样才能实际走到用户查找的 404 路径。
+            # 使用长度合法的密码，让请求体验证通过 min_length，
+            # 这样才能实际走到用户查找的 404 路径。
             resp = test_app.client.post(
                 "/api/auth/users/99999/reset-password", json={"new_password": "validpass123"}
             )
