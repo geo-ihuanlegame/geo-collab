@@ -1479,7 +1479,7 @@ export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
             onAiFormat={handleAiFormat}
             stockCategorySelected={draft.stock_category_ids.length > 0}
           />
-          <div className="editorWrap">
+          <div className="editorWrap paper-scope">
             <EditorContent editor={editor} />
           </div>
           <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, padding: "4px 8px", fontSize: 12, color: charCount < 300 ? "#e67e22" : "#888" }}>

@@ -938,6 +938,26 @@ input::placeholder, textarea::placeholder { color: var(--fg-3); }
 
 .editorSurface img { max-width: 100%; border-radius: var(--r); }
 
+/* ═══════════════════════════════ PAPER SCOPE（亮纸编辑器）═══════════════════════════════ */
+.paper-scope {
+  --paper: var(--paper-bg);
+  --cream: var(--paper-bg);
+  --cream-2: #efece3;
+  --fg: var(--paper-fg);
+  --fg-2: var(--paper-fg-2);
+  --fg-3: var(--paper-fg-3);
+  --hair: var(--paper-hair);
+  --hair-2: #d6d2c8;
+  background: var(--paper-bg);
+  color: var(--paper-fg);
+}
+
+.paper-scope .editorSurface { color: var(--paper-fg); }
+.paper-scope .editorSurface h1,
+.paper-scope .editorSurface h2,
+.paper-scope .editorSurface h3 { font-family: var(--serif); color: var(--paper-fg); }
+.paper-scope ::selection { background: rgba(109,107,246,0.18); color: #4549C5; }
+
 /* ── toolbar new controls ── */
 .toolbarSep {
   width: 1px;
