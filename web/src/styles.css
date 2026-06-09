@@ -282,23 +282,42 @@ h2 {
 .secondaryButton:active:not(:disabled),
 .dangerButton:active:not(:disabled) { transform: translateY(1px); }
 
-.primaryButton { background: var(--fg); color: var(--paper); border-color: var(--fg); }
-.primaryButton:hover:not(:disabled) { background: #000; border-color: #000; }
+.primaryButton {
+  background: var(--grad);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 6px 20px rgba(124,107,246,0.40);
+}
+.primaryButton:hover:not(:disabled) {
+  box-shadow: 0 8px 26px rgba(124,107,246,0.55);
+  filter: brightness(1.06);
+}
 
-.secondaryButton { background: var(--paper); color: var(--fg); border-color: var(--hair-2); }
-.secondaryButton:hover:not(:disabled) { border-color: var(--fg-3); background: var(--cream); }
+.secondaryButton {
+  background: var(--glass);
+  color: var(--fg);
+  border-color: var(--hair-2);
+}
+.secondaryButton:hover:not(:disabled) {
+  border-color: rgba(140,120,255,0.45);
+  background: var(--glass-strong);
+}
 
-.dangerButton { background: var(--red-soft); color: var(--red); border-color: var(--red-soft); }
-.dangerButton:hover:not(:disabled) { background: #edddd8; }
+.dangerButton {
+  background: var(--red-soft);
+  color: var(--red);
+  border-color: rgba(248,113,113,0.30);
+}
+.dangerButton:hover:not(:disabled) { background: rgba(248,113,113,0.22); }
 
 .fileButton {
   position: relative;
-  background: var(--paper);
+  background: var(--glass);
   color: var(--fg-2);
   border-color: var(--hair-2);
   cursor: pointer;
 }
-.fileButton:hover { border-color: var(--fg-3); background: var(--cream); }
+.fileButton:hover { border-color: rgba(140,120,255,0.45); background: var(--glass-strong); }
 .fileButton input, .toolbarFile input {
   position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none;
 }
@@ -306,15 +325,14 @@ h2 {
 .iconButton {
   display: inline-grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: 30px; height: 30px;
   border: 1px solid var(--hair);
   border-radius: var(--r-sm);
   color: var(--fg-2);
-  background: var(--paper);
+  background: var(--glass);
   transition: all .14s;
 }
-.iconButton:hover:not(:disabled) { color: var(--fg); border-color: var(--hair-2); background: var(--cream); }
+.iconButton:hover:not(:disabled) { color: var(--fg); border-color: var(--hair-2); background: var(--glass-strong); }
 
 /* ═══════════════════════════════ STATUS / NOTICE ═══════════════════════════════ */
 .status {
