@@ -141,24 +141,30 @@ p { margin: 0; }
   font-weight: 500;
 }
 
-.nav { display: flex; flex-direction: column; gap: 2px; }
+.nav { display: flex; flex-direction: column; gap: 7px; }
 
 .navItem {
   display: flex;
   align-items: center;
   gap: 11px;
   width: 100%;
-  padding: 10px 12px;
+  padding: 11px 12px;
   border-radius: var(--r);
   color: var(--fg-2);
   font-size: 14px;
   font-weight: 500;
   text-align: left;
-  border: 1px solid transparent;
-  transition: background .18s var(--easing), color .18s, border-color .18s;
+  background: var(--glass);
+  border: 1px solid var(--hair);
+  transition: background .18s var(--easing), color .18s, border-color .18s, transform .18s var(--easing);
 }
 
-.navItem:hover { background: var(--glass); color: var(--fg); }
+.navItem:hover {
+  background: var(--glass-strong);
+  border-color: var(--hair-2);
+  color: var(--fg);
+  transform: translateX(3px);
+}
 
 .navItem.active {
   color: #fff;
