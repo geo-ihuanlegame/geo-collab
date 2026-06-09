@@ -1061,6 +1061,8 @@ input::placeholder, textarea::placeholder { color: var(--fg-3); }
 
 .accountForm {
   background: var(--paper);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   border: 1px solid var(--hair);
   border-radius: var(--r-lg);
   padding: 24px;
