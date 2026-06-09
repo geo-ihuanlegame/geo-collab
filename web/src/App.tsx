@@ -80,7 +80,7 @@ function AppShell() {
       <main className="shell">
         <aside className="sidebar">
           <div className="brand">
-            <div className="brandMark" />
+            <div className="brandMark">AI</div>
             <div className="brandBody">
               <span className="brandName">AI插件自动化平台</span>
               <span className="brandSub">协作平台</span>
