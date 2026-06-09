@@ -485,6 +485,70 @@ def _call_litellm_completion(
     )
 
 
+# 联网兜底（额外能力）提示：仅 web_fallback 开时追加到系统提示词，让模型能点名库里没有的游戏。
+_WEB_FALLBACK_PROMPT_SUFFIX = (
+    "\n\n【联网兜底（额外能力）】\n"
+    "若某段落明确属于某款游戏，但上方可用栏目列表里没有它，可在 image_positions 里"
+    '用游戏名代替 category_id：{"index": 段落索引, "game": "游戏中文名"}\n'
+    "- game 用规范中文游戏名（如「蛋仔派对」），不要带书名号/版本号/多余修饰\n"
+    "- 仅在确有把握该段落属于这款游戏时才用；不确定就不插\n"
+    "- 已在可用栏目列表里的游戏仍用 category_id，不要用 game\n"
+)
+
+
+def _parse_image_positions(raw: Any) -> list[tuple[int, int | None, str | None]]:
+    """解析 image_positions：每项 (index, category_id|None, game_name|None)。"""
+    out: list[tuple[int, int | None, str | None]] = []
+    if not isinstance(raw, list):
+        return out
+    for item in raw:
+        if isinstance(item, dict):
+            idx = item.get("index")
+            if not isinstance(idx, int):
+                continue
+            cat = item.get("category_id")
+            game = item.get("game")
+            out.append(
+                (
+                    idx,
+                    cat if isinstance(cat, int) else None,
+                    game.strip() if isinstance(game, str) and game.strip() else None,
+                )
+            )
+        elif isinstance(item, int):
+            out.append((item, None, None))
+    return out
+
+
+def _web_fallback_fill_category(db: Any, category: Any) -> int | None:
+    """为某栏目联网搜一张横版图入库，返回新图 id；失败/无图返回 None（best-effort，不抛）。"""
+    from server.app.modules.image_library.service import store_image_bytes
+    from server.app.shared import baidu
+
+    try:
+        for cand in baidu.search_landscape_images(str(getattr(category, "name", "") or "")):
+            downloaded = baidu.download_image(cand.url)
+            if downloaded is None:
+                continue
+            data, mime = downloaded
+            img = store_image_bytes(
+                db,
+                category,
+                data,
+                mime,
+                source_url=cand.source_url,
+                width=cand.width,
+                height=cand.height,
+            )
+            if img is not None:
+                return img.id
+    except Exception:
+        logger.exception(
+            "web_fallback fetch failed for category %s", getattr(category, "name", "?")
+        )
+    return None
+
+
 def _maybe_insert_images(
     content_json: dict,
     parsed: dict,
@@ -492,61 +556,64 @@ def _maybe_insert_images(
     db: Any,
     *,
     available_categories: list[dict[str, Any]] | None = None,
+    web_fallback: bool = False,
 ) -> tuple[dict, int]:
-    """按模型给的 image_positions 在指定位置插入配图，返回 (新文档, 实插图数)。
+    """按模型给的 image_positions 插图，返回 (新文档, 实插图数)。
 
-    正文已含图则不动；每个位置按 requested_category_id 从该栏目选一张未用过的图（excluded_ids 去重），
-    选不到的位置静默跳过。返回的插图数可能小于请求数。
+    正文已含图则不动。每个位置优先用候选列表里的 category_id；web_fallback 开时，模型也可用
+    game 游戏名点名库里没有的游戏 → get-or-create 陪衬栏目；选中的栏目没图时（含新建的）联网
+    搜图补一张。选不到的位置静默跳过。web_fallback 关时行为与改造前一致（game 字段被忽略）。
     """
     if has_images_in_content(content_json):
         return content_json, 0
+
+    from server.app.modules.image_library.models import StockCategory
+    from server.app.modules.image_library.service import get_or_create_companion_category
 
     cats = (
         available_categories
         if available_categories is not None
         else _available_categories_for_article(article, db)
     )
-    category_ids: list[int] = [cat["id"] for cat in cats]
-    if not category_ids:
+    valid_category_ids = {cat["id"] for cat in cats}
+    if not valid_category_ids and not web_fallback:
         return content_json, 0
 
-    image_positions_raw = parsed.get("image_positions", [])
-    if not isinstance(image_positions_raw, list) or not image_positions_raw:
-        return content_json, 0
-
-    positions: list[int] = []
-    requested_category_ids: list[int | None] = []
-    for item in image_positions_raw:
-        if isinstance(item, dict):
-            idx = item.get("index")
-            category_id = item.get("category_id")
-            if isinstance(idx, int):
-                positions.append(idx)
-                requested_category_ids.append(category_id if isinstance(category_id, int) else None)
-        elif isinstance(item, int):
-            positions.append(item)
-            requested_category_ids.append(None)
-
+    positions = _parse_image_positions(parsed.get("image_positions", []))
     if not positions:
         return content_json, 0
 
-    valid_category_ids = set(category_ids)
     matched_refs = []
     matched_positions = []
     used_ids: list[int] = []
-    for pos, requested_category_id in zip(positions, requested_category_ids, strict=False):
-        if requested_category_id is None or requested_category_id not in valid_category_ids:
+    for idx, req_cat_id, game in positions:
+        category = None  # ORM 对象，仅 web_fallback 取图/新建游戏分支才需要
+        target_cat_id: int | None = None
+        if req_cat_id is not None and req_cat_id in valid_category_ids:
+            target_cat_id = req_cat_id  # 现有栏目：直接用 id，保持改造前行为（不碰 db）
+        elif web_fallback and game:
+            category = get_or_create_companion_category(db, game)
+            target_cat_id = category.id if category is not None else None
+        if target_cat_id is None:
             continue
+
         image_id = pick_image_id(
-            ImageQuery(category_ids=[requested_category_id], excluded_ids=used_ids), db
+            ImageQuery(category_ids=[target_cat_id], excluded_ids=used_ids), db
         )
+        if image_id is None and web_fallback:
+            # 栏目里没图（含刚新建的）：联网搜一张补进来再选
+            if category is None:
+                category = db.get(StockCategory, target_cat_id)
+            if category is not None:
+                image_id = _web_fallback_fill_category(db, category)
         if image_id is None:
             continue
+
         ref = fetch_image_by_id(image_id, db)
         if ref is not None:
             used_ids.append(image_id)
             matched_refs.append(ref)
-            matched_positions.append(pos)
+            matched_positions.append(idx)
 
     if not matched_refs:
         return content_json, 0
@@ -585,11 +652,15 @@ def run_ai_format(
     preset_id: int | None = None,
     user_id: int | None = None,
     candidate_categories: list[dict[str, Any]] | None = None,
+    web_fallback: bool = False,
 ) -> None:
     """识别正文小标题，并把更新后的 Tiptap 文档写回文章。
 
     candidate_categories 非 None 时用它当配图候选栏目（方案自动配图用全部 bucket）；
     None 时回退到文章已分配的类别（手动 AI 排版按钮的现状行为）。
+
+    web_fallback=True（仅 AI配图 节点开关）时：允许模型点名库里没有的陪衬游戏，
+    缺图则联网搜图补充（见 _maybe_insert_images）。默认 False，其它调用方行为不变。
     """
     db = None
     error_message: str | None = None
@@ -638,6 +709,8 @@ def run_ai_format(
             text_nodes=text_nodes,
             available_categories=available_categories,
         )
+        if include_images and web_fallback:
+            system_prompt += _WEB_FALLBACK_PROMPT_SUFFIX
         response = _call_litellm_completion(
             model=settings.ai_format_model,
             api_key=api_key,
@@ -659,7 +732,12 @@ def run_ai_format(
         image_count = 0
         if include_images:
             new_content_json, image_count = _maybe_insert_images(
-                new_content_json, parsed, article, db, available_categories=available_categories
+                new_content_json,
+                parsed,
+                article,
+                db,
+                available_categories=available_categories,
+                web_fallback=web_fallback,
             )
 
         # 第二道锁检查：写回前 refresh 再比一次指纹。模型耗时长，期间可能有新一轮排版抢锁，

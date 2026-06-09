@@ -87,6 +87,14 @@ class Settings(BaseSettings):
     minio_secret_key: str = ""  # GEO_MINIO_SECRET_KEY
     minio_secure: bool = False  # GEO_MINIO_SECURE
 
+    # AI配图「联网兜底」：陪衬游戏库里无图时，用百度千帆 AI 搜索拉真实横版图补充
+    # Key 启动时不校验，缺失时走兜底的请求里才报错（与 AI Key 一致）
+    baidu_api_key: str = ""  # GEO_BAIDU_API_KEY（千帆 Bearer API Key）
+    baidu_ai_search_url: str = (
+        "https://qianfan.baidubce.com/v2/ai_search/web_search"  # GEO_BAIDU_AI_SEARCH_URL
+    )
+    baidu_ai_search_timeout_seconds: int = 30  # GEO_BAIDU_AI_SEARCH_TIMEOUT_SECONDS
+
     model_config = SettingsConfigDict(env_prefix="GEO_", env_file=".env", extra="ignore")
 
 
