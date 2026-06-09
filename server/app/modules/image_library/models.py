@@ -20,6 +20,8 @@ class StockCategory(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(100), unique=True)
     bucket_name: Mapped[str] = mapped_column(String(63), unique=True)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False, server_default="companion")
+    # 'main'=主推（手选一个）/ 'companion'=陪衬（AI 按文章检测）
     description: Mapped[str | None] = mapped_column(String(500), nullable=True)
     official_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
