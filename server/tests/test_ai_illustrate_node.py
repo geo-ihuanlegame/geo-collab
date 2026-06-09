@@ -54,11 +54,19 @@ def test_ai_illustrate_candidates_and_passthrough(monkeypatch):
         captured: dict = {}
 
         def _stub(
-            article_id, *, include_images, lock_started_at, preset_id, user_id, candidate_categories
+            article_id,
+            *,
+            include_images,
+            lock_started_at,
+            preset_id,
+            user_id,
+            candidate_categories,
+            web_fallback=False,
         ):
             captured["article_id"] = article_id
             captured["candidates"] = candidate_categories
             captured["include_images"] = include_images
+            captured["web_fallback"] = web_fallback
 
         monkeypatch.setattr("server.app.modules.pipelines.nodes.ai_illustrate.run_ai_format", _stub)
 

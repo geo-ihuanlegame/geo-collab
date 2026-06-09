@@ -33,6 +33,7 @@ def run_ai_illustrate(ctx: NodeRunContext) -> NodeResult:
     if not isinstance(main_category_id, int):
         raise ValidationError("ai_illustrate 节点需配置主推栏目 main_category_id")
     include_companion = bool(cfg.get("include_companion", True))
+    web_fallback = bool(cfg.get("web_fallback", False))
     cfg_preset_id = cfg.get("preset_id")
 
     errors: list[str] = []
@@ -75,6 +76,7 @@ def run_ai_illustrate(ctx: NodeRunContext) -> NodeResult:
             preset_id=effective_preset,
             user_id=ctx.user_id,
             candidate_categories=candidate_categories,
+            web_fallback=web_fallback,
         )
 
     with ThreadPoolExecutor(max_workers=4) as pool:
