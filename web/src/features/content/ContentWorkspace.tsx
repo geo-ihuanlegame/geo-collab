@@ -434,7 +434,14 @@ export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
     return { total, approved };
   }
 
-  // Tab counts: standalone (ungrouped) articles split by review_status.
+  // A group's tab is derived from its members: fully approved → "approved", otherwise "pending".
+  // Groups have no own review_status field; empty groups (total === 0) count as pending.
+  function groupReviewTab(group: ArticleGroup): ReviewStatus {
+    const counts = groupReviewCounts(group);
+    return counts.total > 0 && counts.approved === counts.total ? "approved" : "pending";
+  }
+
+  // Tab counts: standalone (ungrouped) articles + groups, split by (derived) review status.
   const reviewCounts = useMemo(() => {
     let pending = 0;
     let approved = 0;
@@ -443,8 +450,12 @@ export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
       if (article.review_status === "approved") approved += 1;
       else pending += 1;
     }
+    for (const group of groups) {
+      if (groupReviewTab(group) === "approved") approved += 1;
+      else pending += 1;
+    }
     return { pending, approved };
-  }, [articles, groupedArticleIdSet]);
+  }, [articles, groups, groupedArticleIdSet, articleById]);
 
   const unifiedList = useMemo(() => {
     const items: UnifiedListItem[] = [];
@@ -453,8 +464,9 @@ export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
       if (article.review_status !== reviewTab) continue;
       items.push({ type: "article", article, sortTime: new Date(article.created_at).getTime() });
     }
-    // Groups always appear in both tabs (scheme batches); actions differ per tab.
+    // Groups land in the tab matching their derived approval state (no longer both tabs).
     for (const group of groups) {
+      if (groupReviewTab(group) !== reviewTab) continue;
       if (!query || group.name.toLowerCase().includes(query.toLowerCase()) || group.items.some((item) => articleById[item.article_id])) {
         items.push({ type: "group", group, sortTime: new Date(group.created_at).getTime() });
       }

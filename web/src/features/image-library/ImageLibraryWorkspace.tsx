@@ -21,6 +21,7 @@ export function ImageLibraryWorkspace() {
 
   const [editingCategory, setEditingCategory] = useState<StockCategory | null>(null);
   const [editCatName, setEditCatName] = useState("");
+  const [editCatKind, setEditCatKind] = useState<"main" | "companion">("companion");
   const [editCatDesc, setEditCatDesc] = useState("");
   const [editCatUrl, setEditCatUrl] = useState("");
   const [editCatSaving, setEditCatSaving] = useState(false);
@@ -179,22 +180,36 @@ export function ImageLibraryWorkspace() {
   function openCategoryEdit(category: StockCategory) {
     setEditingCategory(category);
     setEditCatName(category.name);
+    setEditCatKind(category.kind);
     setEditCatDesc(category.description ?? "");
     setEditCatUrl(category.official_url ?? "");
   }
 
   async function handleSaveCategoryEdit() {
     if (!editingCategory || !editCatName.trim()) return;
+    const movedKind = editCatKind !== editingCategory.kind;
     setEditCatSaving(true);
     try {
       const updated = await updateCategory(editingCategory.id, {
         name: editCatName.trim(),
+        kind: editCatKind,
         description: editCatDesc.trim() || null,
         official_url: editCatUrl.trim() || null,
       });
-      setCategories((prev) => prev.map((cat) => (cat.id === updated.id ? updated : cat)));
+      if (updated.kind !== kindTab) {
+        // 归属已改到另一 tab —— 从当前列表移除，必要时清空选中。
+        setCategories((prev) => prev.filter((cat) => cat.id !== updated.id));
+        setSelectedCategoryId((prev) => (prev === updated.id ? null : prev));
+      } else {
+        setCategories((prev) => prev.map((cat) => (cat.id === updated.id ? updated : cat)));
+      }
       setEditingCategory(null);
-      showToast("栏目已更新", "success");
+      showToast(
+        movedKind
+          ? `已移到${updated.kind === "main" ? "主推游戏" : "陪衬游戏"}`
+          : "栏目已更新",
+        "success",
+      );
     } catch (e: unknown) {
       showToast((e as Error).message, "error");
     } finally {
@@ -368,6 +383,13 @@ export function ImageLibraryWorkspace() {
             <label>
               栏目名称
               <input value={editCatName} onChange={(e) => setEditCatName(e.target.value)} placeholder="如：原神" />
+            </label>
+            <label>
+              归属
+              <select value={editCatKind} onChange={(e) => setEditCatKind(e.target.value as "main" | "companion")}>
+                <option value="main">主推游戏</option>
+                <option value="companion">陪衬游戏</option>
+              </select>
             </label>
             <label>
               Bucket 名称
