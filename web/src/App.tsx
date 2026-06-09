@@ -23,18 +23,14 @@ function AppShell() {
   const { user, loading, logout } = useAuth();
   const [activeNav, setActiveNav] = useState<NavKey>("content");
   const [visitedTabs, setVisitedTabs] = useState<Set<NavKey>>(new Set(["content"]));
-  const [openGroups, setOpenGroups] = useState<Set<NavKey>>(new Set(["content"]));
+  const [openGroup, setOpenGroup] = useState<NavKey | null>("content");
   const [contentReviewTab, setContentReviewTab] = useState<ReviewStatus>("pending");
   const [promptsScope, setPromptsScope] = useState<PromptScope>("generation");
   const contentDirtyRef = useRef<() => boolean>(() => false);
 
+  // 手风琴：同一时间只展开一个含子页的父菜单
   function toggleGroup(key: NavKey) {
-    setOpenGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
+    setOpenGroup((prev) => (prev === key ? null : key));
   }
 
   function childValueFor(parentKey: NavKey): string {
@@ -46,6 +42,7 @@ function AppShell() {
   function selectChild(parentKey: NavKey, value: string) {
     if (parentKey === "content") setContentReviewTab(value as ReviewStatus);
     else if (parentKey === "prompts") setPromptsScope(value as PromptScope);
+    setOpenGroup(parentKey);
     handleNavClick(parentKey);
   }
 
@@ -90,7 +87,7 @@ function AppShell() {
             {navItems.map((item) => {
               const Icon = item.icon;
               if (item.children && item.children.length > 0) {
-                const isOpen = openGroups.has(item.key);
+                const isOpen = openGroup === item.key;
                 return (
                   <div className="navGroup" key={item.key}>
                     <button
@@ -101,7 +98,7 @@ function AppShell() {
                           toggleGroup(item.key);
                         } else {
                           handleNavClick(item.key);
-                          setOpenGroups((prev) => new Set(prev).add(item.key));
+                          setOpenGroup(item.key);
                         }
                       }}
                     >
