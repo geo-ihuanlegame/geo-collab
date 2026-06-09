@@ -96,6 +96,8 @@ p { margin: 0; }
   display: flex;
   flex-direction: column;
   background: var(--sidebar);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
   border-right: 1px solid var(--hair);
   padding: 28px 18px 24px;
   overflow-y: auto;
@@ -111,10 +113,11 @@ p { margin: 0; }
 }
 
 .brandMark {
-  width: 4px;
-  height: 24px;
-  border-radius: 2px;
-  background: var(--accent);
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: var(--grad);
+  box-shadow: 0 6px 18px rgba(124,107,246,0.5);
   flex-shrink: 0;
 }
 
@@ -150,25 +153,43 @@ p { margin: 0; }
   font-size: 14px;
   font-weight: 500;
   text-align: left;
-  transition: background .18s var(--easing), color .18s;
+  border: 1px solid transparent;
+  transition: background .18s var(--easing), color .18s, border-color .18s;
 }
 
-.navItem:hover { background: rgba(91,95,233,0.06); color: var(--fg); }
-.navItem.active { background: var(--cream-2); color: var(--fg); font-weight: 600; }
+.navItem:hover { background: var(--glass); color: var(--fg); }
+
+.navItem.active {
+  color: #fff;
+  background: linear-gradient(100deg, rgba(109,107,246,0.30), rgba(168,85,247,0.16));
+  border-color: rgba(140,120,255,0.35);
+  box-shadow: 0 4px 16px rgba(109,107,246,0.25), inset 0 1px 0 rgba(255,255,255,0.08);
+  font-weight: 600;
+  position: relative;
+}
+
+.navItem.active::before {
+  content: "";
+  position: absolute;
+  left: -18px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 18px;
+  border-radius: 2px;
+  background: var(--grad);
+  box-shadow: 0 0 10px var(--acc-1);
+}
 
 .navDot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: transparent;
-  margin-left: auto;
-  flex-shrink: 0;
+  width: 7px; height: 7px; border-radius: 50%;
+  background: transparent; margin-left: auto; flex-shrink: 0;
   transition: all .18s;
 }
 
 .navItem.active .navDot {
-  background: var(--accent);
-  box-shadow: 0 0 0 4px var(--accent-soft);
+  background: var(--grad);
+  box-shadow: 0 0 8px var(--acc-1);
 }
 
 /* ═══════════════════════════════ WORKSPACE ═══════════════════════════════ */
