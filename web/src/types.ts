@@ -1,7 +1,7 @@
-import { Bot, FileText, Images, MessagesSquare, MonitorCog, RadioTower, Send, Sparkles } from "lucide-react";
+import { Bot, FileText, Flame, Images, MessagesSquare, MonitorCog, RadioTower, Send, Sparkles } from "lucide-react";
 import type { ComponentType } from "react";
 
-export type NavKey = "agents" | "ai" | "content" | "prompts" | "image-library" | "media" | "tasks" | "system" | "admin" | "audit-logs";
+export type NavKey = "agents" | "ai" | "content" | "prompts" | "image-library" | "media" | "tasks" | "system" | "hot-lists" | "admin" | "audit-logs";
 
 export type PromptScope = "generation" | "ai_format";
 
@@ -458,6 +458,7 @@ export const navItems: { key: NavKey; label: string; icon: ComponentType<{ size?
   { key: "media", label: "媒体矩阵", icon: RadioTower },
   { key: "tasks", label: "分发引擎", icon: Send },
   { key: "system", label: "系统状态", icon: MonitorCog },
+  { key: "hot-lists", label: "热榜", icon: Flame },
 ];
 
 export const TERMINAL_STATUSES = new Set(["succeeded", "partial_failed", "failed", "cancelled"]);
