@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listAccounts } from "../../api/accounts";
 import { listAiEngines, listQuestionPools, listQuestionTypes } from "../../api/ai-generation";
 import { listArticleGroups } from "../../api/articles";
+import { listCategories } from "../../api/image-library";
 import {
   discardDraft, getNodeTypes, getPipeline, getRun, publishPipeline, saveDraft, startRun,
 } from "../../api/pipelines";
@@ -10,7 +11,7 @@ import { listPromptTemplates } from "../../api/prompt-templates";
 import { useToast } from "../../components/Toast";
 import type {
   Account, AiEngine, ArticleGroup, NodeTypeDef, Pipeline, PipelineNodeDef,
-  PromptTemplate, QuestionPool, QuestionType,
+  PromptTemplate, QuestionPool, QuestionType, StockCategory,
 } from "../../types";
 import { VersionHistory } from "./VersionHistory";
 
@@ -28,6 +29,7 @@ export function PipelineEditor({ pipelineId, onChanged }:
   const [pools, setPools] = useState<QuestionPool[]>([]);
   const [engines, setEngines] = useState<AiEngine[]>([]);
   const [genTemplates, setGenTemplates] = useState<PromptTemplate[]>([]);
+  const [mainCategories, setMainCategories] = useState<StockCategory[]>([]);
   // 每个池缓存完整问题类型(含各类问题)，供"类型多选"与"具体问题多选"联动。
   const [typesByPool, setTypesByPool] = useState<Record<number, QuestionType[]>>({});
   const pollRef = useRef<number | null>(null);
@@ -49,6 +51,7 @@ export function PipelineEditor({ pipelineId, onChanged }:
     listPromptTemplates("generation")
       .then((ts) => setGenTemplates(ts.filter((t) => t.scope === "generation" && t.is_enabled)))
       .catch(() => {});
+    listCategories("main").then(setMainCategories).catch(() => {});
   }, []);
 
   // Lazily load a pool's question types (cascade for question_types/question_records fields).
@@ -296,6 +299,14 @@ export function PipelineEditor({ pipelineId, onChanged }:
                         {accounts.map((a) => (
                           <option key={a.id} value={a.id}>{a.display_name}</option>
                         ))}
+                      </select>
+                    : f.type === "stock_category_main"
+                    ? <select value={String(sel.config[f.key] ?? "")}
+                        onChange={(e) => updateNode(selected!,
+                          { config: { ...sel.config,
+                            [f.key]: e.target.value ? Number(e.target.value) : undefined } })}>
+                        <option value="">选择主推游戏</option>
+                        {mainCategories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                       </select>
                     : f.type === "checkbox"
                     ? <input type="checkbox"

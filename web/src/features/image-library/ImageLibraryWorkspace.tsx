@@ -10,6 +10,7 @@ export function ImageLibraryWorkspace() {
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
   const [images, setImages] = useState<StockImage[]>([]);
   const [loading, setLoading] = useState(false);
+  const [kindTab, setKindTab] = useState<"main" | "companion">("companion");
 
   const [showNewCat, setShowNewCat] = useState(false);
   const [catName, setCatName] = useState("");
@@ -65,15 +66,14 @@ export function ImageLibraryWorkspace() {
   }, [lightboxIndex, images]);
 
   useEffect(() => {
-    listCategories()
+    // 切换主推/陪衬 tab 时按 kind 重新拉取栏目，并把选中项重置到新列表首项。
+    listCategories(kindTab)
       .then((cats) => {
         setCategories(cats);
-        if (cats.length > 0 && selectedCategoryId === null) {
-          setSelectedCategoryId(cats[0].id);
-        }
+        setSelectedCategoryId(cats.length > 0 ? cats[0].id : null);
       })
       .catch(() => showToast("加载栏目失败", "error"));
-  }, []);
+  }, [kindTab]);
 
   useEffect(() => {
     setLightboxIndex(null);
@@ -95,6 +95,7 @@ export function ImageLibraryWorkspace() {
       const cat = await createCategory({
         name: catName.trim(),
         bucket_name: catBucket.trim(),
+        kind: kindTab,
         description: catDesc.trim() || null,
         official_url: catUrl.trim() || null,
       });
@@ -235,6 +236,23 @@ export function ImageLibraryWorkspace() {
             <Upload size={15} /> 上传图片
           </button>
         </div>
+      </div>
+
+      <div className="reviewTabs">
+        <button
+          type="button"
+          className={`reviewTabBtn${kindTab === "main" ? " active" : ""}`}
+          onClick={() => setKindTab("main")}
+        >
+          主推游戏
+        </button>
+        <button
+          type="button"
+          className={`reviewTabBtn${kindTab === "companion" ? " active" : ""}`}
+          onClick={() => setKindTab("companion")}
+        >
+          陪衬游戏
+        </button>
       </div>
 
       <div className="imageLibraryLayout">

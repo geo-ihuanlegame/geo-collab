@@ -382,6 +382,7 @@ export type StockCategory = {
   id: number;
   name: string;
   bucket_name: string;
+  kind: "main" | "companion";
   description: string | null;
   official_url: string | null;
   created_at: string;

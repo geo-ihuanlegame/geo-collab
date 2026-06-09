@@ -130,6 +130,23 @@ def get_node_types() -> dict:
                 ],
             },
             {
+                "type": "ai_illustrate",
+                "label": "AI配图",
+                "config_schema": [
+                    {
+                        "key": "main_category_id",
+                        "type": "stock_category_main",
+                        "label": "主推游戏（配图主栏目）",
+                    },
+                    {
+                        "key": "include_companion",
+                        "type": "checkbox",
+                        "label": "陪衬配图（AI 按文章自动选陪衬游戏图）",
+                        "default": True,
+                    },
+                ],
+            },
+            {
                 "type": "to_review",
                 "label": "进入未审核库",
                 "config_schema": [

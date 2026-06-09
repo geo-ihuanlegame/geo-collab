@@ -1,13 +1,15 @@
 import { api } from "./core";
 import type { StockCategory, StockImage } from "../types";
 
-export function listCategories(): Promise<StockCategory[]> {
-  return api<StockCategory[]>("/api/image-library/categories");
+export function listCategories(kind?: "main" | "companion"): Promise<StockCategory[]> {
+  const qs = kind ? `?kind=${kind}` : "";
+  return api<StockCategory[]>(`/api/image-library/categories${qs}`);
 }
 
 export function createCategory(payload: {
   name: string;
   bucket_name: string;
+  kind?: "main" | "companion";
   description?: string | null;
   official_url?: string | null;
 }): Promise<StockCategory> {
@@ -19,7 +21,12 @@ export function createCategory(payload: {
 
 export function updateCategory(
   categoryId: number,
-  payload: { name?: string; description?: string | null; official_url?: string | null },
+  payload: {
+    name?: string;
+    kind?: "main" | "companion";
+    description?: string | null;
+    official_url?: string | null;
+  },
 ): Promise<StockCategory> {
   return api<StockCategory>(`/api/image-library/categories/${categoryId}`, {
     method: "PATCH",
