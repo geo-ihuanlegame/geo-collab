@@ -847,6 +847,42 @@ option, optgroup {
 }
 .modalActions button:last-child { background: var(--grad); color: #fff; border-color: transparent; }
 
+/* 图片库等使用的 modalOverlay/modalCard（原先无样式，会内联落在页底）*/
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(4, 6, 12, 0.62);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+.modalCard {
+  width: min(460px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 22px 24px;
+  background: var(--surface-2);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-lg);
+  box-shadow: 0 24px 64px rgba(0,0,0,.55);
+}
+.modalCard h2 { font-size: 17px; }
+.modalCard > label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--fg-2);
+}
+.modalCard > label input { width: 100%; padding: 8px 11px; }
+.modalCard .modalActions { padding: 14px 0 0; }
+
 /* Group section */
 .groupBox {
   border-top: 1px solid var(--hair);
