@@ -126,10 +126,10 @@ p { margin: 0; }
 
 .brandName {
   font-family: var(--display);
-  font-size: 20px;
+  font-size: 15px;
   font-weight: 700;
-  letter-spacing: -0.4px;
-  line-height: 1;
+  letter-spacing: -0.2px;
+  line-height: 1.2;
   color: var(--fg);
 }
 

@@ -58,7 +58,7 @@ function AppShell() {
           <div className="brand">
             <div className="brandMark" />
             <div className="brandBody">
-              <span className="brandName">Geo</span>
+              <span className="brandName">AI插件自动化平台</span>
               <span className="brandSub">协作平台</span>
             </div>
           </div>
