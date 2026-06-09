@@ -108,20 +108,22 @@ function AppShell() {
                     </button>
                     <div className={`navSub ${isOpen ? "open" : ""}`}>
                       <div className="navChildren">
-                        {item.children.map((child) => {
-                          const childActive =
-                            activeNav === item.key && childValueFor(item.key) === child.value;
-                          return (
-                            <button
-                              className={`navChild ${childActive ? "active" : ""}`}
-                              key={child.key}
-                              type="button"
-                              onClick={() => selectChild(item.key, child.value)}
-                            >
-                              {child.label}
-                            </button>
-                          );
-                        })}
+                        <div className="navChildrenInner">
+                          {item.children.map((child) => {
+                            const childActive =
+                              activeNav === item.key && childValueFor(item.key) === child.value;
+                            return (
+                              <button
+                                className={`navChild ${childActive ? "active" : ""}`}
+                                key={child.key}
+                                type="button"
+                                onClick={() => selectChild(item.key, child.value)}
+                              >
+                                {child.label}
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
                     </div>
                   </div>

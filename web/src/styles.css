@@ -220,6 +220,8 @@ p { margin: 0; }
 .navChildren {
   overflow: hidden;
   min-height: 0;
+}
+.navChildrenInner {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -229,7 +231,7 @@ p { margin: 0; }
   opacity: 0;
   transition: opacity .2s var(--easing);
 }
-.navSub.open .navChildren { opacity: 1; }
+.navSub.open .navChildrenInner { opacity: 1; }
 .navChild {
   text-align: left;
   padding: 8px 12px;
