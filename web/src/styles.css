@@ -2883,6 +2883,35 @@ input:focus, select:focus, textarea:focus {
 }
 .peMapRow select { flex: 0 0 auto; min-width: 84px; }
 .peMapArrow { color: var(--fg-3); }
+
+/* AI配图 节点：陪衬配图信息卡 + 联网兜底开关 */
+.peInfoCard {
+  display: flex; align-items: flex-start; gap: 10px;
+  border: 1px solid var(--hair); border-radius: var(--r);
+  background: var(--cream); padding: 10px 12px;
+}
+.peInfoIcon { color: var(--accent); flex: 0 0 auto; margin-top: 1px; }
+.peInfoText { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.peInfoTitle { font-size: 13px; font-weight: 500; color: var(--fg-2); }
+.peInfoNote { font-size: 12px; color: var(--fg-3); }
+.peToggleRow {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  border: 1px solid var(--hair); border-radius: var(--r);
+  background: var(--paper); padding: 9px 12px;
+}
+.peToggleText { font-size: 13px; color: var(--fg-2); min-width: 0; }
+.peToggle {
+  flex: 0 0 auto; width: 38px; height: 22px; padding: 0;
+  border: none; border-radius: 999px; background: var(--hair-2);
+  position: relative; cursor: pointer; transition: background .15s;
+}
+.peToggle.on { background: var(--accent); }
+.peToggleKnob {
+  position: absolute; top: 2px; left: 2px; width: 18px; height: 18px;
+  border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.2);
+  transition: transform .15s;
+}
+.peToggle.on .peToggleKnob { transform: translateX(16px); }
 .peMiniBtn {
   align-self: flex-start; height: 28px; padding: 0 11px; font-size: 12px;
   border: 1px solid var(--hair-2); border-radius: var(--r-sm);

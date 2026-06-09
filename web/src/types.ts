@@ -528,7 +528,7 @@ export interface PipelineRun {
 }
 export interface NodeTypeDef {
   type: string; label: string;
-  config_schema: { key: string; type: string; label: string; default?: boolean | string | number }[];
+  config_schema: { key: string; type: string; label: string; default?: boolean | string | number; hint?: string; note?: string }[];
 }
 
 export type RunLogRow = {

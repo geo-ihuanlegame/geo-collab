@@ -136,13 +136,25 @@ def get_node_types() -> dict:
                     {
                         "key": "main_category_id",
                         "type": "stock_category_main",
-                        "label": "主推游戏（配图主栏目）",
+                        "label": "图片库 · 主推游戏",
                     },
+                    # 陪衬配图固定开启（执行器 include_companion 默认 True），仅做信息展示、
+                    # 不再给勾选框。key 沿用 include_companion 以对齐执行器语义。
                     {
                         "key": "include_companion",
-                        "type": "checkbox",
-                        "label": "陪衬配图（AI 按文章自动选陪衬游戏图）",
-                        "default": True,
+                        "type": "info",
+                        "label": "陪衬配图",
+                        "hint": "随文自动识别陪衬游戏",
+                        "note": "复用「AI 格式」分析后端，无需手选",
+                    },
+                    # 联网兜底：先落地开关 + 存配置；真正的联网搜图为后续独立任务，
+                    # 执行器暂不消费 web_fallback。
+                    {
+                        "key": "web_fallback",
+                        "type": "toggle",
+                        "label": "联网兜底",
+                        "hint": "陪衬游戏在库中无图时，联网搜图补充",
+                        "default": False,
                     },
                 ],
             },
