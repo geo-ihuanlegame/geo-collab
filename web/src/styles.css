@@ -2956,9 +2956,30 @@ option, optgroup {
   position: sticky;
   top: 0;
   z-index: 1;
-  background: var(--paper);
+  background: var(--bg-2);
   box-shadow: inset 0 -1px 0 var(--hair);
 }
+
+/* 日志表格（仅日志页使用 .agentTable）*/
+.agentTable { width: 100%; border-collapse: collapse; font-size: 13px; }
+.agentTable thead th {
+  text-align: left;
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--fg-3);
+  font-weight: 600;
+  padding: 11px 14px;
+  white-space: nowrap;
+}
+.agentTable tbody td {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--hair);
+  color: var(--fg-2);
+  vertical-align: top;
+}
+.agentTable tbody tr:last-child td { border-bottom: none; }
+.agentTable tbody tr:hover { background: var(--glass); }
 
 .agentLogsPager {
   display: flex;

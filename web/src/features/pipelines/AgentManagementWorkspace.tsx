@@ -110,7 +110,7 @@ export function AgentManagementWorkspace() {
             <p className="eyebrow">智能体 · 工作流</p>
             <h1>{agent ? agent.name : `智能体 ${editingId}`}</h1>
           </div>
-          <button onClick={() => { setEditingId(null); reload(); }}>← 返回智能体列表</button>
+          <button className="secondaryButton" onClick={() => { setEditingId(null); reload(); }}>← 返回智能体列表</button>
         </div>
         {/* key 让切换智能体时 PipelineEditor 重挂载，重置 runStatus/轮询 timer，避免在途轮询脏写到另一个智能体 */}
         <PipelineEditor key={editingId} pipelineId={editingId} onChanged={reload} />

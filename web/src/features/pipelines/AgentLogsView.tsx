@@ -84,9 +84,9 @@ export function AgentLogsView({ pipelineId, onBack }:
           <p className="eyebrow">智能体 · 日志</p>
           <h1>{agent ? agent.name : `智能体 ${pipelineId}`}</h1>
         </div>
-        <div className="agentRowActions">
-          <button onClick={load}>刷新</button>
-          <button onClick={onBack}>← 返回智能体列表</button>
+        <div className="topActions">
+          <button className="secondaryButton" onClick={load}>刷新</button>
+          <button className="secondaryButton" onClick={onBack}>← 返回智能体列表</button>
         </div>
       </div>
 
