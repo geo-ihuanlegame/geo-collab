@@ -77,7 +77,7 @@ def get_node_types() -> dict:
                 "config_schema": [
                     {"key": "prompt_template_id", "type": "prompt_template", "label": "提示词模板"},
                     {"key": "count", "type": "number", "label": "生成数量"},
-                    {"key": "model", "type": "text", "label": "模型(可空)"},
+                    {"key": "model", "type": "ai_engine", "label": "模型"},
                 ],
             },
             {
