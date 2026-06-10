@@ -3232,12 +3232,77 @@ option, optgroup {
 .mobileAppBar { display: none; }
 .mobileBottomBar { display: none; }
 
+.mobileSegTabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 16px;
+  background: var(--glass);
+  border: 1px solid var(--hair);
+  border-radius: var(--r);
+  padding: 4px;
+}
+.mobileSegTab {
+  flex: 1;
+  padding: 9px 10px;
+  border-radius: var(--r-sm);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg-3);
+}
+.mobileSegTab.active {
+  color: #fff;
+  background: linear-gradient(100deg, rgba(109,107,246,0.32), rgba(168,85,247,0.18));
+}
+.mobileBackBtn {
+  align-self: flex-start;
+  margin-bottom: 10px;
+  padding: 7px 12px;
+  font-size: 13px;
+  color: var(--fg-2);
+  background: var(--glass);
+  border: 1px solid var(--hair-2);
+  border-radius: var(--r-sm);
+}
+
 @media (max-width: 768px) {
   .shellMobile {
     grid-template-columns: 1fr;
     grid-template-rows: auto 1fr;
   }
   .shellMobile .sidebar { display: none; }
+
+  /* 双栏 → 单列 */
+  .contentGrid, .taskGrid, .mediaGrid { grid-template-columns: 1fr; }
+  .peLayout { flex-direction: column; }
+  .peNodeList { width: 100%; display: flex; flex-direction: row; overflow-x: auto; flex-wrap: nowrap; padding-bottom: 6px; }
+  .peNodeList > * { flex: 0 0 auto; }
+
+  /* 内容 master-detail：按 mobileView 切换显示 */
+  .contentGrid.mobile-list .editorPane { display: none; }
+  .contentGrid.mobile-editor .listPane { display: none; }
+  .contentGrid.mobile-editor { grid-template-rows: minmax(0, 1fr); }
+
+  /* 顶栏堆叠 */
+  .topbar { flex-direction: column; align-items: stretch; gap: 12px; }
+  .topActions { flex-wrap: wrap; }
+  h1 { font-size: 28px; }
+
+  /* 富文本工具栏横滚（内容编辑器工具栏类名为 .toolbar）*/
+  .toolbar { flex-wrap: nowrap; overflow-x: auto; }
+
+  /* 宽表格横滚 */
+  .usersTableWrap { overflow-x: auto; }
+  .agentLogsScroll { overflow: auto; }
+
+  /* 弹窗近全宽 */
+  .modal, .groupPickerModal, .schemePanel, .modalCard {
+    width: calc(100vw - 24px) !important;
+    max-width: calc(100vw - 24px) !important;
+  }
+
+  /* 输入框 16px 防 iOS 聚焦缩放 */
+  input, select, textarea, .input { font-size: 16px; }
+  body { font-size: 15px; }
 
   .mobileAppBar {
     display: flex;
