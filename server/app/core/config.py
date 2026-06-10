@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     jwt_secret: str = ""
     publish_max_concurrent_records: int = 5
     publish_record_timeout_seconds: int = 300
+    login_max_concurrent_browsers: int = 8  # GEO_LOGIN_MAX_CONCURRENT_BROWSERS
     publish_browser_channel: str = "chromium"
     publish_browser_executable_path: str | None = None
     publish_xvfb_path: str = "Xvfb"
