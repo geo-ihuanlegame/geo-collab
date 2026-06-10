@@ -3261,7 +3261,10 @@ option, optgroup {
   /* 内容 master-detail：按 mobileView 切换显示 */
   .contentGrid.mobile-list .editorPane { display: none; }
   .contentGrid.mobile-editor .listPane { display: none; }
-  .contentGrid.mobile-editor { grid-template-rows: minmax(0, 1fr); }
+  /* 移动端编辑器：改为自然流式 + 整页滚动（桌面的定高 flex 填充会把正文挤成 0 高）*/
+  .contentGrid.mobile-editor { display: block; overflow: visible; }
+  .contentGrid.mobile-editor .editorPane { overflow: visible; height: auto; }
+  .contentGrid.mobile-editor .editorWrap { flex: none; min-height: 52vh; overflow: visible; }
 
   /* 顶栏堆叠 */
   .topbar { flex-direction: column; align-items: stretch; gap: 12px; }
