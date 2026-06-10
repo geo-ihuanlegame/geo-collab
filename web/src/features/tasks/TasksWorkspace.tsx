@@ -14,10 +14,11 @@ import {
   resolveRecordUserInput,
   retryRecord as retryRecordRequest,
 } from "../../api/tasks";
-import type { Task, TaskCreatePayload, Account, ArticleGroup, ArticleSummary, PublishRecord, TaskLog, AssignmentPreview } from "../../types";
+import type { Task, TaskCreatePayload, PublishRecord, TaskLog, AssignmentPreview } from "../../types";
 import { TERMINAL_STATUSES, statusLabel } from "../../types";
 import { Plus, RefreshCw, Send } from "lucide-react";
 import { useToast } from "../../components/Toast";
+import { useApiData, usePolling } from "../../hooks/useApiData";
 import { formatDate, formatDateTime, formatTime } from "../../utils/dateFormat";
 import { Pagination } from "../../components/Pagination";
 
@@ -56,9 +57,12 @@ export function TasksWorkspace({ isActive }: { isActive?: boolean } = {}) {
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [records, setRecords] = useState<PublishRecord[]>([]);
   const [logs, setLogs] = useState<TaskLog[]>([]);
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [articles, setArticles] = useState<ArticleSummary[]>([]);
-  const [groups, setGroups] = useState<ArticleGroup[]>([]);
+  const { data: accountsData, refresh: refreshAccounts } = useApiData(listAccounts);
+  const { data: articlesData, refresh: refreshArticles } = useApiData(listArticles);
+  const { data: groupsData, refresh: refreshGroups } = useApiData(listArticleGroups);
+  const accounts = useMemo(() => accountsData ?? [], [accountsData]);
+  const articles = useMemo(() => articlesData ?? [], [articlesData]);
+  const groups = useMemo(() => groupsData ?? [], [groupsData]);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [loading, setLoading] = useState(false);
   const [autoRefreshTaskIds, setAutoRefreshTaskIds] = useState<Set<number>>(new Set());
@@ -99,7 +103,7 @@ export function TasksWorkspace({ isActive }: { isActive?: boolean } = {}) {
   const pagedTasks = sortedTasks.slice(taskPage * TASK_PAGE_SIZE, (taskPage + 1) * TASK_PAGE_SIZE);
 
   useEffect(() => {
-    void loadInitial();
+    void loadTasks();
   }, []);
 
   useEffect(() => {
@@ -108,22 +112,21 @@ export function TasksWorkspace({ isActive }: { isActive?: boolean } = {}) {
       return;
     }
     if (!isActive) return;
-    void loadInitial();
-  }, [isActive]);
+    void loadTasks();
+    void refreshAccounts();
+    void refreshArticles();
+    void refreshGroups();
+  }, [isActive, refreshAccounts, refreshArticles, refreshGroups]);
 
-  useEffect(() => {
-    if (!hasActiveTasks) return;
-    const timer = window.setInterval(async () => {
-      try {
-        const nextTasks = await listTasks();
-        setTasks(nextTasks);
-        setAutoRefreshTaskIds((prev) => pruneFinishedAutoRefreshIds(prev, nextTasks));
-      } catch (error) {
-        console.warn("Failed to refresh task list", error);
-      }
-    }, TASK_LIST_REFRESH_MS);
-    return () => window.clearInterval(timer);
-  }, [hasActiveTasks]);
+  usePolling(
+    async () => {
+      const nextTasks = await listTasks();
+      setTasks(nextTasks);
+      setAutoRefreshTaskIds((prev) => pruneFinishedAutoRefreshIds(prev, nextTasks));
+    },
+    TASK_LIST_REFRESH_MS,
+    hasActiveTasks,
+  );
 
   useEffect(() => {
     if (!selectedTaskId || !shouldStreamSelectedTask) return;
@@ -182,15 +185,14 @@ export function TasksWorkspace({ isActive }: { isActive?: boolean } = {}) {
     return () => { es.close(); };
   }, [selectedTaskId, shouldStreamSelectedTask]);
 
-  useEffect(() => {
-    if (!selectedTaskId || !shouldFallbackPollSelectedTask) return;
-    const taskId = selectedTaskId;
-    const timer = window.setInterval(() => {
-      void refreshDetail(taskId).catch(() => {});
-    }, TASK_LIST_REFRESH_MS);
-    void refreshDetail(taskId).catch(() => {});
-    return () => window.clearInterval(timer);
-  }, [selectedTaskId, shouldFallbackPollSelectedTask]);
+  usePolling(
+    () => {
+      if (selectedTaskId) void refreshDetail(selectedTaskId).catch(() => {});
+    },
+    TASK_LIST_REFRESH_MS,
+    shouldFallbackPollSelectedTask,
+    { immediate: true },
+  );
 
   useEffect(() => {
     if (taskPage >= totalTaskPages) {
@@ -198,24 +200,12 @@ export function TasksWorkspace({ isActive }: { isActive?: boolean } = {}) {
     }
   }, [taskPage, totalTaskPages]);
 
-  async function loadInitial() {
+  async function loadTasks() {
     try {
-      const [tsRes, accsRes, artsRes, gsRes] = await Promise.allSettled([
-        listTasks(),
-        listAccounts(),
-        listArticles(),
-        listArticleGroups(),
-      ]);
-      if (tsRes.status === "fulfilled") setTasks(tsRes.value);
-      else console.warn("Failed to load tasks", tsRes.reason);
-      if (accsRes.status === "fulfilled") setAccounts(accsRes.value);
-      else console.warn("Failed to load accounts", accsRes.reason);
-      if (artsRes.status === "fulfilled") setArticles(artsRes.value);
-      else console.warn("Failed to load articles", artsRes.reason);
-      if (gsRes.status === "fulfilled") setGroups(gsRes.value);
-      else console.warn("Failed to load groups", gsRes.reason);
-    } catch (err) {
-      console.error("loadInitial failed", err);
+      const nextTasks = await listTasks();
+      setTasks(nextTasks);
+    } catch (error) {
+      console.warn("Failed to load tasks", error);
     }
   }
 
