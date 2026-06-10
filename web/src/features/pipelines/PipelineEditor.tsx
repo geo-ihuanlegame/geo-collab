@@ -1,6 +1,6 @@
 // web/src/features/pipelines/PipelineEditor.tsx
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Sparkles, Trash2 } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { listAccounts } from "../../api/accounts";
 import { listAiEngines, listQuestionPools, listQuestionTypes } from "../../api/ai-generation";
 import { listArticleGroups } from "../../api/articles";
@@ -442,21 +442,6 @@ export function PipelineEditor({ pipelineId, onChanged }:
                   onChange={(e) => updateNode(selected!, { name: e.target.value })} />
               </label>
               {selDef.config_schema.map((f) => {
-                // 信息卡：纯展示（如「陪衬配图」固定自动），无输入控件
-                if (f.type === "info") {
-                  return (
-                    <div className="agentField" key={f.key}>
-                      <span className="agentFieldLabel">{f.label}</span>
-                      <div className="peInfoCard">
-                        <Sparkles size={16} className="peInfoIcon" />
-                        <div className="peInfoText">
-                          <span className="peInfoTitle">{f.hint}</span>
-                          {f.note ? <span className="peInfoNote">{f.note}</span> : null}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                }
                 // 开关：存布尔配置（如「联网兜底」），样式为 toggle
                 if (f.type === "toggle") {
                   const on = f.key in sel.config ? !!sel.config[f.key] : !!f.default;
