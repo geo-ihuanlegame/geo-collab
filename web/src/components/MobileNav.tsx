@@ -8,9 +8,9 @@ import type { NavKey } from "../types";
 type Item = { key: NavKey; label: string; icon: typeof Bot };
 
 const BOTTOM: Item[] = [
+  { key: "agents", label: "智能体", icon: Bot },
   { key: "content", label: "内容", icon: FileText },
   { key: "ai", label: "生文", icon: Sparkles },
-  { key: "agents", label: "智能体", icon: Bot },
   { key: "tasks", label: "分发", icon: Send },
 ];
 
