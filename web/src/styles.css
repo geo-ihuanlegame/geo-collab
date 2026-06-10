@@ -1634,11 +1634,6 @@ option, optgroup {
 }
 
 /* ═══════════════════════════════ RESPONSIVE ═══════════════════════════════ */
-@media (max-width: 1100px) {
-  .workspaceInner { padding: 32px 28px 60px; }
-  h1 { font-size: 34px; }
-}
-
 /* ═══════════════════════════════ SIDEBAR USER ═══════════════════════════════ */
 .sidebarUser {
   margin-top: auto;
@@ -1816,14 +1811,6 @@ option, optgroup {
 }
 
 /* ═══════════════════════════════ RESPONSIVE ═══════════════════════════════ */
-@media (max-width: 980px) {
-  .shell { grid-template-columns: 1fr; height: auto; overflow: visible; }
-  .sidebar { border-right: none; border-bottom: 1px solid var(--hair); }
-  .contentGrid, .mediaGrid, .taskGrid { grid-template-columns: 1fr; }
-  .formRow.split { grid-template-columns: 1fr; }
-  .topbar { flex-direction: column; align-items: flex-start; }
-}
-
 /* ════════════════════════════ AI GENERATION ═════════════════════════════ */
 
 .aiWorkspace { display: flex; flex-direction: column; height: 100%; }
@@ -2383,12 +2370,6 @@ option, optgroup {
 .lightboxArrow:hover { background: rgba(0,0,0,0.7); }
 .lightboxArrowLeft { left: 20px; }
 .lightboxArrowRight { right: 20px; }
-@media (max-width: 640px) {
-  .lightboxInner { flex-direction: column; align-items: center; }
-  .lightboxImg { max-width: 90vw; max-height: 60vh; }
-  .lightboxInfo { width: 100%; }
-}
-
 /* ── Image Library: Sidebar Upgrade ── */
 .imageLibraryCatBtnRow {
   display: flex; align-items: center; justify-content: space-between;
@@ -3377,4 +3358,10 @@ option, optgroup {
   .mobileMoreItem.active { color: #fff; background: linear-gradient(135deg, rgba(109,107,246,0.3), rgba(168,85,247,0.16)); border-color: rgba(140,120,255,0.35); }
   .mobileMoreUser { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--hair); }
   .mobileMoreName { font-size: 13px; color: var(--fg-2); }
+
+  /* 从旧 640px 迁移：灯箱移动适配 */
+  .lightboxInner { flex-direction: column; align-items: center; }
+  .lightboxImg { max-width: 90vw; max-height: 60vh; }
+  .lightboxInfo { width: 100%; }
+  .formRow.split { grid-template-columns: 1fr; }
 }
