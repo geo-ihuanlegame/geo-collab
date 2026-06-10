@@ -20,9 +20,6 @@ import { VersionHistory } from "./VersionHistory";
 // 受控组件：勾选态完全从节点 config 派生，切换时把最小表示写回 config——
 // 全选→空配置(整池, 自动跟进新同步问题)；整类子集→question_types；类内部分→question_record_ids。
 const UNCATEGORIZED = "__uncategorized__";
-// 「全部取消」哨兵：后端按 record_id IN(...) 过滤，命中不到任何真实问题=取空，
-// 且能与「整池(两者皆空)」区分开，避免取消全部后重开又被当成全选。真实飞书 record_id 形如 recXXXX，不会撞。
-const NONE_SENTINEL = "__none__";
 
 function typeSentinel(t: QuestionType): string {
   return t.question_type ?? UNCATEGORIZED;
@@ -52,32 +49,58 @@ function deriveCheckedRecordIds(types: QuestionType[], config: Record<string, un
   return new Set(all);
 }
 
-// 已勾选集合 → 最小 config 表示（清掉旧 question_type）。
-function deriveQuestionConfig(types: QuestionType[], checked: Set<string>): Record<string, unknown> {
-  const all = types.flatMap((t) => t.questions.map((q) => q.record_id));
-  if (all.length > 0 && checked.size === all.length) {
-    return { question_type: undefined, question_types: [], question_record_ids: [] };
+type PickerUnit = {
+  question_type: string;
+  record_ids: string[] | null;          // null = 整类（自动跟进）
+  allowed_prompt_template_ids: number[];
+  article_count: number | null;
+};
+
+// config → 每个类型的 PickerUnit（用于渲染）。优先读新 units；否则从旧扁平 config 推导。
+function deriveUnitMap(types: QuestionType[], config: Record<string, unknown>): Map<string, PickerUnit> {
+  const map = new Map<string, PickerUnit>();
+  const rawUnits = config.units as PickerUnit[] | undefined;
+  if (Array.isArray(rawUnits)) {
+    for (const t of types) {
+      const sent = typeSentinel(t);
+      const u = rawUnits.find((x) => x.question_type === sent);
+      map.set(sent, u
+        ? { question_type: sent,
+            record_ids: u.record_ids === null ? null : [...(u.record_ids ?? [])],
+            allowed_prompt_template_ids: [...(u.allowed_prompt_template_ids ?? [])],
+            article_count: u.article_count ?? null }
+        : { question_type: sent, record_ids: [], allowed_prompt_template_ids: [], article_count: null });
+    }
+    return map;
   }
-  if (checked.size === 0) {
-    return { question_type: undefined, question_types: [], question_record_ids: [NONE_SENTINEL] };
-  }
-  const includedTypes: string[] = [];
-  let wholeTypes = true;
+  // 旧扁平 config → 每类型 record_ids（整类=null，部分=子集，无=[]），无模板/数量
+  const checked = deriveCheckedRecordIds(types, config);
   for (const t of types) {
-    const c = t.questions.filter((q) => checked.has(q.record_id)).length;
-    if (c === t.questions.length && c > 0) includedTypes.push(typeSentinel(t));
-    else if (c !== 0) { wholeTypes = false; break; } // 某类只勾了一部分 → 退化到精选 record_ids
+    const sent = typeSentinel(t);
+    const rids = t.questions.map((q) => q.record_id);
+    const on = rids.filter((r) => checked.has(r));
+    const record_ids = on.length === 0 ? [] : on.length === rids.length ? null : on;
+    map.set(sent, { question_type: sent, record_ids, allowed_prompt_template_ids: [], article_count: null });
   }
-  if (wholeTypes) {
-    return { question_type: undefined, question_types: includedTypes, question_record_ids: [] };
-  }
-  return { question_type: undefined, question_types: [], question_record_ids: [...checked] };
+  return map;
 }
 
-function QuestionTypePicker({ poolId, types, config, onChange }: {
+// PickerUnit map → config.units（只保留「有勾选问题」的类型：record_ids===null 或非空数组）。
+function unitsToConfig(map: Map<string, PickerUnit>): Record<string, unknown> {
+  const units: PickerUnit[] = [];
+  for (const u of map.values()) {
+    const included = u.record_ids === null || (Array.isArray(u.record_ids) && u.record_ids.length > 0);
+    if (included) units.push(u);
+  }
+  // 清掉旧扁平字段，统一走 units
+  return { units, question_type: undefined, question_types: undefined, question_record_ids: undefined };
+}
+
+function QuestionTypePicker({ poolId, types, config, templates, onChange }: {
   poolId: number;
-  types: QuestionType[] | undefined; // undefined = 该池问题类型尚未加载
+  types: QuestionType[] | undefined;
   config: Record<string, unknown>;
+  templates: PromptTemplate[];
   onChange: (patch: Record<string, unknown>) => void;
 }) {
   if (!poolId) return <div className="schemeEmpty">请先在上方选择问题池</div>;
@@ -86,34 +109,61 @@ function QuestionTypePicker({ poolId, types, config, onChange }: {
     return <div className="schemeEmpty">该问题池暂无问题，请先到「AI 生文 · 问题池」同步飞书</div>;
   }
 
-  const checked = deriveCheckedRecordIds(types, config);
-  const commit = (next: Set<string>) => onChange(deriveQuestionConfig(types, next));
+  const unitMap = deriveUnitMap(types, config);
+  const commit = (next: Map<string, PickerUnit>) => onChange(unitsToConfig(next));
+  const cloneMap = () => new Map([...unitMap].map(([k, v]) => [k, { ...v,
+    record_ids: v.record_ids === null ? null : [...v.record_ids],
+    allowed_prompt_template_ids: [...v.allowed_prompt_template_ids] }]));
 
-  const toggleQuestion = (rid: string) => {
-    const next = new Set(checked);
-    if (next.has(rid)) next.delete(rid); else next.add(rid);
+  const checkedSet = (t: QuestionType): Set<string> => {
+    const u = unitMap.get(typeSentinel(t))!;
+    if (u.record_ids === null) return new Set(t.questions.map((q) => q.record_id)); // 整类=全选
+    return new Set(u.record_ids);
+  };
+
+  const toggleQuestion = (t: QuestionType, rid: string) => {
+    const sent = typeSentinel(t);
+    const cur = checkedSet(t);
+    if (cur.has(rid)) cur.delete(rid); else cur.add(rid);
+    const all = t.questions.map((q) => q.record_id);
+    const next = cloneMap();
+    const u = next.get(sent)!;
+    u.record_ids = cur.size === all.length ? null : [...cur];   // 全选→null(自动跟进)
     commit(next);
   };
   const toggleAll = (t: QuestionType) => {
-    const rids = t.questions.map((q) => q.record_id);
-    const allOn = rids.every((r) => checked.has(r));
-    const next = new Set(checked);
-    rids.forEach((r) => (allOn ? next.delete(r) : next.add(r)));
+    const sent = typeSentinel(t);
+    const u0 = unitMap.get(sent)!;
+    const allOn = u0.record_ids === null;
+    const next = cloneMap();
+    next.get(sent)!.record_ids = allOn ? [] : null;
     commit(next);
   };
-  const removeType = (t: QuestionType) => {
-    const next = new Set(checked);
-    t.questions.forEach((q) => next.delete(q.record_id));
+  const removeType = (t: QuestionType) => {          // 排除该类型（清空其勾选）
+    const next = cloneMap();
+    next.get(typeSentinel(t))!.record_ids = [];
+    commit(next);
+  };
+  const setTemplates = (t: QuestionType, ids: number[]) => {
+    const next = cloneMap();
+    next.get(typeSentinel(t))!.allowed_prompt_template_ids = ids;
+    commit(next);
+  };
+  const setCount = (t: QuestionType, n: number | null) => {
+    const next = cloneMap();
+    next.get(typeSentinel(t))!.article_count = n;
     commit(next);
   };
 
   return (
     <>
       <div className="schemeFieldLabel">
-        问题类型 · 共 {types.length} 类（默认全部纳入，取消勾选即可排除）
+        问题类型 · 共 {types.length} 类（勾选问题=启用该类型；可各自配模板/数量，留空则用 AI 生文兜底）
       </div>
       <div className="schemeLineScroll">
         {types.map((t) => {
+          const u = unitMap.get(typeSentinel(t))!;
+          const checked = checkedSet(t);
           const checkedCount = t.questions.filter((q) => checked.has(q.record_id)).length;
           const allChecked = checkedCount === t.questions.length && t.questions.length > 0;
           return (
@@ -145,12 +195,26 @@ function QuestionTypePicker({ poolId, types, config, onChange }: {
                     return (
                       <button key={q.record_id} type="button"
                         className={`schemeChip${on ? " on" : ""}`} title={label}
-                        onClick={() => toggleQuestion(q.record_id)}>
+                        onClick={() => toggleQuestion(t, q.record_id)}>
                         <span className="schemeChipText">{label}</span>
                       </button>
                     );
                   })}
                 </div>
+              </div>
+              <div className="schemeLineSub">
+                <span className="schemeSubLabel">允许模板</span>
+                <select className="peMultiSelect" multiple
+                  value={u.allowed_prompt_template_ids.map(String)}
+                  onChange={(e) => setTemplates(t, Array.from(e.target.selectedOptions, (o) => Number(o.value)))}>
+                  {templates.map((tp) => <option key={tp.id} value={tp.id}>{tp.name}</option>)}
+                </select>
+              </div>
+              <div className="schemeLineSub">
+                <span className="schemeSubLabel">文章数</span>
+                <input type="number" min={1} style={{ width: 80 }}
+                  value={u.article_count ?? ""}
+                  onChange={(e) => setCount(t, e.target.value ? Number(e.target.value) : null)} />
               </div>
             </div>
           );
@@ -405,6 +469,7 @@ export function PipelineEditor({ pipelineId, onChanged }:
                         poolId={poolId}
                         types={poolId ? typesByPool[poolId] : []}
                         config={sel.config}
+                        templates={genTemplates}
                         onChange={(patch) =>
                           updateNode(selected!, { config: { ...sel.config, ...patch } })}
                       />
@@ -420,7 +485,8 @@ export function PipelineEditor({ pipelineId, onChanged }:
                         onChange={(e) => {
                           const v = e.target.value ? Number(e.target.value) : undefined;
                           updateNode(selected!,
-                            { config: { ...sel.config, [f.key]: v, question_types: [], question_record_ids: [] } });
+                            { config: { ...sel.config, [f.key]: v, units: undefined,
+                              question_types: undefined, question_record_ids: undefined } });
                           if (v) ensureTypes(v);
                         }}>
                         <option value="">选择问题池</option>
