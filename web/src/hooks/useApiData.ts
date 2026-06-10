@@ -4,7 +4,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * 统一管理「加载一份远端数据」的 loading / error / data 三件套。
  * - 挂载时自动加载一次；refresh() 手动重载。
  * - 用自增 generation 丢弃过期响应（连续 refresh 的竞态安全）。
- * - 错误存入 state（不向上抛），不会触发全局 unhandledrejection toast。
+ * - 错误存入 state（不向上抛），不会冒泡成未处理 rejection。消费方应自行渲染 error。
+ * - 注意：fetcher 经 ref 透传，**其闭包参数变化不会触发重新加载**。
+ *   参数化场景（如带筛选条件的列表）必须自己在 effect 里调 refresh()。
  */
 export function useApiData<T>(fetcher: () => Promise<T>) {
   const [data, setData] = useState<T | null>(null);
@@ -56,7 +58,7 @@ export function usePolling(
   useEffect(() => {
     if (!enabled) return;
     const tick = () => {
-      void Promise.resolve(fnRef.current()).catch((err) => {
+      void (async () => await fnRef.current())().catch((err) => {
         console.warn("usePolling tick failed", err);
       });
     };
