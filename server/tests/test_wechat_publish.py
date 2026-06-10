@@ -3,7 +3,6 @@
 无 DB 用例（驱动纯函数）+ 1 个 mysql 用例（executor 分叉走 API 路径）。
 """
 
-import io
 from pathlib import Path
 
 import httpx
@@ -42,9 +41,7 @@ def _mock_client(uploads: list[str]):
             return httpx.Response(200, json={"media_id": "m1"})
         if path == "/cgi-bin/media/uploadimg":
             uploads.append("img")
-            return httpx.Response(
-                200, json={"url": f"https://mmbiz.qpic.cn/{len(uploads)}.jpg"}
-            )
+            return httpx.Response(200, json={"url": f"https://mmbiz.qpic.cn/{len(uploads)}.jpg"})
         if path == "/cgi-bin/draft/add":
             uploads.append("draft")
             return httpx.Response(200, json={"media_id": "draft-1"})
@@ -104,9 +101,7 @@ def test_publish_api_wechat_error_mapped_to_publish_error(tmp_path):
     driver = WeChatMpDriver()
     with pytest.raises(PublishError, match="45009"):
         driver.publish_api(
-            payload=_payload(
-                tmp_path, cover=cover, segments=[BodySegment(kind="text", text="x")]
-            ),
+            payload=_payload(tmp_path, cover=cover, segments=[BodySegment(kind="text", text="x")]),
             client=httpx.Client(transport=httpx.MockTransport(handler)),
         )
 

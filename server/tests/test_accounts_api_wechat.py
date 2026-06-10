@@ -176,7 +176,10 @@ def test_failed_reverify_clears_token_even_if_audit_rolls_back(monkeypatch):
             "server.app.modules.accounts.service.wechat_fetch_access_token",
             lambda app_id, app_secret, client=None: ("tok-1", 7200),
         )
-        assert test_app.client.post(f"/api/accounts/{account_id}/verify-credentials").status_code == 200
+        assert (
+            test_app.client.post(f"/api/accounts/{account_id}/verify-credentials").status_code
+            == 200
+        )
 
         def boom(app_id, app_secret, client=None):
             raise WeChatApiError("微信接口错误 40001: invalid credential", errcode=40001)
@@ -264,7 +267,9 @@ def test_api_account_browser_flows_rejected(monkeypatch):
         login_session = test_app.client.post(f"/api/accounts/{account_id}/login-session")
         assert login_session.status_code == 400
 
-        check = test_app.client.post(f"/api/accounts/{account_id}/check", json={"use_browser": False})
+        check = test_app.client.post(
+            f"/api/accounts/{account_id}/check", json={"use_browser": False}
+        )
         assert check.status_code == 400
 
         platform_session = test_app.client.post(
@@ -305,7 +310,10 @@ def test_verified_api_account_rejected_by_browser_task_path_until_runner_exists(
             "server.app.modules.accounts.service.wechat_fetch_access_token",
             lambda app_id, app_secret, client=None: ("tok-1", 7200),
         )
-        assert test_app.client.post(f"/api/accounts/{account_id}/verify-credentials").status_code == 200
+        assert (
+            test_app.client.post(f"/api/accounts/{account_id}/verify-credentials").status_code
+            == 200
+        )
 
         from server.app.modules.articles.models import Article
         from server.app.modules.tasks.schemas import TaskAccountInput, TaskCreate

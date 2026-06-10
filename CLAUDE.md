@@ -163,6 +163,15 @@ register(MyDriver())
 - `PublishError(message, screenshot=None)` — 驱动级失败。可选 screenshot bytes 会随发布记录持久化。
 - `UserInputRequired` — 遇到验证码 / 登录态失效，需要 noVNC 人工接管。**`stop_before_publish=True` 的正常停顿不要抛这个**，正常返回 `PublishResult` 即可；`UserInputRequired` 只用于非预期的人工干预。
 
+驱动分两类：浏览器驱动（默认，实现 `publish(page, context, ...)`）和 **API 驱动**
+（类属性 `mode = "api"`，实现 `publish_api(payload: ApiPublishPayload)`，发布不起浏览器，
+`build_publish_runner_for_record` 据此分叉到 `runner_api.run_publish_api`）。
+微信公众号（`wechat_mp`）是首个 API 驱动：终点为草稿箱（draft/add 即 succeeded，不调
+freepublish），封面自动压 JPG≤64KB、正文图压 ≤1MB 转传换微信 URL。账号凭据存
+`Account.api_credentials`（AppID/AppSecret，API 永不回传 secret 原文），token 缓存在
+`Account.api_token_cache` 跨进程共享；`POST /api/accounts/{id}/verify-credentials` 验证凭据。
+注意：微信接口要求服务器出口 IP 在公众平台白名单内，否则 40164。
+
 ## Toutiao Automation Notes
 
 - 头条用字节自家的设计系统：`byte-btn`、`byte-btn-primary`、`syl-toolbar-tool`，**不是 Ant Design**。
@@ -229,3 +238,4 @@ register(MyDriver())
 - AI Key（`GEO_AI_API_KEY` / `GEO_AI_FORMAT_API_KEY`）**启动时不校验**，缺 / 错时在调用 LiteLLM 的请求里才报错。
 - 生产 HTTPS 部署记得设 `GEO_SECURE_COOKIE=true`，否则 cookie 不会带 Secure 标志。
 - 当前迁移头部随版本变化，看 `server/alembic/versions/` 最新一个文件即可；不要在文档里写死版本号。
+- 微信公众号发布走纯 HTTP（无浏览器），Windows 本地 / CI 可全链路跑；但需要服务器出口公网 IP 加入公众平台 IP 白名单（报 40164 时先查这个）。`distribution_enabled=false` 的账号会被 pipeline distribute 自动派号过滤（全停用时节点安静跳过）。

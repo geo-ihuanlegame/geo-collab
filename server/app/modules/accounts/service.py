@@ -244,6 +244,7 @@ def update_account_fields(db: Session, account: Account, payload: AccountUpdateR
     if data.get("api_credentials") is not None:
         if not is_api_platform_code(account.platform.code):
             raise ValidationError("浏览器登录平台不支持 API 凭据")
+        assert payload.api_credentials is not None  # type guard for mypy
         creds = payload.api_credentials
         _ensure_app_id_available(db, account, creds.app_id)
         account.api_credentials = {"app_id": creds.app_id, "app_secret": creds.app_secret}
