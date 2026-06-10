@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { listAccounts } from "../../api/accounts";
+import { listAccounts, listPlatforms } from "../../api/accounts";
 import { listArticleGroups, listArticles } from "../../api/articles";
 import { newClientRequestId, singleFlight } from "../../api/core";
 import {
@@ -60,9 +60,11 @@ export function TasksWorkspace({ isActive }: { isActive?: boolean } = {}) {
   const { data: accountsData, refresh: refreshAccounts } = useApiData(listAccounts);
   const { data: articlesData, refresh: refreshArticles } = useApiData(listArticles);
   const { data: groupsData, refresh: refreshGroups } = useApiData(listArticleGroups);
+  const { data: platformsData } = useApiData(listPlatforms);
   const accounts = useMemo(() => accountsData ?? [], [accountsData]);
   const articles = useMemo(() => articlesData ?? [], [articlesData]);
   const groups = useMemo(() => groupsData ?? [], [groupsData]);
+  const platforms = useMemo(() => platformsData ?? [], [platformsData]);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [loading, setLoading] = useState(false);
   const [autoRefreshTaskIds, setAutoRefreshTaskIds] = useState<Set<number>>(new Set());
@@ -73,6 +75,7 @@ export function TasksWorkspace({ isActive }: { isActive?: boolean } = {}) {
   const [formArticleId, setFormArticleId] = useState<number | null>(null);
   const [formGroupId, setFormGroupId] = useState<number | null>(null);
   const [formAccountIds, setFormAccountIds] = useState<number[]>([]);
+  const [formPlatformFilter, setFormPlatformFilter] = useState<string>("");
   const [preview, setPreview] = useState<AssignmentPreview | null>(null);
   const [formError, setFormError] = useState("");
 
@@ -95,6 +98,7 @@ export function TasksWorkspace({ isActive }: { isActive?: boolean } = {}) {
   const hasActiveTasks = tasks.some(isTaskActive);
   const articleMap = useMemo(() => Object.fromEntries(articles.map((a) => [a.id, a])), [articles]);
   const accountMap = useMemo(() => Object.fromEntries(accounts.map((a) => [a.id, a])), [accounts]);
+  const platformMap = useMemo(() => Object.fromEntries(platforms.map((p) => [p.code, p])), [platforms]);
   const sortedTasks = useMemo(
     () => tasks.slice().sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
     [tasks],
@@ -457,7 +461,7 @@ export function TasksWorkspace({ isActive }: { isActive?: boolean } = {}) {
     setPreview(null);
   }
 
-  const validAccounts = accounts.filter((a) => a.status !== "deleted");
+  const validAccounts = accounts.filter((a) => a.status !== "deleted" && (!formPlatformFilter || a.platform_code === formPlatformFilter));
   const canExecute = selectedTask && selectedTask.status === "pending";
   const canCancel = selectedTask && !selectedTask.cancel_requested && (selectedTask.status === "running" || selectedTask.status === "pending");
 
@@ -529,13 +533,26 @@ export function TasksWorkspace({ isActive }: { isActive?: boolean } = {}) {
               )}
               <div>
                 <p style={{ margin: "0 0 6px", fontSize: 13, color: "#475569" }}>发布账号</p>
-                {formType === "single" ? <p style={{ margin: "0 0 6px", fontSize: 12, color: "#e67e22" }}>单篇发布只能选一个账号</p> : null}
+                <div style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
+                  <select
+                    style={{ flex: 1, height: 32, border: "1px solid var(--hair)", borderRadius: "var(--r-sm)", padding: "0 8px", fontSize: 12 }}
+                    value={formPlatformFilter}
+                    onChange={(e) => { setFormPlatformFilter(e.target.value); setFormAccountIds([]); }}
+                  >
+                    <option value="">全部平台</option>
+                    {platforms.map((p) => (
+                      <option key={p.code} value={p.code}>{p.name}</option>
+                    ))}
+                  </select>
+                  {formType === "single" && <span style={{ fontSize: 12, color: "#e67e22" }}>单篇只能选一个账号</span>}
+                </div>
                 <div style={{ maxHeight: "200px", overflowY: "auto", border: "1px solid #e2e8f0", borderRadius: "4px", padding: "8px" }}>
                   {validAccounts.map((a) => (
                     <label key={a.id} className="checkLine">
                       <input type={formType === "single" ? "radio" : "checkbox"} name="formAccount" checked={formAccountIds.includes(a.id)} onChange={() => toggleAccount(a.id)} />
                       <span>{a.display_name}</span>
-                      {a.status !== "valid" && <span style={{ fontSize: 11, color: "#94a3b8", marginLeft: "4px" }}>({a.status})</span>}
+                      <span style={{ fontSize: 11, color: "#94a3b8", marginLeft: "4px" }}>({a.platform_name})</span>
+                      {a.status !== "valid" && <span style={{ fontSize: 11, color: "#94a3b8", marginLeft: "4px" }}>[{a.status}]</span>}
                     </label>
                   ))}
                 </div>
@@ -610,7 +627,7 @@ export function TasksWorkspace({ isActive }: { isActive?: boolean } = {}) {
               <div>
                 <h2 style={{ margin: "0 0 4px" }}>{selectedTask.name}</h2>
                 <small style={{ color: "#64748b", fontSize: 13 }}>
-                  {selectedTask.task_type === "single" ? "单篇发布" : "分组轮询"} · {selectedTask.platform_code}
+                  {selectedTask.task_type === "single" ? "单篇发布" : "分组轮询"} · {platformMap[selectedTask.platform_code]?.name ?? selectedTask.platform_code}
                   {selectedTask.started_at ? ` · 开始于 ${formatDateTime(selectedTask.started_at)}` : ""}
                   {selectedTask.cancel_requested ? " · 已请求取消" : ""}
                 </small>

@@ -219,11 +219,19 @@ export type Account = {
   platform_code: string;
   platform_name: string;
   display_name: string;
+  platform_user_id: string | null;
   status: string;
   last_checked_at: string | null;
   last_login_at: string | null;
-  state_path: string;
+  state_path: string | null;
   note: string | null;
+  contact: string | null;
+  avatar_asset_id: string | null;
+  distribution_enabled: boolean;
+  app_id: string | null;
+  app_secret_tail: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export type AccountBrowserSession = {
@@ -417,6 +425,30 @@ export type AutoDistributePayload = {
   group_id?: number;
   account_ids: number[];
   name?: string;
+};
+
+export type ApiCredentialsIn = {
+  app_id: string;
+  app_secret: string;
+};
+
+export type ApiAccountCreatePayload = {
+  platform_code: string;
+  display_name: string;
+  api_credentials: ApiCredentialsIn;
+  contact?: string | null;
+  note?: string | null;
+  avatar_asset_id?: string | null;
+  distribution_enabled?: boolean;
+};
+
+export type AccountUpdatePayload = {
+  display_name?: string;
+  contact?: string | null;
+  note?: string | null;
+  avatar_asset_id?: string | null;
+  distribution_enabled?: boolean;
+  api_credentials?: ApiCredentialsIn;
 };
 
 export type PlatformLoginPayload = {

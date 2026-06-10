@@ -129,6 +129,24 @@ export function updateAccountDisplayName(accountId: number, displayName: string)
   });
 }
 
+export function updateAccount(accountId: number, payload: Record<string, unknown>): Promise<Account> {
+  return api<Account>(`/api/accounts/${accountId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function createApiAccount(payload: Record<string, unknown>): Promise<Account> {
+  return api<Account>("/api/accounts", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function verifyCredentials(accountId: number): Promise<Account> {
+  return api<Account>(`/api/accounts/${accountId}/verify-credentials`, { method: "POST" });
+}
+
 export async function exportAccountPackage(accountIds: number[]): Promise<Response> {
   const response = await fetch("/api/accounts/export", {
     method: "POST",

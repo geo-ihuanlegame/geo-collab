@@ -3042,3 +3042,507 @@ input:focus, select:focus, textarea:focus {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 12px; padding: 80px 20px; color: var(--fg-3); font-size: 14px;
 }
+
+/* ═══════════════════════════════ MEDIA MATRIX V2 ═══════════════════════════════ */
+
+/* Pending Section */
+.pendingTitle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 7px;
+  border-radius: 7px;
+  margin-bottom: 12px;
+}
+.pendingChevron { font-size: 12px; color: var(--fg-3); }
+.pendingLabel { font-size: 14.5px; font-weight: 600; color: var(--fg); }
+.pendingCount { font-size: 13px; color: var(--red); font-weight: 400; }
+
+/* Account Table */
+.accountTable {
+  border: 1px solid var(--hair);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--paper);
+}
+.accountTablePending { margin-bottom: 12px; }
+
+.accountRow {
+  display: grid;
+  grid-template-columns: 240px 100px 1fr 96px 70px 140px;
+  gap: 18px;
+  padding: 13px 18px;
+  align-items: center;
+  border-bottom: 1px solid var(--hair);
+  transition: background .12s;
+  background: var(--paper);
+}
+.accountRow:last-child { border-bottom: none; }
+.accountRow:hover { background: var(--cream); }
+
+.accountRowHeader {
+  background: var(--cream);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--fg-3);
+  cursor: default;
+}
+.accountRowHeader:hover { background: var(--cream); }
+
+.accountRowCell { display: flex; align-items: center; gap: 8px; min-width: 0; }
+
+.accountRowCellAccount { gap: 10px; }
+.accountRowCellPlatform { gap: 7px; }
+
+.accountRowAvatar {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 12.5px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.accountRowDot {
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+}
+
+.accountRowNameWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.accountRowName {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accountRowId {
+  font-size: 12px;
+  color: var(--fg-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accountRowPlatformIcon {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.accountRowPlatformIcon + span {
+  font-size: 13px;
+  color: var(--fg-2);
+}
+
+.accountRowRemark {
+  font-size: 13px;
+  color: var(--fg-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accountRowCellStatus { justify-content: center; }
+
+.accountRowCellDist { justify-content: center; }
+
+.accountRowCellActions {
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+/* Toggle Switch */
+.accountRowToggle {
+  width: 42px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--hair-2);
+  position: relative;
+  cursor: pointer;
+  transition: background .15s;
+  border: none;
+  padding: 0;
+  flex-shrink: 0;
+}
+.accountRowToggle.on { background: var(--green); }
+.accountRowToggle::after { display: none; }
+
+.accountRowToggleKnob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,.22);
+  transition: transform .15s;
+}
+.accountRowToggle.on .accountRowToggleKnob { transform: translateX(18px); }
+
+/* Action Buttons */
+.accountRowAction {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 5px;
+  color: var(--fg-3);
+  border: 1px solid transparent;
+  transition: all .14s;
+  background: none;
+}
+.accountRowAction:hover { color: var(--fg); background: var(--cream-2); border-color: var(--hair); }
+.accountRowActionDelete:hover { color: var(--red); border-color: var(--red-soft); background: var(--red-soft); }
+
+/* Mini avatar in add dialog */
+.accountRowMiniAvatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #EAE6DD;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg-2);
+  flex-shrink: 0;
+}
+
+/* Account List Section */
+.accountListSection {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+}
+
+.accountFilterBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.accountFilterRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.accountSearchBox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 12px;
+  background: var(--paper);
+  border: 1px solid var(--hair-2);
+  border-radius: var(--r);
+  width: 220px;
+  color: var(--fg-3);
+  transition: border-color .14s;
+}
+.accountSearchBox:focus-within { border-color: var(--fg-3); }
+.accountSearchBox input {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--fg);
+  background: none;
+  border: none;
+  outline: none;
+}
+.accountSearchBox input::placeholder { color: var(--fg-3); }
+
+.accountFilterSelect {
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--hair-2);
+  border-radius: var(--r);
+  background: var(--paper);
+  font-size: 13px;
+  color: var(--fg);
+  cursor: pointer;
+  outline: none;
+  transition: border-color .14s;
+}
+.accountFilterSelect:focus { border-color: var(--fg-3); }
+
+.accountFilterInfo {
+  font-size: 12px;
+  color: var(--fg-3);
+}
+
+/* ═══════════════════════════════ ADD AUTHORIZATION DIALOG ═══════════════════════════════ */
+.addAuthDialog {
+  width: min(520px, 100%);
+  max-height: min(700px, calc(100vh - 48px));
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+  border: 1px solid var(--hair);
+  border-radius: 16px;
+  box-shadow: 0 20px 48px rgba(26, 26, 26, .16);
+  overflow: hidden;
+}
+
+.addAuthHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 28px 0;
+}
+
+.addAuthTitle {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.addAuthClose {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  color: var(--fg-3);
+  border: 1px solid var(--hair);
+  background: var(--paper);
+  transition: all .14s;
+}
+.addAuthClose:hover { color: var(--fg); background: var(--cream); }
+
+.addAuthBody {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 24px 28px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.addAuthLabel {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.addAuthField {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 11px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--fg-3);
+  font-weight: 500;
+}
+.addAuthField input {
+  width: 100%;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--hair);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--fg);
+  background: var(--paper);
+  text-transform: none;
+  letter-spacing: normal;
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+}
+.addAuthField input:focus {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px var(--accent-soft) !important;
+}
+
+/* Platform Select */
+.addAuthPlatformSelect {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--hair);
+  border-radius: 8px;
+  background: var(--paper);
+  cursor: pointer;
+  transition: border-color .14s;
+}
+.addAuthPlatformSelect:hover { border-color: var(--hair-2); }
+
+.addAuthPlatformSelectLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--fg);
+}
+
+.addAuthDropdown {
+  border: 1px solid var(--hair);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 12px 32px rgba(26, 26, 26, .12);
+}
+
+.addAuthDropdownSearch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 13px;
+  border-bottom: 1px solid var(--hair);
+}
+.addAuthDropdownSearch input {
+  width: 100%;
+  border: none;
+  background: none;
+  font-size: 13px;
+  color: var(--fg);
+  outline: none;
+}
+.addAuthDropdownSearch input::placeholder { color: var(--fg-3); }
+
+.addAuthDropdownItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: background .12s;
+}
+.addAuthDropdownItem:hover { background: var(--cream); }
+.addAuthDropdownItem.active { background: #4C6EF50D; }
+
+.addAuthDropdownLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--fg);
+}
+
+/* WeChat Section */
+.addAuthWechatSection {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #4C6EF533;
+  border-radius: 10px;
+  background: #4C6EF508;
+}
+
+/* Distribution Row */
+.addAuthDistRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+}
+
+.addAuthDistLabel {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--fg);
+}
+
+.addAuthDistHint {
+  display: block;
+  font-size: 12px;
+  color: var(--fg-3);
+  margin-top: 2px;
+}
+
+/* Footer */
+.addAuthFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 28px 24px;
+  border-top: 1px solid var(--hair);
+}
+
+.addAuthFooter button {
+  height: 38px;
+  padding: 0 20px;
+  border-radius: 9px;
+  font-size: 13.5px;
+  font-weight: 500;
+}
+
+/* Success */
+.addAuthSuccessBody,
+.addAuthErrorBody {
+  align-items: center;
+  text-align: center;
+  padding: 32px 28px;
+}
+
+.addAuthSuccessIcon {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: var(--green-soft);
+  display: grid;
+  place-items: center;
+  color: var(--green);
+}
+
+.addAuthErrorIcon {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: var(--red-soft);
+  display: grid;
+  place-items: center;
+  color: var(--red);
+}
+
+.addAuthSuccessTitle,
+.addAuthErrorTitle {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.addAuthSuccessSub,
+.addAuthErrorSub {
+  font-size: 13px;
+  color: var(--fg-2);
+  line-height: 1.6;
+  max-width: 320px;
+}
+
+/* Spinner */
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin { animation: spin .8s linear infinite; }
