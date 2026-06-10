@@ -17,8 +17,9 @@ import type {
 import { VersionHistory } from "./VersionHistory";
 
 // 问题源「类型卡 + 问题 chip」选择器（交互对齐 AI 生文的方案编辑）。
-// 受控组件：勾选态完全从节点 config 派生，切换时把最小表示写回 config——
-// 全选→空配置(整池, 自动跟进新同步问题)；整类子集→question_types；类内部分→question_record_ids。
+// 受控组件：每个问题类型 = 一个 PickerUnit，状态从节点 config.units 派生、改动写回 config.units。
+// 每单元 record_ids: null=整类(自动跟进新同步问题) / 非空数组=精选 / []=未选(不入 units)；
+// 另带 allowed_prompt_template_ids（允许模板）与 article_count（文章数）。兼容旧扁平 config（首次改动迁移为 units）。
 const UNCATEGORIZED = "__uncategorized__";
 
 function typeSentinel(t: QuestionType): string {
@@ -79,7 +80,7 @@ function deriveUnitMap(types: QuestionType[], config: Record<string, unknown>): 
     const sent = typeSentinel(t);
     const rids = t.questions.map((q) => q.record_id);
     const on = rids.filter((r) => checked.has(r));
-    const record_ids = on.length === 0 ? [] : on.length === rids.length ? null : on;
+    const record_ids = on.length === 0 || rids.length === 0 ? [] : on.length === rids.length ? null : on;
     map.set(sent, { question_type: sent, record_ids, allowed_prompt_template_ids: [], article_count: null });
   }
   return map;
