@@ -11,11 +11,17 @@ export function GlobalErrorListener() {
   useEffect(() => {
     function onRejection(event: PromiseRejectionEvent) {
       const reason: unknown = event.reason;
-      const message = reason instanceof Error ? reason.message : String(reason);
+      const message =
+        reason instanceof Error
+          ? reason.message
+          : typeof reason === "string" && reason
+            ? reason
+            : "未知错误";
       toast(`操作失败：${message}`, "error");
     }
     function onError(event: ErrorEvent) {
       if (!event.message) return;
+      if (event.message.includes("ResizeObserver loop")) return;
       toast(`页面错误：${event.message}`, "error");
     }
     window.addEventListener("unhandledrejection", onRejection);

@@ -26,13 +26,21 @@ export class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="panel" style={{ borderColor: "var(--red-soft)", color: "var(--red)", padding: 24, margin: 24 }}>
+        <div role="alert" className="panel" style={{ borderColor: "var(--red-soft)", color: "var(--red)", padding: 24, margin: 24 }}>
           <h2>{this.props.title ? `${this.props.title}出错` : "出现错误"}</h2>
           <p>{this.state.error?.message || "未知错误"}</p>
           <button
             className="secondaryButton"
             type="button"
-            onClick={() => this.setState({ hasError: false, error: null })}
+            onClick={() => {
+              const message = this.state.error?.message ?? "";
+              // React.lazy 会缓存失败的动态 import，原地重试无效，只能整页刷新
+              if (/dynamically imported module|Importing a module script failed/i.test(message)) {
+                window.location.reload();
+                return;
+              }
+              this.setState({ hasError: false, error: null });
+            }}
             style={{ marginTop: 12 }}
           >
             重试

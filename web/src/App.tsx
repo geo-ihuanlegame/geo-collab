@@ -86,6 +86,7 @@ function AppShell() {
 
   return (
     <ToastProvider>
+      {/* 必须挂在 ToastProvider 内（useToast 的 context 默认值是 no-op）；登录页无 toast 面板，自带内联报错 */}
       <GlobalErrorListener />
       <main className="shell">
         <aside className="sidebar">
