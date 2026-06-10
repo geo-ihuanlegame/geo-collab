@@ -26,8 +26,9 @@ def _resolve_units(units, fallback_template_id, fallback_count) -> list[tuple]:
         tpl_ids = list(u.get("allowed_prompt_template_ids") or [])
         if not tpl_ids and fallback_template_id:
             tpl_ids = [fallback_template_id]
+        raw_count = u.get("article_count")
         try:
-            cnt = int(u.get("article_count"))
+            cnt = int(raw_count) if raw_count is not None else 0
         except (TypeError, ValueError):
             cnt = 0
         if cnt <= 0:
@@ -45,7 +46,9 @@ def _run_units(ctx: NodeRunContext, cfg: dict, units, model, max_count) -> NodeR
 
     total = sum(c for (_, _, c) in resolved)
     if total <= 0:
-        raise ValidationError("ai_generate 逐单元：解析后总生成数量为 0（请在问题源或本节点配置数量）")
+        raise ValidationError(
+            "ai_generate 逐单元：解析后总生成数量为 0（请在问题源或本节点配置数量）"
+        )
     if total > max_count:
         raise ValidationError(f"生成数量超过上限 {max_count}")
 
@@ -62,19 +65,28 @@ def _run_units(ctx: NodeRunContext, cfg: dict, units, model, max_count) -> NodeR
         finally:
             db.close()
         return generate_article_from_prompt(
-            session_factory=ctx.session_factory, user_id=ctx.user_id,
-            template_content=template_content, question_text=qtext, model=model)
+            session_factory=ctx.session_factory,
+            user_id=ctx.user_id,
+            template_content=template_content,
+            question_text=qtext,
+            model=model,
+        )
 
     with ThreadPoolExecutor(max_workers=4) as pool:
-        futures = [pool.submit(_one, qtext, tpl_ids)
-                   for (qtext, tpl_ids, cnt) in resolved for _ in range(cnt)]
+        futures = [
+            pool.submit(_one, qtext, tpl_ids)
+            for (qtext, tpl_ids, cnt) in resolved
+            for _ in range(cnt)
+        ]
         for fut in as_completed(futures):
             try:
                 article_ids.append(fut.result())
             except Exception as exc:  # 单篇失败不中断
                 errors.append(str(exc))
 
-    return NodeResult(output={"article_ids": article_ids, "errors": errors}, article_ids=article_ids)
+    return NodeResult(
+        output={"article_ids": article_ids, "errors": errors}, article_ids=article_ids
+    )
 
 
 def run_ai_generate(ctx: NodeRunContext) -> NodeResult:
@@ -114,8 +126,12 @@ def run_ai_generate(ctx: NodeRunContext) -> NodeResult:
 
     def _one() -> int:
         return generate_article_from_prompt(
-            session_factory=ctx.session_factory, user_id=ctx.user_id,
-            template_content=template_content, question_text=question_text, model=model)
+            session_factory=ctx.session_factory,
+            user_id=ctx.user_id,
+            template_content=template_content,
+            question_text=question_text,
+            model=model,
+        )
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = [pool.submit(_one) for _ in range(count)]
@@ -125,7 +141,9 @@ def run_ai_generate(ctx: NodeRunContext) -> NodeResult:
             except Exception as exc:
                 errors.append(str(exc))
 
-    return NodeResult(output={"article_ids": article_ids, "errors": errors}, article_ids=article_ids)
+    return NodeResult(
+        output={"article_ids": article_ids, "errors": errors}, article_ids=article_ids
+    )
 
 
 register("ai_generate", run_ai_generate)

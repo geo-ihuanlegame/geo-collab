@@ -32,22 +32,29 @@ def _build_units(cfg: dict, rows: list[tuple]) -> list[dict]:
             rids = u.get("record_ids")
             if rids is not None:
                 rid_set = set(rids)
-                texts = [(t or "").strip() for (rid, cat, t) in rows
-                         if rid in rid_set and (t or "").strip()]
+                texts = [
+                    (t or "").strip()
+                    for (rid, cat, t) in rows
+                    if rid in rid_set and (t or "").strip()
+                ]
             elif qt == UNCATEGORIZED:
-                texts = [(t or "").strip() for (rid, cat, t) in rows
-                         if cat is None and (t or "").strip()]
+                texts = [
+                    (t or "").strip() for (rid, cat, t) in rows if cat is None and (t or "").strip()
+                ]
             elif qt:
-                texts = [(t or "").strip() for (rid, cat, t) in rows
-                         if cat == qt and (t or "").strip()]
+                texts = [
+                    (t or "").strip() for (rid, cat, t) in rows if cat == qt and (t or "").strip()
+                ]
             else:
                 texts = []  # 缺 question_type 的整类单元视为无问题 → 被闸门丢弃
-            out.append({
-                "question_type": qt,
-                "texts": texts,
-                "allowed_prompt_template_ids": list(u.get("allowed_prompt_template_ids") or []),
-                "article_count": _coerce_count(u.get("article_count")),
-            })
+            out.append(
+                {
+                    "question_type": qt,
+                    "texts": texts,
+                    "allowed_prompt_template_ids": list(u.get("allowed_prompt_template_ids") or []),
+                    "article_count": _coerce_count(u.get("article_count")),
+                }
+            )
         return out
 
     # 旧扁平 config → 按 category 分组成「无模板/无数量」单元（record_ids > types > 整池）
@@ -62,14 +69,15 @@ def _build_units(cfg: dict, rows: list[tuple]) -> list[dict]:
     elif question_types:
         named = {t for t in question_types if t != UNCATEGORIZED}
         incl_uncat = UNCATEGORIZED in question_types
-        picked = [(rid, cat, t) for (rid, cat, t) in rows
-                  if cat in named or (incl_uncat and cat is None)]
+        picked = [
+            (rid, cat, t) for (rid, cat, t) in rows if cat in named or (incl_uncat and cat is None)
+        ]
     else:
         picked = list(rows)
 
     groups: dict[str, list[str]] = {}
     order: list[str] = []
-    for (_rid, cat, t) in picked:
+    for _rid, cat, t in picked:
         key = cat if cat is not None else UNCATEGORIZED
         if key not in groups:
             groups[key] = []
@@ -77,8 +85,15 @@ def _build_units(cfg: dict, rows: list[tuple]) -> list[dict]:
         s = (t or "").strip()
         if s:
             groups[key].append(s)
-    return [{"question_type": k, "texts": groups[k],
-             "allowed_prompt_template_ids": [], "article_count": None} for k in order]
+    return [
+        {
+            "question_type": k,
+            "texts": groups[k],
+            "allowed_prompt_template_ids": [],
+            "article_count": None,
+        }
+        for k in order
+    ]
 
 
 def run_question_source(ctx: NodeRunContext) -> NodeResult:
@@ -111,12 +126,14 @@ def run_question_source(ctx: NodeRunContext) -> NodeResult:
         if not u["texts"]:
             continue  # 闸门：无问题 → 弃用
         rendered = "\n".join(f"{i}. {t}" for i, t in enumerate(u["texts"], start=1))
-        gen_units.append({
-            "question_type": u["question_type"],
-            "question_text": rendered,
-            "allowed_prompt_template_ids": u["allowed_prompt_template_ids"],
-            "article_count": u["article_count"],
-        })
+        gen_units.append(
+            {
+                "question_type": u["question_type"],
+                "question_text": rendered,
+                "allowed_prompt_template_ids": u["allowed_prompt_template_ids"],
+                "article_count": u["article_count"],
+            }
+        )
         flat_texts.extend(u["texts"])
 
     flat_rendered = "\n".join(f"{i}. {t}" for i, t in enumerate(flat_texts, start=1))
