@@ -959,14 +959,20 @@ def export_accounts_auth_package(db: Session, payload: AccountExportRequest) -> 
             )
             exported_files.append(f"{account_dir}/account.json")
 
-            try:
-                state_file = _resolve_data_file(account.state_path)
-                state_archive_path = f"{account_dir}/storage_state.json"
-                archive.write(state_file, state_archive_path)
-                exported_files.append(state_archive_path)
-            except ClientError:
+            if account.state_path:
+                try:
+                    state_file = _resolve_data_file(account.state_path)
+                    state_archive_path = f"{account_dir}/storage_state.json"
+                    archive.write(state_file, state_archive_path)
+                    exported_files.append(state_archive_path)
+                except ClientError:
+                    _logger.warning(
+                        "Skipping storage_state.json for account %s - file not found",
+                        account.display_name,
+                    )
+            else:
                 _logger.warning(
-                    "Skipping storage_state.json for account %s - file not found",
+                    "Skipping storage_state.json for account %s - no browser state path",
                     account.display_name,
                 )
 

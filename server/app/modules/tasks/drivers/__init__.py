@@ -88,3 +88,9 @@ def resolve_driver(platform_code: str) -> PlatformDriver:
             variant,
         )
     return get_driver(platform_code)
+
+
+def is_api_driver(platform_code: str) -> bool:
+    """Return whether the default driver publishes through a server-side API path."""
+    driver = _REGISTRY.get(platform_code)
+    return getattr(driver, "mode", "browser") == "api"

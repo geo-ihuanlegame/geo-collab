@@ -76,8 +76,32 @@ class AccountCheckRequest(BaseModel):
     use_browser: bool = True
 
 
-class AccountRenameRequest(BaseModel):
+class ApiCredentialsIn(BaseModel):
+    app_id: str = Field(min_length=1, max_length=100)
+    app_secret: str = Field(min_length=1, max_length=200)
+
+
+class ApiAccountCreate(BaseModel):
+    """API 型平台（如微信公众号）账号创建：凭据直填，无浏览器登录。"""
+
+    platform_code: str = Field(min_length=1, max_length=50)
     display_name: str = Field(min_length=1, max_length=200)
+    api_credentials: ApiCredentialsIn
+    contact: str | None = Field(default=None, max_length=200)
+    note: str | None = None
+    avatar_asset_id: str | None = Field(default=None, max_length=64)
+    distribution_enabled: bool = True
+
+
+class AccountUpdateRequest(BaseModel):
+    """账号通用 PATCH：全部可选，未传字段不动；api_credentials 传则整体替换。"""
+
+    display_name: str | None = Field(default=None, min_length=1, max_length=200)
+    contact: str | None = Field(default=None, max_length=200)
+    note: str | None = None
+    avatar_asset_id: str | None = Field(default=None, max_length=64)
+    distribution_enabled: bool | None = None
+    api_credentials: ApiCredentialsIn | None = None
 
 
 class AccountExportRequest(BaseModel):
