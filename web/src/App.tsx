@@ -17,10 +17,13 @@ import { ChangePasswordPage } from "./features/auth/ChangePasswordPage";
 import { UsersWorkspace } from "./features/auth/UsersWorkspace";
 import { AuditLogsWorkspace } from "./features/system/AuditLogsWorkspace";
 import { ChevronDown, LogOut, ScrollText, Users } from "lucide-react";
+import { MobileNav } from "./components/MobileNav";
+import { useIsMobile } from "./hooks/useIsMobile";
 import "./styles.css";
 
 function AppShell() {
   const { user, loading, logout } = useAuth();
+  const isMobile = useIsMobile();
   const [activeNav, setActiveNav] = useState<NavKey>("content");
   const [visitedTabs, setVisitedTabs] = useState<Set<NavKey>>(new Set(["content"]));
   const [openGroup, setOpenGroup] = useState<NavKey | null>("content");
@@ -77,7 +80,13 @@ function AppShell() {
 
   return (
     <ToastProvider>
-      <main className="shell">
+      <main className={`shell${isMobile ? " shellMobile" : ""}`}>
+        {isMobile && (
+          <header className="mobileAppBar">
+            <div className="brandMark">AI</div>
+            <span className="mobileAppName">AI插件自动化平台</span>
+          </header>
+        )}
         <aside className="sidebar">
           <div className="brand">
             <div className="brandMark">AI</div>
@@ -197,13 +206,19 @@ function AppShell() {
                   dirtyCheckRef={contentDirtyRef}
                   isActive={activeNav === "content"}
                   reviewTab={contentReviewTab}
+                  isMobile={isMobile}
+                  onReviewTabChange={setContentReviewTab}
                 />
               </ErrorBoundary>
             </div>
             {visitedTabs.has("prompts") && (
               <div style={{ display: activeNav === "prompts" ? undefined : "none" }}>
                 <ErrorBoundary fallback={<p role="alert">提示词管理出错，请刷新重试</p>}>
-                  <PromptsWorkspace scope={promptsScope} />
+                  <PromptsWorkspace
+                  scope={promptsScope}
+                  isMobile={isMobile}
+                  onScopeChange={setPromptsScope}
+                />
                 </ErrorBoundary>
               </div>
             )}
@@ -251,6 +266,15 @@ function AppShell() {
             )}
           </div>
         </section>
+        {isMobile && (
+          <MobileNav
+            activeNav={activeNav}
+            onNavigate={handleNavClick}
+            isAdmin={user.role === "admin"}
+            username={user.username}
+            onLogout={logout}
+          />
+        )}
       </main>
     </ToastProvider>
   );
