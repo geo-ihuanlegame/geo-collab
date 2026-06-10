@@ -3313,6 +3313,14 @@ option, optgroup {
     z-index: 20;
   }
   .mobileAppName { font-family: var(--display); font-size: 15px; font-weight: 700; letter-spacing: -0.2px; }
+  /* 「更多」子页返回入口：足够大的点按区，回到更多菜单 */
+  .mobileAppBack {
+    display: flex; align-items: center; gap: 2px;
+    height: 44px; margin-left: -8px; padding: 0 8px;
+    font-family: var(--display); font-size: 16px; font-weight: 600;
+    color: var(--fg);
+  }
+  .mobileAppBack:active { opacity: 0.6; }
 
   /* 工作区底部留出底栏高度 + 安全区 */
   .workspaceInner { padding: 20px 16px calc(72px + env(safe-area-inset-bottom)); }

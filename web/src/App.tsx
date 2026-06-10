@@ -16,7 +16,7 @@ import { LoginPage } from "./features/auth/LoginPage";
 import { ChangePasswordPage } from "./features/auth/ChangePasswordPage";
 import { UsersWorkspace } from "./features/auth/UsersWorkspace";
 import { AuditLogsWorkspace } from "./features/system/AuditLogsWorkspace";
-import { ChevronDown, LogOut, ScrollText, Users } from "lucide-react";
+import { ChevronDown, ChevronLeft, LogOut, ScrollText, Users } from "lucide-react";
 import { MobileNav } from "./components/MobileNav";
 import { MobileMorePage } from "./components/MobileMorePage";
 import { ScrollPanel } from "./components/ScrollPanel";
@@ -28,6 +28,8 @@ function AppShell() {
   const isMobile = useIsMobile();
   const [moreOpen, setMoreOpen] = useState(false);
   const [activeNav, setActiveNav] = useState<NavKey>("content");
+  // 当前页是否属于「更多」分区（即不在底栏 4 个高频入口中）
+  const onMoreSection = !(["agents", "ai", "content", "tasks"] as NavKey[]).includes(activeNav);
   const [visitedTabs, setVisitedTabs] = useState<Set<NavKey>>(new Set(["content"]));
   const [openGroup, setOpenGroup] = useState<NavKey | null>("content");
   const [contentReviewTab, setContentReviewTab] = useState<ReviewStatus>("pending");
@@ -86,8 +88,17 @@ function AppShell() {
       <main className={`shell${isMobile ? " shellMobile" : ""}`}>
         {isMobile && (
           <header className="mobileAppBar">
-            <div className="brandMark">AI</div>
-            <span className="mobileAppName">AI插件自动化平台</span>
+            {onMoreSection ? (
+              <button type="button" className="mobileAppBack" onClick={() => setMoreOpen(true)}>
+                <ChevronLeft size={22} />
+                <span>更多</span>
+              </button>
+            ) : (
+              <>
+                <div className="brandMark">AI</div>
+                <span className="mobileAppName">AI插件自动化平台</span>
+              </>
+            )}
           </header>
         )}
         <aside className="sidebar">
@@ -282,7 +293,7 @@ function AppShell() {
           <MobileNav
             activeNav={activeNav}
             onNavigate={(key) => { setMoreOpen(false); handleNavClick(key); }}
-            moreActive={moreOpen}
+            moreActive={moreOpen || onMoreSection}
             onMoreClick={() => setMoreOpen((v) => !v)}
           />
         )}
