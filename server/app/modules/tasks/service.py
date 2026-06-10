@@ -553,6 +553,10 @@ def _validated_accounts(
             raise AccountError(f"Account not found: {account_id}")
         if account.platform_id != platform_id:
             raise AccountError(f"Account platform mismatch: {account_id}")
+        if account.state_path is None:
+            raise AccountError(
+                f"Account {account_id} is API-only: API publishing is not available yet"
+            )
         if account.status != "valid":
             raise AccountError(
                 f"Account {account_id} is {account.status}: please re-verify the account authorization"
