@@ -320,6 +320,13 @@ def main() -> None:
             except Exception:
                 pass
 
+    try:
+        from server.app.modules.accounts.login_broker import login_broker
+
+        login_broker.shutdown()
+    except Exception:
+        _logger.warning("Worker %s: login broker shutdown failed", WORKER_ID, exc_info=True)
+
     _logger.info("Worker %s exited", WORKER_ID)
 
 

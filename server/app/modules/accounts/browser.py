@@ -715,6 +715,11 @@ def stop_remote_browser_session(session_id: str) -> None:
             _account_sessions.pop(k, None)
 
     if local_session is not None:
+        # 登录会话的 Playwright 句柄由 login_broker 在它自己的事件循环上持有，必须经 broker 拆除
+        # （非登录会话 / 发布会话安静 no-op，且不会唤起 broker 的 loop）。
+        from server.app.modules.accounts.login_broker import login_broker
+
+        login_broker.close_if_owned(session_id)
         _close_browser_handles(local_session)
         _stop_session_processes(local_session)
         _delete_session_from_db(session_id)
