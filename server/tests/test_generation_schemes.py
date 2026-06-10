@@ -388,6 +388,9 @@ def test_ai_engines_endpoint_returns_configured_list(monkeypatch):
         data = r.json()
         assert isinstance(data, list) and len(data) >= 1
         assert "label" in data[0] and "model" in data[0]
+        # 永不泄漏密钥 / 网关地址给前端
+        assert "api_key" not in data[0]
+        assert "base_url" not in data[0]
     finally:
         app.cleanup()
 

@@ -20,7 +20,21 @@
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class AiEngineConfig(BaseModel):
+    """单个写作引擎：label + litellm 模型串 + 自带密钥/网关。
+
+    通过 GEO_AI_ENGINES 传 JSON 数组覆盖。下拉选中存的是 model 串，
+    后端按 model 串回查本配置拿 api_key / base_url（见 resolve_engine）。
+    """
+
+    label: str
+    model: str = ""  # "" = 用 settings.ai_model 默认写作模型
+    api_key: str = ""  # "" = 回落到 settings.ai_api_key
+    base_url: str | None = None  # OpenAI 兼容网关/代理；None = litellm 默认
 
 
 class Settings(BaseSettings):
@@ -72,10 +86,12 @@ class Settings(BaseSettings):
     ai_model: str = "claude-3-5-sonnet-20241022"  # GEO_AI_MODEL
     ai_api_key: str = ""  # GEO_AI_API_KEY
     # 方案级可选 AI 引擎列表（为后续接入更多写作模型留接口）。
-    # 每项 {"label": 展示名, "model": litellm 模型字符串}；model 字段为空 = 用 ai_model 默认值。
+    # 每项 = AiEngineConfig（label 展示名 / model litellm 串 / api_key / base_url）。
+    # model 空 = 用 ai_model 默认；api_key 空 = 回落 ai_api_key；base_url 留空 = litellm 默认。
     # 通过 GEO_AI_ENGINES 传 JSON 覆盖，例如：
-    #   [{"label":"默认写作模型","model":""},{"label":"DeepSeek","model":"deepseek/deepseek-chat"}]
-    ai_engines: list[dict[str, str]] = [{"label": "默认写作模型", "model": ""}]  # GEO_AI_ENGINES
+    #   [{"label":"DeepSeek","model":"deepseek/deepseek-chat","api_key":"sk-ds"},
+    #    {"label":"网关","model":"openai/gpt-4o","api_key":"sk-x","base_url":"https://oneapi/v1"}]
+    ai_engines: list[AiEngineConfig] = [AiEngineConfig(label="默认写作模型")]  # GEO_AI_ENGINES
 
     # AI 格式调整（标题识别 / 未来配图配链接）—— 独立模型，降低成本
     ai_format_model: str = "deepseek/deepseek-v4-flash"  # GEO_AI_FORMAT_MODEL
@@ -102,6 +118,23 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def resolve_engine(selected: str | None) -> tuple[str, str, str | None]:
+    """下拉选中的 model 串 → 实际调用参数 (model, api_key, base_url)。
+
+    - 空串 / None：系统默认引擎（ai_model + ai_api_key）。
+    - 命中 ai_engines 某项：用该项 model（空则默认）、api_key（空则回落默认 key）、base_url。
+    - 列表里没有（手填 / 历史值）：原样用该 model + 默认 key。
+    """
+    settings = get_settings()
+    sel = (selected or "").strip()
+    if not sel:
+        return settings.ai_model, settings.ai_api_key, None
+    for e in settings.ai_engines:
+        if e.model == sel:
+            return e.model or settings.ai_model, e.api_key or settings.ai_api_key, e.base_url
+    return sel, settings.ai_api_key, None
 
 
 # 文件上传大小限制

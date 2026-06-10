@@ -95,7 +95,7 @@ def list_ai_engines(
     """方案可选的 AI 引擎列表（来自 settings.ai_engines，给方案编辑器下拉用）。"""
     from server.app.core.config import get_settings
 
-    return [AiEngineRead(**e) for e in get_settings().ai_engines]
+    return [AiEngineRead(label=e.label, model=e.model) for e in get_settings().ai_engines]
 
 
 @scheme_router.get("/schemes", response_model=list[SchemeRead])
