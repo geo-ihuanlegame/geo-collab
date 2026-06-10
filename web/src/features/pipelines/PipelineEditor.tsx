@@ -372,9 +372,11 @@ export function PipelineEditor({ pipelineId, onChanged }:
   // AI生文：若上游是 question_source 且其 units 覆盖了模板/数量，则对应字段灰显（已被接管）。
   const aiGenMask = useMemo(() => {
     if (!sel || sel.node_type !== "ai_generate") return { template: false, count: false };
+    // dependsOnIndex 存的是 node_index（见数据传递选择器），按 node_index 查；留空则取数组里前一个。
     const dep = sel.flow_meta?.dependsOnIndex;
-    const upIdx = dep != null ? dep : (selected != null ? selected - 1 : -1);
-    const up = upIdx >= 0 ? nodes[upIdx] : undefined;
+    const up = dep != null
+      ? nodes.find((n) => n.node_index === dep)
+      : (selected != null && selected > 0 ? nodes[selected - 1] : undefined);
     if (!up || up.node_type !== "question_source") return { template: false, count: false };
     const units = up.config?.units as Array<Record<string, unknown>> | undefined;
     if (!Array.isArray(units) || units.length === 0) return { template: false, count: false };
