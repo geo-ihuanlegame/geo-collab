@@ -209,6 +209,25 @@ p { margin: 0; }
   box-shadow: 0 0 8px var(--acc-1);
 }
 
+/* ── 导航图标微动效（激活弹跳 + 辉光 / hover 放大 / 按下回弹）── */
+@keyframes navIconPop {
+  0%   { transform: scale(0.8); }
+  55%  { transform: scale(1.22); }
+  100% { transform: scale(1); }
+}
+@keyframes tabIconPop {
+  0%   { transform: scale(0.85); }
+  55%  { transform: scale(1.28); }
+  100% { transform: scale(1.12); }
+}
+.navItem svg { transition: transform .2s var(--easing); }
+.navItem:hover svg { transform: scale(1.12); }
+.navItem:active svg { transform: scale(0.9); }
+.navItem.active svg {
+  animation: navIconPop .34s var(--easing);
+  filter: drop-shadow(0 0 6px rgba(168,85,247,0.55));
+}
+
 /* 可展开父菜单 + 子页 */
 .navGroup { display: flex; flex-direction: column; }
 .navParent .navChevron {
@@ -3350,6 +3369,13 @@ option, optgroup {
   }
   .mobileTab.active { color: var(--accent-deep); }
   .mobileTab.active svg { color: var(--acc-2); }
+  .mobileTab svg { transition: transform .2s var(--easing); }
+  .mobileTab:active svg { transform: scale(0.85); }
+  .mobileTab.active svg {
+    transform: scale(1.12);
+    filter: drop-shadow(0 0 6px rgba(168,85,247,0.6));
+    animation: tabIconPop .36s var(--easing);
+  }
 
   /* 「更多」整页（替代浮层）：顶部个人信息 + 分组列表 + 底部独立退出 */
   .mobileMorePage {
