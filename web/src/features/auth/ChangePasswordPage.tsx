@@ -44,7 +44,7 @@ export function ChangePasswordPage() {
         <div className="authBrand">
           <div className="authBrandMark">AI</div>
           <div>
-            <div className="authBrandName">AI插件自动化平台</div>
+            <div className="authBrandName">AI智能体平台</div>
             <div className="authBrandSub">修改密码</div>
           </div>
         </div>
