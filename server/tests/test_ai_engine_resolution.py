@@ -28,12 +28,20 @@ def test_resolve_engine_empty_returns_default(monkeypatch):
 def test_resolve_engine_hit_uses_own_credentials(monkeypatch):
     _set_engines(
         monkeypatch,
-        [{"label": "DS", "model": "deepseek/deepseek-chat", "api_key": "ds-key",
-          "base_url": "https://ds/v1"}],
+        [
+            {
+                "label": "DS",
+                "model": "deepseek/deepseek-chat",
+                "api_key": "ds-key",
+                "base_url": "https://ds/v1",
+            }
+        ],
     )
     try:
         assert resolve_engine("deepseek/deepseek-chat") == (
-            "deepseek/deepseek-chat", "ds-key", "https://ds/v1",
+            "deepseek/deepseek-chat",
+            "ds-key",
+            "https://ds/v1",
         )
     finally:
         get_settings.cache_clear()
@@ -63,7 +71,10 @@ def test_ai_engines_parse_credentials_from_json(monkeypatch):
     try:
         e = get_settings().ai_engines[0]
         assert (e.label, e.model, e.api_key, e.base_url) == (
-            "网关", "openai/gpt-4o", "gw", "https://gw/v1",
+            "网关",
+            "openai/gpt-4o",
+            "gw",
+            "https://gw/v1",
         )
     finally:
         get_settings.cache_clear()

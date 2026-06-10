@@ -26,9 +26,7 @@ def _run_writer(app, monkeypatch, *, selected_model):
     seen: dict = {}
 
     def _cap(**kw):
-        seen.update(
-            model=kw.get("model"), api_key=kw.get("api_key"), api_base=kw.get("api_base")
-        )
+        seen.update(model=kw.get("model"), api_key=kw.get("api_key"), api_base=kw.get("api_base"))
         return _fake_completion("# 标题\n\n正文")
 
     monkeypatch.setattr("litellm.completion", _cap)
@@ -51,8 +49,16 @@ def test_writer_uses_selected_engine_key_and_base_url(monkeypatch):
         monkeypatch.setenv("GEO_AI_API_KEY", "default-key")
         monkeypatch.setenv(
             "GEO_AI_ENGINES",
-            json.dumps([{"label": "网关", "model": "openai/gpt-4o", "api_key": "gw-key",
-                         "base_url": "https://gw/v1"}]),
+            json.dumps(
+                [
+                    {
+                        "label": "网关",
+                        "model": "openai/gpt-4o",
+                        "api_key": "gw-key",
+                        "base_url": "https://gw/v1",
+                    }
+                ]
+            ),
         )
         seen = _run_writer(app, monkeypatch, selected_model="openai/gpt-4o")
         assert seen["model"] == "openai/gpt-4o"
