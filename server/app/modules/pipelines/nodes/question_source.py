@@ -37,9 +37,11 @@ def _build_units(cfg: dict, rows: list[tuple]) -> list[dict]:
             elif qt == UNCATEGORIZED:
                 texts = [(t or "").strip() for (rid, cat, t) in rows
                          if cat is None and (t or "").strip()]
-            else:
+            elif qt:
                 texts = [(t or "").strip() for (rid, cat, t) in rows
                          if cat == qt and (t or "").strip()]
+            else:
+                texts = []  # 缺 question_type 的整类单元视为无问题 → 被闸门丢弃
             out.append({
                 "question_type": qt,
                 "texts": texts,
@@ -67,7 +69,7 @@ def _build_units(cfg: dict, rows: list[tuple]) -> list[dict]:
 
     groups: dict[str, list[str]] = {}
     order: list[str] = []
-    for (rid, cat, t) in picked:
+    for (_rid, cat, t) in picked:
         key = cat if cat is not None else UNCATEGORIZED
         if key not in groups:
             groups[key] = []
@@ -101,7 +103,6 @@ def run_question_source(ctx: NodeRunContext) -> NodeResult:
     finally:
         db.close()
 
-    rows = [(r[0], r[1], r[2]) for r in rows]
     units = _build_units(cfg, rows)
 
     gen_units: list[dict] = []

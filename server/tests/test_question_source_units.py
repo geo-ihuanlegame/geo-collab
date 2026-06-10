@@ -88,3 +88,22 @@ def test_legacy_config_maps_to_units_by_category(monkeypatch):
         assert out["question_count"] == 2
     finally:
         app.cleanup()
+
+
+@pytest.mark.mysql
+def test_units_uncategorized_whole_type(monkeypatch):
+    app = build_test_app(monkeypatch)
+    try:
+        pid, uid = _make_pool(app, [("美食", "红烧肉", True), (None, "无分类题", True)])
+        cfg = {"pool_id": pid, "units": [
+            {"question_type": "__uncategorized__", "record_ids": None,
+             "allowed_prompt_template_ids": [], "article_count": None},
+        ]}
+        out = _run(app, uid, cfg).output
+        gus = out["generation_units"]
+        assert len(gus) == 1
+        assert gus[0]["question_type"] == "__uncategorized__"
+        assert "无分类题" in gus[0]["question_text"]
+        assert "红烧肉" not in gus[0]["question_text"]
+    finally:
+        app.cleanup()
