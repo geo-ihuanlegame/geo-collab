@@ -43,12 +43,13 @@
 - `useApiData(fetcher)` — 统一管理 loading / error / data 与卸载后竞态丢弃，返回 `{ data, loading, error, refresh }`；
 - `usePolling(fn, intervalMs, enabled)` — 统一轮询定时器启停与清理。
 
-示范改造范围（仅此两处，不搞一次性大迁移）：
+示范改造范围（仅此一处，不搞一次性大迁移）：
 
-1. `TasksWorkspace.tsx`（13 处 catch、2 个定时器，现状最乱）；
-2. `PipelineEditor.tsx` 的运行状态轮询。
+1. `TasksWorkspace.tsx`（13 处 catch、2 个定时器，现状最乱）。只读列表（accounts/articles/groups）迁 `useApiData`，两个 `setInterval` 迁 `usePolling`；tasks/records/logs 因被 SSE、表单多处写入，保持手动管理。
 
 其余页面后续改到哪换到哪。
+
+> 2026-06-10 计划阶段修订：原拟一并改造 `PipelineEditor.tsx` 的运行状态轮询，实读代码后发现其已有防脏写守卫（`pollRef` 比对）且是命令式触发（点「运行」才开始、带 run_id），硬套声明式 hook 风险大于收益，故 descope。
 
 ## 不做什么（明确出界）
 
