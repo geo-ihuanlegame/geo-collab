@@ -320,9 +320,13 @@ interface Props {
   dirtyCheckRef?: MutableRefObject<() => boolean>;
   isActive?: boolean;
   reviewTab?: ReviewStatus;
+  isMobile?: boolean;
+  onReviewTabChange?: (t: ReviewStatus) => void;
 }
 
-export function ContentWorkspace({ dirtyCheckRef, isActive, reviewTab: reviewTabProp }: Props = {}) {
+export function ContentWorkspace(
+  { dirtyCheckRef, isActive, reviewTab: reviewTabProp, isMobile, onReviewTabChange }: Props = {},
+) {
   const { toast } = useToast();
   const { user } = useAuth();
   const [articles, setArticles] = useState<ArticleSummary[]>([]);
@@ -351,6 +355,7 @@ export function ContentWorkspace({ dirtyCheckRef, isActive, reviewTab: reviewTab
   const [confirmDeleteGroup, setConfirmDeleteGroup] = useState(false);
   const [confirmUnsavedNew, setConfirmUnsavedNew] = useState(false);
   const [reviewTab, setReviewTab] = useState<ReviewStatus>("pending");
+  const [mobileView, setMobileView] = useState<"list" | "editor">("list");
   const [reviewBusyId, setReviewBusyId] = useState<number | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [distributeTarget, setDistributeTarget] = useState<DistributeTarget | null>(null);
@@ -640,6 +645,7 @@ export function ContentWorkspace({ dirtyCheckRef, isActive, reviewTab: reviewTab
     setAiChecking(false);
     setAiCheckStartedAt(null);
     savedStateRef.current = null;
+    setMobileView("editor");
   }
 
   async function loadArticle(article: ArticleSummary) {
@@ -687,6 +693,7 @@ export function ContentWorkspace({ dirtyCheckRef, isActive, reviewTab: reviewTab
       setLoading(false);
       setStatusText("");
     }
+    setMobileView("editor");
   }
 
   function applySavedArticle(saved: Article, contentJson?: Record<string, unknown>) {
@@ -972,6 +979,7 @@ export function ContentWorkspace({ dirtyCheckRef, isActive, reviewTab: reviewTab
     setEditingGroupId(group.id);
     setGroupName(group.name);
     setSelectedArticleIds([]);
+    setMobileView("editor");
   }
 
   function toggleSelectedArticle(articleId: number) {
@@ -1136,7 +1144,26 @@ export function ContentWorkspace({ dirtyCheckRef, isActive, reviewTab: reviewTab
         </div>
       </header>
 
-      <section className="contentGrid">
+      {isMobile && mobileView === "list" && (
+        <div className="mobileSegTabs">
+          <button
+            type="button"
+            className={`mobileSegTab${reviewTab === "pending" ? " active" : ""}`}
+            onClick={() => { setReviewTab("pending"); setArticlePage(0); setSelectedArticleIds([]); onReviewTabChange?.("pending"); }}
+          >
+            未审核库
+          </button>
+          <button
+            type="button"
+            className={`mobileSegTab${reviewTab === "approved" ? " active" : ""}`}
+            onClick={() => { setReviewTab("approved"); setArticlePage(0); setSelectedArticleIds([]); onReviewTabChange?.("approved"); }}
+          >
+            已审核库
+          </button>
+        </div>
+      )}
+
+      <section className={`contentGrid${isMobile ? ` mobile-${mobileView}` : ""}`}>
         <aside className="listPane">
           {reviewTab === "approved" && selectedArticleIds.length > 0 ? (
             <div className="bulkBar">
@@ -1332,6 +1359,11 @@ export function ContentWorkspace({ dirtyCheckRef, isActive, reviewTab: reviewTab
         </aside>
 
         <section className="editorPane">
+          {isMobile && (
+            <button type="button" className="mobileBackBtn" onClick={() => setMobileView("list")}>
+              ← 返回列表
+            </button>
+          )}
           <div className="formRow split">
             <label>
               标题
