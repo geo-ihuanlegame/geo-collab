@@ -18,12 +18,14 @@ import { UsersWorkspace } from "./features/auth/UsersWorkspace";
 import { AuditLogsWorkspace } from "./features/system/AuditLogsWorkspace";
 import { ChevronDown, LogOut, ScrollText, Users } from "lucide-react";
 import { MobileNav } from "./components/MobileNav";
+import { MobileMorePage } from "./components/MobileMorePage";
 import { useIsMobile } from "./hooks/useIsMobile";
 import "./styles.css";
 
 function AppShell() {
   const { user, loading, logout } = useAuth();
   const isMobile = useIsMobile();
+  const [moreOpen, setMoreOpen] = useState(false);
   const [activeNav, setActiveNav] = useState<NavKey>("content");
   const [visitedTabs, setVisitedTabs] = useState<Set<NavKey>>(new Set(["content"]));
   const [openGroup, setOpenGroup] = useState<NavKey | null>("content");
@@ -266,13 +268,21 @@ function AppShell() {
             )}
           </div>
         </section>
+        {isMobile && moreOpen && (
+          <MobileMorePage
+            username={user.username}
+            role={user.role}
+            isAdmin={user.role === "admin"}
+            onNavigate={(key) => { setMoreOpen(false); handleNavClick(key); }}
+            onLogout={() => { if (window.confirm("确定退出登录？")) logout(); }}
+          />
+        )}
         {isMobile && (
           <MobileNav
             activeNav={activeNav}
-            onNavigate={handleNavClick}
-            isAdmin={user.role === "admin"}
-            username={user.username}
-            onLogout={logout}
+            onNavigate={(key) => { setMoreOpen(false); handleNavClick(key); }}
+            moreActive={moreOpen}
+            onMoreClick={() => setMoreOpen((v) => !v)}
           />
         )}
       </main>

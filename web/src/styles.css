@@ -3335,34 +3335,61 @@ option, optgroup {
   .mobileTab.active { color: var(--accent-deep); }
   .mobileTab.active svg { color: var(--acc-2); }
 
-  .mobileMoreOverlay {
-    position: fixed; inset: 0; z-index: 41;
-    background: rgba(4,6,12,0.62);
-    backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
-    display: flex; align-items: flex-end;
+  /* 「更多」整页（替代浮层）：顶部个人信息 + 分组列表 + 底部独立退出 */
+  .mobileMorePage {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    bottom: calc(60px + env(safe-area-inset-bottom));
+    z-index: 25;
+    overflow-y: auto;
+    background: var(--bg-2);
+    padding-bottom: 24px;
   }
-  .mobileMoreSheet {
-    width: 100%;
-    background: var(--surface-2);
-    border-top: 1px solid var(--hair);
-    border-radius: var(--r-lg) var(--r-lg) 0 0;
-    padding: 16px 16px calc(20px + env(safe-area-inset-bottom));
-    box-shadow: 0 -16px 48px rgba(0,0,0,0.5);
-  }
-  .mobileMoreHead { display: flex; align-items: center; justify-content: space-between; font-size: 14px; font-weight: 600; margin-bottom: 14px; }
-  .mobileMoreGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-  .mobileMoreItem {
+  .mobileProfile {
     display: flex; flex-direction: column; align-items: center; gap: 8px;
-    padding: 16px 8px;
-    background: var(--glass);
-    border: 1px solid var(--hair);
-    border-radius: var(--r);
-    color: var(--fg-2);
-    font-size: 12px;
+    padding: 32px 16px 24px;
+    background: linear-gradient(160deg, rgba(109,107,246,0.28), rgba(168,85,247,0.12));
+    border-bottom: 1px solid var(--hair);
   }
-  .mobileMoreItem.active { color: #fff; background: linear-gradient(135deg, rgba(109,107,246,0.3), rgba(168,85,247,0.16)); border-color: rgba(140,120,255,0.35); }
-  .mobileMoreUser { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--hair); }
-  .mobileMoreName { font-size: 13px; color: var(--fg-2); }
+  .mobileAvatar {
+    width: 64px; height: 64px; border-radius: 50%;
+    background: var(--grad);
+    display: flex; align-items: center; justify-content: center;
+    color: #fff;
+    box-shadow: 0 8px 24px rgba(124,107,246,0.5);
+  }
+  .mobileProfileName { font-family: var(--display); font-size: 18px; font-weight: 700; color: var(--fg); }
+  .mobileProfileRole { font-size: 12px; color: var(--fg-2); padding: 2px 12px; border-radius: 99px; background: var(--glass); border: 1px solid var(--hair); }
+
+  .mobileMoreGroup { margin-top: 18px; }
+  .mobileMoreGroupTitle { font-size: 12px; color: var(--fg-3); padding: 0 18px 8px; letter-spacing: 0.5px; }
+  .mobileMoreList { background: var(--glass); border-top: 1px solid var(--hair); border-bottom: 1px solid var(--hair); }
+  .mobileMoreRow {
+    display: flex; align-items: center; gap: 12px;
+    width: 100%;
+    padding: 15px 18px;
+    font-size: 15px;
+    color: var(--fg);
+    text-align: left;
+    border-bottom: 1px solid var(--hair);
+  }
+  .mobileMoreRow:last-child { border-bottom: none; }
+  .mobileMoreRow:active { background: var(--glass-strong); }
+  .mobileMoreRow > svg:first-child { color: var(--fg-2); flex-shrink: 0; }
+  .mobileMoreRow > span { flex: 1; }
+  .mobileMoreChevron { color: var(--fg-3); flex-shrink: 0; }
+
+  .mobileLogoutRow {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    width: calc(100% - 32px);
+    margin: 28px 16px 0;
+    padding: 14px;
+    font-size: 15px; font-weight: 600;
+    color: var(--red);
+    background: var(--red-soft);
+    border: 1px solid rgba(248,113,113,0.3);
+    border-radius: var(--r);
+  }
 
   /* 从旧 640px 迁移：灯箱移动适配 */
   .lightboxInner { flex-direction: column; align-items: center; }
