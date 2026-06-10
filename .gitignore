@@ -41,3 +41,6 @@ spike_result.json
 spike_*_capture.json
 /pc-admin-conetnt-library-public
 /content-library-public
+
+# Pencil demo 生成的图片素材（demo.pen 本地引用，不入仓）
+images/
