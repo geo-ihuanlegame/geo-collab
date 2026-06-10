@@ -11,6 +11,7 @@
 from datetime import datetime
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -47,10 +48,25 @@ class Account(Base):
     )  # 状态：valid / expired / unknown
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    state_path: Mapped[str] = mapped_column(
-        String(1000)
-    )  # Playwright storage_state.json 的相对路径
+    state_path: Mapped[str | None] = mapped_column(
+        String(1000), nullable=True
+    )  # Playwright storage_state.json 的相对路径；API 型账号（如公众号）为 NULL
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # ── API 型平台（公众号等）专用 ───────────────────────────────────────
+    api_credentials: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True
+    )  # {"app_id": ..., "app_secret": ...}；永不通过 API 回传原文
+    api_token_cache: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True
+    )  # {"access_token": ..., "expires_at": <epoch秒>}；web/worker 跨进程共享
+    # ── 通用账号字段（对齐媒体矩阵交互稿）─────────────────────────────────
+    distribution_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="1", index=True
+    )  # 分发开关：False 时 pipeline distribute 自动派号跳过该账号
+    contact: Mapped[str | None] = mapped_column(String(200), nullable=True)  # 绑定联系方式
+    avatar_asset_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("assets.id"), nullable=True
+    )  # 账号头像
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0", index=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
