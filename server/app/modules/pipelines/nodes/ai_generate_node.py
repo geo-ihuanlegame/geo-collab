@@ -1,6 +1,10 @@
-"""ai_generate 处理节点：按单个固定提示词模板并发生成 count 指定篇数的文章（max_workers=4）。
+"""ai_generate 处理节点。
 
-单篇失败不中断，错误收进 output["errors"] 交由运行聚合为 partial_failed。"""
+两种模式：
+- 逐单元（上游问题源传入 generation_units）：每个单元解析模板/数量（缺则各自兜底到本节点配置），
+  每篇从该单元允许模板里随机抽一个有效模板；模型用本节点 ai_engine（config["model"]）。
+  总量受 ai_generate_max_count 约束；单篇/单元失败收进 errors，交由运行聚合为 partial_failed。
+- 扁平（无 generation_units）：按本节点单模板 + 数量并发生成（原行为）。"""
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -10,23 +14,91 @@ from server.app.modules.prompt_templates.service import get_visible_prompt_templ
 from server.app.shared.errors import ValidationError
 
 
+def _resolve_units(units, fallback_template_id, fallback_count) -> list[tuple]:
+    """generation_units → [(question_text, template_ids, count)]，模板/数量各自独立兜底。"""
+    resolved: list[tuple] = []
+    for u in units:
+        if not isinstance(u, dict):
+            continue
+        qtext = (u.get("question_text") or "").strip()
+        if not qtext:
+            continue
+        tpl_ids = list(u.get("allowed_prompt_template_ids") or [])
+        if not tpl_ids and fallback_template_id:
+            tpl_ids = [fallback_template_id]
+        try:
+            cnt = int(u.get("article_count"))
+        except (TypeError, ValueError):
+            cnt = 0
+        if cnt <= 0:
+            cnt = fallback_count
+        resolved.append((qtext, tpl_ids, cnt))
+    return resolved
+
+
+def _run_units(ctx: NodeRunContext, cfg: dict, units, model, max_count) -> NodeResult:
+    from server.app.modules.ai_generation.scheme_executor import _pick_valid_template
+
+    fallback_template_id = cfg.get("prompt_template_id")
+    fallback_count = int(cfg.get("count") or 0)
+    resolved = _resolve_units(units, fallback_template_id, fallback_count)
+
+    total = sum(c for (_, _, c) in resolved)
+    if total <= 0:
+        raise ValidationError("ai_generate 逐单元：解析后总生成数量为 0（请在问题源或本节点配置数量）")
+    if total > max_count:
+        raise ValidationError(f"生成数量超过上限 {max_count}")
+
+    article_ids: list[int] = []
+    errors: list[str] = []
+
+    def _one(qtext: str, tpl_ids: list[int]) -> int:
+        db = ctx.session_factory()
+        try:
+            tpl = _pick_valid_template(db, tpl_ids, ctx.user_id) if tpl_ids else None
+            if tpl is None:
+                raise ValidationError("该单元允许模板在运行时全部无效或未配置")
+            template_content = tpl.content
+        finally:
+            db.close()
+        return generate_article_from_prompt(
+            session_factory=ctx.session_factory, user_id=ctx.user_id,
+            template_content=template_content, question_text=qtext, model=model)
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = [pool.submit(_one, qtext, tpl_ids)
+                   for (qtext, tpl_ids, cnt) in resolved for _ in range(cnt)]
+        for fut in as_completed(futures):
+            try:
+                article_ids.append(fut.result())
+            except Exception as exc:  # 单篇失败不中断
+                errors.append(str(exc))
+
+    return NodeResult(output={"article_ids": article_ids, "errors": errors}, article_ids=article_ids)
+
+
 def run_ai_generate(ctx: NodeRunContext) -> NodeResult:
+    from server.app.core.config import get_settings
+
     cfg = ctx.config or {}
-    # question_text：优先来自上游注入，其次用 config 兜底
+    model = cfg.get("model")
+    max_count = get_settings().ai_generate_max_count
+
+    units = ctx.inputs.get("generation_units")
+    if units:
+        return _run_units(ctx, cfg, units, model, max_count)
+
+    # 扁平模式（原行为，未改动语义）
     question_text = ctx.inputs.get("question_text") or cfg.get("question_text") or ""
     if not question_text:
         raise ValidationError("ai_generate 节点缺少 question_text（上游未传且未配置）")
 
     template_id = cfg.get("prompt_template_id")
     count = int(cfg.get("count") or 0)
-    model = cfg.get("model")
     if not template_id or count <= 0:
         raise ValidationError("ai_generate 节点需配置 prompt_template_id 与 count>0")
-
-    from server.app.core.config import get_settings
-
-    if count > get_settings().ai_generate_max_count:
-        raise ValidationError(f"生成数量超过上限 {get_settings().ai_generate_max_count}")
+    if count > max_count:
+        raise ValidationError(f"生成数量超过上限 {max_count}")
 
     db = ctx.session_factory()
     try:
@@ -42,25 +114,18 @@ def run_ai_generate(ctx: NodeRunContext) -> NodeResult:
 
     def _one() -> int:
         return generate_article_from_prompt(
-            session_factory=ctx.session_factory,
-            user_id=ctx.user_id,
-            template_content=template_content,
-            question_text=question_text,
-            model=model,
-        )
+            session_factory=ctx.session_factory, user_id=ctx.user_id,
+            template_content=template_content, question_text=question_text, model=model)
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = [pool.submit(_one) for _ in range(count)]
         for fut in as_completed(futures):
             try:
                 article_ids.append(fut.result())
-            except Exception as exc:  # 单篇失败不中断，交由运行聚合为 partial_failed
+            except Exception as exc:
                 errors.append(str(exc))
 
-    return NodeResult(
-        output={"article_ids": article_ids, "errors": errors},
-        article_ids=article_ids,
-    )
+    return NodeResult(output={"article_ids": article_ids, "errors": errors}, article_ids=article_ids)
 
 
 register("ai_generate", run_ai_generate)
