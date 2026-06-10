@@ -202,6 +202,7 @@ register(MyDriver())
 - **所有模型调用走 LiteLLM**。不要 import `anthropic` / `openai` SDK。
 - 两套模型配置（都走 LiteLLM）：
   - `GEO_AI_MODEL` / `GEO_AI_API_KEY` — 主写作模型（默认 `claude-3-5-sonnet-20241022`）。
+    - 写作模型可在前端下拉切换：候选来自 `GEO_AI_ENGINES`（JSON 数组，每项 `label/model/api_key/base_url`，`api_key` 空则回落 `GEO_AI_API_KEY`）。下拉存 model 串，运行时 `config.resolve_engine()` 回查该引擎的 key/base_url 显式传给 LiteLLM。`AiEngineRead` 只暴露 `label/model`，绝不下发 key。
   - `GEO_AI_FORMAT_MODEL` / `GEO_AI_FORMAT_API_KEY` — 格式调整 / 标题识别 / 配图（默认 `deepseek/deepseek-v4-flash`）。超时由 `GEO_AI_FORMAT_TIMEOUT_SECONDS` 控制（默认 120）。
 - 生文跑在 API server 的后台线程，**没有独立 worker**。`create_app()` 把 `bg_session_factory = SessionLocal` 注入 `ai_generation.router` 和 `scheme_router`，并启动问题池定时同步线程（`start_auto_sync`）。方案运行路由 spawn `Thread`，线程里 `scheme_executor` 用 `ThreadPoolExecutor(max_workers=4)` 并发跑 task，每个 worker 自建 session（session 非线程安全）。生产 `server/worker/executor.py` 不参与生文。
 - Plan agent 顺序执行，是**唯一**允许读写 skill 共享文件（`article-plan.md`、`companion-pool.md`）的阶段。写作 agent 并发跑（`max_workers=4`），不要碰共享文件。
