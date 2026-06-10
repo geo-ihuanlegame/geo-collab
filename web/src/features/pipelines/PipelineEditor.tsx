@@ -203,19 +203,35 @@ function QuestionTypePicker({ poolId, types, config, templates, onChange }: {
                   })}
                 </div>
               </div>
-              <div className="schemeLineSub">
-                <span className="schemeSubLabel">允许模板</span>
-                <select className="peMultiSelect" multiple
-                  value={u.allowed_prompt_template_ids.map(String)}
-                  onChange={(e) => setTemplates(t, Array.from(e.target.selectedOptions, (o) => Number(o.value)))}>
-                  {templates.map((tp) => <option key={tp.id} value={tp.id}>{tp.name}</option>)}
-                </select>
-              </div>
-              <div className="schemeLineSub">
-                <span className="schemeSubLabel">文章数</span>
-                <input type="number" min={1} style={{ width: 80 }}
+              <div className="schemeLineSub" style={{ alignItems: "center" }}>
+                <span className="schemeSubLabel" style={{ paddingTop: 0 }}>允许模板</span>
+                <div className="schemeChips">
+                  {templates.length === 0 && (
+                    <span style={{ fontSize: 12, color: "var(--fg-3)" }}>暂无启用的模板</span>
+                  )}
+                  {templates.map((tp) => {
+                    const on = u.allowed_prompt_template_ids.includes(tp.id);
+                    return (
+                      <button key={tp.id} type="button"
+                        className={`schemeChip${on ? " on" : ""}`}
+                        title={tp.name}
+                        onClick={() => {
+                          const next = [...u.allowed_prompt_template_ids];
+                          const idx = next.indexOf(tp.id);
+                          if (idx >= 0) next.splice(idx, 1);
+                          else next.push(tp.id);
+                          setTemplates(t, next);
+                        }}>
+                        <span className="schemeChipText">{tp.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <span className="schemeSubLabel" style={{ paddingTop: 0 }}>文章数</span>
+                <input className="aiSelect schemeNumBox" type="number" min={1} max={50}
                   value={u.article_count ?? ""}
-                  onChange={(e) => setCount(t, e.target.value ? Number(e.target.value) : null)} />
+                  onChange={(e) =>
+                    setCount(t, e.target.value ? Math.max(1, Math.min(50, Number(e.target.value) || 1)) : null)} />
               </div>
             </div>
           );

@@ -1,12 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  deleteAccount,
-  listAccounts,
-  listPlatforms,
-  updateAccount,
-} from "../../api/accounts";
+import { deleteAccount, listAccounts, listPlatforms } from "../../api/accounts";
 import type { Account, PlatformOption } from "../../types";
-import { Plus, Search } from "lucide-react";
+import { ChevronDown, ChevronRight, Plus, Search, Trash2, X } from "lucide-react";
 import { useToast } from "../../components/Toast";
 import { AccountRow, AccountRowHeader } from "./AccountRow";
 import { AddAuthorizationDialog } from "./AddAuthorizationDialog";
@@ -21,6 +16,7 @@ export function AccountsWorkspace({ isActive }: { isActive?: boolean } = {}) {
   const [filterPlatform, setFilterPlatform] = useState<string>("");
   const [filterStatus, setFilterStatus] = useState<string>("");
   const [confirmDelete, setConfirmDelete] = useState<Account | null>(null);
+  const [pendingExpanded, setPendingExpanded] = useState(true);
 
   const isInitialMountRef = useRef(true);
 
@@ -51,34 +47,27 @@ export function AccountsWorkspace({ isActive }: { isActive?: boolean } = {}) {
     void loadInitial();
   }, [isActive]);
 
-  const expiredAccounts = useMemo(
-    () => accounts.filter((a) => a.status === "expired"),
+  const pendingAccounts = useMemo(
+    () => accounts.filter((a) => a.status !== "valid"),
+    [accounts],
+  );
+
+  const normalAccounts = useMemo(
+    () => accounts.filter((a) => a.status === "valid"),
     [accounts],
   );
 
   const filteredAccounts = useMemo(() => {
-    return accounts.filter((a) => {
+    return normalAccounts.filter((a) => {
       if (filterPlatform && a.platform_code !== filterPlatform) return false;
       if (filterStatus === "valid" && a.status !== "valid") return false;
       if (filterStatus === "expired" && a.status !== "expired") return false;
       if (searchQuery && !a.display_name.toLowerCase().includes(searchQuery.toLowerCase())) return false;
       return true;
     });
-  }, [accounts, filterPlatform, filterStatus, searchQuery]);
+  }, [normalAccounts, filterPlatform, filterStatus, searchQuery]);
 
-  async function handleToggleDistribution(account: Account) {
-    setLoading(true);
-    try {
-      await updateAccount(account.id, { distribution_enabled: !account.distribution_enabled });
-      await refreshAccounts();
-    } catch (error) {
-      toast(error instanceof Error ? error.message : "操作失败", "error");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleVerify(account: Account) {
+  async function handleCheck(account: Account) {
     setLoading(true);
     try {
       const { verifyCredentials } = await import("../../api/accounts");
@@ -106,103 +95,114 @@ export function AccountsWorkspace({ isActive }: { isActive?: boolean } = {}) {
     }
   }
 
-  const selectedPlatformName = platforms.find((p) => p.code === filterPlatform)?.name ?? "";
+  const allPlatforms = useMemo(
+    () => platforms.filter((p) => accounts.some((a) => a.platform_code === p.code)),
+    [platforms, accounts],
+  );
 
   return (
     <>
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">媒体矩阵</p>
-          <h1>平台账号授权</h1>
-        </div>
-        <div className="topActions">
+      <header className="mediaMatrixHeader">
+        <span className="mediaMatrixBreadcrumb">——  媒体矩阵</span>
+        <div className="mediaMatrixTitleRow">
+          <h1 className="mediaMatrixTitle">平台账号授权</h1>
           <button
-            className="primaryButton"
             type="button"
+            className="mediaMatrixAddBtn"
             onClick={() => setShowAddDialog(true)}
           >
-            <Plus size={16} />
+            <Plus size={17} />
             添加账号
           </button>
         </div>
       </header>
 
-      {/* 待处理 Section */}
-      {expiredAccounts.length > 0 && (
-        <section style={{ marginBottom: 24 }}>
-          <div className="pendingTitle">
-            <span className="pendingChevron">▾</span>
-            <span className="pendingLabel">待处理</span>
-            <span className="pendingCount">· 授权已失效 ({expiredAccounts.length})</span>
+      {pendingAccounts.length > 0 && (
+        <section className="mediaMatrixSection">
+          <div
+            className="mediaMatrixSectionTitle"
+            onClick={() => setPendingExpanded(!pendingExpanded)}
+          >
+            {pendingExpanded ? <ChevronDown size={17} /> : <ChevronRight size={17} />}
+            <span className="mediaMatrixSectionTitleText">待处理</span>
+            <span className="mediaMatrixSectionCount">· 授权已失效 ({pendingAccounts.length})</span>
           </div>
-          <div className="accountTable accountTablePending">
-            <AccountRowHeader />
-            {expiredAccounts.map((account) => (
-              <AccountRow
-                key={account.id}
-                account={account}
-                onToggleDistribution={() => void handleToggleDistribution(account)}
-                onVerify={() => void handleVerify(account)}
-                onEdit={() => {}}
-                onDelete={() => setConfirmDelete(account)}
-                showMenu={false}
-                onToggleMenu={() => {}}
-              />
-            ))}
-          </div>
+          {pendingExpanded && (
+            <div className="mediaMatrixTable">
+              <AccountRowHeader />
+              {pendingAccounts.map((account) => (
+                <AccountRow
+                  key={account.id}
+                  account={account}
+                  onAuthorize={() => {}}
+                  onCheck={() => void handleCheck(account)}
+                  onEdit={() => {}}
+                  onDelete={() => setConfirmDelete(account)}
+                />
+              ))}
+            </div>
+          )}
         </section>
       )}
 
-      {/* Filter + Account List */}
-      <section className="accountListSection">
-        <div className="accountFilterBar">
-          <div className="accountFilterRow">
-            <div className="accountSearchBox">
-              <Search size={15} />
-              <input
-                placeholder="搜索账号…"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-            </div>
-            <select
-              className="accountFilterSelect"
-              value={filterPlatform}
-              onChange={(e) => setFilterPlatform(e.target.value)}
-            >
-              <option value="">全部平台</option>
-              {platforms.map((p) => (
-                <option key={p.code} value={p.code}>{p.name}</option>
-              ))}
-            </select>
-            <select
-              className="accountFilterSelect"
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
-            >
-              <option value="">全部状态</option>
-              <option value="valid">启用中</option>
-              <option value="expired">已失效</option>
-            </select>
+      <section className="mediaMatrixSection">
+        <span className="mediaMatrixSectionTitleText">账号清单</span>
+
+        <div className="mediaMatrixFilterBar">
+          <div className="mediaMatrixFilterChips">
+            <button
+              type="button"
+              className={`mediaMatrixFilterChip${!filterPlatform ? " active" : ""}`}
+              onClick={() => setFilterPlatform("")}
+            >全部</button>
+            {allPlatforms.map((p) => (
+              <button
+                key={p.code}
+                type="button"
+                className={`mediaMatrixFilterChip${filterPlatform === p.code ? " active" : ""}`}
+                onClick={() => setFilterPlatform(filterPlatform === p.code ? "" : p.code)}
+              >{p.name}</button>
+            ))}
           </div>
-          <div className="accountFilterInfo">
-            {filteredAccounts.length} 个账号{filterPlatform ? `（${selectedPlatformName}）` : ""}
-            {searchQuery ? ` · 搜索 "${searchQuery}"` : ""}
+
+          <div className="mediaMatrixFilterChips">
+            <button
+              type="button"
+              className={`mediaMatrixFilterChip${!filterStatus ? " active" : ""}`}
+              onClick={() => setFilterStatus("")}
+            >全部</button>
+            <button
+              type="button"
+              className={`mediaMatrixFilterChip${filterStatus === "valid" ? " active" : ""}`}
+              onClick={() => setFilterStatus(filterStatus === "valid" ? "" : "valid")}
+            >启用中</button>
+            <button
+              type="button"
+              className={`mediaMatrixFilterChip${filterStatus === "expired" ? " active" : ""}`}
+              onClick={() => setFilterStatus(filterStatus === "expired" ? "" : "expired")}
+            >已失效</button>
+          </div>
+
+          <div className="mediaMatrixSearchBox">
+            <Search size={15} />
+            <input
+              placeholder="搜索账号…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
           </div>
         </div>
 
-        <div className="accountTable">
+        <div className="mediaMatrixTable">
           <AccountRowHeader />
           {filteredAccounts.map((account) => (
             <AccountRow
               key={account.id}
               account={account}
-              onToggleDistribution={() => void handleToggleDistribution(account)}
-              onVerify={() => void handleVerify(account)}
+              onAuthorize={() => {}}
+              onCheck={() => void handleCheck(account)}
               onEdit={() => {}}
               onDelete={() => setConfirmDelete(account)}
-              showMenu={false}
-              onToggleMenu={() => {}}
             />
           ))}
           {filteredAccounts.length === 0 && (
@@ -219,24 +219,54 @@ export function AccountsWorkspace({ isActive }: { isActive?: boolean } = {}) {
         />
       )}
 
-      {/* Delete Confirm Dialog */}
       {confirmDelete && (
         <div className="modalBackdrop" role="presentation" onMouseDown={() => setConfirmDelete(null)}>
-          <section className="groupPickerModal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
-            <header className="modalHeader">
-              <div>
-                <h2>确认删除账号？</h2>
-                <p>将同时清除该账号的授权信息，需要重新授权</p>
+          <div
+            className="mediaMatrixDeleteDialog"
+            role="dialog"
+            aria-modal="true"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="mediaMatrixDeleteHeader">
+              <div className="mediaMatrixDeleteIconWrap">
+                <Trash2 size={20} />
               </div>
-              <button type="button" aria-label="关闭" onClick={() => setConfirmDelete(null)}>
-                <span style={{ fontSize: 18 }}>×</span>
+              <div className="mediaMatrixDeleteTitleRow">
+                <span className="mediaMatrixDeleteTitle">删除账号</span>
+                <span className="mediaMatrixDeleteSub">此操作不可撤销</span>
+              </div>
+              <button
+                type="button"
+                className="mediaMatrixDeleteClose"
+                onClick={() => setConfirmDelete(null)}
+              >
+                <X size={18} />
               </button>
-            </header>
-            <footer className="modalActions">
-              <button type="button" onClick={() => setConfirmDelete(null)}>取消</button>
-              <button type="button" className="dangerButton" disabled={loading} onClick={() => void handleDelete(confirmDelete)}>确认删除</button>
-            </footer>
-          </section>
+            </div>
+            <div className="mediaMatrixDeleteBody">
+              <p>确定要删除以下账号吗？删除后将清除其授权信息，需重新授权才能恢复自动发文。</p>
+              <div className="mediaMatrixDeletePreview">
+                <div className="mediaMatrixDeletePreviewAvatar">
+                  {confirmDelete.display_name.slice(0, 1)}
+                </div>
+                <span>{confirmDelete.display_name}</span>
+                <span className="mediaMatrixDeletePreviewTag">{confirmDelete.platform_name}</span>
+              </div>
+            </div>
+            <div className="mediaMatrixDeleteFooter">
+              <button
+                type="button"
+                className="secondaryButton"
+                onClick={() => setConfirmDelete(null)}
+              >取消</button>
+              <button
+                type="button"
+                className="deleteConfirmBtn"
+                disabled={loading}
+                onClick={() => void handleDelete(confirmDelete)}
+              >确认删除</button>
+            </div>
+          </div>
         </div>
       )}
     </>
