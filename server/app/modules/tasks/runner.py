@@ -279,6 +279,8 @@ def run_publish(
         raise PublishError("标题不能为空")
     if article.cover_asset is None:
         raise PublishError("封面图片是必填项")
+    if account.state_path is None:
+        raise PublishError("浏览器发布需要 storage_state，该账号为 API 接入")
 
     platform_code, account_key = account_key_from_state_path(account.state_path)
     profile_key = profile_key_from_state_path(account.state_path)

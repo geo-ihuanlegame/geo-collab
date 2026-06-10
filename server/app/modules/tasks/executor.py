@@ -370,7 +370,7 @@ def _start_runnable_records(
             article = _load_article_for_publish(db, next_record.article_id)
             account = db.get(Account, next_record.account_id)
             validation_error = _validate_record_inputs(article, account)
-            if account is not None and validation_error is None:
+            if account is not None and validation_error is None and account.state_path is not None:
                 profile_key = _profile_key_from_state_path(account.state_path)
                 reason = "账号正在执行发布或登录操作，发布记录已排队"
                 if not try_acquire_profile_lock(

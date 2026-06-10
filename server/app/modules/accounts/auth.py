@@ -297,6 +297,8 @@ def start_account_login_session(
     db: Session, account: Account, payload: AccountCheckRequest
 ) -> AccountBrowserSessionResult:
     """对已有账号重新登录（如登录态失效）：置 unknown 并下 worker 登录命令，立即返回 pending。"""
+    if account.state_path is None:
+        raise ClientError("API 接入账号无法进行浏览器登录")
     platform_code, account_key = account_key_from_state_path(account.state_path)
     previous_status = account.status
     account.status = "unknown"
@@ -335,6 +337,8 @@ def finish_account_login_session(
     if request is not None:
         return _finish_login_browser_via_worker(db, account, request)
 
+    if account.state_path is None:
+        raise ClientError("API 接入账号无法进行浏览器登录")
     platform_code, account_key = account_key_from_state_path(account.state_path)
     result = _finish_login_browser_local(platform_code, account_key, account.state_path, session_id)
     _apply_login_result(account, result)
@@ -348,7 +352,8 @@ def stop_account_login_session(db: Session, account: Account, session_id: str) -
     if request is not None:
         _cancel_login_browser_via_worker(db, request)
         return
-
+    if account.state_path is None:
+        raise ClientError("API 接入账号无法进行浏览器登录")
     _, account_key = account_key_from_state_path(account.state_path)
     _stop_login_browser_local(account_key, session_id)
 
@@ -592,6 +597,13 @@ def _try_acquire_login_profile_lock(db: Session, request: AccountLoginSession) -
         _touch_login_request(request)
         db.commit()
         return False
+    if account.state_path is None:
+        request.status = LOGIN_STATUS_FAILED
+        request.error_message = "API 接入账号无法进行浏览器登录"
+        request.queue_reason = None
+        _touch_login_request(request)
+        db.commit()
+        return False
 
     profile_key = profile_key_from_state_path(account.state_path)
     reason = "账号正在执行发布或登录操作，登录请求已排队"
@@ -617,6 +629,8 @@ def _worker_start_login_session(db: Session, request: AccountLoginSession) -> No
         account = db.get(Account, request.account_id)
         if account is None:
             raise ClientError("Account not found")
+        if account.state_path is None:
+            raise ClientError("API 接入账号无法进行浏览器登录")
         platform_code = request.platform_code
         account_key = request.account_key
         session = _start_login_browser_impl(
@@ -655,6 +669,12 @@ def _worker_finish_login_session(db: Session, request: AccountLoginSession) -> N
     if account is None:
         request.status = LOGIN_STATUS_FAILED
         request.error_message = "Account not found"
+        _touch_login_request(request)
+        db.commit()
+        return
+    if account.state_path is None:
+        request.status = LOGIN_STATUS_FAILED
+        request.error_message = "API 接入账号无法进行浏览器登录"
         _touch_login_request(request)
         db.commit()
         return
@@ -714,7 +734,7 @@ def _release_login_profile_lock(db: Session, request: AccountLoginSession) -> No
     from server.app.modules.accounts.browser import release_profile_lock
 
     account = db.get(Account, request.account_id)
-    if account is None:
+    if account is None or account.state_path is None:
         return
     try:
         release_profile_lock(
@@ -848,6 +868,8 @@ def check_account(db: Session, account: Account, payload: AccountCheckRequest) -
     use_browser 时无头开浏览器载入登录态、由 driver.detect_logged_in 判定，并抢同一把 profile 锁
     （和发布 / 登录互斥，抢不到直接 ClientError，不排队）；否则仅按 storage_state 文件是否存在粗判。
     """
+    if account.state_path is None:
+        raise ClientError("API 接入账号无法检查浏览器登录态")
     platform_code, _ = account_key_from_state_path(account.state_path)
     driver = _get_driver(platform_code)
     abs_state_path = get_data_dir() / account.state_path
@@ -915,6 +937,8 @@ def _check_account_in_browser(driver, abs_state_path: Path, payload: AccountChec
 
 def relogin_account(db: Session, account: Account, payload: AccountCheckRequest) -> Account:
     """从磁盘已有登录态重新登记账号（use_browser=False），不开浏览器、复用现有 state 文件。"""
+    if account.state_path is None:
+        raise ClientError("API 接入账号无法重新登记")
     platform_code, account_key = account_key_from_state_path(account.state_path)
     request = PlatformLoginRequest(
         display_name=account.display_name,
