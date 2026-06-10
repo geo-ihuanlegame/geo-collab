@@ -104,10 +104,7 @@ function AppShell() {
         <aside className="sidebar">
           <div className="brand">
             <div className="brandMark">AI</div>
-            <div className="brandBody">
-              <span className="brandName">AI插件自动化平台</span>
-              <span className="brandSub">协作平台</span>
-            </div>
+            <span className="brandName">AI插件自动化平台</span>
           </div>
           <nav className="nav">
             {navItems.map((item) => {
