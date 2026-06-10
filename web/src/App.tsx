@@ -19,6 +19,7 @@ import { AuditLogsWorkspace } from "./features/system/AuditLogsWorkspace";
 import { ChevronDown, LogOut, ScrollText, Users } from "lucide-react";
 import { MobileNav } from "./components/MobileNav";
 import { MobileMorePage } from "./components/MobileMorePage";
+import { ScrollPanel } from "./components/ScrollPanel";
 import { useIsMobile } from "./hooks/useIsMobile";
 import "./styles.css";
 
@@ -189,20 +190,20 @@ function AppShell() {
         <section className="workspace">
           <div className="workspaceInner">
             {visitedTabs.has("agents") && (
-              <div style={{ display: activeNav === "agents" ? undefined : "none" }}>
+              <ScrollPanel id="agents" active={activeNav === "agents"}>
                 <ErrorBoundary fallback={<p role="alert">智能体管理出错，请刷新重试</p>}>
                   <AgentManagementWorkspace />
                 </ErrorBoundary>
-              </div>
+              </ScrollPanel>
             )}
             {visitedTabs.has("ai") && (
-              <div style={{ display: activeNav === "ai" ? undefined : "none" }}>
+              <ScrollPanel id="ai" active={activeNav === "ai"}>
                 <ErrorBoundary fallback={<p role="alert">AI 生文出错，请刷新重试</p>}>
                   <AiGenerationWorkspace onNavigateToContent={() => handleNavClick("content")} />
                 </ErrorBoundary>
-              </div>
+              </ScrollPanel>
             )}
-            <div style={{ display: activeNav === "content" ? undefined : "none" }}>
+            <ScrollPanel id="content" active={activeNav === "content"}>
               <ErrorBoundary fallback={<p role="alert">内容管理出错，请刷新重试</p>}>
                 <ContentWorkspace
                   dirtyCheckRef={contentDirtyRef}
@@ -212,9 +213,9 @@ function AppShell() {
                   onReviewTabChange={setContentReviewTab}
                 />
               </ErrorBoundary>
-            </div>
+            </ScrollPanel>
             {visitedTabs.has("prompts") && (
-              <div style={{ display: activeNav === "prompts" ? undefined : "none" }}>
+              <ScrollPanel id="prompts" active={activeNav === "prompts"}>
                 <ErrorBoundary fallback={<p role="alert">提示词管理出错，请刷新重试</p>}>
                   <PromptsWorkspace
                   scope={promptsScope}
@@ -222,49 +223,49 @@ function AppShell() {
                   onScopeChange={setPromptsScope}
                 />
                 </ErrorBoundary>
-              </div>
+              </ScrollPanel>
             )}
             {visitedTabs.has("image-library") && (
-              <div style={{ display: activeNav === "image-library" ? undefined : "none" }}>
+              <ScrollPanel id="image-library" active={activeNav === "image-library"}>
                 <ErrorBoundary fallback={<p role="alert">图片库出错，请刷新重试</p>}>
                   <ImageLibraryWorkspace />
                 </ErrorBoundary>
-              </div>
+              </ScrollPanel>
             )}
             {visitedTabs.has("media") && (
-              <div style={{ display: activeNav === "media" ? undefined : "none" }}>
+              <ScrollPanel id="media" active={activeNav === "media"}>
                 <ErrorBoundary fallback={<p role="alert">媒体矩阵出错，请刷新重试</p>}>
                   <AccountsWorkspace isActive={activeNav === "media"} />
                 </ErrorBoundary>
-              </div>
+              </ScrollPanel>
             )}
             {visitedTabs.has("tasks") && (
-              <div style={{ display: activeNav === "tasks" ? undefined : "none" }}>
+              <ScrollPanel id="tasks" active={activeNav === "tasks"}>
                 <ErrorBoundary fallback={<p role="alert">分发引擎出错，请刷新重试</p>}>
                   <TasksWorkspace isActive={activeNav === "tasks"} />
                 </ErrorBoundary>
-              </div>
+              </ScrollPanel>
             )}
             {visitedTabs.has("system") && (
-              <div style={{ display: activeNav === "system" ? undefined : "none" }}>
+              <ScrollPanel id="system" active={activeNav === "system"}>
                 <ErrorBoundary fallback={<p role="alert">系统状态出错，请刷新重试</p>}>
                   <SystemWorkspace />
                 </ErrorBoundary>
-              </div>
+              </ScrollPanel>
             )}
             {user.role === "admin" && visitedTabs.has("admin") && (
-              <div style={{ display: activeNav === "admin" ? undefined : "none" }}>
+              <ScrollPanel id="admin" active={activeNav === "admin"}>
                 <ErrorBoundary fallback={<p role="alert">用户管理出错，请刷新重试</p>}>
                   <UsersWorkspace />
                 </ErrorBoundary>
-              </div>
+              </ScrollPanel>
             )}
             {user.role === "admin" && visitedTabs.has("audit-logs") && (
-              <div style={{ display: activeNav === "audit-logs" ? undefined : "none" }}>
+              <ScrollPanel id="audit-logs" active={activeNav === "audit-logs"}>
                 <ErrorBoundary fallback={<p role="alert">审计日志出错，请刷新重试</p>}>
                   <AuditLogsWorkspace />
                 </ErrorBoundary>
-              </div>
+              </ScrollPanel>
             )}
           </div>
         </section>
