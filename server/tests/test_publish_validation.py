@@ -250,3 +250,58 @@ def test_empty_title_fails_publish(monkeypatch):
         assert "标题" in records[0]["error_message"]
     finally:
         test_app.cleanup()
+
+
+def test_build_runner_for_detached_record_loads_platform(monkeypatch):
+    """回归 PR#70：build_publish_runner_for_record 在发布线程读 record.platform.code 判 API/浏览器驱动。
+
+    记录交给线程前已被 _detach_record_inputs 从 session expunge，platform 关系必须先加载好，
+    否则在 detached 实例上懒加载会抛 DetachedInstanceError（生产实测头条发布全炸）。
+    本测试不 mock build_publish_runner_for_record——存量测试全 mock 掉它，正是这条路径裸奔到生产的原因。
+    """
+    from sqlalchemy.orm.exc import DetachedInstanceError
+
+    from server.app.modules.accounts.models import Account
+    from server.app.modules.tasks.executor import (
+        _detach_record_inputs,
+        _load_article_for_publish,
+        build_publish_runner_for_record,
+    )
+    from server.app.modules.tasks.models import PublishRecord
+
+    test_app = build_test_app(monkeypatch)
+    client = test_app.client
+
+    try:
+        cover_id = _upload_cover_image(client)
+        article_id = _create_article(
+            client, "养肝佛系游戏", plain_text="正文内容", cover_asset_id=cover_id
+        )
+        account_id = _create_account(client, test_app.data_dir, "account-detach", "Account Detach")
+
+        task = client.post(
+            "/api/tasks",
+            json={
+                "name": "detach runner test",
+                "task_type": "single",
+                "article_id": article_id,
+                "accounts": [{"account_id": account_id}],
+                "stop_before_publish": False,
+            },
+        ).json()
+
+        with test_app.session_factory() as db:
+            record = db.query(PublishRecord).filter(PublishRecord.task_id == task["id"]).one()
+            article = _load_article_for_publish(db, record.article_id)
+            account = db.get(Account, record.account_id)
+            _detach_record_inputs(db, record, article, account)
+
+            # record 现已 detached；修复前这一步会因懒加载 record.platform 抛 DetachedInstanceError
+            try:
+                runner = build_publish_runner_for_record(record)
+            except DetachedInstanceError as exc:  # pragma: no cover - 失败路径仅用于断言信息
+                raise AssertionError(f"detached record 触发了 platform 懒加载：{exc}") from exc
+
+            assert callable(runner)
+    finally:
+        test_app.cleanup()
