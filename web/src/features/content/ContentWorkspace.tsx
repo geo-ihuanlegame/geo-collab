@@ -434,11 +434,12 @@ export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
     return { total, approved };
   }
 
-  // A group's tab is derived from its members: fully approved → "approved", otherwise "pending".
-  // Groups have no own review_status field; empty groups (total === 0) count as pending.
-  function groupReviewTab(group: ArticleGroup): ReviewStatus {
+  // 组在某标签是否可见：有该状态成员就出现（混合组两个标签都在）。空组(total=0)算 pending。
+  function groupHasStatus(group: ArticleGroup, status: ReviewStatus): boolean {
     const counts = groupReviewCounts(group);
-    return counts.total > 0 && counts.approved === counts.total ? "approved" : "pending";
+    if (counts.total === 0) return status === "pending";
+    const pendingCount = counts.total - counts.approved;
+    return status === "approved" ? counts.approved > 0 : pendingCount > 0;
   }
 
   // Tab counts: standalone (ungrouped) articles + groups, split by (derived) review status.
@@ -451,8 +452,8 @@ export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
       else pending += 1;
     }
     for (const group of groups) {
-      if (groupReviewTab(group) === "approved") approved += 1;
-      else pending += 1;
+      if (groupHasStatus(group, "pending")) pending += 1;
+      if (groupHasStatus(group, "approved")) approved += 1;
     }
     return { pending, approved };
   }, [articles, groups, groupedArticleIdSet, articleById]);
@@ -464,9 +465,9 @@ export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
       if (article.review_status !== reviewTab) continue;
       items.push({ type: "article", article, sortTime: new Date(article.created_at).getTime() });
     }
-    // Groups land in the tab matching their derived approval state (no longer both tabs).
+    // 混合组双标签可见：当前标签有对应状态成员就纳入。
     for (const group of groups) {
-      if (groupReviewTab(group) !== reviewTab) continue;
+      if (!groupHasStatus(group, reviewTab)) continue;
       if (!query || group.name.toLowerCase().includes(query.toLowerCase()) || group.items.some((item) => articleById[item.article_id])) {
         items.push({ type: "group", group, sortTime: new Date(group.created_at).getTime() });
       }
@@ -1081,9 +1082,14 @@ export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
               }
               const { group } = item;
               const isExpanded = expandedGroupIds.has(group.id);
-              const groupArticles = groupArticleSummaries(group);
               const counts = groupReviewCounts(group);
               const fullyApproved = counts.total > 0 && counts.approved === counts.total;
+              // 只列当前标签状态的文章；另一侧成员数用于跨标签提示。
+              const groupArticles = groupArticleSummaries(group).filter(
+                (a) => a.review_status === reviewTab,
+              );
+              const otherCount =
+                reviewTab === "pending" ? counts.approved : counts.total - counts.approved;
               return (
                 <div className="groupRowItem" key={`g-${group.id}`}>
                   <div className={`groupRowHeader ${group.id === editingGroupId ? "selected" : ""}`}>
@@ -1109,7 +1115,7 @@ export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
                           {fullyApproved ? "全部已审核" : `${counts.approved}/${counts.total} 已审核`}
                         </span>
                       ) : null}
-                      {fullyApproved ? (
+                      {reviewTab === "approved" && fullyApproved ? (
                         <button
                           type="button"
                           className="inlineMiniButton distributeMiniButton"
@@ -1118,7 +1124,7 @@ export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
                           <Send size={13} />
                           自动分发
                         </button>
-                      ) : counts.total > 0 ? (
+                      ) : reviewTab === "pending" && counts.total - counts.approved > 0 ? (
                         <button
                           type="button"
                           className="inlineMiniButton approveMiniButton"
@@ -1135,6 +1141,12 @@ export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
                   </div>
                   {isExpanded ? (
                     <div className="groupRowArticles">
+                      {otherCount > 0 ? (
+                        <p className="groupCrossTabHint">
+                          另有 {otherCount} 篇{reviewTab === "pending" ? "已审核" : "待审核"}，
+                          切到「{reviewTab === "pending" ? "已审核" : "未审核"}」标签查看
+                        </p>
+                      ) : null}
                       {groupArticles.map((article) => (
                         <article
                           className={`articleItem ${article.id === draft.id ? "selected" : ""}`}
@@ -1167,7 +1179,7 @@ export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
                           </button>
                         </article>
                       ))}
-                      {groupArticles.length === 0 ? <p className="emptyText">分组暂无文章</p> : null}
+                      {groupArticles.length === 0 && otherCount === 0 ? <p className="emptyText">分组暂无文章</p> : null}
                     </div>
                   ) : null}
                 </div>

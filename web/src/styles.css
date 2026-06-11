@@ -3946,3 +3946,12 @@ input:focus, select:focus, textarea:focus {
   border: 1px solid var(--hair); border-radius: var(--r);
 }
 .imgSaveFooterBtns { display: flex; gap: 8px; flex-shrink: 0; }
+
+.groupCrossTabHint {
+  margin: 0 0 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: #64748b;
+  background: #f1f5f9;
+  border-radius: 6px;
+}
