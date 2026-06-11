@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from sqlalchemy import or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from server.app.core.paths import get_data_dir
@@ -197,14 +198,14 @@ def create_api_account(db: Session, user_id: int, payload: ApiAccountCreate) -> 
 
     app_id = payload.api_credentials.app_id
     duplicate = db.execute(
-        select(Account).where(
-            Account.user_id == user_id,
+        select(Account.id).where(
             Account.platform_id == platform.id,
             Account.platform_user_id == app_id,
+            Account.is_deleted == False,  # noqa: E712
         )
     ).scalar_one_or_none()
     if duplicate is not None:
-        raise ConflictError(f"该 AppID 已登记: {app_id}")
+        raise ConflictError(f"该 AppID 已被登记（全平台唯一）: {app_id}")
 
     account = Account(
         user_id=user_id,
@@ -223,21 +224,25 @@ def create_api_account(db: Session, user_id: int, payload: ApiAccountCreate) -> 
         distribution_enabled=payload.distribution_enabled,
     )
     db.add(account)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError as exc:  # 并发抢注同一 app_id：DB 全局唯一约束兜底
+        db.rollback()
+        raise ConflictError(f"该 AppID 已被登记（全平台唯一）: {app_id}") from exc
     return get_account(db, account.id) or account
 
 
 def _ensure_app_id_available(db: Session, account: Account, app_id: str) -> None:
     duplicate = db.execute(
         select(Account.id).where(
-            Account.user_id == account.user_id,
             Account.platform_id == account.platform_id,
             Account.platform_user_id == app_id,
+            Account.is_deleted == False,  # noqa: E712
             Account.id != account.id,
         )
     ).scalar_one_or_none()
     if duplicate is not None:
-        raise ConflictError(f"该 AppID 已登记: {app_id}")
+        raise ConflictError(f"该 AppID 已被登记（全平台唯一）: {app_id}")
 
 
 def update_account_fields(db: Session, account: Account, payload: AccountUpdateRequest) -> Account:
@@ -322,7 +327,12 @@ def rename_account(db: Session, account: Account, display_name: str) -> Account:
 
 
 def delete_account(db: Session, account: Account) -> None:
-    """软删账号（置 is_deleted）。仍有未完成发布记录时抛 ClientError 拒绝删除。"""
+    """软删账号并释放身份槽位；仍有未完成发布记录时抛 ClientError 拒绝删除。
+
+    释放槽位＝置空 platform_user_id（全局唯一约束据此放行同一 app_id 重新登记）、
+    清 api_token_cache、抹除 api_credentials.app_secret（保留 app_id 供审计）。
+    发布历史（PublishRecord.account_id）不动。
+    """
     account_id = account.id
 
     active = (
@@ -342,6 +352,12 @@ def delete_account(db: Session, account: Account) -> None:
 
     account.is_deleted = True
     account.deleted_at = utcnow()
+    account.platform_user_id = None
+    account.api_token_cache = None
+    if account.api_credentials:
+        creds = dict(account.api_credentials)
+        creds.pop("app_secret", None)
+        account.api_credentials = creds or None
     account.updated_at = utcnow()
     db.flush()
 

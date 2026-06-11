@@ -1164,7 +1164,11 @@ def _new_export_path(now) -> Path:
 def _accounts_for_export(db: Session, account_ids: list[int] | None) -> list[Account]:
     from sqlalchemy.orm import selectinload
 
-    stmt = select(Account).options(selectinload(Account.platform))
+    stmt = (
+        select(Account)
+        .where(Account.is_deleted == False)  # noqa: E712
+        .options(selectinload(Account.platform))
+    )
     if account_ids:
         unique_ids = sorted(set(account_ids))
         stmt = stmt.where(Account.id.in_(unique_ids))

@@ -31,9 +31,7 @@ from server.app.db.base import Base
 class Account(Base):
     __tablename__ = "accounts"
     __table_args__ = (
-        UniqueConstraint(
-            "user_id", "platform_id", "platform_user_id", name="uq_accounts_platform_user"
-        ),
+        UniqueConstraint("platform_id", "platform_user_id", name="uq_accounts_platform_user"),
         CheckConstraint("status in ('valid', 'expired', 'unknown')", name="ck_accounts_status"),
     )
 
