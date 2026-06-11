@@ -9,6 +9,17 @@ import { AddAuthorizationDialog } from "./AddAuthorizationDialog";
 import { EditAccountDialog } from "./EditAccountDialog";
 import { ReauthorizeDialog } from "./ReauthorizeDialog";
 
+// 平台筛选写死、只增不减：先放出全部规划中的平台，未接入的点击后列表为空。
+// code 对齐后端 platform_code（已接入：toutiao / wechat_mp；其余为占位，暂无账号匹配）。
+const PLATFORM_FILTERS: { code: string; label: string }[] = [
+  { code: "toutiao", label: "头条号" },
+  { code: "wechat_mp", label: "公众号" },
+  { code: "baijiahao", label: "百家号" },
+  { code: "sohu", label: "搜狐" },
+  { code: "netease", label: "网易" },
+  { code: "taptap", label: "TapTap" },
+];
+
 export function AccountsWorkspace({ isActive }: { isActive?: boolean } = {}) {
   const { toast } = useToast();
   const { user } = useAuth();
@@ -40,16 +51,17 @@ export function AccountsWorkspace({ isActive }: { isActive?: boolean } = {}) {
   const [pendingExpanded, setPendingExpanded] = useState(true);
 
   const isInitialMountRef = useRef(true);
+  const isSearchMountRef = useRef(true);
 
   async function refreshAccounts() {
-    const data = await listAccounts();
+    const data = await listAccounts(searchQuery);
     setAccounts(data);
   }
 
   async function loadInitial() {
     const [platformData, accountData] = await Promise.all([
       listPlatforms(),
-      listAccounts(),
+      listAccounts(searchQuery),
     ]);
     setPlatforms(platformData);
     setAccounts(accountData);
@@ -68,6 +80,19 @@ export function AccountsWorkspace({ isActive }: { isActive?: boolean } = {}) {
     void loadInitial();
   }, [isActive]);
 
+  // 泛搜索走后端：输入防抖 250ms 后按 q 重新拉取（匹配 账号名称 / 备注 / 手机号）。
+  // 首次挂载由 loadInitial 负责，这里跳过以免重复请求。
+  useEffect(() => {
+    if (isSearchMountRef.current) {
+      isSearchMountRef.current = false;
+      return;
+    }
+    const handle = setTimeout(() => {
+      void listAccounts(searchQuery).then(setAccounts);
+    }, 250);
+    return () => clearTimeout(handle);
+  }, [searchQuery]);
+
   const pendingAccounts = useMemo(
     () => accounts.filter((a) => a.status !== "valid"),
     [accounts],
@@ -78,15 +103,15 @@ export function AccountsWorkspace({ isActive }: { isActive?: boolean } = {}) {
     [accounts],
   );
 
+  // 搜索已交给后端（searchQuery → listAccounts(q)）；这里只做平台 / 状态的前端筛选。
   const filteredAccounts = useMemo(() => {
     return normalAccounts.filter((a) => {
       if (filterPlatform && a.platform_code !== filterPlatform) return false;
       if (filterStatus === "valid" && a.status !== "valid") return false;
       if (filterStatus === "expired" && a.status !== "expired") return false;
-      if (searchQuery && !a.display_name.toLowerCase().includes(searchQuery.toLowerCase())) return false;
       return true;
     });
-  }, [normalAccounts, filterPlatform, filterStatus, searchQuery]);
+  }, [normalAccounts, filterPlatform, filterStatus]);
 
   async function handleCheck(account: Account) {
     setLoading(true);
@@ -115,11 +140,6 @@ export function AccountsWorkspace({ isActive }: { isActive?: boolean } = {}) {
       setLoading(false);
     }
   }
-
-  const allPlatforms = useMemo(
-    () => platforms.filter((p) => accounts.some((a) => a.platform_code === p.code)),
-    [platforms, accounts],
-  );
 
   return (
     <>
@@ -167,50 +187,50 @@ export function AccountsWorkspace({ isActive }: { isActive?: boolean } = {}) {
       )}
 
       <section className="mediaMatrixSection">
-        <span className="mediaMatrixSectionTitleText">账号清单</span>
-
         <div className="mediaMatrixFilterBar">
-          <div className="mediaMatrixFilterChips">
+          <div className="mediaMatrixFilterChips mediaMatrixPlatformChips">
             <button
               type="button"
               className={`mediaMatrixFilterChip${!filterPlatform ? " active" : ""}`}
               onClick={() => setFilterPlatform("")}
             >全部</button>
-            {allPlatforms.map((p) => (
+            {PLATFORM_FILTERS.map((p) => (
               <button
                 key={p.code}
                 type="button"
                 className={`mediaMatrixFilterChip${filterPlatform === p.code ? " active" : ""}`}
                 onClick={() => setFilterPlatform(filterPlatform === p.code ? "" : p.code)}
-              >{p.name}</button>
+              >{p.label}</button>
             ))}
           </div>
 
-          <div className="mediaMatrixFilterChips">
-            <button
-              type="button"
-              className={`mediaMatrixFilterChip${!filterStatus ? " active" : ""}`}
-              onClick={() => setFilterStatus("")}
-            >全部</button>
-            <button
-              type="button"
-              className={`mediaMatrixFilterChip${filterStatus === "valid" ? " active" : ""}`}
-              onClick={() => setFilterStatus(filterStatus === "valid" ? "" : "valid")}
-            >启用中</button>
-            <button
-              type="button"
-              className={`mediaMatrixFilterChip${filterStatus === "expired" ? " active" : ""}`}
-              onClick={() => setFilterStatus(filterStatus === "expired" ? "" : "expired")}
-            >已失效</button>
-          </div>
+          <div className="mediaMatrixFilterRow2">
+            <div className="mediaMatrixFilterChips">
+              <button
+                type="button"
+                className={`mediaMatrixFilterChip${!filterStatus ? " active" : ""}`}
+                onClick={() => setFilterStatus("")}
+              >全部</button>
+              <button
+                type="button"
+                className={`mediaMatrixFilterChip${filterStatus === "valid" ? " active" : ""}`}
+                onClick={() => setFilterStatus(filterStatus === "valid" ? "" : "valid")}
+              >启用中</button>
+              <button
+                type="button"
+                className={`mediaMatrixFilterChip${filterStatus === "expired" ? " active" : ""}`}
+                onClick={() => setFilterStatus(filterStatus === "expired" ? "" : "expired")}
+              >已失效</button>
+            </div>
 
-          <div className="mediaMatrixSearchBox">
-            <Search size={15} />
-            <input
-              placeholder="搜索账号…"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
+            <div className="mediaMatrixSearchBox">
+              <Search size={15} />
+              <input
+                placeholder="搜索账号…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
           </div>
         </div>
 

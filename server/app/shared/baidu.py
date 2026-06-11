@@ -19,7 +19,10 @@ from dataclasses import dataclass
 logger = logging.getLogger(__name__)
 
 # 实测：query 文本是有效杠杆，结构化 ratio 过滤被忽略。横版意图写进 query。
-_LANDSCAPE_QUERY_SUFFIX = "横屏壁纸"
+# 默认搜图关键词模板，可被数据库里 image_search scope 的提示词覆盖（见 ai_format 配图链路）。
+# {game} 占位符=游戏名；保留"横版"维持下方 landscape_only() 横版过滤意图。
+DEFAULT_IMAGE_SEARCH_QUERY = "{game} 横版 官方宣传图"
+_GAME_PLACEHOLDER = "{game}"
 _MAX_IMAGE_BYTES = 20 * 1024 * 1024  # 与平台单图上限 MAX_ASSET_BYTES 对齐
 _BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 _ALLOWED_MIME = {"image/jpeg", "image/png", "image/webp", "image/gif"}
@@ -85,8 +88,22 @@ def sniff_image_mime(data: bytes) -> str | None:
     return None
 
 
-def search_landscape_images(game_name: str, *, top_k: int = 15) -> list[BaiduImage]:
-    """搜某游戏的横版图，返回横版候选（已按面积降序）。失败返回 []（best-effort）。"""
+def build_search_query(game_name: str, query_template: str = DEFAULT_IMAGE_SEARCH_QUERY) -> str:
+    """按模板拼搜索词。含 {game} 占位符则替换；否则按「游戏名 模板内容」空格拼接。纯函数，便于测试。"""
+    game = (game_name or "").strip()
+    template = (query_template or "").strip() or DEFAULT_IMAGE_SEARCH_QUERY
+    if _GAME_PLACEHOLDER in template:
+        return template.replace(_GAME_PLACEHOLDER, game).strip()
+    return f"{game} {template}".strip()
+
+
+def search_landscape_images(
+    game_name: str, *, query_template: str = DEFAULT_IMAGE_SEARCH_QUERY, top_k: int = 15
+) -> list[BaiduImage]:
+    """搜某游戏的横版图，返回横版候选（已按面积降序）。失败返回 []（best-effort）。
+
+    query_template 来自数据库可编辑的搜图关键词模板（image_search scope），缺省回退默认模板。
+    """
     from server.app.core.config import get_settings
 
     get_settings.cache_clear()
@@ -96,7 +113,7 @@ def search_landscape_images(game_name: str, *, top_k: int = 15) -> list[BaiduIma
         logger.warning("联网兜底跳过：未配置 GEO_BAIDU_API_KEY")
         return []
 
-    query = f"{game_name} {_LANDSCAPE_QUERY_SUFFIX}".strip()
+    query = build_search_query(game_name, query_template)
     bearer = f"Bearer {api_key}"
     body = {
         "messages": [{"role": "user", "content": query}],

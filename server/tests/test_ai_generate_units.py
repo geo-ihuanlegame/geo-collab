@@ -52,11 +52,15 @@ def _uid(app):
         return db.query(User).first().id
 
 
-def _ctx(app, uid, config, inputs):
+def _ctx(app, uid, config, inputs, upstream=None):
     from server.app.modules.pipelines.nodes.base import NodeRunContext
 
     return NodeRunContext(
-        session_factory=app.session_factory, user_id=uid, config=config, inputs=inputs, upstream={}
+        session_factory=app.session_factory,
+        user_id=uid,
+        config=config,
+        inputs=inputs,
+        upstream=upstream or {},
     )
 
 
@@ -97,6 +101,44 @@ def test_units_per_unit_fallback(monkeypatch):
         assert len(res.output["article_ids"]) == 5
         assert res.output["errors"] == []
         assert res.article_ids == res.output["article_ids"]
+    finally:
+        app.cleanup()
+
+
+@pytest.mark.mysql
+def test_units_recovered_from_upstream_when_inputmapping_drops_them(monkeypatch):
+    """显式 inputMapping 把 generation_units 从 inputs 里筛掉时，节点应从 upstream 兜底取回，
+    per-type 模板/数量不被静默丢弃（根因③护栏）。"""
+    monkeypatch.setattr(
+        "server.app.modules.pipelines.nodes.ai_generate_node.generate_article_from_prompt",
+        _fake_generate,
+    )
+    app = build_test_app(monkeypatch)
+    try:
+        from server.app.modules.pipelines.nodes.ai_generate_node import run_ai_generate
+
+        uid = _uid(app)
+        t_unit = _make_tpl(app, uid)
+        units = [
+            {
+                "question_type": "A",
+                "question_text": "1. qa",
+                "allowed_prompt_template_ids": [t_unit],
+                "article_count": 2,
+            }
+        ]
+        # inputs 不含 generation_units（模拟 inputMapping 只映射了别的字段），upstream 仍带。
+        ctx = _ctx(
+            app,
+            uid,
+            {"prompt_template_id": None, "count": 5, "model": None},
+            {"question_text": "1. qa"},
+            upstream={"generation_units": units, "question_text": "1. qa"},
+        )
+        res = run_ai_generate(ctx)
+        # 走逐单元：用 A 自带数量 2（而非本节点 count=5）→ 2 篇，且无错误
+        assert len(res.output["article_ids"]) == 2
+        assert res.output["errors"] == []
     finally:
         app.cleanup()
 

@@ -3,7 +3,7 @@ import type { ComponentType } from "react";
 
 export type NavKey = "agents" | "ai" | "content" | "prompts" | "image-library" | "media" | "tasks" | "system" | "hot-lists" | "admin" | "audit-logs";
 
-export type PromptScope = "generation" | "ai_format";
+export type PromptScope = "generation" | "ai_format" | "image_search" | "image_companion";
 
 export type PromptTemplate = {
   id: number;

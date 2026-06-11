@@ -72,6 +72,65 @@ def test_search_returns_empty_without_key(monkeypatch):
     assert baidu.search_landscape_images("蛋仔派对") == []
 
 
+def test_build_search_query_replaces_placeholder():
+    # 含 {game} 占位符 → 替换为游戏名
+    assert baidu.build_search_query("原神", "{game} 横版 官方宣传图") == "原神 横版 官方宣传图"
+    assert baidu.build_search_query("原神", "官方 {game} 立绘") == "官方 原神 立绘"
+
+
+def test_build_search_query_appends_without_placeholder():
+    # 不含 {game} → 游戏名后空格拼接模板内容
+    assert baidu.build_search_query("原神", "横版 官方宣传图") == "原神 横版 官方宣传图"
+
+
+def test_build_search_query_falls_back_to_default_on_empty():
+    # 空模板 → 回退默认模板
+    assert baidu.build_search_query("原神", "") == "原神 横版 官方宣传图"
+    assert baidu.build_search_query("原神", "   ") == "原神 横版 官方宣传图"
+    assert baidu.build_search_query("原神") == "原神 横版 官方宣传图"
+
+
+def test_web_fallback_fill_category_forwards_query_template(monkeypatch):
+    # _web_fallback_fill_category 把可编辑搜索词透传给 baidu.search_landscape_images
+    from types import SimpleNamespace
+
+    from server.app.modules.articles.ai_format import _web_fallback_fill_category
+
+    captured: dict = {}
+
+    def fake_search(name, **kw):
+        captured["name"] = name
+        captured["kw"] = kw
+        return []  # 返回空 → 不下载、不入库，函数返回 None
+
+    monkeypatch.setattr(baidu, "search_landscape_images", fake_search)
+
+    result = _web_fallback_fill_category(
+        None, SimpleNamespace(name="原神"), "{game} 横版 官方宣传图"
+    )
+    assert result is None
+    assert captured["name"] == "原神"
+    assert captured["kw"] == {"query_template": "{game} 横版 官方宣传图"}
+
+
+def test_web_fallback_fill_category_omits_query_template_when_none(monkeypatch):
+    # 不传搜索词时不带 query_template kwarg，baidu 用自身默认
+    from types import SimpleNamespace
+
+    from server.app.modules.articles.ai_format import _web_fallback_fill_category
+
+    captured: dict = {}
+
+    def fake_search(name, **kw):
+        captured["kw"] = kw
+        return []
+
+    monkeypatch.setattr(baidu, "search_landscape_images", fake_search)
+
+    _web_fallback_fill_category(None, SimpleNamespace(name="原神"))
+    assert captured["kw"] == {}
+
+
 # ── 集成：mock MinIO + 百度，仅需 MySQL ──────────────────────────────────────
 
 

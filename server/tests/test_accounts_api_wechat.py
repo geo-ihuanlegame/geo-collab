@@ -97,6 +97,53 @@ def test_create_duplicate_app_id_conflict(monkeypatch):
         test_app.cleanup()
 
 
+def test_list_accounts_fuzzy_search_q(monkeypatch):
+    """GET /api/accounts?q= 泛搜索：账号名称 / 备注 / 手机号 任一包含命中。"""
+    test_app = build_test_app(monkeypatch)
+    try:
+        _ensure_wechat_platform(test_app)
+        specs = [
+            ("主力公众号", "运营部主力号", "13800001111", "wxAAAA0000000001"),
+            ("备用号", "测试用途", "13900002222", "wxBBBB0000000002"),
+            ("财经号", "归属张三", "18612340000", "wxCCCC0000000003"),
+        ]
+        ids = {}
+        for name, note, contact, app_id in specs:
+            resp = test_app.client.post(
+                "/api/accounts",
+                json=_create_payload(
+                    display_name=name,
+                    note=note,
+                    contact=contact,
+                    api_credentials={"app_id": app_id, "app_secret": "secret-end-3a7f"},
+                ),
+            )
+            assert resp.status_code == 200, resp.text
+            ids[name] = resp.json()["id"]
+
+        def search(q):
+            resp = test_app.client.get("/api/accounts", params={"q": q})
+            assert resp.status_code == 200, resp.text
+            return {row["id"] for row in resp.json()}
+
+        # 无 q / 空白 q → 全量
+        assert len(search("")) == 3
+        assert len(test_app.client.get("/api/accounts").json()) == 3
+        # 命中账号名称（也命中备注）
+        assert search("主力") == {ids["主力公众号"]}
+        # 命中备注
+        assert search("测试") == {ids["备用号"]}
+        assert search("张三") == {ids["财经号"]}
+        # 命中手机号
+        assert search("13800") == {ids["主力公众号"]}
+        # 跨多账号包含
+        assert search("号") == set(ids.values())
+        # 无命中
+        assert search("不存在xyz") == set()
+    finally:
+        test_app.cleanup()
+
+
 def test_create_after_soft_deleted_app_id_succeeds(monkeypatch):
     """删除账号后身份槽位已释放（platform_user_id=None），同一 app_id 可重新登记。"""
     test_app = build_test_app(monkeypatch)

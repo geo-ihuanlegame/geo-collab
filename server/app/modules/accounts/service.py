@@ -14,7 +14,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -141,13 +141,25 @@ def launch_options(channel: str, executable_path: str | None) -> dict[str, Any]:
     return options
 
 
-def list_accounts(db: Session) -> list[Account]:
+def list_accounts(db: Session, q: str | None = None) -> list[Account]:
+    """账号列表。``q`` 为可选泛搜索关键词：对 账号名称 / 备注 / 联系方式(手机号) 三字段做
+    不区分大小写的包含匹配（任一命中即返回）。空白 q 视为不过滤。"""
     stmt = (
         select(Account)
         .where(Account.is_deleted == False)  # noqa: E712
         .options(selectinload(Account.platform))
         .order_by(Account.updated_at.desc())
     )
+    keyword = (q or "").strip()
+    if keyword:
+        like = f"%{keyword}%"
+        stmt = stmt.where(
+            or_(
+                Account.display_name.ilike(like),
+                Account.note.ilike(like),
+                Account.contact.ilike(like),
+            )
+        )
     return list(db.execute(stmt).scalars().all())
 
 

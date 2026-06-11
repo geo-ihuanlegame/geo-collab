@@ -78,8 +78,10 @@ export type AccountImportResult = {
   skipped: string[];
 };
 
-export function listAccounts(): Promise<Account[]> {
-  return api<Account[]>("/api/accounts");
+export function listAccounts(q?: string): Promise<Account[]> {
+  const keyword = q?.trim();
+  const path = keyword ? `/api/accounts?q=${encodeURIComponent(keyword)}` : "/api/accounts";
+  return api<Account[]>(path);
 }
 
 export function listPlatforms(): Promise<PlatformOption[]> {

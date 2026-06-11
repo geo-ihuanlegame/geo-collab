@@ -4,7 +4,17 @@
 注意路由注册顺序：/{account_id:int}/login-session 必须在 /{platform_code}/login-session 之前。
 """
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -103,10 +113,13 @@ def read_account_platforms() -> list[dict[str, str]]:
 
 @router.get("", response_model=list[AccountRead])
 def read_accounts(
+    q: str | None = Query(
+        default=None, description="泛搜索关键词：匹配账号名称 / 备注 / 手机号(包含)"
+    ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[AccountRead]:
-    accounts = list_accounts(db)
+    accounts = list_accounts(db, q=q)
     if current_user.role != "admin":
         accounts = [a for a in accounts if a.user_id == current_user.id]
     return [to_account_read(account) for account in accounts]
