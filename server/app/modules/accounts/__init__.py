@@ -28,6 +28,7 @@ from server.app.modules.accounts.auth import (  # noqa: F401
     get_login_session_status,
     import_accounts_auth_package,
     process_account_login_session_requests,
+    recover_stuck_login_sessions,
     register_account_from_storage_state,
     relogin_account,
     start_account_login_session,

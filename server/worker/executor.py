@@ -28,7 +28,10 @@ import server.app.modules.image_library.models  # noqa: F401  # 确保 StockCate
 import server.app.modules.tasks.drivers.bootstrap  # noqa: F401
 from server.app.core.time import utcnow
 from server.app.db.session import SessionLocal
-from server.app.modules.accounts import process_account_login_session_requests
+from server.app.modules.accounts import (
+    process_account_login_session_requests,
+    recover_stuck_login_sessions,
+)
 from server.app.modules.accounts.models import (
     Account,
     AccountLoginSession,
@@ -218,6 +221,7 @@ def _startup(db) -> None:
     """worker 启动时执行恢复流程。"""
     recover_stuck_records(db)
     recover_stuck_task_claims(db)
+    recover_stuck_login_sessions(db)
     _write_worker_heartbeat(db)
     _logger.info("Worker %s started", WORKER_ID)
 

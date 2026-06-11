@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Check, ChevronDown, ChevronUp, LoaderCircle, X, Search, ArrowRight, ExternalLink, Camera, AppWindow } from "lucide-react";
 import type { PlatformOption } from "../../types";
-import { createApiAccount, verifyCredentials, startPlatformLoginSession, startAccountLoginSession, pollLoginSessionUntilActive, finishAccountLoginSession } from "../../api/accounts";
+import { createApiAccount, verifyCredentials, startPlatformLoginSession, startAccountLoginSession, pollLoginSessionUntilActive, finishAccountLoginSession, stopAccountLoginSession } from "../../api/accounts";
 import { uploadAsset } from "../../api/assets";
 import { assetSrc } from "../../api/core";
 import { useToast } from "../../components/Toast";
@@ -104,14 +104,24 @@ export function AddAuthorizationDialog({
     }
   }
 
+  // 关弹窗 / 返回时，若登录会话还没收尾就主动取消，释放账号的 profile 锁；
+  // 否则这把锁会一直占着、后续登录全部排队超时（生产死锁事故根因）。
+  function cancelInflightLogin() {
+    if (createdAccountId && loginSessionId && !finishRequestedRef.current) {
+      void stopAccountLoginSession(createdAccountId, loginSessionId).catch(() => {});
+    }
+  }
+
   function handleClose() {
     pollingActiveRef.current = false;
+    cancelInflightLogin();
     reset();
     onClose();
   }
 
   function handleBack() {
     pollingActiveRef.current = false;
+    cancelInflightLogin();
     setLoginSessionId(null);
     setLoginNovncUrl(null);
     setLoginSessionError(null);

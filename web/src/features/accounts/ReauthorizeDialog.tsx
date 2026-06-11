@@ -5,6 +5,7 @@ import {
   finishAccountLoginSession,
   pollLoginSessionUntilActive,
   startAccountLoginSession,
+  stopAccountLoginSession,
   updateAccount,
   verifyCredentials,
 } from "../../api/accounts";
@@ -93,6 +94,10 @@ function BrowserReauthorize({
 
   function handleClose() {
     pollingActiveRef.current = false;
+    // 关弹窗时若登录会话还没收尾就主动取消，释放账号 profile 锁，避免后续登录排队超时。
+    if (sessionId && !finishRequestedRef.current) {
+      void stopAccountLoginSession(account.id, sessionId).catch(() => {});
+    }
     onClose();
   }
 

@@ -27,13 +27,14 @@ from pathlib import Path
 from typing import Any
 
 from sqlalchemy import and_, or_, select
+from sqlalchemy import delete as sa_delete
 from sqlalchemy import update as sa_update
 from sqlalchemy.orm import Session
 
 from server.app.core.config import get_settings
 from server.app.core.paths import ensure_data_dirs, get_data_dir
 from server.app.core.time import utcnow
-from server.app.modules.accounts.models import Account, AccountLoginSession
+from server.app.modules.accounts.models import Account, AccountLoginSession, BrowserProfileLock
 from server.app.modules.accounts.schemas import (
     AccountCheckRequest,
     AccountExportRequest,
@@ -750,6 +751,48 @@ def _release_login_profile_lock(db: Session, request: AccountLoginSession) -> No
         _logger.warning(
             "Failed to release login profile lock for request %s", request.id, exc_info=True
         )
+
+
+def recover_stuck_login_sessions(db: Session) -> None:
+    """Worker 启动复位残留登录会话：所有非终态登录会话置 cancelled，并清掉全部 login profile 锁。
+
+    交互式登录浏览器只活在 worker 进程内，worker 一重启全死——任何存活的非终态会话都是僵死的，
+    其持有的 profile 锁若不清会永久把账号挡在登录之外（生产死锁事故的根因）。发布侧
+    recover_stuck_records 靠租约只复位过期记录；登录无租约保护（浏览器随 worker 进程消亡），
+    故全量复位。只清 owner_kind='login' 的锁，不碰 publish。自带 commit。
+    """
+    sessions = list(
+        db.execute(
+            select(AccountLoginSession).where(
+                AccountLoginSession.status.not_in(tuple(LOGIN_TERMINAL_STATUSES))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for session in sessions:
+        session.status = LOGIN_STATUS_CANCELLED
+        session.queue_reason = None
+        session.worker_id = None
+        # 登录前账号被置 unknown，复位时回滚到登录前状态
+        if session.previous_status is not None:
+            account = db.get(Account, session.account_id)
+            if account is not None and account.status == "unknown":
+                account.status = session.previous_status
+                account.updated_at = utcnow()
+        _touch_login_request(session)
+
+    lock_result = db.execute(
+        sa_delete(BrowserProfileLock).where(BrowserProfileLock.owner_kind == "login")
+    )
+    cleared = lock_result.rowcount  # type: ignore[attr-defined]  # DML 执行返回 CursorResult
+    if sessions or cleared:
+        _logger.warning(
+            "Recovered %d stuck login sessions, cleared %d login profile locks",
+            len(sessions),
+            cleared,
+        )
+        db.commit()
 
 
 def _apply_login_result(account: Account, result: BrowserCheckResult) -> None:
