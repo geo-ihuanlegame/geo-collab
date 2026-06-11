@@ -3,6 +3,7 @@ import { Check, ChevronDown, ChevronUp, LoaderCircle, X, Search, ArrowRight, Ext
 import type { PlatformOption } from "../../types";
 import { createApiAccount, verifyCredentials, startPlatformLoginSession, startAccountLoginSession, pollLoginSessionUntilActive, finishAccountLoginSession } from "../../api/accounts";
 import { useToast } from "../../components/Toast";
+import { openRemoteBrowser } from "../../utils/remoteBrowser";
 
 export function AddAuthorizationDialog({
   platforms,
@@ -165,7 +166,7 @@ export function AddAuthorizationDialog({
           if (cancelled || !pollingActiveRef.current) return;
           if (active.novnc_url) {
             setLoginNovncUrl(active.novnc_url);
-            window.open(active.novnc_url, "_blank");
+            openRemoteBrowser(active.novnc_url);
           }
           // 不自动 finish：等用户在 noVNC 窗口里登录后点「我已完成登录」。
         } catch (err) {
@@ -220,7 +221,7 @@ export function AddAuthorizationDialog({
 
   function handleReopen() {
     if (loginNovncUrl) {
-      window.open(loginNovncUrl, "_blank");
+      openRemoteBrowser(loginNovncUrl);
     } else if (createdAccountId) {
       (async () => {
         try {
@@ -228,7 +229,7 @@ export function AddAuthorizationDialog({
           setLoginSessionId(session.session_id);
           setLoginNovncUrl(session.novnc_url);
           if (session.novnc_url) {
-            window.open(session.novnc_url, "_blank");
+            openRemoteBrowser(session.novnc_url);
           }
           setLoginSessionError(null);
         } catch (err) {

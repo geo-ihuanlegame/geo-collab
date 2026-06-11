@@ -886,7 +886,11 @@ input:focus, select:focus, textarea:focus {
 
 .editorSurface img { max-width: 100%; border-radius: var(--r); }
 
-/* 正文里被选中的图片：明显蓝色描边 + 外发光（Tiptap 自动加 .ProseMirror-selectednode） */
+/* 正文里被选中的图片：明显蓝色描边 + 外发光。
+   图片走 React NodeView 渲染，ProseMirror-selectednode 落在外层 .node-image 包裹 div 上，
+   不在 <img> 本身，所以必须用后代选择器命中内层 <img>，否则高亮根本不生效。
+   保留 img.ProseMirror-selectednode 作为非 NodeView（如直接粘贴 HTML 图片）的兜底。 */
+.editorSurface .ProseMirror-selectednode img,
 .editorSurface img.ProseMirror-selectednode {
   outline: 3px solid var(--accent);
   outline-offset: 2px;
