@@ -6,12 +6,15 @@
   总量受 ai_generate_max_count 约束；单篇/单元失败收进 errors，交由运行聚合为 partial_failed。
 - 扁平（无 generation_units）：按本节点单模板 + 数量并发生成（原行为）。"""
 
+import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from server.app.modules.ai_generation.article_writer import generate_article_from_prompt
 from server.app.modules.pipelines.nodes.base import NodeResult, NodeRunContext, register
 from server.app.modules.prompt_templates.service import get_visible_prompt_template
 from server.app.shared.errors import ValidationError
+
+logger = logging.getLogger(__name__)
 
 
 def _resolve_units(units, fallback_template_id, fallback_count) -> list[tuple]:
@@ -23,16 +26,31 @@ def _resolve_units(units, fallback_template_id, fallback_count) -> list[tuple]:
         qtext = (u.get("question_text") or "").strip()
         if not qtext:
             continue
-        tpl_ids = list(u.get("allowed_prompt_template_ids") or [])
+        own_tpl_ids = list(u.get("allowed_prompt_template_ids") or [])
+        tpl_ids = own_tpl_ids
+        tpl_fallback = False
         if not tpl_ids and fallback_template_id:
             tpl_ids = [fallback_template_id]
+            tpl_fallback = True
         raw_count = u.get("article_count")
         try:
             cnt = int(raw_count) if raw_count is not None else 0
         except (TypeError, ValueError):
             cnt = 0
-        if cnt <= 0:
+        count_fallback = cnt <= 0
+        if count_fallback:
             cnt = fallback_count
+        # 诊断：逐单元记录最终用的模板/数量、以及是否回退到了本节点兜底。
+        # 排查「per-type 没覆盖」时，tpl_fallback / count_fallback 为 True 即说明该单元
+        # 没带 per-type 值（上游没发出/被截断），ai_generate 用了自身设置。
+        logger.info(
+            "ai_generate unit type=%s tpl_ids=%s(fallback=%s) count=%s(fallback=%s)",
+            u.get("question_type"),
+            tpl_ids,
+            tpl_fallback,
+            cnt,
+            count_fallback,
+        )
         resolved.append((qtext, tpl_ids, cnt))
     return resolved
 
@@ -102,7 +120,14 @@ def run_ai_generate(ctx: NodeRunContext) -> NodeResult:
     upstream = ctx.upstream or {}
     units = ctx.inputs.get("generation_units") or upstream.get("generation_units")
     if units:
+        # 诊断：确认走的是逐单元（per-type 生效）还是扁平（用本节点兜底）。
+        logger.info("ai_generate mode=units (%d generation_units received)", len(units))
         return _run_units(ctx, cfg, units, model, max_count)
+    logger.info(
+        "ai_generate mode=flat (no generation_units; inputs_keys=%s upstream_keys=%s)",
+        sorted(ctx.inputs.keys()),
+        sorted(upstream.keys()),
+    )
 
     # 扁平模式（原行为，未改动语义）
     question_text = (

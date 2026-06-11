@@ -5,8 +5,12 @@
 + generation_units（逐类型、仅含勾了≥1题的类型，供 ai_generate 逐单元生文）。
 兼容旧扁平 config（question_types / question_record_ids / question_type）。"""
 
+import logging
+
 from server.app.modules.pipelines.nodes.base import NodeResult, NodeRunContext, register
 from server.app.shared.errors import ValidationError
+
+logger = logging.getLogger(__name__)
 
 UNCATEGORIZED = "__uncategorized__"
 
@@ -135,6 +139,23 @@ def run_question_source(ctx: NodeRunContext) -> NodeResult:
             }
         )
         flat_texts.extend(u["texts"])
+
+    # 诊断：交接给 ai_generate 前，逐单元记录是否带 per-type 模板/数量。
+    # 排查「per-type 配置没覆盖 ai_generate」时，先看这行确认问题源到底发没发出来。
+    logger.info(
+        "question_source pool=%s emit %d gen_units: %s",
+        pool_id,
+        len(gen_units),
+        [
+            {
+                "type": u["question_type"],
+                "n_texts": u["question_text"].count("\n") + 1 if u["question_text"] else 0,
+                "tpl_ids": u["allowed_prompt_template_ids"],
+                "count": u["article_count"],
+            }
+            for u in gen_units
+        ],
+    )
 
     flat_rendered = "\n".join(f"{i}. {t}" for i, t in enumerate(flat_texts, start=1))
     return NodeResult(
