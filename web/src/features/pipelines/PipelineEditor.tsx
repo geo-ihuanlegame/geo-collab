@@ -14,6 +14,7 @@ import type {
   Account, AiEngine, ArticleGroup, NodeTypeDef, Pipeline, PipelineNodeDef,
   PromptTemplate, QuestionPool, QuestionType, StockCategory,
 } from "../../types";
+import { AccountSelector } from "./AccountSelector";
 import { VersionHistory } from "./VersionHistory";
 
 // 问题源「类型卡 + 问题 chip」选择器（交互对齐 AI 生文的方案编辑）。
@@ -499,6 +500,19 @@ export function PipelineEditor({ pipelineId, onChanged }:
                   );
                 }
                 if (f.type === "question_records") return null;
+                // 内容分发：账号选择器（平台动态规则 + 账号级启用开关），替代原生多选。
+                if (f.type === "account_selector") {
+                  return (
+                    <div className="agentField" key={f.key}>
+                      <AccountSelector
+                        accounts={accounts}
+                        config={sel.config}
+                        onChange={(patch) =>
+                          updateNode(selected!, { config: { ...sel.config, ...patch } })}
+                      />
+                    </div>
+                  );
+                }
                 // AI生文：模板/数量字段——上游问题源已覆盖时灰显禁用，提示「已接管」
                 if (sel.node_type === "ai_generate" && (f.key === "prompt_template_id" || f.key === "count")) {
                   const masked = f.key === "prompt_template_id" ? aiGenMask.template : aiGenMask.count;

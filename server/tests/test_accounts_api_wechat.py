@@ -302,7 +302,12 @@ def test_export_all_skips_missing_browser_state_for_api_account(monkeypatch):
         test_app.cleanup()
 
 
-def test_verified_api_account_rejected_by_browser_task_path_until_runner_exists(monkeypatch):
+def test_verified_api_account_accepted_by_task_path(monkeypatch):
+    """公众号(API)账号经校验(status=valid)后可直接建发布任务——终点为草稿箱，无需浏览器 state_path。
+
+    曾经任务层硬拒 API 账号（占位用例 *_until_runner_exists 断言抛 AccountError "API-only"）；
+    distribute 支持 API 平台分发后，任务层对 mode='api' 平台放行无 state_path 的账号，遂翻转此用例。
+    """
     test_app = build_test_app(monkeypatch)
     try:
         _ensure_wechat_platform(test_app)
@@ -318,9 +323,9 @@ def test_verified_api_account_rejected_by_browser_task_path_until_runner_exists(
         )
 
         from server.app.modules.articles.models import Article
+        from server.app.modules.tasks.models import PublishRecord, PublishTask
         from server.app.modules.tasks.schemas import TaskAccountInput, TaskCreate
         from server.app.modules.tasks.service import create_task
-        from server.app.shared.errors import AccountError
 
         with test_app.session_factory() as db:
             uid = db.get(Article, article_id).user_id
@@ -332,7 +337,14 @@ def test_verified_api_account_rejected_by_browser_task_path_until_runner_exists(
                 accounts=[TaskAccountInput(account_id=account_id)],
                 stop_before_publish=False,
             )
-            with pytest.raises(AccountError, match="API-only"):
-                create_task(db, uid, payload, role="admin")
+            task = create_task(db, uid, payload, role="admin")
+            db.commit()
+            tid = task.id
+
+        with test_app.session_factory() as db:
+            assert db.get(PublishTask, tid) is not None
+            recs = db.query(PublishRecord).filter(PublishRecord.task_id == tid).all()
+            assert len(recs) == 1
+            assert recs[0].account_id == account_id  # 公众号账号成功落记录（草稿箱路径）
     finally:
         test_app.cleanup()

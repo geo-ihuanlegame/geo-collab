@@ -84,7 +84,7 @@ def get_node_types() -> dict:
                 "type": "distribute",
                 "label": "内容分发",
                 "config_schema": [
-                    {"key": "account_ids", "type": "accounts", "label": "分发账号"},
+                    {"key": "account_selection", "type": "account_selector", "label": "分发账号"},
                     {"key": "name", "type": "text", "label": "任务名(可空)"},
                 ],
             },

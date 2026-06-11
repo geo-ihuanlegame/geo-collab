@@ -491,7 +491,9 @@ def _validated_task_inputs(
     if platform is None:
         raise ClientError(f"Platform not found: {payload.platform_code}")
 
-    ordered_accounts = _validated_accounts(db, platform.id, payload.accounts, user_id=user_id)
+    ordered_accounts = _validated_accounts(
+        db, platform.id, platform.code, payload.accounts, user_id=user_id
+    )
     article_ids = _article_ids_for_task(db, payload, user_id=user_id)
     _validate_unique_articles(article_ids)
     _validate_articles_approved(db, article_ids)
@@ -520,9 +522,14 @@ def _build_assignments(
 def _validated_accounts(
     db: Session,
     platform_id: int,
+    platform_code: str,
     account_inputs: list[TaskAccountInput],
     user_id: int | None = None,
 ) -> list[tuple[int, Account]]:
+    # API 型平台（驱动 mode='api'，如公众号）账号无 state_path，仍可经服务端 API 发布到草稿箱。
+    from server.app.modules.tasks.drivers import is_api_driver
+
+    platform_is_api = is_api_driver(platform_code)
     if not account_inputs:
         raise ValidationError("At least one account is required")
 
@@ -553,7 +560,7 @@ def _validated_accounts(
             raise AccountError(f"Account not found: {account_id}")
         if account.platform_id != platform_id:
             raise AccountError(f"Account platform mismatch: {account_id}")
-        if account.state_path is None:
+        if account.state_path is None and not platform_is_api:
             raise AccountError(
                 f"Account {account_id} is API-only: API publishing is not available yet"
             )
