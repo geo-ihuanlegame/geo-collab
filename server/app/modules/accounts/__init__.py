@@ -23,6 +23,7 @@ from server.app.modules.accounts.auth import (  # noqa: F401
     AccountBrowserSessionResult,
     BrowserCheckResult,
     check_account,
+    expire_stale_login_sessions,
     export_accounts_auth_package,
     finish_account_login_session,
     get_login_session_status,

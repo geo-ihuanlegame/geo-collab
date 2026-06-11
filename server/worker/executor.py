@@ -29,6 +29,7 @@ import server.app.modules.tasks.drivers.bootstrap  # noqa: F401
 from server.app.core.time import utcnow
 from server.app.db.session import SessionLocal
 from server.app.modules.accounts import (
+    expire_stale_login_sessions,
     process_account_login_session_requests,
     recover_stuck_login_sessions,
 )
@@ -56,6 +57,11 @@ WORKER_ID = f"{socket.gethostname()}-{os.getpid()}"
 CLAIM_LEASE_MINUTES = 10
 PROFILE_LOCK_HEARTBEAT_SECONDS = 30
 PROFILE_LOCK_LEASE_SECONDS = 900
+# active 登录会话被遗弃（用户关标签页/刷新/崩溃，没走 finish/cancel）时，其 profile 锁会被
+# 心跳无限续租、永久把账号挡在登录之外（#85 死锁的残留路径）。超过这个时长即视为僵死、按取消
+# 流程收尾释放锁。阈值远大于真人扫码登录耗时，不会误杀进行中的真实登录。
+LOGIN_SESSION_MAX_ACTIVE_SECONDS = 1800
+LOGIN_SESSION_STALE_CHECK_SECONDS = 60
 
 # 优雅退出标记
 _shutdown = False
@@ -198,6 +204,7 @@ def _heartbeat_active_profile_locks(db) -> None:
 def _account_login_loop() -> None:
     """独立于发布任务执行，处理交互式登录命令。"""
     last_heartbeat = 0.0
+    last_stale_check = 0.0
     while not _shutdown:
         db = SessionLocal()
         processed = False
@@ -206,6 +213,16 @@ def _account_login_loop() -> None:
             if now - last_heartbeat >= 10:
                 _write_worker_heartbeat(db)
                 last_heartbeat = now
+            if now - last_stale_check >= LOGIN_SESSION_STALE_CHECK_SECONDS:
+                last_stale_check = now
+                try:
+                    expire_stale_login_sessions(
+                        db,
+                        worker_id=WORKER_ID,
+                        max_active_seconds=LOGIN_SESSION_MAX_ACTIVE_SECONDS,
+                    )
+                except Exception:
+                    _logger.exception("Worker %s: stale login session expiry failed", WORKER_ID)
             processed = process_account_login_session_requests(db, WORKER_ID)
         except Exception:
             _logger.exception("Worker %s: error processing account login request", WORKER_ID)

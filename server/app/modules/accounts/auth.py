@@ -22,7 +22,7 @@ import uuid
 import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -793,6 +793,40 @@ def recover_stuck_login_sessions(db: Session) -> None:
             cleared,
         )
         db.commit()
+
+
+def expire_stale_login_sessions(db: Session, *, worker_id: str, max_active_seconds: int) -> int:
+    """worker 运行期周期兜底：把本 worker 名下卡在 active 过久的登录会话当作被遗弃的收尾。
+
+    active 登录会话的 profile 锁被 _heartbeat_active_profile_locks 每 30s 无限续租，租约
+    永不过期。用户关浏览器标签 / 刷新 / 崩溃而没走 finish/cancel 时，前端关弹窗的 DELETE
+    兜底不会触发，这把锁就把账号永久挡在登录之外（#85 死锁的残留路径——启动复位只在重启时
+    跑，进程不重启就一直卡）。这里给 active 会话设最大存活时长上限：超时即走正常取消流程
+    （_worker_cancel_login_session：停浏览器 + 释放锁 + 账号状态从 unknown 回滚），让账号
+    能重新登录。阈值远大于真人扫码登录耗时，不会误杀进行中的真实登录。只动本 worker 自己
+    启的会话（浏览器在本进程内、能干净关掉）。返回收尾的会话数。
+    """
+    cutoff = utcnow() - timedelta(seconds=max_active_seconds)
+    sessions = list(
+        db.execute(
+            select(AccountLoginSession).where(
+                AccountLoginSession.status == LOGIN_STATUS_ACTIVE,
+                AccountLoginSession.worker_id == worker_id,
+                AccountLoginSession.updated_at < cutoff,
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for session in sessions:
+        _logger.warning(
+            "Expiring stale active login session %s (account %s, active since %s)",
+            session.id,
+            session.account_id,
+            session.updated_at,
+        )
+        _worker_cancel_login_session(db, session)  # 内部 finally 释放锁并 commit
+    return len(sessions)
 
 
 def _apply_login_result(account: Account, result: BrowserCheckResult) -> None:
