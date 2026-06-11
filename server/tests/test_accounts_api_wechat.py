@@ -334,6 +334,22 @@ def test_delete_wechat_account_frees_identity_slot(monkeypatch):
         test_app.cleanup()
 
 
+def test_app_id_globally_unique_across_users(monkeypatch):
+    """一个 app_id 全平台只能活一份：A 用户登记后，B 用户登记同一 app_id 应 409。"""
+    test_app = build_test_app(monkeypatch)
+    try:
+        _ensure_wechat_platform(test_app)
+        assert test_app.client.post("/api/accounts", json=_create_payload()).status_code == 200
+
+        from server.tests.utils import create_extra_user
+
+        _uid, other_client = create_extra_user(test_app, "operator2")
+        resp = other_client.post("/api/accounts", json=_create_payload())
+        assert resp.status_code == 409, resp.text
+    finally:
+        test_app.cleanup()
+
+
 def test_verified_api_account_accepted_by_task_path(monkeypatch):
     """公众号(API)账号经校验(status=valid)后可直接建发布任务——终点为草稿箱，无需浏览器 state_path。
 
