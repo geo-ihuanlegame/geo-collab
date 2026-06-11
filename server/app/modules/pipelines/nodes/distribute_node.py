@@ -92,9 +92,11 @@ def run_distribute(ctx: NodeRunContext) -> NodeResult:
 
     # 优先级：上游给了 article_ids（即便空也消费、跳过）而非 group_id——否则会重拉全组、丢弃「已审未分发」
     # 子集导致重复发布 / 整批失败（#45）。仅当无上游 article_ids（手动配置 group_id）时才走分组路径。
+    article_list: list[int] = []
     if article_ids is not None:
         if not article_ids:
             return NodeResult(output={"skipped": "无可分发内容"}, article_ids=[])
+        article_list = list(article_ids)
         task_type = "article_round_robin"
     elif group_id:
         task_type = "group_round_robin"
@@ -118,12 +120,12 @@ def run_distribute(ctx: NodeRunContext) -> NodeResult:
                 TaskAccountInput(account_id=a, sort_order=i) for i, a in enumerate(account_ids)
             ]
             if task_type == "article_round_robin":
-                name = base_name or f"自动分发 {len(article_ids)} 篇"
+                name = base_name or f"自动分发 {len(article_list)} 篇"
                 task_create = TaskCreate(
                     name=f"{name} · {platform_code}" if multi else name,
                     task_type="article_round_robin",
                     platform_code=platform_code,
-                    article_ids=list(article_ids),
+                    article_ids=list(article_list),
                     accounts=accounts,
                     stop_before_publish=False,
                 )
