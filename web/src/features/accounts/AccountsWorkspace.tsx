@@ -3,11 +3,30 @@ import { deleteAccount, listAccounts, listPlatforms } from "../../api/accounts";
 import type { Account, PlatformOption } from "../../types";
 import { ChevronDown, ChevronRight, Plus, Search, Trash2, X } from "lucide-react";
 import { useToast } from "../../components/Toast";
+import { useAuth } from "../auth/AuthContext";
 import { AccountRow, AccountRowHeader } from "./AccountRow";
 import { AddAuthorizationDialog } from "./AddAuthorizationDialog";
+import { EditAccountDialog } from "./EditAccountDialog";
+import { ReauthorizeDialog } from "./ReauthorizeDialog";
 
 export function AccountsWorkspace({ isActive }: { isActive?: boolean } = {}) {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+
+  // 媒体矩阵账号删除收归管理员。普通账号点删除不发请求、直接给出清楚的原因，
+  // 既不出现裸 403，也明确「为什么不给删」。后端 delete 端点同样做了兜底拦截。
+  function requestDelete(account: Account) {
+    if (!isAdmin) {
+      toast(
+        "仅管理员可删除媒体矩阵账号。普通账号无删除权限——删除会一并清除登录授权与历史发文记录，为防误删已锁定，如确需删除请联系管理员。",
+        "error",
+      );
+      return;
+    }
+    setConfirmDelete(account);
+  }
+
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [platforms, setPlatforms] = useState<PlatformOption[]>([]);
   const [loading, setLoading] = useState(false);
@@ -16,6 +35,8 @@ export function AccountsWorkspace({ isActive }: { isActive?: boolean } = {}) {
   const [filterPlatform, setFilterPlatform] = useState<string>("");
   const [filterStatus, setFilterStatus] = useState<string>("");
   const [confirmDelete, setConfirmDelete] = useState<Account | null>(null);
+  const [editTarget, setEditTarget] = useState<Account | null>(null);
+  const [reauthTarget, setReauthTarget] = useState<Account | null>(null);
   const [pendingExpanded, setPendingExpanded] = useState(true);
 
   const isInitialMountRef = useRef(true);
@@ -134,10 +155,10 @@ export function AccountsWorkspace({ isActive }: { isActive?: boolean } = {}) {
                 <AccountRow
                   key={account.id}
                   account={account}
-                  onAuthorize={() => {}}
+                  onAuthorize={() => setReauthTarget(account)}
                   onCheck={() => void handleCheck(account)}
-                  onEdit={() => {}}
-                  onDelete={() => setConfirmDelete(account)}
+                  onEdit={() => setEditTarget(account)}
+                  onDelete={() => requestDelete(account)}
                 />
               ))}
             </div>
@@ -199,10 +220,10 @@ export function AccountsWorkspace({ isActive }: { isActive?: boolean } = {}) {
             <AccountRow
               key={account.id}
               account={account}
-              onAuthorize={() => {}}
+              onAuthorize={() => setReauthTarget(account)}
               onCheck={() => void handleCheck(account)}
-              onEdit={() => {}}
-              onDelete={() => setConfirmDelete(account)}
+              onEdit={() => setEditTarget(account)}
+              onDelete={() => requestDelete(account)}
             />
           ))}
           {filteredAccounts.length === 0 && (
@@ -216,6 +237,23 @@ export function AccountsWorkspace({ isActive }: { isActive?: boolean } = {}) {
           platforms={platforms}
           onClose={() => setShowAddDialog(false)}
           onCreated={() => void refreshAccounts()}
+        />
+      )}
+
+      {editTarget && (
+        <EditAccountDialog
+          account={editTarget}
+          onClose={() => setEditTarget(null)}
+          onSaved={() => void refreshAccounts()}
+        />
+      )}
+
+      {reauthTarget && (
+        <ReauthorizeDialog
+          account={reauthTarget}
+          mode={platforms.find((p) => p.code === reauthTarget.platform_code)?.mode}
+          onClose={() => setReauthTarget(null)}
+          onReauthorized={() => void refreshAccounts()}
         />
       )}
 

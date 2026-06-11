@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from "react";
 import { Check, ChevronDown, ChevronUp, LoaderCircle, X, Search, ArrowRight, ExternalLink, Camera, AppWindow } from "lucide-react";
 import type { PlatformOption } from "../../types";
 import { createApiAccount, verifyCredentials, startPlatformLoginSession, startAccountLoginSession, pollLoginSessionUntilActive, finishAccountLoginSession } from "../../api/accounts";
+import { uploadAsset } from "../../api/assets";
+import { assetSrc } from "../../api/core";
 import { useToast } from "../../components/Toast";
 import { openRemoteBrowser } from "../../utils/remoteBrowser";
 
@@ -26,6 +28,11 @@ export function AddAuthorizationDialog({
   const [distributionEnabled, setDistributionEnabled] = useState(true);
   const [appId, setAppId] = useState("");
   const [appSecret, setAppSecret] = useState("");
+
+  const [avatarAssetId, setAvatarAssetId] = useState<string | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [verifying, setVerifying] = useState(false);
   const [createdAccountId, setCreatedAccountId] = useState<number | null>(null);
@@ -58,6 +65,9 @@ export function AddAuthorizationDialog({
     setDistributionEnabled(true);
     setAppId("");
     setAppSecret("");
+    setAvatarAssetId(null);
+    setAvatarPreview(null);
+    setAvatarUploading(false);
     setVerifying(false);
     setCreatedAccountId(null);
     setLoginSessionId(null);
@@ -72,6 +82,26 @@ export function AddAuthorizationDialog({
   function selectPlatform(p: PlatformOption) {
     setSelectedPlatform(p);
     setPlatformOpen(false);
+  }
+
+  async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // 允许重选同一文件
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast("请选择图片文件", "error");
+      return;
+    }
+    setAvatarUploading(true);
+    try {
+      const asset = await uploadAsset(file);
+      setAvatarAssetId(asset.id);
+      setAvatarPreview(URL.createObjectURL(file));
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "头像上传失败", "error");
+    } finally {
+      setAvatarUploading(false);
+    }
   }
 
   function handleClose() {
@@ -112,6 +142,7 @@ export function AddAuthorizationDialog({
           contact: contact.trim() || null,
           note: note.trim() || null,
           distribution_enabled: distributionEnabled,
+          avatar_asset_id: avatarAssetId,
           api_credentials: { app_id: appId.trim(), app_secret: appSecret.trim() },
         });
         setCreatedAccountId(account.id);
@@ -155,6 +186,7 @@ export function AddAuthorizationDialog({
           contact: contact.trim() || null,
           note: note.trim() || null,
           distribution_enabled: distributionEnabled,
+          avatar_asset_id: avatarAssetId,
         });
         if (cancelled) return;
         setCreatedAccountId(session.account.id);
@@ -303,10 +335,34 @@ export function AddAuthorizationDialog({
                 )}
               </div>
 
-              <div className="addAuthAvatarUpload" onClick={() => {}}>
-                <Camera size={20} />
-                <span>上传</span>
+              <div
+                className="addAuthAvatarUpload"
+                onClick={() => {
+                  if (!avatarUploading) fileInputRef.current?.click();
+                }}
+              >
+                {avatarUploading ? (
+                  <LoaderCircle size={20} className="spin" />
+                ) : avatarPreview || avatarAssetId ? (
+                  <img
+                    className="addAuthAvatarPreview"
+                    src={avatarPreview ?? assetSrc(avatarAssetId) ?? undefined}
+                    alt=""
+                  />
+                ) : (
+                  <>
+                    <Camera size={20} />
+                    <span>上传</span>
+                  </>
+                )}
               </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                style={{ display: "none" }}
+                onChange={(e) => void handleAvatarChange(e)}
+              />
 
               <div className="addAuthField">
                 <div className="addAuthLabel">账号名称 *</div>
