@@ -559,6 +559,11 @@ def _detach_record_inputs(
     expunge 前已 selectinload 的关系才安全；检测到关键关系（cover_asset/body_assets/asset）
     仍 unloaded 就直接抛 RuntimeError——detached 对象再触发懒加载会因无 session 炸在发布线程里。
     """
+    # build_publish_runner_for_record 在发布线程读 record.platform.code 判 API/浏览器驱动；
+    # detach 后该关系无法再懒加载（DetachedInstanceError），趁仍绑定 session 先把它加载进实例（见 PR#70 回归）。
+    if record.platform is not None:
+        _ = record.platform.code
+
     objects: list[object] = [record, article, account]
     if article.cover_asset is not None:
         objects.append(article.cover_asset)
