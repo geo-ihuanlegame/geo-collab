@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from server.app.core.paths import get_data_dir
@@ -185,14 +186,14 @@ def create_api_account(db: Session, user_id: int, payload: ApiAccountCreate) -> 
 
     app_id = payload.api_credentials.app_id
     duplicate = db.execute(
-        select(Account).where(
-            Account.user_id == user_id,
+        select(Account.id).where(
             Account.platform_id == platform.id,
             Account.platform_user_id == app_id,
+            Account.is_deleted == False,  # noqa: E712
         )
     ).scalar_one_or_none()
     if duplicate is not None:
-        raise ConflictError(f"该 AppID 已登记: {app_id}")
+        raise ConflictError(f"该 AppID 已被登记（全平台唯一）: {app_id}")
 
     account = Account(
         user_id=user_id,
@@ -211,21 +212,25 @@ def create_api_account(db: Session, user_id: int, payload: ApiAccountCreate) -> 
         distribution_enabled=payload.distribution_enabled,
     )
     db.add(account)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError as exc:  # 并发抢注同一 app_id：DB 全局唯一约束兜底
+        db.rollback()
+        raise ConflictError(f"该 AppID 已被登记（全平台唯一）: {app_id}") from exc
     return get_account(db, account.id) or account
 
 
 def _ensure_app_id_available(db: Session, account: Account, app_id: str) -> None:
     duplicate = db.execute(
         select(Account.id).where(
-            Account.user_id == account.user_id,
             Account.platform_id == account.platform_id,
             Account.platform_user_id == app_id,
+            Account.is_deleted == False,  # noqa: E712
             Account.id != account.id,
         )
     ).scalar_one_or_none()
     if duplicate is not None:
-        raise ConflictError(f"该 AppID 已登记: {app_id}")
+        raise ConflictError(f"该 AppID 已被登记（全平台唯一）: {app_id}")
 
 
 def update_account_fields(db: Session, account: Account, payload: AccountUpdateRequest) -> Account:
