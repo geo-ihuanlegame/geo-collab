@@ -497,18 +497,12 @@ def delete_existing_account(
     account_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ) -> Response:
+    # 媒体矩阵账号删除收归管理员：require_admin 兜底，非 admin → 403「需要管理员权限」，
+    # 与删文章/删分组的安全边界一致（test_security_boundaries）。
+    # operator 的"为什么不给删"清晰说明由前端承担（点删除直接提示、不发请求，见 AccountRow）。
     from server.app.shared.errors import ClientError
-
-    # 媒体矩阵账号删除收归管理员。普通账号无删除权限：故意走 ClientError（→ 400）
-    # 而非 require_admin 的裸 403，把"为什么不给删"写清楚，避免前端只看到一个无解释的 403。
-    if current_user.role != "admin":
-        raise ClientError(
-            "无法删除：媒体矩阵账号删除权限仅限管理员。"
-            "删除账号会一并清除其登录授权与历史发文记录，为防误删已对普通账号锁定——"
-            "如确需删除，请联系管理员处理。"
-        )
 
     account = _verify_account_ownership(get_account(db, account_id), current_user)
     display_name = account.display_name

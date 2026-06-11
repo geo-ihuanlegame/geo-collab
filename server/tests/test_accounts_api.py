@@ -286,7 +286,10 @@ def test_account_check_relogin_and_delete(monkeypatch):
 
 
 def test_operator_cannot_delete_account_gets_clear_reason(monkeypatch):
-    """普通(operator)账号删除媒体矩阵账号：被拦截，返回 400（而非裸 403）、写清原因，账号仍在；admin 仍可删。"""
+    """普通(operator)账号删除媒体矩阵账号：被 require_admin 拦截，返回 403「需要管理员权限」，
+
+    与删文章/删分组的边界一致；账号仍在；admin 仍可删。清晰说明由前端承担（点删除即提示、不发请求）。
+    """
     test_app = build_test_app(monkeypatch)
     admin_client = test_app.client
     install_fake_driver(monkeypatch)
@@ -312,8 +315,8 @@ def test_operator_cannot_delete_account_gets_clear_reason(monkeypatch):
         op_client.cookies["access_token"] = token
 
         resp = op_client.delete(f"/api/accounts/{account['id']}")
-        assert resp.status_code == 400  # 故意不是 403
-        assert "管理员" in resp.json()["detail"]  # 写清楚「为什么不给删」
+        assert resp.status_code == 403
+        assert resp.json()["detail"] == "需要管理员权限"
 
         # 账号未被删除，admin 视角仍可见
         assert len(admin_client.get("/api/accounts").json()) == 1
