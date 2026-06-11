@@ -136,6 +136,15 @@ def get_node_types() -> dict:
                         "hint": "陪衬游戏在库中无图时，联网搜图补充",
                         "default": False,
                     },
+                    # 顺带配封面：从主推游戏栏目随机取一张落成 Asset 设为封面，
+                    # 仅当文章还没封面时生效。见 image_library.cover.set_random_cover_from_category。
+                    {
+                        "key": "set_cover",
+                        "type": "toggle",
+                        "label": "顺带配封面",
+                        "hint": "从主推游戏图库随机取一张作封面（仅当文章还没封面）",
+                        "default": True,
+                    },
                 ],
             },
             {

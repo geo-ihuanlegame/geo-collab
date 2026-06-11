@@ -1,6 +1,14 @@
+import base64
+
 import pytest
 
 from server.tests.utils import build_test_app
+
+# 1x1 透明 PNG，供封面落 Asset 使用
+_PNG_1x1 = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNk"
+    "+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+)
 
 
 def _make_category(app, name, bucket, kind):
@@ -33,6 +41,17 @@ def _make_article(client):
     )
     assert r.status_code in (200, 201), r.text
     return r.json()["id"]
+
+
+def _make_stock_image(app, category_id, minio_key="img1.png", filename="img1.png"):
+    from server.app.modules.image_library.models import StockImage
+
+    with app.session_factory() as db:
+        img = StockImage(category_id=category_id, minio_key=minio_key, filename=filename)
+        db.add(img)
+        db.commit()
+        db.refresh(img)
+        return img.id
 
 
 def _uid(app):
@@ -165,6 +184,88 @@ def test_ai_illustrate_surfaces_image_count_and_swallowed_errors(monkeypatch):
         )
         assert res.output["images_inserted"] == 2
         assert any(str(fail_id) in e and "余额不足" in e for e in res.output["format_errors"])
+    finally:
+        app.cleanup()
+
+
+@pytest.mark.mysql
+def test_ai_illustrate_sets_cover_by_default(monkeypatch):
+    """set_cover 默认开：主推栏目有图时给无封面文章配封面，covers_set 计数回传。"""
+    app = build_test_app(monkeypatch)
+    try:
+        main_id = _make_category(app, "主推A", "main-a", "main")
+        _make_stock_image(app, main_id)
+        aid = _make_article(app.client)
+        uid = _uid(app)
+
+        monkeypatch.setattr(
+            "server.app.modules.pipelines.nodes.ai_illustrate.run_ai_format",
+            lambda article_id, **kw: 1,
+        )
+        monkeypatch.setattr(
+            "server.app.modules.image_library.store.get_object_bytes",
+            lambda bucket, key: _PNG_1x1,
+        )
+
+        from server.app.modules.articles.models import Article
+        from server.app.modules.pipelines.nodes.ai_illustrate import run_ai_illustrate
+        from server.app.modules.pipelines.nodes.base import NodeRunContext
+
+        res = run_ai_illustrate(
+            NodeRunContext(
+                session_factory=app.session_factory,
+                user_id=uid,
+                config={"main_category_id": main_id},  # 不传 set_cover → 默认开
+                inputs={"article_ids": [aid]},
+                upstream={},
+            )
+        )
+        assert res.output["covers_set"] == 1
+        assert res.output["cover_errors"] == []
+        with app.session_factory() as db:
+            assert db.get(Article, aid).cover_asset_id is not None
+    finally:
+        app.cleanup()
+
+
+@pytest.mark.mysql
+def test_ai_illustrate_set_cover_off_skips_cover(monkeypatch):
+    """set_cover=False：完全不碰封面，也不触发 MinIO 取图。"""
+    app = build_test_app(monkeypatch)
+    try:
+        main_id = _make_category(app, "主推A", "main-a", "main")
+        _make_stock_image(app, main_id)
+        aid = _make_article(app.client)
+        uid = _uid(app)
+
+        monkeypatch.setattr(
+            "server.app.modules.pipelines.nodes.ai_illustrate.run_ai_format",
+            lambda article_id, **kw: 1,
+        )
+
+        def _must_not_fetch(bucket, key):
+            raise AssertionError("set_cover=False 不应取图")
+
+        monkeypatch.setattr(
+            "server.app.modules.image_library.store.get_object_bytes", _must_not_fetch
+        )
+
+        from server.app.modules.articles.models import Article
+        from server.app.modules.pipelines.nodes.ai_illustrate import run_ai_illustrate
+        from server.app.modules.pipelines.nodes.base import NodeRunContext
+
+        res = run_ai_illustrate(
+            NodeRunContext(
+                session_factory=app.session_factory,
+                user_id=uid,
+                config={"main_category_id": main_id, "set_cover": False},
+                inputs={"article_ids": [aid]},
+                upstream={},
+            )
+        )
+        assert res.output["covers_set"] == 0
+        with app.session_factory() as db:
+            assert db.get(Article, aid).cover_asset_id is None
     finally:
         app.cleanup()
 

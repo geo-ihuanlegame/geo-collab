@@ -406,13 +406,13 @@ export function PipelineEditor({ pipelineId, onChanged }:
   const sel = selected != null ? nodes[selected] : null;
   const selDef = sel ? nodeTypes.find((t) => t.type === sel.node_type) : null;
 
-  // AI生文：统计上游问题源对「模板/数量」的覆盖度。
+  // AI生文 / AI创作：统计上游问题源对「模板/数量」的覆盖度（两节点共用逐单元接管语义）。
   // full=每个启用类型都配了→字段灰显(已接管)；partial=只配了一部分→字段仍可编辑(未配类型用本节点兜底)；
   // none=都没配/无上游问题源→纯兜底。三态修掉了「部分配置时永不灰显，看着像屏蔽没生效」的困惑。
   const aiGenMask = useMemo<{ template: FieldCoverage; count: FieldCoverage }>(() => {
     const none: FieldCoverage = { state: "none", have: 0, total: 0 };
     const blank = { template: none, count: none };
-    if (!sel || sel.node_type !== "ai_generate") return blank;
+    if (!sel || (sel.node_type !== "ai_generate" && sel.node_type !== "ai_compose")) return blank;
     // dependsOnIndex 存的是 node_index（见数据传递选择器），按 node_index 查；留空则取数组里前一个。
     const dep = sel.flow_meta?.dependsOnIndex;
     const up = dep != null
@@ -450,7 +450,9 @@ export function PipelineEditor({ pipelineId, onChanged }:
 
       <div className="peAddBar">
         <span className="peAddLabel">添加节点</span>
-        {nodeTypes.map((t) => (
+        {/* ai_generate(AI生文) 已下线、能力并入 ai_compose(AI创作)：隐藏出新；保留在 nodeTypes 里，
+            存量 ai_generate 节点仍能渲染属性面板、继续运行。 */}
+        {nodeTypes.filter((t) => t.type !== "ai_generate").map((t) => (
           <button key={t.type} className="peAddBtn" onClick={() => addNode(t.type)}>+ {t.label}</button>
         ))}
       </div>
@@ -543,9 +545,14 @@ export function PipelineEditor({ pipelineId, onChanged }:
                     </div>
                   );
                 }
-                // AI生文：模板/数量字段——上游问题源覆盖度三态。
+                // AI生文/AI创作：数量(及AI生文的单模板)字段——上游问题源覆盖度三态。
                 // full→灰显禁用「已接管」；partial→可编辑「部分接管，未配类型用此兜底」；none→「兜底」。
-                if (sel.node_type === "ai_generate" && (f.key === "prompt_template_id" || f.key === "count")) {
+                // ai_compose 的模板是多选(prompt_templates)、另行渲染，这里只接管其 count。
+                if (
+                  (sel.node_type === "ai_generate" &&
+                    (f.key === "prompt_template_id" || f.key === "count")) ||
+                  (sel.node_type === "ai_compose" && f.key === "count")
+                ) {
                   const cov = f.key === "prompt_template_id" ? aiGenMask.template : aiGenMask.count;
                   const hint = cov.state === "full"
                     ? "（已由上游问题源接管）"

@@ -34,11 +34,12 @@ def run_ai_illustrate(ctx: NodeRunContext) -> NodeResult:
         raise ValidationError("ai_illustrate 节点需配置主推栏目 main_category_id")
     include_companion = bool(cfg.get("include_companion", True))
     web_fallback = bool(cfg.get("web_fallback", False))
+    set_cover = bool(cfg.get("set_cover", True))
     cfg_preset_id = cfg.get("preset_id")
 
     errors: list[str] = []
 
-    def _one(article_id: int) -> int:
+    def _format_one(article_id: int) -> int:
         from server.app.modules.articles.models import Article
         from server.app.modules.system.models import User
 
@@ -79,12 +80,46 @@ def run_ai_illustrate(ctx: NodeRunContext) -> NodeResult:
             web_fallback=web_fallback,
         )
 
+    def _maybe_set_cover(article_id: int) -> Any:
+        """从主推栏目随机取一张落 Asset 设封面（仅当文章还没封面）。独立短 session 提交。"""
+        from server.app.modules.articles.models import Article
+        from server.app.modules.image_library.cover import (
+            CoverResult,
+            set_random_cover_from_category,
+        )
+
+        db = ctx.session_factory()
+        try:
+            article = db.get(Article, article_id)
+            if article is None or article.is_deleted:
+                return None
+            result = set_random_cover_from_category(db, article, main_category_id, ctx.user_id)
+            db.commit()
+            return result
+        except Exception as exc:  # commit/load 失败也按 best-effort 记录
+            db.rollback()
+            return CoverResult("error", str(exc))
+        finally:
+            db.close()
+
+    def _one(article_id: int) -> tuple[int, Any]:
+        images = _format_one(article_id)
+        cover = _maybe_set_cover(article_id) if set_cover else None
+        return images, cover
+
     images_inserted = 0
+    covers_set = 0
+    cover_errors: list[str] = []
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {pool.submit(_one, aid): aid for aid in article_ids}
         for fut in as_completed(futures):
             try:
-                images_inserted += fut.result() or 0
+                images, cover = fut.result()
+                images_inserted += images or 0
+                if cover is not None and cover.status == "set":
+                    covers_set += 1
+                elif cover is not None and cover.status == "error":
+                    cover_errors.append(f"article {futures[fut]}: {cover.error}")
             except Exception as exc:  # 单篇失败不中断，交由运行聚合为 partial_failed
                 errors.append(f"article {futures[fut]}: {exc}")
 
@@ -98,6 +133,8 @@ def run_ai_illustrate(ctx: NodeRunContext) -> NodeResult:
             "errors": errors,
             "images_inserted": images_inserted,
             "format_errors": format_errors,
+            "covers_set": covers_set,
+            "cover_errors": cover_errors,
         },
         article_ids=article_ids,
     )
