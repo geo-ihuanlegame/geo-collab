@@ -86,15 +86,18 @@ def _reject_api_account_browser_flow(account: AccountModel) -> None:
 
 @router.get("/platforms")
 def read_account_platforms() -> list[dict[str, str]]:
+    """平台下拉。每项带 mode（api / browser），前端据此决定走凭据直填还是浏览器扫码登录，
+    避免在前端硬编码具体平台 code。"""
     platforms = []
     seen: set[str] = set()
     for code in all_driver_codes():
         driver = get_driver(code)
-        platforms.append({"code": driver.code, "name": driver.name})
+        mode = "api" if account_service.is_api_platform_code(driver.code) else "browser"
+        platforms.append({"code": driver.code, "name": driver.name, "mode": mode})
         seen.add(driver.code)
     for platform in account_service.api_platform_options():
         if platform["code"] not in seen:
-            platforms.append(platform)
+            platforms.append({**platform, "mode": "api"})
     return platforms
 
 

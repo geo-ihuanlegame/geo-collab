@@ -42,6 +42,10 @@ export function AddAuthorizationDialog({
     (p) => !searchQuery || p.name.includes(searchQuery),
   );
 
+  // API 型平台（如微信公众号）凭据直填；其余（含 browser / 未标记）走浏览器扫码登录。
+  // 用后端下发的能力位 mode 判定，避免硬编码具体平台 code。
+  const isApiPlatform = selectedPlatform?.mode === "api";
+
   function reset() {
     setStep(1);
     setSelectedPlatform(null);
@@ -92,13 +96,13 @@ export function AddAuthorizationDialog({
       toast("请选择平台", "error");
       return;
     }
-    if (selectedPlatform.code === "wechat_mp" && (!appId.trim() || !appSecret.trim())) {
+    if (isApiPlatform && (!appId.trim() || !appSecret.trim())) {
       toast("请填写 AppID 和 AppSecret", "error");
       return;
     }
 
-    // 微信公众号：API 型平台，凭据直填后建号 + 验证凭据，无浏览器登录。
-    if (selectedPlatform.code === "wechat_mp") {
+    // API 型平台（如微信公众号）：凭据直填后建号 + 验证凭据，无浏览器登录。
+    if (isApiPlatform) {
       setVerifying(true);
       try {
         const account = await createApiAccount({
@@ -347,7 +351,7 @@ export function AddAuthorizationDialog({
                 </button>
               </div>
 
-              {selectedPlatform?.code === "wechat_mp" && (
+              {isApiPlatform && (
                 <div className="addAuthWeChatSection">
                   <div className="addAuthWeChatHeader">
                     <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--fg)" }}>公众号专属配置</span>
@@ -383,7 +387,7 @@ export function AddAuthorizationDialog({
                   verifying ||
                   !displayName.trim() ||
                   !selectedPlatform ||
-                  (selectedPlatform.code === "wechat_mp" && (!appId.trim() || !appSecret.trim()))
+                  (isApiPlatform && (!appId.trim() || !appSecret.trim()))
                 }
                 style={{
                   background: "#4C6EF5",

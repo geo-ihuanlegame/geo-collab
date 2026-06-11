@@ -79,7 +79,9 @@ def test_platforms_lists_wechat_api_platform_before_driver_registration(monkeypa
     try:
         resp = test_app.client.get("/api/accounts/platforms")
         assert resp.status_code == 200
-        assert {"code": "wechat_mp", "name": "微信公众号"} in resp.json()
+        assert {"code": "wechat_mp", "name": "微信公众号", "mode": "api"} in resp.json()
+        # 浏览器登录平台（如头条）应标记 browser，供前端区分凭据直填 / 扫码登录
+        assert all(p["mode"] in {"api", "browser"} for p in resp.json()), "每个平台都应带 mode 标记"
     finally:
         test_app.cleanup()
 

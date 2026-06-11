@@ -356,6 +356,7 @@ export type SystemStatus = {
 export type PlatformOption = {
   code: string;
   name: string;
+  mode?: "api" | "browser"; // api=凭据直填(如微信公众号)，browser=浏览器扫码登录(如头条)
 };
 
 // API Request Bodies
