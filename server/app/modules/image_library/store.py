@@ -72,3 +72,9 @@ def get_object_bytes(bucket_name: str, key: str) -> bytes:
 def delete_object(bucket_name: str, key: str) -> None:
     client = _client()
     client.remove_object(bucket_name, key)
+
+
+def remove_bucket(bucket_name: str) -> None:
+    """删除空分桶。MinIO 仅允许删空桶，非空时 client 抛错——与"非空禁止删"语义天然一致。"""
+    client = _client()
+    client.remove_bucket(bucket_name)
