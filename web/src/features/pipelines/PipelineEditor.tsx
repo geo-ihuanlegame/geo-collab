@@ -27,6 +27,17 @@ function typeSentinel(t: QuestionType): string {
   return t.question_type ?? UNCATEGORIZED;
 }
 
+// 问题源 unit 是否已自带模板 / 数量（既用于 AI生文「接管/兜底」覆盖度，也用于类型卡上的标记）。
+// 接受 PickerUnit 或 raw config unit（键名与后端一致）。
+type FieldCoverage = { state: "full" | "partial" | "none"; have: number; total: number };
+type UnitLike = { allowed_prompt_template_ids?: unknown; article_count?: unknown };
+function unitHasTemplate(u: UnitLike): boolean {
+  return Array.isArray(u.allowed_prompt_template_ids) && u.allowed_prompt_template_ids.length > 0;
+}
+function unitHasCount(u: UnitLike): boolean {
+  return typeof u.article_count === "number" && u.article_count > 0;
+}
+
 // config → 已勾选 record_id 集合。优先级与后端 question_source 一致：record_ids > types > 整池。
 function deriveCheckedRecordIds(types: QuestionType[], config: Record<string, unknown>): Set<string> {
   const recordIds = (config.question_record_ids as string[] | undefined) ?? [];
@@ -175,6 +186,15 @@ function QuestionTypePicker({ poolId, types, config, templates, onChange }: {
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                   <span className="schemeTypeBadge">{t.question_type ?? "未分类"}</span>
                   <span style={{ fontSize: 12, color: "var(--fg-3)" }}>共 {t.questions.length} 题</span>
+                  {checkedCount > 0 && (
+                    unitHasTemplate(u) && unitHasCount(u)
+                      ? <span style={{ fontSize: 11, padding: "1px 6px", borderRadius: 4,
+                          background: "var(--green-soft)", color: "var(--green)" }}
+                          title="该类型已自带模板+文章数，AI 生文将直接用它">已接管</span>
+                      : <span style={{ fontSize: 11, padding: "1px 6px", borderRadius: 4,
+                          background: "var(--bg-2, #f1f1f4)", color: "var(--fg-3)" }}
+                          title="该类型未配模板或文章数，缺的部分将回退到 AI 生文节点的兜底">将用兜底</span>
+                  )}
                 </div>
                 <div className="schemeLineActions">
                   <span style={{ color: "var(--fg-3)" }}>已选 {checkedCount} / {t.questions.length}</span>
@@ -386,24 +406,34 @@ export function PipelineEditor({ pipelineId, onChanged }:
   const sel = selected != null ? nodes[selected] : null;
   const selDef = sel ? nodeTypes.find((t) => t.type === sel.node_type) : null;
 
-  // AI生文：若上游是 question_source 且其 units 覆盖了模板/数量，则对应字段灰显（已被接管）。
-  const aiGenMask = useMemo(() => {
-    if (!sel || sel.node_type !== "ai_generate") return { template: false, count: false };
+  // AI生文：统计上游问题源对「模板/数量」的覆盖度。
+  // full=每个启用类型都配了→字段灰显(已接管)；partial=只配了一部分→字段仍可编辑(未配类型用本节点兜底)；
+  // none=都没配/无上游问题源→纯兜底。三态修掉了「部分配置时永不灰显，看着像屏蔽没生效」的困惑。
+  const aiGenMask = useMemo<{ template: FieldCoverage; count: FieldCoverage }>(() => {
+    const none: FieldCoverage = { state: "none", have: 0, total: 0 };
+    const blank = { template: none, count: none };
+    if (!sel || sel.node_type !== "ai_generate") return blank;
     // dependsOnIndex 存的是 node_index（见数据传递选择器），按 node_index 查；留空则取数组里前一个。
     const dep = sel.flow_meta?.dependsOnIndex;
     const up = dep != null
       ? nodes.find((n) => n.node_index === dep)
       : (selected != null && selected > 0 ? nodes[selected - 1] : undefined);
-    if (!up || up.node_type !== "question_source") return { template: false, count: false };
+    if (!up || up.node_type !== "question_source") return blank;
     const units = up.config?.units as Array<Record<string, unknown>> | undefined;
-    if (!Array.isArray(units) || units.length === 0) return { template: false, count: false };
+    if (!Array.isArray(units) || units.length === 0) return blank;
     const enabled = units.filter((u) => u.record_ids === null ||
       (Array.isArray(u.record_ids) && (u.record_ids as unknown[]).length > 0));
-    if (enabled.length === 0) return { template: false, count: false };
-    const template = enabled.every((u) => Array.isArray(u.allowed_prompt_template_ids) &&
-      (u.allowed_prompt_template_ids as unknown[]).length > 0);
-    const count = enabled.every((u) => typeof u.article_count === "number" && (u.article_count as number) > 0);
-    return { template, count };
+    const total = enabled.length;
+    if (total === 0) return blank;
+    const cover = (ok: (u: Record<string, unknown>) => boolean): FieldCoverage => {
+      const have = enabled.filter(ok).length;
+      const state: FieldCoverage["state"] = have === 0 ? "none" : have === total ? "full" : "partial";
+      return { state, have, total };
+    };
+    return {
+      template: cover((u) => unitHasTemplate(u)),
+      count: cover((u) => unitHasCount(u)),
+    };
   }, [sel, selected, nodes]);
 
   return (
@@ -513,17 +543,21 @@ export function PipelineEditor({ pipelineId, onChanged }:
                     </div>
                   );
                 }
-                // AI生文：模板/数量字段——上游问题源已覆盖时灰显禁用，提示「已接管」
+                // AI生文：模板/数量字段——上游问题源覆盖度三态。
+                // full→灰显禁用「已接管」；partial→可编辑「部分接管，未配类型用此兜底」；none→「兜底」。
                 if (sel.node_type === "ai_generate" && (f.key === "prompt_template_id" || f.key === "count")) {
-                  const masked = f.key === "prompt_template_id" ? aiGenMask.template : aiGenMask.count;
+                  const cov = f.key === "prompt_template_id" ? aiGenMask.template : aiGenMask.count;
+                  const hint = cov.state === "full"
+                    ? "（已由上游问题源接管）"
+                    : cov.state === "partial"
+                    ? `（部分类型已接管，未配类型用此兜底：已配 ${cov.have}/${cov.total} 类）`
+                    : "（上游未配时的兜底）";
                   return (
                     <label className="agentField" key={f.key}>
-                      <span className="agentFieldLabel">
-                        {f.label}{masked ? "（已由上游问题源接管）" : "（上游未配时的兜底）"}
-                      </span>
+                      <span className="agentFieldLabel">{f.label}{hint}</span>
                       <input
                         type={f.key === "count" ? "number" : "text"}
-                        disabled={masked}
+                        disabled={cov.state === "full"}
                         value={String(sel.config[f.key] ?? "")}
                         onChange={(e) => updateNode(selected!, { config: { ...sel.config,
                           [f.key]: f.key === "count" ? Number(e.target.value) : e.target.value } })} />

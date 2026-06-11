@@ -520,13 +520,25 @@ def _parse_image_positions(raw: Any) -> list[tuple[int, int | None, str | None]]
     return out
 
 
-def _web_fallback_fill_category(db: Any, category: Any) -> int | None:
-    """为某栏目联网搜一张横版图入库，返回新图 id；失败/无图返回 None（best-effort，不抛）。"""
+def _web_fallback_fill_category(
+    db: Any, category: Any, image_search_query: str | None = None
+) -> int | None:
+    """为某栏目联网搜一张横版图入库，返回新图 id；失败/无图返回 None（best-effort，不抛）。
+
+    image_search_query 来自数据库可编辑的搜图关键词模板（image_search scope），None 时 baidu 用默认模板。
+    """
     from server.app.modules.image_library.service import store_image_bytes
     from server.app.shared import baidu
 
     try:
-        for cand in baidu.search_landscape_images(str(getattr(category, "name", "") or "")):
+        name = str(getattr(category, "name", "") or "")
+        # image_search_query 为 None 时不带该 kwarg，让 baidu 用自身默认模板
+        candidates = (
+            baidu.search_landscape_images(name)
+            if image_search_query is None
+            else baidu.search_landscape_images(name, query_template=image_search_query)
+        )
+        for cand in candidates:
             downloaded = baidu.download_image(cand.url)
             if downloaded is None:
                 continue
@@ -557,6 +569,7 @@ def _maybe_insert_images(
     *,
     available_categories: list[dict[str, Any]] | None = None,
     web_fallback: bool = False,
+    image_search_query: str | None = None,
 ) -> tuple[dict, int]:
     """按模型给的 image_positions 插图，返回 (新文档, 实插图数)。
 
@@ -605,7 +618,7 @@ def _maybe_insert_images(
             if category is None:
                 category = db.get(StockCategory, target_cat_id)
             if category is not None:
-                image_id = _web_fallback_fill_category(db, category)
+                image_id = _web_fallback_fill_category(db, category, image_search_query)
         if image_id is None:
             continue
 
@@ -709,8 +722,24 @@ def run_ai_format(
             text_nodes=text_nodes,
             available_categories=available_categories,
         )
+        # 陪衬游戏插图提示词 / 搜图关键词：优先用数据库可编辑模板，缺省回退内置常量。
+        image_search_query: str | None = None
         if include_images and web_fallback:
-            system_prompt += _WEB_FALLBACK_PROMPT_SUFFIX
+            from server.app.modules.prompt_templates.service import get_active_template_content
+            from server.app.shared.baidu import DEFAULT_IMAGE_SEARCH_QUERY
+
+            system_prompt += get_active_template_content(
+                db,
+                scope="image_companion",
+                user_id=user_id,
+                default=_WEB_FALLBACK_PROMPT_SUFFIX,
+            )
+            image_search_query = get_active_template_content(
+                db,
+                scope="image_search",
+                user_id=user_id,
+                default=DEFAULT_IMAGE_SEARCH_QUERY,
+            )
         response = _call_litellm_completion(
             model=settings.ai_format_model,
             api_key=api_key,
@@ -738,6 +767,7 @@ def run_ai_format(
                 db,
                 available_categories=available_categories,
                 web_fallback=web_fallback,
+                image_search_query=image_search_query,
             )
 
         # 第二道锁检查：写回前 refresh 再比一次指纹。模型耗时长，期间可能有新一轮排版抢锁，

@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from server.app.modules.prompt_templates.models import PromptTemplate
 from server.app.shared.errors import ValidationError
 
-VALID_PROMPT_SCOPES = {"generation", "ai_format"}
+VALID_PROMPT_SCOPES = {"generation", "ai_format", "image_search", "image_companion"}
 
 
 def _validate_scope(scope: str | None) -> None:
@@ -72,6 +72,31 @@ def get_visible_prompt_template(
         .filter(PromptTemplate.id == template_id)
         .first()
     )
+
+
+def get_active_template_content(
+    db: Session, *, scope: str, user_id: int | None, default: str
+) -> str:
+    """取该 scope「当前生效」模板的内容（用于全局调优旋钮，如搜图词/陪衬提示词）。
+
+    语义=「当前启用的那一条」（区别于 generation/ai_format 的按 id 随机抽）：在用户可见
+    （本人私有 + 系统）、未软删、已启用的同 scope 模板里，本人模板优先于系统、再按最近更新取首条。
+    无 user_id（理论上不该发生在 web_fallback 路径）或无命中 → 返回 default。
+    用户靠启停切换做 A/B：同 scope 同时只启用一条即确定。
+    """
+    _validate_scope(scope)
+    if user_id is None:
+        return default
+    template = (
+        _visible_query(db, user_id=user_id, scope=scope)
+        .filter(PromptTemplate.is_enabled == True)  # noqa: E712
+        # is_system asc → 本人模板(False<True)排前；再按最近更新
+        .order_by(PromptTemplate.is_system.asc(), PromptTemplate.updated_at.desc())
+        .first()
+    )
+    if template is None or not (template.content or "").strip():
+        return default
+    return template.content
 
 
 def create_prompt_template(

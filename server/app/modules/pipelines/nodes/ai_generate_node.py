@@ -96,12 +96,21 @@ def run_ai_generate(ctx: NodeRunContext) -> NodeResult:
     model = cfg.get("model")
     max_count = get_settings().ai_generate_max_count
 
-    units = ctx.inputs.get("generation_units")
+    # 结构化交接字段（generation_units / question_text）应始终从问题源传到本节点。
+    # 默认透传已能带过来；但若下游显式配了不含该字段的 inputMapping，会把它从 inputs 里筛掉。
+    # 这里兜底回退到完整 upstream，避免 per-type 模板/数量被「字段映射」悄悄丢弃（见根因③）。
+    upstream = ctx.upstream or {}
+    units = ctx.inputs.get("generation_units") or upstream.get("generation_units")
     if units:
         return _run_units(ctx, cfg, units, model, max_count)
 
     # 扁平模式（原行为，未改动语义）
-    question_text = ctx.inputs.get("question_text") or cfg.get("question_text") or ""
+    question_text = (
+        ctx.inputs.get("question_text")
+        or upstream.get("question_text")
+        or cfg.get("question_text")
+        or ""
+    )
     if not question_text:
         raise ValidationError("ai_generate 节点缺少 question_text（上游未传且未配置）")
 

@@ -303,19 +303,47 @@ export function AddAuthorizationDialog({
                 )}
               </div>
 
-              <div className="addAuthAvatarUpload" onClick={() => {}}>
-                <Camera size={20} />
-                <span>上传</span>
-              </div>
+              {isApiPlatform && (
+                <div className="addAuthWeChatSection">
+                  <div className="addAuthWeChatHeader">
+                    <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--fg)" }}>公众号专属配置</span>
+                  </div>
+                  <div className="addAuthField">
+                    <div className="addAuthLabel">AppID</div>
+                    <input
+                      className="addAuthInput"
+                      placeholder="填写公众号 AppID"
+                      value={appId}
+                      onChange={(e) => setAppId(e.target.value)}
+                    />
+                  </div>
+                  <div className="addAuthField">
+                    <div className="addAuthLabel">AppSecret</div>
+                    <input
+                      className="addAuthInput"
+                      placeholder="填写公众号 AppSecret"
+                      type="password"
+                      value={appSecret}
+                      onChange={(e) => setAppSecret(e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
 
               <div className="addAuthField">
                 <div className="addAuthLabel">账号名称 *</div>
-                <input
-                  className="addAuthInput"
-                  placeholder="例如：纪缘"
-                  value={displayName}
-                  onChange={(e) => setDisplayName(e.target.value)}
-                />
+                <div className="addAuthNameRow">
+                  <div className="addAuthAvatarUpload" onClick={() => {}}>
+                    <Camera size={18} />
+                    <span>上传</span>
+                  </div>
+                  <input
+                    className="addAuthInput"
+                    placeholder="例如：纪缘"
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                  />
+                </div>
               </div>
 
               <div className="addAuthField">
@@ -351,33 +379,6 @@ export function AddAuthorizationDialog({
                   <span className="addAuthToggleKnob" />
                 </button>
               </div>
-
-              {isApiPlatform && (
-                <div className="addAuthWeChatSection">
-                  <div className="addAuthWeChatHeader">
-                    <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--fg)" }}>公众号专属配置</span>
-                  </div>
-                  <div className="addAuthField">
-                    <div className="addAuthLabel">AppID</div>
-                    <input
-                      className="addAuthInput"
-                      placeholder="填写公众号 AppID"
-                      value={appId}
-                      onChange={(e) => setAppId(e.target.value)}
-                    />
-                  </div>
-                  <div className="addAuthField">
-                    <div className="addAuthLabel">AppSecret</div>
-                    <input
-                      className="addAuthInput"
-                      placeholder="填写公众号 AppSecret"
-                      type="password"
-                      value={appSecret}
-                      onChange={(e) => setAppSecret(e.target.value)}
-                    />
-                  </div>
-                </div>
-              )}
             </div>
             <div className="addAuthFooter">
               <button type="button" className="secondaryButton" onClick={handleClose}>取消</button>
