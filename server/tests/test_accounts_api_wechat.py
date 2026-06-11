@@ -396,3 +396,28 @@ def test_verified_api_account_accepted_by_task_path(monkeypatch):
             assert recs[0].account_id == account_id  # 公众号账号成功落记录（草稿箱路径）
     finally:
         test_app.cleanup()
+
+
+def test_export_excludes_soft_deleted_accounts(monkeypatch):
+    test_app = build_test_app(monkeypatch)
+    try:
+        _ensure_wechat_platform(test_app)
+        deleted_id = test_app.client.post("/api/accounts", json=_create_payload()).json()["id"]
+        live_id = test_app.client.post(
+            "/api/accounts",
+            json=_create_payload(
+                display_name="存活号",
+                api_credentials={"app_id": "wxLIVEKEEP0001", "app_secret": "live-secret-7b2c"},
+            ),
+        ).json()["id"]
+
+        assert test_app.client.delete(f"/api/accounts/{deleted_id}").status_code == 204
+
+        resp = test_app.client.post("/api/accounts/export", json={})
+        assert resp.status_code == 200, resp.text
+        with zipfile.ZipFile(BytesIO(resp.content)) as archive:
+            names = archive.namelist()
+            assert any(n.startswith(f"accounts/wechat_mp-{live_id}/") for n in names), names
+            assert not any(n.startswith(f"accounts/wechat_mp-{deleted_id}/") for n in names), names
+    finally:
+        test_app.cleanup()
