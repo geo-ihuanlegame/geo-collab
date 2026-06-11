@@ -880,9 +880,23 @@ def build_publish_runner_for_record(record: PublishRecord):
     浏览器平台驱动选择仍在 runner.run_publish 内按账号 state_path 的 platform_code 决定。
     懒导入 runner 避免循环依赖。
     """
-    from server.app.modules.tasks.drivers import is_api_driver, resolve_driver
+    from server.app.modules.tasks.drivers import (
+        is_api_driver,
+        is_driver_registered,
+        resolve_driver,
+    )
 
     platform_code = record.platform.code if record.platform is not None else None
+    # 驱动未在本进程注册时（多为某进程漏 import，见 drivers/bootstrap.py）显式报错，
+    # 不要静默回退浏览器 run_publish——那会把根因伪装成误导性的「需要 storage_state」。
+    if platform_code and not is_driver_registered(platform_code):
+        from server.app.modules.tasks.drivers.base import PublishError
+
+        raise PublishError(
+            f"平台 {platform_code!r} 的发布驱动未在本进程注册；"
+            "请确认进程已 import server.app.modules.tasks.drivers.bootstrap"
+        )
+
     if platform_code and is_api_driver(platform_code):
         from server.app.modules.tasks.runner_api import run_publish_api
 

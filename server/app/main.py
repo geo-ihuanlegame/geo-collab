@@ -81,10 +81,9 @@ def create_app() -> FastAPI:
     ensure_data_dirs()
 
     # 导入触发注册副作用：pipelines 节点类型 + 所有平台驱动
+    # 驱动注册集中在 drivers.bootstrap，web 进程与发布 worker 共用同一份，避免漂移（见该模块注释）。
     import server.app.modules.pipelines.nodes  # noqa: F401
-    import server.app.modules.tasks.drivers.toutiao  # noqa: F401
-    import server.app.modules.tasks.drivers.toutiao_inpage  # noqa: F401
-    import server.app.modules.tasks.drivers.wechat_mp  # noqa: F401
+    import server.app.modules.tasks.drivers.bootstrap  # noqa: F401
 
     app = FastAPI(
         title="Geo Collab API",

@@ -22,11 +22,10 @@ from sqlalchemy import update as sa_update
 
 import server.app.modules.image_library.models  # noqa: F401  # 确保 StockCategory 注册到映射注册表（Article.stock_category 关系依赖它）
 
-# 导入全部驱动以触发注册。worker 与 Web 应用是不同进程，
-# 因此必须自行注册默认 DOM 驱动和页内变体，
-# 这样 GEO_TOUTIAO_DRIVER=inpage 在这里也能生效。
-import server.app.modules.tasks.drivers.toutiao  # noqa: F401
-import server.app.modules.tasks.drivers.toutiao_inpage  # noqa: F401
+# 导入全部驱动以触发注册。worker 与 Web 应用是不同进程，因此必须自行注册全部驱动
+# （含默认 DOM 驱动、页内变体、wechat_mp 等 API 驱动）。注册集中在 drivers.bootstrap，
+# 与 main.py 共用同一份，避免「main.py 加了驱动忘了同步 worker」的漂移。
+import server.app.modules.tasks.drivers.bootstrap  # noqa: F401
 from server.app.core.time import utcnow
 from server.app.db.session import SessionLocal
 from server.app.modules.accounts import process_account_login_session_requests

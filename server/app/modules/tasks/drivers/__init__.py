@@ -94,3 +94,12 @@ def is_api_driver(platform_code: str) -> bool:
     """Return whether the default driver publishes through a server-side API path."""
     driver = _REGISTRY.get(platform_code)
     return getattr(driver, "mode", "browser") == "api"
+
+
+def is_driver_registered(platform_code: str) -> bool:
+    """该 platform_code 是否在**本进程**注册了默认驱动。
+
+    注册是 import 副作用、按进程隔离的（见 drivers/bootstrap.py）：某进程漏 import 某驱动时，
+    is_api_driver 会静默把它当浏览器驱动。调度层据此显式报错，而非悄悄走错路径。
+    """
+    return platform_code in _REGISTRY
