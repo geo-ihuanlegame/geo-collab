@@ -1,4 +1,5 @@
 import type { Account } from "../../types";
+import { assetSrc } from "../../api/core";
 
 export function AccountRow({
   account,
@@ -26,7 +27,15 @@ export function AccountRow({
       <div className="accountRowCell accountRowCellAccount">
         <div className="accountRowAvatar">
           <span className="accountRowAvatarCircle">
-            {account.display_name.slice(0, 1)}
+            {account.avatar_asset_id ? (
+              <img
+                className="accountRowAvatarImg"
+                src={assetSrc(account.avatar_asset_id) ?? undefined}
+                alt=""
+              />
+            ) : (
+              account.display_name.slice(0, 1)
+            )}
           </span>
           <span
             className="accountRowStatusDot"

@@ -4,8 +4,12 @@ import zipfile
 from io import BytesIO
 from pathlib import Path
 
+from fastapi.testclient import TestClient
+
+from server.app.core.security import create_access_token
 from server.app.modules.accounts import RemoteBrowserSession
 from server.app.modules.accounts.models import Account
+from server.app.modules.system.models import User
 from server.tests.utils import build_test_app
 
 
@@ -277,6 +281,48 @@ def test_account_check_relogin_and_delete(monkeypatch):
         deleted = client.delete(f"/api/accounts/{account['id']}")
         assert deleted.status_code == 204
         assert client.get("/api/accounts").json() == []
+    finally:
+        test_app.cleanup()
+
+
+def test_operator_cannot_delete_account_gets_clear_reason(monkeypatch):
+    """普通(operator)账号删除媒体矩阵账号：被 require_admin 拦截，返回 403「需要管理员权限」，
+
+    与删文章/删分组的边界一致；账号仍在；admin 仍可删。清晰说明由前端承担（点删除即提示、不发请求）。
+    """
+    test_app = build_test_app(monkeypatch)
+    admin_client = test_app.client
+    install_fake_driver(monkeypatch)
+
+    try:
+        write_storage_state(test_app.data_dir, "demo")
+        account = admin_client.post(
+            "/api/accounts/toutiao/login",
+            json={"display_name": "测试头条号", "account_key": "demo", "use_browser": False},
+        ).json()
+
+        # 造一个 operator，以其身份请求删除
+        with test_app.session_factory() as db:
+            op = User(
+                username="op_del", role="operator", is_active=True, must_change_password=False
+            )
+            op.set_password("pass1234")
+            db.add(op)
+            db.commit()
+            db.refresh(op)
+            token = create_access_token(op.id, op.role)
+        op_client = TestClient(test_app.client.app)
+        op_client.cookies["access_token"] = token
+
+        resp = op_client.delete(f"/api/accounts/{account['id']}")
+        assert resp.status_code == 403
+        assert resp.json()["detail"] == "需要管理员权限"
+
+        # 账号未被删除，admin 视角仍可见
+        assert len(admin_client.get("/api/accounts").json()) == 1
+
+        # admin 自己仍可正常删除
+        assert admin_client.delete(f"/api/accounts/{account['id']}").status_code == 204
     finally:
         test_app.cleanup()
 

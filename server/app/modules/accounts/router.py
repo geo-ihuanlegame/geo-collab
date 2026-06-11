@@ -499,6 +499,9 @@ def delete_existing_account(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ) -> Response:
+    # 媒体矩阵账号删除收归管理员：require_admin 兜底，非 admin → 403「需要管理员权限」，
+    # 与删文章/删分组的安全边界一致（test_security_boundaries）。
+    # operator 的"为什么不给删"清晰说明由前端承担（点删除直接提示、不发请求，见 AccountRow）。
     from server.app.shared.errors import ClientError
 
     account = _verify_account_ownership(get_account(db, account_id), current_user)

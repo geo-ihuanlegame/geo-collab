@@ -401,6 +401,63 @@ def test_headings_only_prompt_includes_node_text():
     assert "1 [段落]" in prompt
 
 
+def test_image_prompt_offers_game_field_when_web_fallback_on():
+    """根因修复：自动建陪衬栏目这条路必须被提示词【正文】鼓励、带示例，而不是只靠末尾弱后缀。
+
+    web_fallback=True 时组装出的配图提示词应包含 game 字段用法（让模型点名列表外游戏）；
+    关时不出现（向后兼容，纯 category_id 行为）。覆盖 #76 之后的 AI配图 联网兜底根因。
+    """
+    from server.app.modules.articles.ai_format import _load_ai_format_prompt
+
+    text_nodes = [
+        (0, {"type": "paragraph", "content": [{"type": "text", "text": "某款手游真好玩"}]})
+    ]
+    cats = [{"id": 5, "name": "主推A", "description": None}]
+
+    on = _load_ai_format_prompt(
+        None,
+        preset_id=None,
+        user_id=None,
+        include_images=True,
+        text_nodes=text_nodes,
+        available_categories=cats,
+        web_fallback=True,
+    )
+    off = _load_ai_format_prompt(
+        None,
+        preset_id=None,
+        user_id=None,
+        include_images=True,
+        text_nodes=text_nodes,
+        available_categories=cats,
+        web_fallback=False,
+    )
+
+    # 开：明确给出 game 字段用法（点名列表外游戏）
+    assert '"game"' in on
+    assert "用游戏名" in on
+    # 关：完全不出现 game 指引，保持纯 category_id
+    assert '"game"' not in off
+    assert "用游戏名" not in off
+
+
+def test_headings_only_prompt_ignores_web_fallback():
+    """纯小标题识别（include_images=False）不配图，更不应出现联网兜底 game 指引。"""
+    from server.app.modules.articles.ai_format import _load_ai_format_prompt
+
+    text_nodes = [(0, {"type": "paragraph", "content": [{"type": "text", "text": "正文"}]})]
+    prompt = _load_ai_format_prompt(
+        None,
+        preset_id=None,
+        user_id=None,
+        include_images=False,
+        text_nodes=text_nodes,
+        available_categories=[],
+        web_fallback=True,
+    )
+    assert '"game"' not in prompt
+
+
 def test_render_ai_format_prompt_strict_undefined_raises():
     from jinja2 import UndefinedError
 

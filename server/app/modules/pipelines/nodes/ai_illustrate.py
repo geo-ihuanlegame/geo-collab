@@ -38,7 +38,7 @@ def run_ai_illustrate(ctx: NodeRunContext) -> NodeResult:
 
     errors: list[str] = []
 
-    def _one(article_id: int) -> None:
+    def _one(article_id: int) -> int:
         from server.app.modules.articles.models import Article
         from server.app.modules.system.models import User
 
@@ -50,9 +50,9 @@ def run_ai_illustrate(ctx: NodeRunContext) -> NodeResult:
         try:
             article = db.get(Article, article_id)
             if article is None or article.is_deleted:
-                return
+                return 0
             if not has_ai_format_targets(article.content_json):
-                return
+                return 0
             user = db.get(User, ctx.user_id)
             effective_preset = (
                 cfg_preset_id
@@ -69,7 +69,7 @@ def run_ai_illustrate(ctx: NodeRunContext) -> NodeResult:
         finally:
             db.close()
 
-        run_ai_format(
+        return run_ai_format(
             article_id,
             include_images=True,
             lock_started_at=lock_started_at,
@@ -79,17 +79,45 @@ def run_ai_illustrate(ctx: NodeRunContext) -> NodeResult:
             web_fallback=web_fallback,
         )
 
+    images_inserted = 0
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {pool.submit(_one, aid): aid for aid in article_ids}
         for fut in as_completed(futures):
             try:
-                fut.result()
+                images_inserted += fut.result() or 0
             except Exception as exc:  # 单篇失败不中断，交由运行聚合为 partial_failed
                 errors.append(f"article {futures[fut]}: {exc}")
 
+    # run_ai_format 会吞掉自身异常并把详情写进 article.ai_format_error（不会进上面的 errors）。
+    # 回读出来一并暴露，否则配图失败 / 0 张图也只显示成功——正是用户原始痛点。
+    format_errors = _collect_format_errors(ctx, article_ids)
+
     return NodeResult(
-        output={"article_ids": article_ids, "errors": errors}, article_ids=article_ids
+        output={
+            "article_ids": article_ids,
+            "errors": errors,
+            "images_inserted": images_inserted,
+            "format_errors": format_errors,
+        },
+        article_ids=article_ids,
     )
+
+
+def _collect_format_errors(ctx: NodeRunContext, article_ids: list[int]) -> list[str]:
+    """回读各文章被 run_ai_format 吞掉的 ai_format_error，拼成 'article {id}: {错误}' 列表。"""
+    from server.app.modules.articles.models import Article
+
+    out: list[str] = []
+    db = ctx.session_factory()
+    try:
+        for aid in article_ids:
+            article = db.get(Article, aid)
+            err = getattr(article, "ai_format_error", None) if article is not None else None
+            if err:
+                out.append(f"article {aid}: {err}")
+    finally:
+        db.close()
+    return out
 
 
 register("ai_illustrate", run_ai_illustrate)

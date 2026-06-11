@@ -123,6 +123,53 @@ def test_ai_illustrate_companion_toggle_off(monkeypatch):
 
 
 @pytest.mark.mysql
+def test_ai_illustrate_surfaces_image_count_and_swallowed_errors(monkeypatch):
+    """节点须回传实际插图数与被 run_ai_format 吞掉的逐篇排版错误，
+
+    否则 0 张图 / 全失败也显示成功（用户原始痛点：跑成功但没图、没提示）。
+    """
+    app = build_test_app(monkeypatch)
+    try:
+        main_id = _make_category(app, "主推A", "main-a", "main")
+        ok_id = _make_article(app.client)
+        fail_id = _make_article(app.client)
+        uid = _uid(app)
+
+        def _stub(article_id, **kw):
+            # 模拟 run_ai_format：ok 篇配 2 张图；fail 篇配图失败、把错误写进 ai_format_error（不抛）
+            from server.app.modules.articles.models import Article
+
+            if article_id == fail_id:
+                with app.session_factory() as db:
+                    a = db.get(Article, fail_id)
+                    a.ai_format_error = "AI 排版失败：DeepSeek 账户余额不足"
+                    a.ai_checking = False
+                    a.ai_checking_started_at = None
+                    db.commit()
+                return 0
+            return 2
+
+        monkeypatch.setattr("server.app.modules.pipelines.nodes.ai_illustrate.run_ai_format", _stub)
+
+        from server.app.modules.pipelines.nodes.ai_illustrate import run_ai_illustrate
+        from server.app.modules.pipelines.nodes.base import NodeRunContext
+
+        res = run_ai_illustrate(
+            NodeRunContext(
+                session_factory=app.session_factory,
+                user_id=uid,
+                config={"main_category_id": main_id},
+                inputs={"article_ids": [ok_id, fail_id]},
+                upstream={},
+            )
+        )
+        assert res.output["images_inserted"] == 2
+        assert any(str(fail_id) in e and "余额不足" in e for e in res.output["format_errors"])
+    finally:
+        app.cleanup()
+
+
+@pytest.mark.mysql
 def test_ai_illustrate_empty_inputs(monkeypatch):
     app = build_test_app(monkeypatch)
     try:

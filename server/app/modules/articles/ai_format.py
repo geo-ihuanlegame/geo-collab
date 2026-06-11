@@ -299,6 +299,7 @@ def render_ai_format_prompt(
     available_categories: list[dict[str, Any]],
     max_images: int | None = None,
     min_spacing: int | None = None,
+    web_fallback: bool = False,
 ) -> str:
     derived_max_images, derived_min_spacing = _image_prompt_params(text_nodes)
     template = _template_env().from_string(template_source)
@@ -307,6 +308,7 @@ def render_ai_format_prompt(
         available_categories=available_categories,
         max_images=max_images if max_images is not None else derived_max_images,
         min_spacing=min_spacing if min_spacing is not None else derived_min_spacing,
+        web_fallback=web_fallback,
     )
 
 
@@ -320,11 +322,13 @@ def _fallback_prompt(
     include_images: bool,
     text_nodes: list[tuple[int, dict]] | None = None,
     available_categories: list[dict[str, Any]] | None = None,
+    web_fallback: bool = False,
 ) -> str:
     return render_ai_format_prompt(
         _builtin_prompt_template(include_images),
         text_nodes=text_nodes or [],
         available_categories=available_categories or [],
+        web_fallback=web_fallback,
     )
 
 
@@ -336,23 +340,36 @@ def _load_ai_format_prompt(
     include_images: bool,
     text_nodes: list[tuple[int, dict]] | None = None,
     available_categories: list[dict[str, Any]] | None = None,
+    web_fallback: bool = False,
 ) -> str:
+    """组装完整的 AI 排版/配图系统提示词。
+
+    联网兜底（web_fallback=True 且 include_images）的 game 字段指引在这里统一拼到末尾，
+    使本函数返回的就是模型最终看到的完整提示词——调用方（run_ai_format）不再二次拼接。
+    """
     if preset_id is None or user_id is None:
-        return _fallback_prompt(include_images, text_nodes, available_categories)
+        base = _fallback_prompt(include_images, text_nodes, available_categories, web_fallback)
+    else:
+        from server.app.modules.prompt_templates.service import get_visible_prompt_template
 
-    from server.app.modules.prompt_templates.service import get_visible_prompt_template
+        prompt = get_visible_prompt_template(db, preset_id, user_id=user_id, scope="ai_format")
+        if prompt is None or not prompt.is_enabled:
+            logger.info(
+                "ai_format preset %s unavailable; falling back to built-in prompt", preset_id
+            )
+            base = _fallback_prompt(include_images, text_nodes, available_categories, web_fallback)
+        else:
+            logger.info("ai_format using DB prompt template %s", preset_id)
+            base = render_ai_format_prompt(
+                prompt.content,
+                text_nodes=text_nodes or [],
+                available_categories=available_categories or [],
+                web_fallback=web_fallback,
+            )
 
-    prompt = get_visible_prompt_template(db, preset_id, user_id=user_id, scope="ai_format")
-    if prompt is None or not prompt.is_enabled:
-        logger.info("ai_format preset %s unavailable; falling back to built-in prompt", preset_id)
-        return _fallback_prompt(include_images, text_nodes, available_categories)
-
-    logger.info("ai_format using DB prompt template %s", preset_id)
-    return render_ai_format_prompt(
-        prompt.content,
-        text_nodes=text_nodes or [],
-        available_categories=available_categories or [],
-    )
+    if include_images and web_fallback:
+        base += _WEB_FALLBACK_PROMPT_SUFFIX
+    return base
 
 
 def _to_heading(node: dict, level: int = 1) -> dict:
@@ -485,14 +502,20 @@ def _call_litellm_completion(
     )
 
 
-# 联网兜底（额外能力）提示：仅 web_fallback 开时追加到系统提示词，让模型能点名库里没有的游戏。
+# 联网兜底提示：仅 web_fallback 开时由 _load_ai_format_prompt 拼到系统提示词末尾。
+# 关键：明确告诉模型「列表外的游戏不要放弃配图，改用 game 点名」，并给一个具体示例——
+# 否则正文里反复强调的「只能用列表内 category_id」会压过这条，模型对陪衬游戏一律返回空。
 _WEB_FALLBACK_PROMPT_SUFFIX = (
-    "\n\n【联网兜底（额外能力）】\n"
-    "若某段落明确属于某款游戏，但上方可用栏目列表里没有它，可在 image_positions 里"
-    '用游戏名代替 category_id：{"index": 段落索引, "game": "游戏中文名"}\n'
-    "- game 用规范中文游戏名（如「蛋仔派对」），不要带书名号/版本号/多余修饰\n"
-    "- 仅在确有把握该段落属于这款游戏时才用；不确定就不插\n"
-    "- 已在可用栏目列表里的游戏仍用 category_id，不要用 game\n"
+    "\n\n【联网兜底（已启用，重要）】\n"
+    "本文已开启联网兜底。段落明确属于某款游戏、但该游戏【不在】上方可用栏目列表里时，"
+    "不要因为它不在列表就放弃配图，而要在 image_positions 里用游戏名点名"
+    "（系统会自动建栏目并联网补图）：\n"
+    '  {"index": 段落索引, "game": "游戏中文名"}\n'
+    "- 列表内的游戏仍用 category_id；仅当游戏【不在】列表里、且你确有把握时才用 game\n"
+    "- game 用规范中文游戏名（如「蛋仔派对」），不带书名号/版本号/多余修饰\n"
+    "- 不确定段落属于哪款游戏就不插（宁缺勿错）\n"
+    "示例：第 3 段在讲一款叫「蛋仔派对」的游戏，而可用栏目里只有主推游戏、没有它 →\n"
+    '  image_positions 里加一项 {"index": 3, "game": "蛋仔派对"}\n'
 )
 
 
@@ -653,15 +676,19 @@ def run_ai_format(
     user_id: int | None = None,
     candidate_categories: list[dict[str, Any]] | None = None,
     web_fallback: bool = False,
-) -> None:
-    """识别正文小标题，并把更新后的 Tiptap 文档写回文章。
+) -> int:
+    """识别正文小标题，并把更新后的 Tiptap 文档写回文章。返回实际插入并落库的图片数。
 
     candidate_categories 非 None 时用它当配图候选栏目（方案自动配图用全部 bucket）；
     None 时回退到文章已分配的类别（手动 AI 排版按钮的现状行为）。
 
     web_fallback=True（仅 AI配图 节点开关）时：允许模型点名库里没有的陪衬游戏，
     缺图则联网搜图补充（见 _maybe_insert_images）。默认 False，其它调用方行为不变。
+
+    返回值仅供调用方观测（如 ai_illustrate 节点回传 images_inserted）；任何跳过/失败均返回 0，
+    失败详情照旧落到 article.ai_format_error。多数调用方忽略返回值，行为不变。
     """
+    images_inserted = 0
     db = None
     error_message: str | None = None
     try:
@@ -672,11 +699,11 @@ def run_ai_format(
 
         article = get_article(db, article_id)
         if article is None or article.is_deleted:
-            return
+            return images_inserted
         # 第一道锁检查：模型调用前。锁已被接管/超时清掉就别白跑一次昂贵的模型请求
         if not _article_lock_matches(article, lock_started_at):
             logger.info("ai_format skipped stale lock before model call for article %s", article_id)
-            return
+            return images_inserted
 
         content_json = loads_content_json(article.content_json)
         text_nodes = _non_empty_text_nodes(content_json)
@@ -684,7 +711,7 @@ def run_ai_format(
             logger.info(
                 "ai_format skipped article %s: no non-empty paragraph/heading nodes", article_id
             )
-            return
+            return images_inserted
 
         # 清 lru_cache 再取：拿运行时最新的 AI Key/模型配置（Key 启动时不校验，运维可能中途改）
         get_settings.cache_clear()
@@ -708,9 +735,8 @@ def run_ai_format(
             include_images=include_images,
             text_nodes=text_nodes,
             available_categories=available_categories,
+            web_fallback=web_fallback,
         )
-        if include_images and web_fallback:
-            system_prompt += _WEB_FALLBACK_PROMPT_SUFFIX
         response = _call_litellm_completion(
             model=settings.ai_format_model,
             api_key=api_key,
@@ -745,7 +771,7 @@ def run_ai_format(
         db.refresh(article)
         if not _article_lock_matches(article, lock_started_at):
             logger.info("ai_format skipped stale lock before write for article %s", article_id)
-            return
+            return images_inserted
 
         new_html, new_text = _derive_html_and_text(new_content_json)
         article.content_json = dumps_content_json(new_content_json)
@@ -754,6 +780,7 @@ def run_ai_format(
         article.version += 1
         article.updated_at = datetime.now(UTC).replace(tzinfo=None)
         db.commit()
+        images_inserted = image_count
         logger.info(
             "ai_format applied %d headings%s to article %s",
             len(heading_indices),
@@ -779,3 +806,4 @@ def run_ai_format(
                 db.rollback()
                 logger.exception("ai_format unlock failed for article %s", article_id)
             db.close()
+    return images_inserted

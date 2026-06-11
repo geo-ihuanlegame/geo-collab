@@ -127,8 +127,8 @@ def get_node_types() -> dict:
                         "type": "stock_category_main",
                         "label": "图片库 · 主推游戏",
                     },
-                    # 联网兜底：先落地开关 + 存配置；真正的联网搜图为后续独立任务，
-                    # 执行器暂不消费 web_fallback。
+                    # 联网兜底：开启后，模型可点名可用栏目外的陪衬游戏，执行器自动建栏目 +
+                    # 百度千帆搜图补图（需配 GEO_BAIDU_API_KEY）。见 ai_format._maybe_insert_images。
                     {
                         "key": "web_fallback",
                         "type": "toggle",
