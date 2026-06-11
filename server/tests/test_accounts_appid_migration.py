@@ -71,21 +71,29 @@ def test_migration_0045_cleans_dead_rows_and_swaps_constraint(monkeypatch):
         command.upgrade(cfg, "0045")
 
         with engine.connect() as conn:
-            row = conn.execute(
-                text(
-                    "SELECT platform_user_id, api_token_cache, api_credentials "
-                    "FROM accounts WHERE display_name='dead'"
+            row = (
+                conn.execute(
+                    text(
+                        "SELECT platform_user_id, api_token_cache, api_credentials "
+                        "FROM accounts WHERE display_name='dead'"
+                    )
                 )
-            ).mappings().one()
+                .mappings()
+                .one()
+            )
             assert row["platform_user_id"] is None
             assert row["api_token_cache"] is None
             creds = json.loads(row["api_credentials"])
             assert "app_secret" not in creds
             assert creds["app_id"] == "wxDEAD"
 
-            idx = conn.execute(
-                text("SHOW INDEX FROM accounts WHERE Key_name='uq_accounts_platform_user'")
-            ).mappings().all()
+            idx = (
+                conn.execute(
+                    text("SHOW INDEX FROM accounts WHERE Key_name='uq_accounts_platform_user'")
+                )
+                .mappings()
+                .all()
+            )
             cols = {r["Column_name"] for r in idx}
             assert cols == {"platform_id", "platform_user_id"}
     finally:

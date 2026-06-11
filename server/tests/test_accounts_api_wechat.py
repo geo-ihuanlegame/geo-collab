@@ -328,7 +328,7 @@ def test_delete_wechat_account_frees_identity_slot(monkeypatch):
             assert acc.platform_user_id is None
             assert acc.api_token_cache is None
             creds = acc.api_credentials or {}
-            assert "app_secret" not in creds          # 密钥已抹除
+            assert "app_secret" not in creds  # 密钥已抹除
             assert creds.get("app_id") == "wx8f2a91c0d3e5b6"  # app_id 保留供审计
     finally:
         test_app.cleanup()

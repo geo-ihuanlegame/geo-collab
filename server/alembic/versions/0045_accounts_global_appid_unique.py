@@ -44,11 +44,10 @@ def upgrade() -> None:
         )
     ).fetchall()
     if dupes:
-        detail = "; ".join(
-            f"platform_id={r[0]} app_id={r[1]} 重复行 id=[{r[2]}]" for r in dupes
-        )
+        detail = "; ".join(f"platform_id={r[0]} app_id={r[1]} 重复行 id=[{r[2]}]" for r in dupes)
         raise RuntimeError(
-            "迁移中止：存在跨用户重复的活账号 app_id，无法切换为全局唯一，请先人工合并/删除：" + detail
+            "迁移中止：存在跨用户重复的活账号 app_id，无法切换为全局唯一，请先人工合并/删除："
+            + detail
         )
 
     # 3) 切换唯一约束：(user_id, platform_id, platform_user_id) → (platform_id, platform_user_id)
