@@ -15,7 +15,24 @@ import type { PromptScope, PromptTemplate } from "../../types";
 const scopeTabs: { scope: PromptScope; label: string }[] = [
   { scope: "generation", label: "AI生文提示词" },
   { scope: "ai_format", label: "AI格式提示词" },
+  { scope: "image_search", label: "搜图关键词" },
+  { scope: "image_companion", label: "陪衬配图提示词" },
 ];
+
+// 每个 scope 在编辑弹窗里的填写提示，帮助快速上手测试调优
+const scopeHints: Partial<Record<PromptScope, string>> = {
+  image_search:
+    "百度搜图关键词。用 {game} 占位游戏名（AI 判断出的游戏），如「{game} 横版 官方宣传图」会搜「原神 横版 官方宣传图」；不写 {game} 则自动在游戏名后空格拼接。同类目同时只启用一条生效，配合启停做 A/B 测试。",
+  image_companion:
+    "AI 配图时「陪衬游戏（图库里没有的游戏）」插图的额外提示词，调它可影响 AI 对陪衬游戏配图的积极度。同类目同时只启用一条生效。",
+};
+
+function placeholderFor(scope: PromptScope): string {
+  if (scope === "image_search") return "如：{game} 横版 官方宣传图";
+  if (scope === "image_companion") return "陪衬游戏插图的额外提示词";
+  if (scope === "ai_format") return "用于 AI 格式调整的系统提示词";
+  return "用于 AI 生文的提示词";
+}
 
 function HighlightedContent({ text }: { text: string }) {
   const parts = text.split(/(\{\{[^}]+\}\})/);
@@ -97,6 +114,7 @@ function PromptModal({
       }
     >
       <div className="promptModalBody">
+        {scopeHints[scope] && <p className="aiHintText">{scopeHints[scope]}</p>}
         <label className="aiFormGroup">
           <span className="aiFormLabel">名称</span>
           <input
@@ -111,7 +129,7 @@ function PromptModal({
           <textarea
             className="aiTextarea"
             style={{ minHeight: 420 }}
-            placeholder={scope === "ai_format" ? "用于 AI 格式调整的系统提示词" : "用于 AI 生文的提示词"}
+            placeholder={placeholderFor(scope)}
             value={content}
             onChange={(e) => setContent(e.target.value)}
           />

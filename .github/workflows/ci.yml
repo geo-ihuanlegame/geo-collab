@@ -32,6 +32,10 @@ jobs:
               - 'pyproject.toml'
               - 'alembic.ini'
               - '.github/workflows/**'
+              # 部署/构建相关：改这些不再算「纯文档」，否则会零验证直接报绿合并
+              - 'Dockerfile*'
+              - 'docker-compose*.yml'
+              - '.dockerignore'
 
   # ── 后端质量门禁：ruff / format / mypy（whole-codebase，不分片，与测试并行）──
   lint:
@@ -154,3 +158,37 @@ jobs:
       - name: Build
         if: needs.changes.outputs.code == 'true'
         run: pnpm --filter @geo/web build
+
+  # ── 依赖安全扫描：pip-audit（后端）+ pnpm audit（前端）。非阻塞、纯观察。──
+  # 刻意不进必需检查、不参与 backend/frontend 门禁：发现 CVE 只在日志里告警，
+  # 不卡合并。等噪声摸清、确定要硬卡时，再去掉 continue-on-error 并加进 ruleset。
+  security-audit:
+    needs: changes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install pip-audit
+        if: needs.changes.outputs.code == 'true'
+        run: python -m pip install --upgrade pip pip-audit
+      - name: pip-audit (non-blocking)
+        if: needs.changes.outputs.code == 'true'
+        continue-on-error: true
+        run: pip-audit -r requirements.txt -r requirements-dev.txt
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "10.4.0"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+      - name: Install web deps
+        if: needs.changes.outputs.code == 'true'
+        run: pnpm install --frozen-lockfile
+      - name: pnpm audit (non-blocking)
+        if: needs.changes.outputs.code == 'true'
+        continue-on-error: true
+        run: pnpm audit --audit-level moderate

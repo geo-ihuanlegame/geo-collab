@@ -1,3 +1,5 @@
+"""Pipeline API 的 Pydantic 入参 / 出参模型（创建 / 局部更新 / 读出 / 草稿 / 版本 / 运行 / 运行日志分页）。"""
+
 from __future__ import annotations
 
 from datetime import datetime, time
@@ -94,3 +96,20 @@ class RunRead(BaseModel):
     created_at: datetime
     completed_at: datetime | None = None
     model_config = ConfigDict(from_attributes=True)
+
+
+class RunLogRow(BaseModel):
+    batch: int
+    run_status: str
+    step: int
+    task_name: str
+    level: str  # "ERROR" | "INFO"（错误 | 信息）
+    message: str
+    time: datetime | None = None
+
+
+class RunLogPage(BaseModel):
+    items: list[RunLogRow]
+    total: int
+    page: int
+    page_size: int

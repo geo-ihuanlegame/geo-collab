@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { listAccounts } from "../../api/accounts";
+import { listAccounts, listPlatforms } from "../../api/accounts";
 import { listArticleGroups, listArticles } from "../../api/articles";
 import { newClientRequestId, singleFlight } from "../../api/core";
 import {
@@ -14,11 +14,13 @@ import {
   resolveRecordUserInput,
   retryRecord as retryRecordRequest,
 } from "../../api/tasks";
-import type { Task, TaskCreatePayload, Account, ArticleGroup, ArticleSummary, PublishRecord, TaskLog, AssignmentPreview } from "../../types";
+import type { Task, TaskCreatePayload, PublishRecord, TaskLog, AssignmentPreview } from "../../types";
 import { TERMINAL_STATUSES, statusLabel } from "../../types";
 import { Plus, RefreshCw, Send } from "lucide-react";
 import { useToast } from "../../components/Toast";
+import { useApiData, usePolling } from "../../hooks/useApiData";
 import { formatDate, formatDateTime, formatTime } from "../../utils/dateFormat";
+import { openRemoteBrowser } from "../../utils/remoteBrowser";
 import { Pagination } from "../../components/Pagination";
 
 const TASK_PAGE_SIZE = 10;
@@ -56,9 +58,14 @@ export function TasksWorkspace({ isActive }: { isActive?: boolean } = {}) {
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [records, setRecords] = useState<PublishRecord[]>([]);
   const [logs, setLogs] = useState<TaskLog[]>([]);
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [articles, setArticles] = useState<ArticleSummary[]>([]);
-  const [groups, setGroups] = useState<ArticleGroup[]>([]);
+  const { data: accountsData, refresh: refreshAccounts } = useApiData(listAccounts);
+  const { data: articlesData, refresh: refreshArticles } = useApiData(listArticles);
+  const { data: groupsData, refresh: refreshGroups } = useApiData(listArticleGroups);
+  const { data: platformsData } = useApiData(listPlatforms);
+  const accounts = useMemo(() => accountsData ?? [], [accountsData]);
+  const articles = useMemo(() => articlesData ?? [], [articlesData]);
+  const groups = useMemo(() => groupsData ?? [], [groupsData]);
+  const platforms = useMemo(() => platformsData ?? [], [platformsData]);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [loading, setLoading] = useState(false);
   const [autoRefreshTaskIds, setAutoRefreshTaskIds] = useState<Set<number>>(new Set());
@@ -69,6 +76,7 @@ export function TasksWorkspace({ isActive }: { isActive?: boolean } = {}) {
   const [formArticleId, setFormArticleId] = useState<number | null>(null);
   const [formGroupId, setFormGroupId] = useState<number | null>(null);
   const [formAccountIds, setFormAccountIds] = useState<number[]>([]);
+  const [formPlatformFilter, setFormPlatformFilter] = useState<string>("");
   const [preview, setPreview] = useState<AssignmentPreview | null>(null);
   const [formError, setFormError] = useState("");
 
@@ -91,6 +99,7 @@ export function TasksWorkspace({ isActive }: { isActive?: boolean } = {}) {
   const hasActiveTasks = tasks.some(isTaskActive);
   const articleMap = useMemo(() => Object.fromEntries(articles.map((a) => [a.id, a])), [articles]);
   const accountMap = useMemo(() => Object.fromEntries(accounts.map((a) => [a.id, a])), [accounts]);
+  const platformMap = useMemo(() => Object.fromEntries(platforms.map((p) => [p.code, p])), [platforms]);
   const sortedTasks = useMemo(
     () => tasks.slice().sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
     [tasks],
@@ -99,7 +108,7 @@ export function TasksWorkspace({ isActive }: { isActive?: boolean } = {}) {
   const pagedTasks = sortedTasks.slice(taskPage * TASK_PAGE_SIZE, (taskPage + 1) * TASK_PAGE_SIZE);
 
   useEffect(() => {
-    void loadInitial();
+    void loadTasks();
   }, []);
 
   useEffect(() => {
@@ -108,22 +117,21 @@ export function TasksWorkspace({ isActive }: { isActive?: boolean } = {}) {
       return;
     }
     if (!isActive) return;
-    void loadInitial();
-  }, [isActive]);
+    void loadTasks();
+    void refreshAccounts();
+    void refreshArticles();
+    void refreshGroups();
+  }, [isActive, refreshAccounts, refreshArticles, refreshGroups]);
 
-  useEffect(() => {
-    if (!hasActiveTasks) return;
-    const timer = window.setInterval(async () => {
-      try {
-        const nextTasks = await listTasks();
-        setTasks(nextTasks);
-        setAutoRefreshTaskIds((prev) => pruneFinishedAutoRefreshIds(prev, nextTasks));
-      } catch (error) {
-        console.warn("Failed to refresh task list", error);
-      }
-    }, TASK_LIST_REFRESH_MS);
-    return () => window.clearInterval(timer);
-  }, [hasActiveTasks]);
+  usePolling(
+    async () => {
+      const nextTasks = await listTasks();
+      setTasks(nextTasks);
+      setAutoRefreshTaskIds((prev) => pruneFinishedAutoRefreshIds(prev, nextTasks));
+    },
+    TASK_LIST_REFRESH_MS,
+    hasActiveTasks,
+  );
 
   useEffect(() => {
     if (!selectedTaskId || !shouldStreamSelectedTask) return;
@@ -182,15 +190,14 @@ export function TasksWorkspace({ isActive }: { isActive?: boolean } = {}) {
     return () => { es.close(); };
   }, [selectedTaskId, shouldStreamSelectedTask]);
 
-  useEffect(() => {
-    if (!selectedTaskId || !shouldFallbackPollSelectedTask) return;
-    const taskId = selectedTaskId;
-    const timer = window.setInterval(() => {
-      void refreshDetail(taskId).catch(() => {});
-    }, TASK_LIST_REFRESH_MS);
-    void refreshDetail(taskId).catch(() => {});
-    return () => window.clearInterval(timer);
-  }, [selectedTaskId, shouldFallbackPollSelectedTask]);
+  usePolling(
+    () => {
+      if (selectedTaskId) void refreshDetail(selectedTaskId).catch(() => {});
+    },
+    TASK_LIST_REFRESH_MS,
+    shouldFallbackPollSelectedTask,
+    { immediate: true },
+  );
 
   useEffect(() => {
     if (taskPage >= totalTaskPages) {
@@ -198,24 +205,12 @@ export function TasksWorkspace({ isActive }: { isActive?: boolean } = {}) {
     }
   }, [taskPage, totalTaskPages]);
 
-  async function loadInitial() {
+  async function loadTasks() {
     try {
-      const [tsRes, accsRes, artsRes, gsRes] = await Promise.allSettled([
-        listTasks(),
-        listAccounts(),
-        listArticles(),
-        listArticleGroups(),
-      ]);
-      if (tsRes.status === "fulfilled") setTasks(tsRes.value);
-      else console.warn("Failed to load tasks", tsRes.reason);
-      if (accsRes.status === "fulfilled") setAccounts(accsRes.value);
-      else console.warn("Failed to load accounts", accsRes.reason);
-      if (artsRes.status === "fulfilled") setArticles(artsRes.value);
-      else console.warn("Failed to load articles", artsRes.reason);
-      if (gsRes.status === "fulfilled") setGroups(gsRes.value);
-      else console.warn("Failed to load groups", gsRes.reason);
-    } catch (err) {
-      console.error("loadInitial failed", err);
+      const nextTasks = await listTasks();
+      setTasks(nextTasks);
+    } catch (error) {
+      console.warn("Failed to load tasks", error);
     }
   }
 
@@ -283,6 +278,12 @@ export function TasksWorkspace({ isActive }: { isActive?: boolean } = {}) {
       setFormError("请选择分组");
       return;
     }
+    const taskPlatforms = new Set(formAccountIds.map((id) => accountMap[id]?.platform_code));
+    if (taskPlatforms.size > 1) {
+      setFormError("所选账号跨平台，一个任务只能发同一个平台");
+      return;
+    }
+    const platformCode = accountMap[formAccountIds[0]]?.platform_code;
     setLoading(true);
     try {
       const payload: TaskCreatePayload = {
@@ -293,6 +294,7 @@ export function TasksWorkspace({ isActive }: { isActive?: boolean } = {}) {
         group_id: formType === "group_round_robin" ? formGroupId : null,
         accounts: formAccountIds.map((id, index) => ({ account_id: id, sort_order: index })),
         stop_before_publish: false,
+        platform_code: platformCode,
       };
       const task = await singleFlight("task-create", () =>
         createTaskRequest(payload),
@@ -434,28 +436,6 @@ export function TasksWorkspace({ isActive }: { isActive?: boolean } = {}) {
     }
   }
 
-  function openRemoteBrowser(url: string) {
-    const target = normalizeRemoteBrowserUrl(url);
-    window.open(target, "_blank", "noopener,noreferrer");
-  }
-
-  function normalizeRemoteBrowserUrl(rawUrl: string) {
-    const url = new URL(rawUrl, window.location.href);
-    const localHosts = new Set(["0.0.0.0", "127.0.0.1", "localhost"]);
-    if (localHosts.has(url.hostname)) {
-      url.hostname = window.location.hostname;
-      url.protocol = window.location.protocol;
-      url.port = window.location.port;
-      if (url.searchParams.has("host")) {
-        url.searchParams.set("host", window.location.hostname);
-      }
-      if (url.searchParams.has("port")) {
-        url.searchParams.set("port", window.location.port || (window.location.protocol === "https:" ? "443" : "80"));
-      }
-    }
-    return url.toString();
-  }
-
   function toggleAccount(accountId: number) {
     if (formType === "single") {
       setFormAccountIds([accountId]);
@@ -467,7 +447,7 @@ export function TasksWorkspace({ isActive }: { isActive?: boolean } = {}) {
     setPreview(null);
   }
 
-  const validAccounts = accounts.filter((a) => a.status !== "deleted");
+  const validAccounts = accounts.filter((a) => a.status !== "deleted" && (!formPlatformFilter || a.platform_code === formPlatformFilter));
   const canExecute = selectedTask && selectedTask.status === "pending";
   const canCancel = selectedTask && !selectedTask.cancel_requested && (selectedTask.status === "running" || selectedTask.status === "pending");
 
@@ -539,13 +519,26 @@ export function TasksWorkspace({ isActive }: { isActive?: boolean } = {}) {
               )}
               <div>
                 <p style={{ margin: "0 0 6px", fontSize: 13, color: "#475569" }}>发布账号</p>
-                {formType === "single" ? <p style={{ margin: "0 0 6px", fontSize: 12, color: "#e67e22" }}>单篇发布只能选一个账号</p> : null}
+                <div style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
+                  <select
+                    style={{ flex: 1, height: 32, border: "1px solid var(--hair)", borderRadius: "var(--r-sm)", padding: "0 8px", fontSize: 12 }}
+                    value={formPlatformFilter}
+                    onChange={(e) => { setFormPlatformFilter(e.target.value); setFormAccountIds([]); }}
+                  >
+                    <option value="">全部平台</option>
+                    {platforms.map((p) => (
+                      <option key={p.code} value={p.code}>{p.name}</option>
+                    ))}
+                  </select>
+                  {formType === "single" && <span style={{ fontSize: 12, color: "#e67e22" }}>单篇只能选一个账号</span>}
+                </div>
                 <div style={{ maxHeight: "200px", overflowY: "auto", border: "1px solid #e2e8f0", borderRadius: "4px", padding: "8px" }}>
                   {validAccounts.map((a) => (
                     <label key={a.id} className="checkLine">
                       <input type={formType === "single" ? "radio" : "checkbox"} name="formAccount" checked={formAccountIds.includes(a.id)} onChange={() => toggleAccount(a.id)} />
                       <span>{a.display_name}</span>
-                      {a.status !== "valid" && <span style={{ fontSize: 11, color: "#94a3b8", marginLeft: "4px" }}>({a.status})</span>}
+                      <span style={{ fontSize: 11, color: "#94a3b8", marginLeft: "4px" }}>({a.platform_name})</span>
+                      {a.status !== "valid" && <span style={{ fontSize: 11, color: "#94a3b8", marginLeft: "4px" }}>[{a.status}]</span>}
                     </label>
                   ))}
                 </div>
@@ -620,7 +613,7 @@ export function TasksWorkspace({ isActive }: { isActive?: boolean } = {}) {
               <div>
                 <h2 style={{ margin: "0 0 4px" }}>{selectedTask.name}</h2>
                 <small style={{ color: "#64748b", fontSize: 13 }}>
-                  {selectedTask.task_type === "single" ? "单篇发布" : "分组轮询"} · {selectedTask.platform_code}
+                  {selectedTask.task_type === "single" ? "单篇发布" : "分组轮询"} · {platformMap[selectedTask.platform_code]?.name ?? selectedTask.platform_code}
                   {selectedTask.started_at ? ` · 开始于 ${formatDateTime(selectedTask.started_at)}` : ""}
                   {selectedTask.cancel_requested ? " · 已请求取消" : ""}
                 </small>

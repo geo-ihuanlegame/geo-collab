@@ -1,5 +1,5 @@
 """
-任务模块 Pydantic schemas + 序列化函数。
+任务模块 Pydantic 请求 / 响应模型 + 序列化函数。
 
 合并自：
   - schemas/task.py
@@ -26,9 +26,10 @@ class TaskAccountInput(BaseModel):
 class TaskCreate(BaseModel):
     name: str = Field(min_length=1, max_length=300)
     client_request_id: str | None = Field(default=None, max_length=80)
-    task_type: str  # single / group_round_robin
+    task_type: str  # 任务类型：single / group_round_robin / article_round_robin
     article_id: int | None = None
     group_id: int | None = None
+    article_ids: list[int] | None = None  # 仅 article_round_robin 用
     platform_code: str = "toutiao"
     accounts: list[TaskAccountInput]
     stop_before_publish: bool = False
@@ -91,7 +92,7 @@ class TaskLogRead(BaseModel):
     id: int
     task_id: int
     record_id: int | None
-    level: str  # info / warn / error
+    level: str  # 日志级别：info / warn / error
     message: str
     screenshot_asset_id: str | None
     created_at: datetime
@@ -167,6 +168,7 @@ def to_task_read(task: "PublishTask") -> TaskRead:
 
 
 def to_record_read(record: "PublishRecord") -> PublishRecordRead:
+    """序列化发布记录，并附带当前关联的远程浏览器会话 id / noVNC 接管链接（无会话则为 None）。"""
     from server.app.modules.accounts import get_session_for_record  # 避免循环 import
 
     session = get_session_for_record(record.id)

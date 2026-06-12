@@ -1,8 +1,8 @@
-"""add review_status to articles
+"""为 articles 添加 review_status
 
-Revision ID: 0037
-Revises: 0036
-Create Date: 2026-06-04
+修订 ID: 0037
+上一修订: 0036
+创建日期: 2026-06-04
 """
 
 from typing import Sequence, Union

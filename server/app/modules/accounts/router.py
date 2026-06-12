@@ -1,7 +1,24 @@
-from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile, status
+"""账号模块 HTTP 路由（挂在 /api/accounts）：账号增删改查、登录会话、授权包导入导出。
+
+薄路由层——业务在 accounts.service / auth，这里只做鉴权、归属校验、序列化和审计。
+注意路由注册顺序：/{account_id:int}/login-session 必须在 /{platform_code}/login-session 之前。
+"""
+
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
+from server.app.core.limiter import limiter
 from server.app.core.security import get_current_user, require_admin
 from server.app.db.session import get_db
 from server.app.modules.accounts import (
@@ -15,11 +32,11 @@ from server.app.modules.accounts import (
     list_accounts,
     register_account_from_storage_state,
     relogin_account,
-    rename_account,
     start_account_login_session,
     start_login_session,
     stop_account_login_session,
 )
+from server.app.modules.accounts import service as account_service
 from server.app.modules.accounts.models import Account as AccountModel
 from server.app.modules.accounts.schemas import (
     AccountBrowserSessionFinishRead,
@@ -27,7 +44,8 @@ from server.app.modules.accounts.schemas import (
     AccountCheckRequest,
     AccountExportRequest,
     AccountRead,
-    AccountRenameRequest,
+    AccountUpdateRequest,
+    ApiAccountCreate,
     LoginSessionStatusRead,
     PlatformLoginRequest,
     to_account_read,
@@ -35,11 +53,13 @@ from server.app.modules.accounts.schemas import (
 from server.app.modules.audit.service import add_audit_entry
 from server.app.modules.system.models import User
 from server.app.modules.tasks.drivers import all_driver_codes, get_driver
+from server.app.shared.errors import ClientError
 
 router = APIRouter()
 
 
 def _verify_account_ownership(account: AccountModel | None, current_user: User) -> AccountModel:
+    """校验账号存在且归当前用户（admin 例外）。非自己的账号同样返回 404 而非 403，不泄露其存在。"""
     if account is None:
         raise HTTPException(status_code=404, detail="账号不存在")
     if current_user.role != "admin" and account.user_id != current_user.id:
@@ -65,24 +85,65 @@ def _verify_platform_code(platform_code: str) -> str:
     return platform_code
 
 
+def _reject_api_platform_browser_flow(platform_code: str) -> None:
+    if account_service.is_api_platform_code(platform_code):
+        raise HTTPException(status_code=400, detail="该平台为 API 接入，无需浏览器登录")
+
+
+def _reject_api_account_browser_flow(account: AccountModel) -> None:
+    _reject_api_platform_browser_flow(account.platform.code)
+
+
 @router.get("/platforms")
 def read_account_platforms() -> list[dict[str, str]]:
+    """平台下拉。每项带 mode（api / browser），前端据此决定走凭据直填还是浏览器扫码登录，
+    避免在前端硬编码具体平台 code。"""
     platforms = []
+    seen: set[str] = set()
     for code in all_driver_codes():
         driver = get_driver(code)
-        platforms.append({"code": driver.code, "name": driver.name})
+        mode = "api" if account_service.is_api_platform_code(driver.code) else "browser"
+        platforms.append({"code": driver.code, "name": driver.name, "mode": mode})
+        seen.add(driver.code)
+    for platform in account_service.api_platform_options():
+        if platform["code"] not in seen:
+            platforms.append({**platform, "mode": "api"})
     return platforms
 
 
 @router.get("", response_model=list[AccountRead])
 def read_accounts(
+    q: str | None = Query(
+        default=None, description="泛搜索关键词：匹配账号名称 / 备注 / 手机号(包含)"
+    ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[AccountRead]:
-    accounts = list_accounts(db)
+    accounts = list_accounts(db, q=q)
     if current_user.role != "admin":
         accounts = [a for a in accounts if a.user_id == current_user.id]
     return [to_account_read(account) for account in accounts]
+
+
+@router.post("", response_model=AccountRead)
+def create_api_account_endpoint(
+    payload: ApiAccountCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AccountRead:
+    """创建 API 型平台账号（凭据直填）。浏览器平台返回 400，继续走扫码授权流。"""
+    account = account_service.create_api_account(db, current_user.id, payload)
+    add_audit_entry(
+        db,
+        user=current_user,
+        action="account.create",
+        target_type="account",
+        target_id=account.id,
+        payload={"platform_code": payload.platform_code, "display_name": account.display_name},
+        request=request,
+    )
+    return to_account_read(account)
 
 
 @router.post("/{platform_code}/login", response_model=AccountRead)
@@ -93,6 +154,7 @@ def login_platform_account(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> AccountRead:
+    _reject_api_platform_browser_flow(platform_code)
     platform_code = _verify_platform_code(platform_code)
     account = register_account_from_storage_state(db, current_user.id, platform_code, payload)
     add_audit_entry(
@@ -107,7 +169,7 @@ def login_platform_account(
     return to_account_read(account)
 
 
-# NOTE: /{account_id:int}/login-session routes MUST appear before /{platform_code}/login-session
+# 注意：/{account_id:int}/login-session 路由必须先于 /{platform_code}/login-session 注册
 @router.post("/{account_id:int}/login-session", response_model=AccountBrowserSessionRead)
 def start_existing_account_login_session_endpoint(
     account_id: int,
@@ -117,6 +179,7 @@ def start_existing_account_login_session_endpoint(
     current_user: User = Depends(get_current_user),
 ) -> AccountBrowserSessionRead:
     account = _verify_account_ownership(get_account(db, account_id), current_user)
+    _reject_api_account_browser_flow(account)
     result = start_account_login_session(db, account, payload or AccountCheckRequest())
     add_audit_entry(
         db,
@@ -140,6 +203,7 @@ def get_login_session_status_endpoint(
     current_user: User = Depends(get_current_user),
 ) -> LoginSessionStatusRead:
     account = _verify_account_ownership(get_account(db, account_id), current_user)
+    _reject_api_account_browser_flow(account)
     request = get_login_session_status(db, account, session_id)
     if request is None:
         raise HTTPException(status_code=404, detail="登录会话不存在")
@@ -164,6 +228,7 @@ def finish_existing_account_login_session_endpoint(
     current_user: User = Depends(get_current_user),
 ) -> AccountBrowserSessionFinishRead:
     account = _verify_account_ownership(get_account(db, account_id), current_user)
+    _reject_api_account_browser_flow(account)
     updated, result = finish_account_login_session(db, account, session_id)
     add_audit_entry(
         db,
@@ -193,6 +258,7 @@ def stop_existing_account_login_session_endpoint(
     current_user: User = Depends(get_current_user),
 ) -> Response:
     account = _verify_account_ownership(get_account(db, account_id), current_user)
+    _reject_api_account_browser_flow(account)
     stop_account_login_session(db, account, session_id)
     add_audit_entry(
         db,
@@ -214,6 +280,7 @@ def start_platform_login_session_endpoint(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> AccountBrowserSessionRead:
+    _reject_api_platform_browser_flow(platform_code)
     platform_code = _verify_platform_code(platform_code)
     result = start_login_session(db, current_user.id, platform_code, payload)
     add_audit_entry(
@@ -261,6 +328,7 @@ async def import_accounts(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
+    """导入授权 ZIP。先做防护校验（总大小、条目数、每条目大小、路径白名单正则）再交 service 解包。"""
     import io
     import re
     import zipfile
@@ -325,6 +393,7 @@ def check_existing_account(
     current_user: User = Depends(get_current_user),
 ) -> AccountRead:
     account = _verify_account_ownership(get_account(db, account_id), current_user)
+    _reject_api_account_browser_flow(account)
     updated = check_account(db, account, payload or AccountCheckRequest())
     add_audit_entry(
         db,
@@ -347,6 +416,7 @@ def relogin_existing_account(
     current_user: User = Depends(get_current_user),
 ) -> AccountRead:
     account = _verify_account_ownership(get_account(db, account_id), current_user)
+    _reject_api_account_browser_flow(account)
     updated = relogin_account(db, account, payload or AccountCheckRequest())
     add_audit_entry(
         db,
@@ -360,29 +430,76 @@ def relogin_existing_account(
     return to_account_read(updated)
 
 
-@router.patch("/{account_id:int}", response_model=AccountRead)
-def rename_existing_account(
+@router.post("/{account_id:int}/verify-credentials", response_model=AccountRead)
+@limiter.limit("10/minute")
+def verify_account_credentials_endpoint(
     account_id: int,
-    payload: AccountRenameRequest,
     request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> AccountRead:
     account = _verify_account_ownership(get_account(db, account_id), current_user)
-    old_display_name = account.display_name
-    updated = rename_account(db, account, payload.display_name)
-    new_display_name = updated.display_name
-    if old_display_name != new_display_name:
+    try:
+        updated = account_service.verify_api_credentials(db, account)
+        db.commit()
+        add_audit_entry(
+            db,
+            user=current_user,
+            action="account.verify_credentials",
+            target_type="account",
+            target_id=account_id,
+            payload={"result": {"status": updated.status}},
+            request=request,
+        )
+        return to_account_read(updated)
+    except ClientError as exc:
+        db.commit()
+        add_audit_entry(
+            db,
+            user=current_user,
+            action="account.verify_credentials",
+            target_type="account",
+            target_id=account_id,
+            payload={"result": {"status": "expired", "error": str(exc)}},
+            request=request,
+        )
+        raise
+
+
+@router.patch("/{account_id:int}", response_model=AccountRead)
+def update_existing_account(
+    account_id: int,
+    payload: AccountUpdateRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AccountRead:
+    account = _verify_account_ownership(get_account(db, account_id), current_user)
+    before = {
+        "display_name": account.display_name,
+        "contact": account.contact,
+        "note": account.note,
+        "avatar_asset_id": account.avatar_asset_id,
+        "distribution_enabled": account.distribution_enabled,
+        "app_id": (account.api_credentials or {}).get("app_id"),
+    }
+    updated = account_service.update_account_fields(db, account, payload)
+    after = {
+        "display_name": updated.display_name,
+        "contact": updated.contact,
+        "note": updated.note,
+        "avatar_asset_id": updated.avatar_asset_id,
+        "distribution_enabled": updated.distribution_enabled,
+        "app_id": (updated.api_credentials or {}).get("app_id"),
+    }
+    if before != after:
         add_audit_entry(
             db,
             user=current_user,
             action="account.update",
             target_type="account",
             target_id=account_id,
-            payload={
-                "before": {"display_name": old_display_name},
-                "after": {"display_name": new_display_name},
-            },
+            payload={"before": before, "after": after},
             request=request,
         )
     return to_account_read(updated)
@@ -395,6 +512,9 @@ def delete_existing_account(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ) -> Response:
+    # 媒体矩阵账号删除收归管理员：require_admin 兜底，非 admin → 403「需要管理员权限」，
+    # 与删文章/删分组的安全边界一致（test_security_boundaries）。
+    # operator 的"为什么不给删"清晰说明由前端承担（点删除直接提示、不发请求，见 AccountRow）。
     from server.app.shared.errors import ClientError
 
     account = _verify_account_ownership(get_account(db, account_id), current_user)

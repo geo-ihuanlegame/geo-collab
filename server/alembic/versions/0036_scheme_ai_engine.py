@@ -1,8 +1,8 @@
-"""scheme + scheme run ai_engine columns
+"""方案与方案运行的 ai_engine 列
 
-Revision ID: 0036
-Revises: 0035
-Create Date: 2026-06-03
+修订 ID: 0036
+上一修订: 0035
+创建日期: 2026-06-03
 """
 from __future__ import annotations
 

@@ -1,8 +1,8 @@
-"""accounts: add is_deleted / deleted_at for soft delete
+"""为 accounts 添加 is_deleted / deleted_at 软删除字段
 
-Revision ID: 0017
-Revises: 0016
-Create Date: 2026-05-19
+修订 ID: 0017
+上一修订: 0016
+创建日期: 2026-05-19
 """
 from typing import Sequence, Union
 

@@ -6,6 +6,7 @@ import {
 import { useToast } from "../../components/Toast";
 import type { Pipeline } from "../../types";
 import { PipelineEditor } from "./PipelineEditor";
+import { AgentLogsView } from "./AgentLogsView";
 
 const TYPES = [
   { v: "general", label: "通用" },
@@ -47,6 +48,7 @@ export function AgentManagementWorkspace() {
   const [items, setItems] = useState<Pipeline[]>([]);
   const [form, setForm] = useState<FormState | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [logsId, setLogsId] = useState<number | null>(null);
 
   const reload = useCallback(async () => {
     try { setItems(await listPipelines()); }
@@ -116,6 +118,10 @@ export function AgentManagementWorkspace() {
     );
   }
 
+  if (logsId != null) {
+    return <AgentLogsView pipelineId={logsId} onBack={() => { setLogsId(null); reload(); }} />;
+  }
+
   return (
     <div className="agentsWorkspace">
       <div className="topbar">
@@ -149,6 +155,7 @@ export function AgentManagementWorkspace() {
                   <button onClick={() => openEdit(p)}>编辑</button>
                   <button onClick={() => setEditingId(p.id)}>配置流程</button>
                   <button onClick={() => runNow(p)}>立即运行</button>
+                  <button onClick={() => setLogsId(p.id)}>日志</button>
                   <button className="danger" onClick={() => remove(p)}>删除</button>
                 </div>
               </td>

@@ -1,8 +1,8 @@
-"""Add worker-owned account login sessions
+"""添加由 worker 持有的账号登录会话
 
-Revision ID: 0012
-Revises: 0011
-Create Date: 2026-05-15
+修订 ID: 0012
+上一修订: 0011
+创建日期: 2026-05-15
 """
 from typing import Sequence, Union
 

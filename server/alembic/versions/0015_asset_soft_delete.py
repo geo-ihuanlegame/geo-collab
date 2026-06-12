@@ -1,8 +1,8 @@
-"""assets: add is_deleted / deleted_at for soft delete
+"""为 assets 添加 is_deleted / deleted_at 软删除字段
 
-Revision ID: 0015
-Revises: 0014
-Create Date: 2026-05-18
+修订 ID: 0015
+上一修订: 0014
+创建日期: 2026-05-18
 """
 from typing import Sequence, Union
 

@@ -1,7 +1,13 @@
 import { useState } from "react";
-import { Plus, RefreshCw } from "lucide-react";
-import { createQuestionPool, syncQuestionPool } from "../../api/ai-generation";
+import { Check, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
+import {
+  createQuestionPool,
+  deleteQuestionPool,
+  syncQuestionPool,
+  updateQuestionPool,
+} from "../../api/ai-generation";
 import { useToast } from "../../components/Toast";
+import { useAuth } from "../auth/AuthContext";
 import type { QuestionPool } from "../../types";
 
 export function PoolManagerModal({
@@ -14,9 +20,14 @@ export function PoolManagerModal({
   onChanged: () => void;
 }) {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin"; // 删除仅 admin；建/看/改名/同步全员可用
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({ name: "", feishu_app_token: "", feishu_table_id: "" });
   const [syncingId, setSyncingId] = useState<number | null>(null);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editName, setEditName] = useState("");
+  const [busyId, setBusyId] = useState<number | null>(null);
 
   async function handleCreate() {
     if (!form.name.trim()) {
@@ -54,6 +65,50 @@ export function PoolManagerModal({
     }
   }
 
+  function startEdit(p: QuestionPool) {
+    setEditingId(p.id);
+    setEditName(p.name);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditName("");
+  }
+
+  async function handleRename(poolId: number) {
+    const name = editName.trim();
+    if (!name) {
+      toast("问题池名称不能为空", "error");
+      return;
+    }
+    setBusyId(poolId);
+    try {
+      await updateQuestionPool(poolId, { name });
+      cancelEdit();
+      toast("已重命名", "success");
+      onChanged();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "重命名失败", "error");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleDelete(p: QuestionPool) {
+    if (!window.confirm(`确定删除问题池「${p.name}」？删除后所有人都将看不到它，绑定它的方案会失效。`))
+      return;
+    setBusyId(p.id);
+    try {
+      await deleteQuestionPool(p.id);
+      toast("已删除问题池", "success");
+      onChanged();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "删除失败", "error");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
     <div className="modalBackdrop" role="dialog" aria-modal="true" onClick={onClose}>
       <div
@@ -64,7 +119,9 @@ export function PoolManagerModal({
         <div className="schemePanelHead">
           <div>
             <h3>问题池</h3>
-            <p className="schemePanelHint">问题池是飞书多维表的本地镜像，方案从中选问题</p>
+            <p className="schemePanelHint">
+              问题池是飞书多维表的本地镜像，方案从中选问题 · 全员共享，删除仅管理员
+            </p>
           </div>
           <button className="iconButton" type="button" onClick={onClose}>
             ×
@@ -78,7 +135,20 @@ export function PoolManagerModal({
           {pools.map((p) => (
             <div className="schemeCard" key={p.id} style={{ padding: "12px 14px" }}>
               <div className="schemeCardInfo">
-                <span style={{ fontSize: 14, color: "var(--fg)" }}>{p.name}</span>
+                {editingId === p.id ? (
+                  <input
+                    className="aiSelect"
+                    autoFocus
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void handleRename(p.id);
+                      if (e.key === "Escape") cancelEdit();
+                    }}
+                  />
+                ) : (
+                  <span style={{ fontSize: 14, color: "var(--fg)" }}>{p.name}</span>
+                )}
                 <span style={{ fontSize: 12, color: "var(--fg-3)" }}>
                   {p.last_synced_at
                     ? `上次同步 ${new Date(p.last_synced_at).toLocaleString()}`
@@ -86,16 +156,56 @@ export function PoolManagerModal({
                   {p.feishu_table_id ? "" : " · 未绑定飞书表"}
                 </span>
               </div>
-              <button
-                className="secondaryButton"
-                type="button"
-                disabled={syncingId === p.id || !p.feishu_table_id}
-                title={p.feishu_table_id ? "从飞书多维表同步" : "未绑定飞书表，无法同步"}
-                onClick={() => handleSync(p.id)}
-              >
-                <RefreshCw size={14} />
-                {syncingId === p.id ? "同步中…" : "同步"}
-              </button>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                {editingId === p.id ? (
+                  <>
+                    <button
+                      className="iconButton"
+                      type="button"
+                      disabled={busyId === p.id}
+                      title="保存名称"
+                      onClick={() => void handleRename(p.id)}
+                    >
+                      <Check size={16} />
+                    </button>
+                    <button className="iconButton" type="button" title="取消" onClick={cancelEdit}>
+                      <X size={16} />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      className="secondaryButton"
+                      type="button"
+                      disabled={syncingId === p.id || !p.feishu_table_id}
+                      title={p.feishu_table_id ? "从飞书多维表同步" : "未绑定飞书表，无法同步"}
+                      onClick={() => handleSync(p.id)}
+                    >
+                      <RefreshCw size={14} />
+                      {syncingId === p.id ? "同步中…" : "同步"}
+                    </button>
+                    <button
+                      className="iconButton"
+                      type="button"
+                      title="重命名"
+                      onClick={() => startEdit(p)}
+                    >
+                      <Pencil size={16} />
+                    </button>
+                    {isAdmin && (
+                      <button
+                        className="iconButton"
+                        type="button"
+                        disabled={busyId === p.id}
+                        title="删除问题池（仅管理员）"
+                        onClick={() => void handleDelete(p)}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
           ))}
 

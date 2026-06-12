@@ -1,8 +1,8 @@
-"""change client_request_id unique constraints to include user_id
+"""将 client_request_id 唯一约束调整为包含 user_id
 
-Revision ID: 0020
-Revises: 0019
-Create Date: 2026-05-20
+修订 ID: 0020
+上一修订: 0019
+创建日期: 2026-05-20
 """
 from typing import Sequence, Union
 

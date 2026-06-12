@@ -1,7 +1,7 @@
-"""Seed users from the GEO_SEED_USERS environment variable.
+"""从 GEO_SEED_USERS 环境变量种入用户。
 
-Expects a JSON array: [{"username":"admin","password":"xxx","role":"admin"}, ...]
-Idempotent: skips users that already exist.
+期望格式为 JSON 数组：[{"username":"admin","password":"xxx","role":"admin"}, ...]
+该脚本幂等：已存在的用户会被跳过。
 """
 
 from __future__ import annotations

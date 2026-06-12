@@ -1,8 +1,8 @@
-"""DB schema: solo_mode, scheduled_at, snapshots, tags
+"""数据库结构补全：solo_mode、scheduled_at、snapshots、tags
 
-Revision ID: 0014
-Revises: 0013
-Create Date: 2026-05-15
+修订 ID: 0014
+上一修订: 0013
+创建日期: 2026-05-15
 """
 from typing import Sequence, Union
 

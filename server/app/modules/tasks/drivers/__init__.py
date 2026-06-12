@@ -1,3 +1,10 @@
+"""平台发布驱动注册表。
+
+每个平台驱动实现 PlatformDriver Protocol，在模块 import 时调 register(...) 注册；
+main.py 顶部按需 import 各驱动文件触发注册。同一平台可注册多个变体（variant），
+由 resolve_driver() 按环境变量 GEO_<PLATFORM>_DRIVER 选择，便于灰度与回滚。
+"""
+
 from __future__ import annotations
 
 import logging
@@ -17,7 +24,7 @@ class PlatformDriver(Protocol):
     publish_url: str
 
     def detect_logged_in(self, *, url: str, title: str, body: str) -> bool:
-        """Return True if the current page indicates the user is logged in."""
+        """当前页面表明用户已登录时返回 True。"""
 
     def publish(
         self,
@@ -27,7 +34,7 @@ class PlatformDriver(Protocol):
         payload: PublishPayload,
         stop_before_publish: bool,
     ) -> PublishResult:
-        """Fill form, upload assets, click publish. Does not manage browser lifecycle."""
+        """填写表单、上传资源并点击发布；不负责浏览器生命周期。"""
 
 
 logger = logging.getLogger(__name__)
@@ -36,6 +43,7 @@ _REGISTRY: dict[str, PlatformDriver] = {}
 
 
 def register(driver: PlatformDriver) -> None:
+    """注册平台默认驱动；同一 code 重复注册直接报错（防止覆盖）。"""
     if driver.code in _REGISTRY:
         raise ValueError(f"Driver already registered: {driver.code}")
     _REGISTRY[driver.code] = driver
@@ -57,6 +65,10 @@ _VARIANTS: dict[tuple[str, str], PlatformDriver] = {}
 def register_variant(
     platform_code: str, variant: str, driver: PlatformDriver, *, replace: bool = False
 ) -> None:
+    """注册某平台的命名变体驱动；replace=False 时重复注册报错。
+
+    变体不进默认注册表，只能由 resolve_driver() 经 GEO_<PLATFORM>_DRIVER 选中。
+    """
     key = (platform_code, variant)
     if key in _VARIANTS and not replace:
         raise ValueError(f"Driver variant already registered: {platform_code}/{variant}")
@@ -64,7 +76,7 @@ def register_variant(
 
 
 def resolve_driver(platform_code: str) -> PlatformDriver:
-    """Pick a driver honoring GEO_<PLATFORM>_DRIVER; fall back to the registry."""
+    """按 GEO_<PLATFORM>_DRIVER 选择驱动；未配置则回退到默认注册表。"""
     variant = os.environ.get(f"GEO_{platform_code.upper()}_DRIVER", "").strip()
     if variant:
         chosen = _VARIANTS.get((platform_code, variant))
@@ -76,3 +88,18 @@ def resolve_driver(platform_code: str) -> PlatformDriver:
             variant,
         )
     return get_driver(platform_code)
+
+
+def is_api_driver(platform_code: str) -> bool:
+    """Return whether the default driver publishes through a server-side API path."""
+    driver = _REGISTRY.get(platform_code)
+    return getattr(driver, "mode", "browser") == "api"
+
+
+def is_driver_registered(platform_code: str) -> bool:
+    """该 platform_code 是否在**本进程**注册了默认驱动。
+
+    注册是 import 副作用、按进程隔离的（见 drivers/bootstrap.py）：某进程漏 import 某驱动时，
+    is_api_driver 会静默把它当浏览器驱动。调度层据此显式报错，而非悄悄走错路径。
+    """
+    return platform_code in _REGISTRY

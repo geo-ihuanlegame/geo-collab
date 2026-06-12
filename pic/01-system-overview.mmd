@@ -1,0 +1,32 @@
+flowchart LR
+  user["运营用户"] --> web["React Web<br/>web/src/features"]
+  web --> apiClient["API Client<br/>web/src/api/*.ts"]
+  apiClient --> api["FastAPI<br/>server/app/main.py"]
+
+  api --> auth["auth / users / system<br/>登录、用户、系统状态"]
+  api --> content["articles / assets / article-groups<br/>内容与素材"]
+  api --> accounts["accounts / browser<br/>媒体账号与登录会话"]
+  api --> tasks["tasks / publish-records<br/>发布任务"]
+  api --> generation["ai_generation<br/>问题池、方案、AI 生文"]
+  api --> pipelines["pipelines<br/>智能体工作流"]
+  api --> imageLib["image_library<br/>图库、MinIO"]
+  api --> audit["audit<br/>审计日志"]
+
+  auth --> db[("MySQL")]
+  content --> db
+  accounts --> db
+  tasks --> db
+  generation --> db
+  pipelines --> db
+  imageLib --> db
+  audit --> db
+
+  content --> dataDir["GEO_DATA_DIR<br/>本地上传资产"]
+  imageLib --> minio["MinIO<br/>stock_images"]
+  generation --> litellm["LiteLLM<br/>写作/格式化模型"]
+  generation --> feishu["飞书多维表<br/>问题池同步"]
+
+  tasks --> worker["server/worker/executor.py<br/>发布 Worker"]
+  worker --> browser["Playwright + noVNC<br/>浏览器自动化/人工接管"]
+  browser --> external["外部发布平台<br/>如头条"]
+  worker --> tasks

@@ -187,7 +187,7 @@ def test_pipeline_skip_condition(monkeypatch):
 
 @pytest.mark.mysql
 def test_delete_pipeline_rejected_when_active_run(monkeypatch):
-    """delete_pipeline raises ConflictError when the pipeline has a pending/running run."""
+    """pipeline 存在 pending/running 运行时，delete_pipeline 应抛 ConflictError。"""
     import server.app.modules.pipelines.service as svc
     from server.app.modules.pipelines.models import PipelineRun
     from server.app.modules.system.models import User
@@ -241,7 +241,7 @@ def test_read_pipeline_with_null_tags(monkeypatch):
             db.commit()
             pid = p.id
 
-            # Force tags to NULL bypassing ORM (disable strict mode to allow NULL update)
+            # 绕过 ORM 强制把 tags 置为 NULL（关闭严格模式以允许 NULL 更新）。
             db.execute(text("SET sql_mode=''"))
             db.execute(text("UPDATE pipelines SET tags=NULL WHERE id=:i"), {"i": pid})
             db.commit()

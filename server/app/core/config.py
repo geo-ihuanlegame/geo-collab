@@ -14,13 +14,27 @@
   GEO_PUBLISH_X11VNC_PATH             x11vnc 可执行路径
   GEO_PUBLISH_WEBSOCKIFY_PATH         websockify 可执行路径
   GEO_PUBLISH_NOVNC_WEB_DIR           noVNC 静态文件目录
-  GEO_PUBLISH_REMOTE_BROWSER_HOST     对外暴露的 host（默认 127.0.0.1）
+  GEO_PUBLISH_REMOTE_BROWSER_HOST     对外暴露的主机地址（默认 127.0.0.1）
 """
 
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class AiEngineConfig(BaseModel):
+    """单个写作引擎：label + litellm 模型串 + 自带密钥/网关。
+
+    通过 GEO_AI_ENGINES 传 JSON 数组覆盖。下拉选中存的是 model 串，
+    后端按 model 串回查本配置拿 api_key / base_url（见 resolve_engine）。
+    """
+
+    label: str
+    model: str = ""  # "" = 用 settings.ai_model 默认写作模型
+    api_key: str = ""  # "" = 回落到 settings.ai_api_key
+    base_url: str | None = None  # OpenAI 兼容网关/代理；None = litellm 默认
 
 
 class Settings(BaseSettings):
@@ -28,7 +42,7 @@ class Settings(BaseSettings):
     app_version: str = "0.1.0"
     data_dir: Path | None = None
     database_url: str | None = None
-    # 独立 DB 凭据（当 database_url 未设时自动拼接 MySQL URL，密码无需手动 URL-encode）
+    # 独立数据库凭据（当 database_url 未设时自动拼接 MySQL 连接 URL，密码无需手动做 URL 编码）
     db_host: str | None = None
     db_port: int = 3306
     db_user: str | None = None
@@ -37,6 +51,7 @@ class Settings(BaseSettings):
     jwt_secret: str = ""
     publish_max_concurrent_records: int = 5
     publish_record_timeout_seconds: int = 300
+    login_max_concurrent_browsers: int = 8  # GEO_LOGIN_MAX_CONCURRENT_BROWSERS
     publish_browser_channel: str = "chromium"
     publish_browser_executable_path: str | None = None
     publish_xvfb_path: str = "Xvfb"
@@ -56,21 +71,27 @@ class Settings(BaseSettings):
     feishu_app_secret: str | None = None  # GEO_FEISHU_APP_SECRET
     # 问题池定时镜像同步（应用内后台线程）。默认关闭，避免本地 / 测试打真实飞书。
     question_pool_auto_sync_enabled: bool = False  # GEO_QUESTION_POOL_AUTO_SYNC_ENABLED
-    question_pool_sync_interval_seconds: int = 21600  # GEO_QUESTION_POOL_SYNC_INTERVAL_SECONDS (6h)
+    question_pool_sync_interval_seconds: int = (
+        21600  # GEO_QUESTION_POOL_SYNC_INTERVAL_SECONDS（6 小时）
+    )
     pipeline_scheduler_enabled: bool = False  # GEO_PIPELINE_SCHEDULER_ENABLED
     pipeline_scheduler_interval_seconds: int = 60  # GEO_PIPELINE_SCHEDULER_INTERVAL_SECONDS
     scheduler_tz: str = "Asia/Shanghai"  # GEO_SCHEDULER_TZ
     run_startup_recovery: bool = True  # GEO_RUN_STARTUP_RECOVERY；多实例只在单一实例开启
     ai_generate_max_count: int = 20  # GEO_AI_GENERATE_MAX_COUNT
     pipeline_max_concurrent_runs: int = 3  # GEO_PIPELINE_MAX_CONCURRENT_RUNS
-    # AI 生文（LangGraph 写作 Agent）—— 保持 Claude
+    # [临时] 方案生文封面兜底存储桶（GEO_TEMP_COVER_BUCKET）。空字符串=禁用整段临时封面逻辑。
+    temp_cover_bucket: str = "cantingyangchengji"
+    # AI 生文（LangGraph 写作智能体）—— 保持 Claude
     ai_model: str = "claude-3-5-sonnet-20241022"  # GEO_AI_MODEL
     ai_api_key: str = ""  # GEO_AI_API_KEY
     # 方案级可选 AI 引擎列表（为后续接入更多写作模型留接口）。
-    # 每项 {"label": 展示名, "model": litellm model 字符串}；model 为空 = 用 ai_model 默认。
+    # 每项 = AiEngineConfig（label 展示名 / model litellm 串 / api_key / base_url）。
+    # model 空 = 用 ai_model 默认；api_key 空 = 回落 ai_api_key；base_url 留空 = litellm 默认。
     # 通过 GEO_AI_ENGINES 传 JSON 覆盖，例如：
-    #   [{"label":"默认写作模型","model":""},{"label":"DeepSeek","model":"deepseek/deepseek-chat"}]
-    ai_engines: list[dict[str, str]] = [{"label": "默认写作模型", "model": ""}]  # GEO_AI_ENGINES
+    #   [{"label":"DeepSeek","model":"deepseek/deepseek-chat","api_key":"sk-ds"},
+    #    {"label":"网关","model":"openai/gpt-4o","api_key":"sk-x","base_url":"https://oneapi/v1"}]
+    ai_engines: list[AiEngineConfig] = [AiEngineConfig(label="默认写作模型")]  # GEO_AI_ENGINES
 
     # AI 格式调整（标题识别 / 未来配图配链接）—— 独立模型，降低成本
     ai_format_model: str = "deepseek/deepseek-v4-flash"  # GEO_AI_FORMAT_MODEL
@@ -83,6 +104,14 @@ class Settings(BaseSettings):
     minio_secret_key: str = ""  # GEO_MINIO_SECRET_KEY
     minio_secure: bool = False  # GEO_MINIO_SECURE
 
+    # AI配图「联网兜底」：陪衬游戏库里无图时，用百度千帆 AI 搜索拉真实横版图补充
+    # Key 启动时不校验，缺失时走兜底的请求里才报错（与 AI Key 一致）
+    baidu_api_key: str = ""  # GEO_BAIDU_API_KEY（千帆 Bearer API Key）
+    baidu_ai_search_url: str = (
+        "https://qianfan.baidubce.com/v2/ai_search/web_search"  # GEO_BAIDU_AI_SEARCH_URL
+    )
+    baidu_ai_search_timeout_seconds: int = 30  # GEO_BAIDU_AI_SEARCH_TIMEOUT_SECONDS
+
     model_config = SettingsConfigDict(env_prefix="GEO_", env_file=".env", extra="ignore")
 
 
@@ -91,15 +120,32 @@ def get_settings() -> Settings:
     return Settings()
 
 
-# File upload limits
+def resolve_engine(selected: str | None) -> tuple[str, str, str | None]:
+    """下拉选中的 model 串 → 实际调用参数 (model, api_key, base_url)。
+
+    - 空串 / None：系统默认引擎（ai_model + ai_api_key）。
+    - 命中 ai_engines 某项：用该项 model（空则默认）、api_key（空则回落默认 key）、base_url。
+    - 列表里没有（手填 / 历史值）：原样用该 model + 默认 key。
+    """
+    settings = get_settings()
+    sel = (selected or "").strip()
+    if not sel:
+        return settings.ai_model, settings.ai_api_key, None
+    for e in settings.ai_engines:
+        if e.model == sel:
+            return e.model or settings.ai_model, e.api_key or settings.ai_api_key, e.base_url
+    return sel, settings.ai_api_key, None
+
+
+# 文件上传大小限制
 MAX_ASSET_BYTES: int = 20 * 1024 * 1024  # 20 MB
 MAX_ZIP_BYTES: int = 50 * 1024 * 1024  # 50 MB
 
-# Allowed magic bytes for image uploads
+# 允许上传图片的文件魔数
 ALLOWED_MAGIC: list[bytes] = [
     b"\x89PNG\r\n\x1a\n",  # PNG
     b"\xff\xd8",  # JPEG
-    b"RIFF",  # WebP (also check bytes 8:12 == b"WEBP")
+    b"RIFF",  # WebP（还需检查 bytes 8:12 == b"WEBP"）
     b"GIF87a",  # GIF
     b"GIF89a",  # GIF
 ]

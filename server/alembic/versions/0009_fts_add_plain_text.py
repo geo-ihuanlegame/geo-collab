@@ -1,8 +1,8 @@
-"""fts add plain_text to articles search index
+"""将 plain_text 加入文章全文搜索索引
 
-Revision ID: 0009
-Revises: 0008
-Create Date: 2026-05-13
+修订 ID: 0009
+上一修订: 0008
+创建日期: 2026-05-13
 """
 from typing import Sequence, Union
 

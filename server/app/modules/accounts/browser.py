@@ -1,13 +1,12 @@
 """
-Remote browser session management for the Linux server deployment.
+Linux 服务端部署的远程浏览器会话管理。
 
-The runtime pipeline is Xvfb -> x11vnc -> websockify -> noVNC, with
-Playwright Chromium attached to the X display. The system is deployed on Linux
-servers, so this module does not need platform-specific branching.
+运行链路是 Xvfb -> x11vnc -> websockify -> noVNC，Playwright Chromium 挂到
+X display 上。系统部署在 Linux 服务器上，因此本模块不做平台分支。
 
-Session state is mirrored to the DB (browser_sessions table) so the API server
-can read novnc_url and request session shutdown across process boundaries.
-In-process dicts (_active_sessions etc.) are worker-local and hold live handles.
+会话状态会镜像到 DB 的 browser_sessions 表，让 API 进程可以读取 novnc_url，
+并跨进程请求关闭会话。进程内字典（_active_sessions 等）只属于当前 worker，
+保存实时句柄。
 """
 
 from __future__ import annotations
@@ -83,7 +82,7 @@ _idle_cleanup_thread: threading.Thread | None = None
 _idle_cleanup_stop = threading.Event()
 
 
-# ── DB helpers ──────────────────────────────────────────────────────────────
+# ── 数据库辅助函数 ──────────────────────────────────────────────────────────
 
 
 def _get_db():
@@ -100,7 +99,12 @@ def try_acquire_profile_lock(
     queue_reason: str | None = None,
     lease_seconds: int = PROFILE_LOCK_LEASE_SECONDS,
 ) -> bool:
-    """Acquire a cross-process lock for one persistent Chromium profile."""
+    """为一个持久化 Chromium profile 抢跨进程锁。
+
+    抢到返回 True，被别人占用返回 False。幂等可重入：同一 (owner_kind, owner_id)
+    再次调用视为续租而非冲突。通过 INSERT ... ON DUPLICATE KEY 让插入不报错，
+    再回读行主判断 owner 归属。任何异常都吞掉返回 False（宁可排队等待，也不误判抢到锁）。
+    """
     from server.app.modules.accounts.models import BrowserProfileLock
 
     owner_id = str(owner_id)
@@ -109,6 +113,7 @@ def try_acquire_profile_lock(
     lease_until = now + timedelta(seconds=lease_seconds)
     db = _get_db()
     try:
+        # 先清掉已过期的租约：owner 崩溃后留下的死锁靠这一步被新请求接管
         db.execute(
             sa_delete(BrowserProfileLock).where(
                 BrowserProfileLock.profile_key == profile_key,
@@ -137,6 +142,7 @@ def try_acquire_profile_lock(
         )
         db.commit()
 
+        # 回读这把锁：owner 是自己才算抢到（INSERT 可能撞上别人的既有行而被 ON DUPLICATE 忽略）
         lock = db.get(BrowserProfileLock, profile_key)
         if lock is None:
             return False
@@ -163,6 +169,7 @@ def heartbeat_profile_lock(
     owner_id: str | int,
     lease_seconds: int = PROFILE_LOCK_LEASE_SECONDS,
 ) -> None:
+    """续租 profile 锁：长操作（发布 / 登录）期间周期调用，把 lease_until 往后推，防被当过期回收。"""
     from server.app.modules.accounts.models import BrowserProfileLock
 
     now = utcnow()
@@ -223,6 +230,8 @@ def _worker_id() -> str | None:
 
 
 def _write_session_to_db(session: RemoteBrowserSession, worker_id: str | None) -> None:
+    # 把会话镜像进 browser_sessions 表，让 API 进程能读到 novnc_url、发停止请求。
+    # 写失败只记日志、不抛——本地句柄仍可用，只是丢了跨进程可见性。
     try:
         from server.app.core.time import utcnow
         from server.app.modules.accounts.models import BrowserSession
@@ -376,22 +385,21 @@ def _query_stop_requested_session_ids() -> list[str]:
         return []
 
 
-# ── Public API ───────────────────────────────────────────────────────────────
+# ── 公共 API ────────────────────────────────────────────────────────────────
 
 
 def associate_record_with_session(record_id: int, session_id: str) -> None:
-    """Associate a publish record with a remote browser session."""
+    """把发布记录关联到远程浏览器会话。"""
     with _sessions_lock:
         _record_to_session[record_id] = session_id
     _write_record_session_to_db(record_id, session_id)
 
 
 def get_session_for_record(record_id: int) -> Any | None:
-    """Return a browser session object for the given record, or None.
+    """返回指定发布记录对应的浏览器会话对象；不存在则返回 None。
 
-    Queries the DB so it works across processes. Returns the BrowserSession
-    ORM row (has .id and .novnc_url), or a local RemoteBrowserSession if
-    available in this process.
+    这里会查询 DB 以支持跨进程访问。返回 BrowserSession ORM 行（带 .id 和
+    .novnc_url），如果当前进程有本地 RemoteBrowserSession，则返回本地对象。
     """
     with _sessions_lock:
         session_id = _record_to_session.get(record_id)
@@ -417,6 +425,7 @@ def get_session_for_record(record_id: int) -> Any | None:
                 return None
             from sqlalchemy.orm import make_transient
 
+            # 脱离 session 返回：调用方在 db.close() 之后还要读 .novnc_url，不能让它变 detached
             db.expunge(bs)
             make_transient(bs)
             return bs
@@ -474,13 +483,13 @@ def get_or_create_account_session(
     account_key: str,
     profile_key: str | None = None,
 ) -> RemoteBrowserSession:
-    """Return the persistent session for an account, creating one if needed.
+    """返回账号的持久化会话；需要时创建新会话。
 
-    Reuse condition: session exists locally, not in keep_alive state, Chromium
-    context still alive.
+    复用条件：会话存在于当前进程、未处于 keep_alive 状态，且 Chromium context
+    仍然存活。
 
-    Per-account creation lock prevents two concurrent callers from both seeing
-    no session and each spawning a separate browser instance for the same account.
+    按账号加创建锁，避免两个并发调用都看到无会话，并各自为同一账号拉起一个
+    浏览器实例。
     """
     cache_key = _account_session_key(platform_code, account_key, profile_key)
 
@@ -509,6 +518,7 @@ def get_or_create_account_session(
         account_lock = _account_creation_locks[cache_key]
 
     with account_lock:
+        # 双重检查：拿到 per-account 锁后再 _try_reuse 一次，可能已被先到的并发者建好了
         if (existing := _try_reuse()) is not None:
             return existing
 
@@ -553,8 +563,10 @@ def remote_browser_runtime_status() -> dict[str, object]:
 
 @contextmanager
 def managed_remote_browser_session(account_key: str) -> Iterator[RemoteBrowserSession | None]:
-    """Context manager: starts a remote browser session on enter, stops it on exit
-    (unless keep_session_alive() was called, e.g. for waiting_user_input)."""
+    """上下文管理器：进入时启动远程浏览器会话，退出时停止。
+
+    如果调用过 keep_session_alive()，例如 waiting_user_input 场景，则不会停止。
+    """
     session = start_remote_browser_session(account_key)
     try:
         yield session
@@ -570,6 +582,12 @@ def start_remote_browser_session(
     platform_code: str = "",
     profile_key: str | None = None,
 ) -> RemoteBrowserSession:
+    """拉起一条 Xvfb → x11vnc → websockify 进程链，返回带 novnc_url 的会话句柄。
+
+    每步拉起进程后都等对应 X display / 端口就绪才继续。任一步失败则杀掉已起进程、
+    归还预留的 display/端口号再抛出（避免泄漏可复用的号段）。成功后注册进 _active_sessions
+    并镜像到 DB，按需启动空闲清理线程。
+    """
     import os as _os
 
     worker_id = _os.environ.get("GEO_WORKER_ID")
@@ -681,8 +699,11 @@ def start_remote_browser_session(
 
 
 def stop_remote_browser_session(session_id: str) -> None:
-    """Stop a browser session. If it belongs to this process, kill immediately.
-    Otherwise set stop_requested=True in the DB; the owning worker will clean up."""
+    """停止浏览器会话。
+
+    若会话属于当前进程则立即杀掉；否则在 DB 中置 stop_requested=True，由所属
+    worker 清理。
+    """
     with _sessions_lock:
         local_session = _active_sessions.pop(session_id, None)
         _session_keep_alive.discard(session_id)
@@ -694,6 +715,11 @@ def stop_remote_browser_session(session_id: str) -> None:
             _account_sessions.pop(k, None)
 
     if local_session is not None:
+        # 登录会话的 Playwright 句柄由 login_broker 在它自己的事件循环上持有，必须经 broker 拆除
+        # （非登录会话 / 发布会话安静 no-op，且不会唤起 broker 的 loop）。
+        from server.app.modules.accounts.login_broker import login_broker
+
+        login_broker.close_if_owned(session_id)
         _close_browser_handles(local_session)
         _stop_session_processes(local_session)
         _delete_session_from_db(session_id)
@@ -701,10 +727,15 @@ def stop_remote_browser_session(session_id: str) -> None:
         _set_stop_requested_db(session_id)
 
 
-# ── Port / display allocation ────────────────────────────────────────────────
+# ── 端口 / display 分配 ────────────────────────────────────────────────────
 
 
 def _reserve_numbers() -> tuple[int, int, int]:
+    """在锁内挑一组互不冲突的 (display, vnc_port, novnc_port) 并登记到 _reserved_*。
+
+    _reserved_* 集合占着启动中（尚未进 _active_sessions）的号，防并发启动撞号；
+    会话起好后由调用方从 _reserved_* 移除，失败则走 _release_reserved_numbers 归还。
+    """
     settings = get_settings()
     with _sessions_lock:
         used_displays = {s.display_number for s in _active_sessions.values()} | _reserved_displays
@@ -765,7 +796,7 @@ def _port_available(host: str, port: int) -> bool:
     return True
 
 
-# ── Process management ───────────────────────────────────────────────────────
+# ── 进程管理 ────────────────────────────────────────────────────────────────
 
 
 def _spawn(name: str, command: list[str], log_dir: Path) -> ManagedProcess:
@@ -822,7 +853,7 @@ def _close_browser_handles(session: RemoteBrowserSession) -> None:
         session.page = None
 
 
-# ── X11 / TCP readiness checks ───────────────────────────────────────────────
+# ── X11 / TCP 就绪检查 ─────────────────────────────────────────────────────
 
 
 def _wait_for_x_display(display_number: int, timeout_seconds: float) -> None:
@@ -864,10 +895,14 @@ def _resolve_command(command: str | None) -> str | None:
     return shutil.which(command)
 
 
-# ── Idle / stop-requested cleanup thread ────────────────────────────────────
+# ── 空闲 / 停止请求清理线程 ────────────────────────────────────────────────
 
 
 def _start_idle_cleanup() -> None:
+    """惰性启动后台清理线程（已在跑则直接返回）。
+
+    每 2s 处理一轮 stop_requested（跨进程停止指令），每约 30s 再扫一次空闲超时 / 僵尸会话。
+    """
     global _idle_cleanup_thread
     if _idle_cleanup_thread is not None and _idle_cleanup_thread.is_alive():
         return
@@ -886,7 +921,7 @@ def _start_idle_cleanup() -> None:
             except Exception:
                 _logger.warning("stop-requested session cleanup failed", exc_info=True)
             idle_tick += 1
-            if idle_tick >= 15:  # every 30s
+            if idle_tick >= 15:  # 每 30 秒
                 idle_tick = 0
                 try:
                     _cleanup_stale_sessions(idle_timeout())
@@ -904,7 +939,7 @@ def _start_idle_cleanup() -> None:
 
 
 def _cleanup_stop_requested_sessions() -> None:
-    """Kill any sessions that have been flagged stop_requested in the DB."""
+    """杀掉 DB 中已标记 stop_requested 的会话。"""
     stop_ids = _query_stop_requested_session_ids()
     for session_id in stop_ids:
         with _sessions_lock:
@@ -915,6 +950,7 @@ def _cleanup_stop_requested_sessions() -> None:
 
 
 def _cleanup_stale_sessions(idle_timeout: int) -> None:
+    """回收 keep_alive 但已超过空闲超时的会话（如人工接管 waiting_user_input 后无人完成）。"""
     now = time.monotonic()
     stale_ids: list[str] = []
     with _sessions_lock:
@@ -939,6 +975,7 @@ def _cleanup_stale_sessions(idle_timeout: int) -> None:
 
 
 def _cleanup_zombie_sessions() -> None:
+    """回收任一底层进程（Xvfb/x11vnc/websockify）已退出的会话——进程链断了，会话已不可用。"""
     zombie_ids: list[str] = []
     with _sessions_lock:
         for session_id, session in list(_active_sessions.items()):
@@ -968,11 +1005,12 @@ def _stop_idle_cleanup() -> None:
 
 
 def _novnc_url(host: str, novnc_port: int) -> str:
+    # 经 80 端口反代访问：真实 websockify 端口编进 ws path，前端连 port=80 由反代转发到 novnc_port
     return f"http://{host}/novnc/vnc.html?host={host}&port=80&path=novnc/ws/{novnc_port}"
 
 
 def _reset_globals() -> None:
-    """Reset all module-level state (for test cleanup)."""
+    """重置全部模块级状态（测试清理用）。"""
     global _active_sessions, _record_to_session, _session_keep_alive
     global _reserved_displays, _reserved_vnc_ports, _reserved_novnc_ports
     with _sessions_lock:

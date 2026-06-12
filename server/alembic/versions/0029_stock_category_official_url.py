@@ -1,8 +1,8 @@
-"""add official url to stock categories
+"""为素材分类添加 official_url
 
-Revision ID: 0029
-Revises: 0028
-Create Date: 2026-05-26
+修订 ID: 0029
+上一修订: 0028
+创建日期: 2026-05-26
 """
 from typing import Sequence, Union
 

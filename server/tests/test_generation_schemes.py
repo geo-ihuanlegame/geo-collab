@@ -4,6 +4,9 @@
 （跨池 / 类型不一致 / 非 active / 空题 / 文章数<=0 / 模板不存在/停用/删除/非 generation / 空模板）。
 """
 
+import json
+
+from server.app.core.config import get_settings
 from server.tests.utils import build_test_app
 
 
@@ -383,12 +386,32 @@ def test_update_scheme_with_prior_run_tasks_succeeds(monkeypatch):
 def test_ai_engines_endpoint_returns_configured_list(monkeypatch):
     app = build_test_app(monkeypatch)
     try:
+        monkeypatch.setenv(
+            "GEO_AI_ENGINES",
+            json.dumps(
+                [
+                    {
+                        "label": "网关",
+                        "model": "openai/gpt-4o",
+                        "api_key": "SECRET-should-not-leak",
+                        "base_url": "https://gw/v1",
+                    }
+                ]
+            ),
+        )
+        get_settings.cache_clear()
         r = app.client.get("/api/generation/ai-engines")
         assert r.status_code == 200, r.text
         data = r.json()
         assert isinstance(data, list) and len(data) >= 1
-        assert "label" in data[0] and "model" in data[0]
+        assert data[0]["label"] == "网关" and data[0]["model"] == "openai/gpt-4o"
+        # 永不泄漏密钥 / 网关地址给前端：响应里既无字段名、也无密钥值
+        assert "api_key" not in data[0]
+        assert "base_url" not in data[0]
+        assert "SECRET-should-not-leak" not in r.text
+        assert "https://gw/v1" not in r.text
     finally:
+        get_settings.cache_clear()
         app.cleanup()
 
 

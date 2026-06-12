@@ -1,9 +1,9 @@
-import { Bot, FileText, Images, MessagesSquare, MonitorCog, RadioTower, Send, Sparkles } from "lucide-react";
+import { Bot, FileText, Flame, Images, MessagesSquare, MonitorCog, RadioTower, Send, Sparkles } from "lucide-react";
 import type { ComponentType } from "react";
 
-export type NavKey = "agents" | "ai" | "content" | "prompts" | "image-library" | "media" | "tasks" | "system" | "admin" | "audit-logs";
+export type NavKey = "agents" | "ai" | "content" | "prompts" | "image-library" | "media" | "tasks" | "system" | "hot-lists" | "admin" | "audit-logs";
 
-export type PromptScope = "generation" | "ai_format";
+export type PromptScope = "generation" | "ai_format" | "image_search" | "image_companion";
 
 export type PromptTemplate = {
   id: number;
@@ -219,11 +219,19 @@ export type Account = {
   platform_code: string;
   platform_name: string;
   display_name: string;
+  platform_user_id: string | null;
   status: string;
   last_checked_at: string | null;
   last_login_at: string | null;
-  state_path: string;
+  state_path: string | null;
   note: string | null;
+  contact: string | null;
+  avatar_asset_id: string | null;
+  distribution_enabled: boolean;
+  app_id: string | null;
+  app_secret_tail: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export type AccountBrowserSession = {
@@ -348,6 +356,7 @@ export type SystemStatus = {
 export type PlatformOption = {
   code: string;
   name: string;
+  mode?: "api" | "browser"; // api=凭据直填(如微信公众号)，browser=浏览器扫码登录(如头条)
 };
 
 // API Request Bodies
@@ -382,6 +391,7 @@ export type StockCategory = {
   id: number;
   name: string;
   bucket_name: string;
+  kind: "main" | "companion";
   description: string | null;
   official_url: string | null;
   created_at: string;
@@ -418,10 +428,38 @@ export type AutoDistributePayload = {
   name?: string;
 };
 
+export type ApiCredentialsIn = {
+  app_id: string;
+  app_secret: string;
+};
+
+export type ApiAccountCreatePayload = {
+  platform_code: string;
+  display_name: string;
+  api_credentials: ApiCredentialsIn;
+  contact?: string | null;
+  note?: string | null;
+  avatar_asset_id?: string | null;
+  distribution_enabled?: boolean;
+};
+
+export type AccountUpdatePayload = {
+  display_name?: string;
+  contact?: string | null;
+  note?: string | null;
+  avatar_asset_id?: string | null;
+  distribution_enabled?: boolean;
+  api_credentials?: ApiCredentialsIn;
+};
+
 export type PlatformLoginPayload = {
   display_name: string;
   account_key: string;
   use_browser?: boolean;
+  note?: string | null;
+  contact?: string | null;
+  avatar_asset_id?: string | null;
+  distribution_enabled?: boolean;
 };
 
 export type ArticleGroupUpdateItemsPayload = {
@@ -457,6 +495,7 @@ export const navItems: { key: NavKey; label: string; icon: ComponentType<{ size?
   { key: "media", label: "媒体矩阵", icon: RadioTower },
   { key: "tasks", label: "分发引擎", icon: Send },
   { key: "system", label: "系统状态", icon: MonitorCog },
+  { key: "hot-lists", label: "热榜", icon: Flame },
 ];
 
 export const TERMINAL_STATUSES = new Set(["succeeded", "partial_failed", "failed", "cancelled"]);
@@ -527,5 +566,22 @@ export interface PipelineRun {
 }
 export interface NodeTypeDef {
   type: string; label: string;
-  config_schema: { key: string; type: string; label: string }[];
+  config_schema: { key: string; type: string; label: string; default?: boolean | string | number; hint?: string; note?: string }[];
 }
+
+export type RunLogRow = {
+  batch: number;
+  run_status: string;
+  step: number;
+  task_name: string;
+  level: "INFO" | "ERROR";
+  message: string;
+  time: string | null;
+};
+
+export type RunLogPage = {
+  items: RunLogRow[];
+  total: number;
+  page: number;
+  page_size: number;
+};

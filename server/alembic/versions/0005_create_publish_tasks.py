@@ -1,8 +1,8 @@
-"""create publish_tasks, publish_task_accounts, publish_records, task_logs
+"""创建 publish_tasks、publish_task_accounts、publish_records、task_logs 表
 
-Revision ID: 0005
-Revises: 0004
-Create Date: 2026-05-12
+修订 ID: 0005
+上一修订: 0004
+创建日期: 2026-05-12
 """
 from typing import Sequence, Union
 

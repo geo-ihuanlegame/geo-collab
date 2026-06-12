@@ -41,13 +41,15 @@ from server.app.modules.system.models import User
 logger = logging.getLogger(__name__)
 scheme_router = APIRouter()
 
-# 后台执行方案运行使用的 Session 工厂（create_app() 注入 SessionLocal；测试用 TestingSessionLocal）
+# 后台执行方案运行使用的会话工厂（create_app() 注入 SessionLocal；测试用 TestingSessionLocal）
 bg_session_factory: Any = None
 
 
-def _get_owned_pool(db: Session, pool_id: int, current_user: User) -> Any:
+def _get_pool_or_404(db: Session, pool_id: int) -> Any:
+    """问题池全员共享：任意登录用户都可在任一池上建方案，仅不存在 / 已删除时 404。
+    （方案本身仍按用户私有，见 _get_owned_scheme。）"""
     pool = qb.get_pool(db, pool_id)
-    if pool is None or (current_user.role != "admin" and pool.user_id != current_user.id):
+    if pool is None:
         raise HTTPException(status_code=404, detail="问题池不存在")
     return pool
 
@@ -93,7 +95,7 @@ def list_ai_engines(
     """方案可选的 AI 引擎列表（来自 settings.ai_engines，给方案编辑器下拉用）。"""
     from server.app.core.config import get_settings
 
-    return [AiEngineRead(**e) for e in get_settings().ai_engines]
+    return [AiEngineRead(label=e.label, model=e.model) for e in get_settings().ai_engines]
 
 
 @scheme_router.get("/schemes", response_model=list[SchemeRead])
@@ -112,7 +114,7 @@ def create_scheme(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Any:
-    pool = _get_owned_pool(db, payload.pool_id, current_user)
+    pool = _get_pool_or_404(db, payload.pool_id)
     scheme = svc.create_scheme(db, user_id=current_user.id, pool_id=pool.id, payload=payload)
     db.commit()
     db.refresh(scheme)
@@ -259,17 +261,27 @@ def create_scheme_run(
     )
 
     if bg_session_factory is None:
-        logger.error("bg_session_factory 未初始化，方案运行后台线程不会执行（run_id=%d）", run_id)
-    else:
-        factory = bg_session_factory
+        # 与 pipelines/router 对齐：后台执行器未就绪时标记运行失败 + 返回 503，
+        # 不再返回虚假的 202（否则运行永远卡在 pending、调用方以为仍在执行）。
+        logger.error("bg_session_factory 未注入，方案运行无法执行（run_id=%d）", run_id)
+        from server.app.modules.ai_generation.models import GenerationSchemeRun
 
-        def _run() -> None:
-            try:
-                run_scheme(run_id, factory)
-            except Exception:
-                logger.exception("scheme run background thread failed for run %d", run_id)
+        run_obj = db.get(GenerationSchemeRun, run_id)
+        if run_obj is not None:
+            run_obj.status = "failed"
+            run_obj.error_message = "后台执行器未就绪（bg_session_factory 未注入）"
+            db.commit()
+        return JSONResponse(status_code=503, content={"run_id": run_id, "status": "failed"})
 
-        threading.Thread(target=_run, daemon=True).start()
+    factory = bg_session_factory
+
+    def _run() -> None:
+        try:
+            run_scheme(run_id, factory)
+        except Exception:
+            logger.exception("scheme run background thread failed for run %d", run_id)
+
+    threading.Thread(target=_run, daemon=True).start()
 
     return JSONResponse(content={"run_id": run_id, "status": "pending"}, status_code=202)
 

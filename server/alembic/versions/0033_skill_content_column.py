@@ -1,8 +1,8 @@
-"""skills: add content column (single-text refactor)
+"""为 skills 添加 content 列（单文本重构）
 
-Revision ID: 0033
-Revises: 0032
-Create Date: 2026-05-28
+修订 ID: 0033
+上一修订: 0032
+创建日期: 2026-05-28
 """
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ def upgrade() -> None:
     cols = {c["name"] for c in inspector.get_columns("skills")}
     if "content" not in cols:
         # MySQL 不允许 TEXT 列有字面 DEFAULT（错误 1101）。
-        # 分三步：先加 nullable 列，回填空串，再改为 NOT NULL。
+        # 分三步：先加可空列，回填空串，再改为 NOT NULL。
         op.add_column("skills", sa.Column("content", sa.Text(), nullable=True))
         op.execute("UPDATE skills SET content = '' WHERE content IS NULL")
         op.alter_column("skills", "content", existing_type=sa.Text(), nullable=False)

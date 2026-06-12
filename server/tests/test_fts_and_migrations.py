@@ -61,7 +61,7 @@ def test_search_falls_back_to_like_when_fulltext_index_missing(monkeypatch):
         assert resp.json() == []
     finally:
         test_app.cleanup()
-        # 本测试用裸 SQL DROP 了 ft_articles 索引，标记共享 schema 失效，
+        # 本测试用裸 SQL DROP 了 ft_articles 索引，标记共享数据库结构失效，
         # 让下个 build_test_app 全量重建（否则后续全文检索测试会缺索引）。
         invalidate_test_schema()
 

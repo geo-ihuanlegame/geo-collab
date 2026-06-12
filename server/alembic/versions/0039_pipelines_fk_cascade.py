@@ -1,8 +1,8 @@
-"""pipelines: child FK ON DELETE CASCADE + unique (pipeline_id, version_no)
+"""pipelines：子表外键 ON DELETE CASCADE 与唯一 (pipeline_id, version_no)
 
-Revision ID: 0039
-Revises: 0038
-Create Date: 2026-06-05
+修订 ID: 0039
+上一修订: 0038
+创建日期: 2026-06-05
 """
 from __future__ import annotations
 
@@ -35,9 +35,9 @@ def _drop_fk_to(table: str, ref_table: str) -> None:
 
 def upgrade() -> None:
     # 1) (pipeline_id, version_no) 普通索引 → 唯一。
-    #    必须先建新唯一索引、再删旧索引：alembic schema 里 pipeline_id 外键依赖
+    #    必须先建新唯一索引、再删旧索引：Alembic 元数据里 pipeline_id 外键依赖
     #    ix_pipeline_versions_pipeline_version 作为覆盖索引（pipeline_id 是左前缀），
-    #    新唯一索引同样覆盖 pipeline_id，建好后旧索引才允许被 drop（否则 MySQL 1553）。
+    #    新唯一索引同样覆盖 pipeline_id，建好后旧索引才允许被删除（否则 MySQL 1553）。
     op.create_index(
         "uq_pipeline_versions_pipeline_version",
         "pipeline_versions",

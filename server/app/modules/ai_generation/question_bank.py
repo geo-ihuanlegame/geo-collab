@@ -1,7 +1,7 @@
-"""问题库服务：池 CRUD、飞书镜像同步、默认取法。
+"""问题库服务：池增删改查、飞书镜像同步、默认取法。
 
 核心语义（方案流，纯镜像）：
-- 同步按 (pool_id, record_id) upsert；飞书存在则 source_active=True，飞书缺失则软标记
+- 同步按 (pool_id, record_id) 更新或插入；飞书存在则 source_active=True，飞书缺失则软标记
   source_active=False + source_deleted_at（不物理删除），再次出现则恢复 active。
 - 对所有本地项一视同仁对齐飞书（含历史遗留 status='consumed' 的项），不再"消费不复活"。
 - `status` / `article_id` / mark_*_consumed / auto_pick_groups / CategoryUsage 是旧
@@ -25,14 +25,18 @@ FIELD_QUESTION = "提问词"
 FIELD_CATEGORY = "分类板块"
 
 
-# ── 池 CRUD ─────────────────────────────────────────────────────────────────
+# ── 池增删改查 ─────────────────────────────────────────────────────────────
 
 
-def list_pools(db: Session, *, user_id: int, is_admin: bool) -> list[QuestionPool]:
-    q = db.query(QuestionPool).filter(QuestionPool.is_deleted == False)  # noqa: E712
-    if not is_admin:
-        q = q.filter(QuestionPool.user_id == user_id)
-    return q.order_by(QuestionPool.created_at.desc()).all()
+def list_pools(db: Session) -> list[QuestionPool]:
+    """列出所有未删除问题池。问题池全员共享，不再按属主隔离（admin / operator 同看同一批）。
+    `QuestionPool.user_id` 仅保留为"创建者"溯源，不参与可见性过滤。"""
+    return (
+        db.query(QuestionPool)
+        .filter(QuestionPool.is_deleted == False)  # noqa: E712
+        .order_by(QuestionPool.created_at.desc())
+        .all()
+    )
 
 
 def get_pool(db: Session, pool_id: int) -> QuestionPool | None:
@@ -64,11 +68,46 @@ def create_pool(
     return pool
 
 
+def update_pool(
+    db: Session,
+    pool: QuestionPool,
+    *,
+    name: str | None = None,
+    feishu_app_token: str | None = None,
+    feishu_table_id: str | None = None,
+    auto_sync_enabled: bool | None = None,
+) -> QuestionPool:
+    """改名 / 重新绑定飞书表 / 开关自动同步。仅更新显式传入（非 None）的字段。
+
+    PATCH 语义与 ArticleUpdate 一致：None = "未提供、保持原值"，无法用来清空字段；
+    要清空飞书绑定请显式传空串（会被规整成 None）。
+    """
+    if name is not None:
+        if not name.strip():
+            raise ValidationError("问题池名称不能为空")
+        pool.name = name.strip()
+    if feishu_app_token is not None:
+        pool.feishu_app_token = feishu_app_token.strip() or None
+    if feishu_table_id is not None:
+        pool.feishu_table_id = feishu_table_id.strip() or None
+    if auto_sync_enabled is not None:
+        pool.auto_sync_enabled = auto_sync_enabled
+    db.flush()
+    return pool
+
+
+def soft_delete_pool(db: Session, pool: QuestionPool) -> None:
+    """软删除问题池：置 is_deleted=True（不物理删除，保留问题项与历史关联）。
+    删除后 get_pool / list_pools 不再返回它，绑定它的方案会显示"池不存在"。"""
+    pool.is_deleted = True
+    db.flush()
+
+
 # ── 同步（飞书 → 队列）──────────────────────────────────────────────────────
 
 
 def sync_pool(db: Session, pool: QuestionPool) -> dict[str, int]:
-    """从飞书多维表拉取记录，纯镜像 upsert。
+    """从飞书多维表拉取记录，纯镜像更新或插入。
 
     飞书存在 → 新增或更新内容并置 source_active=True、last_seen_at=now、清 source_deleted_at；
     飞书缺失 → 本地软标记 source_active=False、source_deleted_at=now（不物理删除）；
@@ -205,7 +244,7 @@ def _stringify_field_value(value: Any) -> str:
 
 def extract_question_text(fields: dict) -> str:
     """旧默认取法：把记录所有字段拼成"字段名：值"多行文本。
-    仅供同步前的旧 items（没有 question_text 列）回退使用；新数据请用 question_text_of。"""
+    仅供同步前的旧条目（没有 question_text 列）回退使用；新数据请用 question_text_of。"""
     lines = []
     for name, value in (fields or {}).items():
         text = _stringify_field_value(value).strip()
@@ -225,7 +264,7 @@ def question_text_of(item: QuestionItem) -> str:
 
 
 def format_question_group(items: list[QuestionItem]) -> str:
-    """把同一篇文章的多条问题渲染成编号列表，供拼进 user prompt。"""
+    """把同一篇文章的多条问题渲染成编号列表，供拼进用户提示词。"""
     lines: list[str] = []
     for idx, it in enumerate(items, start=1):
         text = question_text_of(it)
@@ -268,7 +307,7 @@ def mark_items_consumed(db: Session, item_ids: list[int], article_id: int) -> No
 def list_categories_for_auto(db: Session, pool_id: int) -> list[str]:
     """返回该池里"还有 pending 行的板块"，按
     (last_used_at ASC NULLS FIRST, 表内位置 ASC) 排序。
-    表内位置 = MIN(item.id) per category（同步顺序≈表序）。"""
+    表内位置 = 每个 category 下的 MIN(item.id)（同步顺序≈表序）。"""
     from sqlalchemy import func, select
 
     pos_subq = (
@@ -296,7 +335,7 @@ def list_categories_for_auto(db: Session, pool_id: int) -> list[str]:
 
     def _key(r):
         _, first_id, last_used = r
-        # NULLS FIRST: None 排最前
+        # 空值优先：None 排最前
         return (0 if last_used is None else 1, last_used or datetime.min, first_id)
 
     return [cat for (cat, _fid, _lu) in sorted(rows, key=_key)]
@@ -342,7 +381,7 @@ def auto_pick_groups(
 
 
 def mark_category_used(db: Session, pool_id: int, category: str) -> None:
-    """自动模式：成功后 upsert (pool, category) 的 last_used_at = now。"""
+    """自动模式：成功后更新或插入 (pool, category) 的 last_used_at = now。"""
     now = utcnow()
     usage = (
         db.query(CategoryUsage)

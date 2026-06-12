@@ -1,9 +1,21 @@
+"""
+文章 / 文章分组业务逻辑层（增删改查 + 审核 + 全文检索）。
+
+约定：
+  - 软删除（is_deleted），查询一律过滤 is_deleted == False。
+  - 乐观锁：update_* 用 payload.version 对比 article/group.version，不一致抛 ConflictError；每次写 version+1。
+  - PATCH 语义：update_article 跳过值为 None 的字段（见 CLAUDE.md「ArticleUpdate 丢 null」），
+    唯一例外是 stock_category_id 允许显式置 None 来解除关联。
+  - 正文三份存储（content_json / content_html / plain_text）+ body_assets 由调用方/sync 同步。
+  - review_status：pending=待审 / approved=已审，未过审不可发布。
+"""
+
 from __future__ import annotations
 
 import logging
 
+from sqlalchemy import bindparam, func, select, text
 from sqlalchemy import delete as sa_delete
-from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from server.app.core.time import utcnow
@@ -48,6 +60,7 @@ def ensure_asset_exists(db: Session, asset_id: str | None) -> None:
 
 
 def sync_article_body_assets(db: Session, article: Article, content_json: dict) -> None:
+    """按正文 JSON 里的图片节点重建 body_assets 关联（先全清再按文档顺序重建，position 即顺序）。"""
     image_nodes = extract_body_image_nodes(content_json)
     for asset_id, _ in image_nodes:
         ensure_asset_exists(db, asset_id)
@@ -76,9 +89,18 @@ def get_article(db: Session, article_id: int) -> Article | None:
 
 
 def _search_articles(db: Session, query: str, user_id: int | None = None) -> list[Article]:
+    # MySQL FULLTEXT（ngram parser）自然语言检索 title/author/plain_text。
+    # 自然语言模式（不带 IN BOOLEAN MODE）：用户输入里的 + - " * ( ) 等被当词分隔符、不当布尔操作符，
+    #   故无需转义、不会因特殊字符触发 syntax error 或返回诡异空集。query 走绑定参数 :q（防注入）；
+    #   列名写死在 SQL 文本里（非用户可控）。无 FTS 索引（如某些环境漏建）时本句会抛，由调用方 except 回退 LIKE。
+    # 注意：SQLAlchemy 的 func.match(...).against(...) 在 2.x 不可用（Function 无 .against），曾导致检索
+    #   永远静默退化成 LIKE、ngram 索引空转（见 issue #50），故这里直接用 text() 显式构造。
+    match_clause = text(
+        "MATCH (articles.title, articles.author, articles.plain_text) AGAINST (:q) > 0"
+    ).bindparams(bindparam("q", query))
     stmt = select(Article).where(
         Article.is_deleted == False,  # noqa: E712
-        func.match(Article.title, Article.author, Article.plain_text).against(query, "boolean") > 0,
+        match_clause,
     )
 
     if user_id is not None:
@@ -95,6 +117,7 @@ def list_articles(
     user_id: int | None = None,
     review_status: str | None = None,
 ) -> list[Article]:
+    # query ≥3 字才走 FTS（ngram 最短 token）；FTS 不可用时 except 落到下面的 LIKE 回退
     if query and len(query) >= 3:
         try:
             matching = _search_articles(db, query, user_id=user_id)
@@ -144,6 +167,8 @@ def list_articles(
 
 
 def create_article(db: Session, user_id: int, payload: ArticleCreate) -> Article:
+    """新建文章。client_request_id 做幂等：已存在同 request_id 的文章直接返回，不重复创建。"""
+    # 软幂等：先按 client_request_id 全局预查（不限 user）；并发下由 per-user 唯一约束 uq_articles_user_client_request_id 兜底（router 捕 IntegrityError 再按 user 查一次）
     if payload.client_request_id:
         existing = db.execute(
             select(Article).where(
@@ -175,6 +200,7 @@ def create_article(db: Session, user_id: int, payload: ArticleCreate) -> Article
 
 
 def update_article(db: Session, article: Article, payload: ArticleUpdate) -> Article:
+    """局部更新文章（乐观锁 + None 跳过语义）。改 content_json 时同步 body_assets 并重算 version。"""
     update_data = payload.model_dump(exclude_unset=True)
     expected_version = update_data.pop("version", None)
     if expected_version is not None and article.version != expected_version:
@@ -189,6 +215,7 @@ def update_article(db: Session, article: Article, payload: ArticleUpdate) -> Art
     if "content_json" in update_data and update_data["content_json"] is not None:
         content_json = update_data["content_json"]
 
+    # 显式过滤 None：PATCH {"field": null} 不会清空字段（见 CLAUDE.md「ArticleUpdate 丢 null」）
     for field in (
         "title",
         "author",
@@ -247,6 +274,7 @@ def set_article_cover(db: Session, article: Article, cover_asset_id: str | None)
 
 
 def delete_article(db: Session, article: Article) -> None:
+    """软删除文章。存在未完成发布记录则拒删；删前清掉其所有分组关联（硬删 ArticleGroupItem）。"""
     article_id = article.id
 
     active = (
@@ -271,7 +299,7 @@ def delete_article(db: Session, article: Article) -> None:
     db.flush()
 
 
-# --- Article review (审核) ---
+# --- 文章审核 ---
 
 
 def _get_owned_article(db: Session, article_id: int, user_id: int, role: str) -> Article:
@@ -305,7 +333,7 @@ def revoke_article_approval(db: Session, article_id: int, user_id: int, role: st
     return get_article(db, article.id) or article
 
 
-# --- Article Group CRUD ---
+# --- 文章分组增删改查 ---
 
 
 def get_group(db: Session, group_id: int) -> ArticleGroup | None:
@@ -328,11 +356,13 @@ def list_groups(db: Session) -> list[ArticleGroup]:
 
 
 def create_group(db: Session, user_id: int, payload: ArticleGroupCreate) -> ArticleGroup:
+    """新建分组。撞到同名软删分组则原地复活（清空成员、刷新元数据），绕开 (user_id, name) 唯一约束。"""
     existing = db.execute(
         select(ArticleGroup).where(
             ArticleGroup.user_id == user_id, ArticleGroup.name == payload.name
         )
     ).scalar_one_or_none()
+    # 同名分组已软删 → 复活而非新建（否则唯一约束会冲突）
     if existing is not None and existing.is_deleted:
         existing.description = payload.description
         existing.is_deleted = False
@@ -367,6 +397,7 @@ def update_group(db: Session, group: ArticleGroup, payload: ArticleGroupUpdate) 
 def replace_group_items(
     db: Session, group: ArticleGroup, payload: ArticleGroupItemsUpdate
 ) -> ArticleGroup:
+    """整组替换成员（先校验去重 + 文章存在，再清空重建）。乐观锁，未传 sort_order 用下标兜底。"""
     if payload.version is not None and group.version != payload.version:
         raise ConflictError("Article group has been modified; refresh before saving")
 
@@ -409,6 +440,7 @@ def replace_group_items(
 
 
 def delete_group(db: Session, group: ArticleGroup) -> None:
+    """软删除分组。存在 pending/running 的发布任务则拒删。"""
     active_task = db.execute(
         select(PublishTask.id).where(
             PublishTask.group_id == group.id,
@@ -424,7 +456,7 @@ def delete_group(db: Session, group: ArticleGroup) -> None:
     db.flush()
 
 
-# --- Article group review (整组审核) ---
+# --- 文章分组审核 ---
 
 
 def compute_group_review_summary(db: Session, group_id: int) -> tuple[int, int]:
@@ -482,7 +514,7 @@ def mark_pending_and_group(
 ) -> int | None:
     """把文章标 review_status='pending' 并归入一个新 ArticleGroup（名 base_name）。
     撞 (user_id, name) 唯一约束时改用 base_name + fallback_suffix（调用方应传稳定唯一值，
-    如 run_id；未传则回退到不稳定的 #article_ids[0] 旧行为）。best-effort：失败记日志、不抛。
+    如 run_id；未传则回退到不稳定的 #article_ids[0] 旧行为）。尽力执行：失败记日志、不抛。
     用独立 session、本函数内 commit+close。返回 group_id 或 None。"""
     if not article_ids:
         return None
@@ -512,6 +544,8 @@ def mark_pending_and_group(
             try:
                 db.flush()
             except IntegrityError:
+                # 并发抢到了 base_name（唯一约束冲突）：rollback 丢掉本次未提交改动，
+                # 重新标 pending 并改用带 suffix 的名字重试一次
                 db.rollback()
                 for aid in article_ids:
                     art = db.get(Article, aid)
@@ -528,8 +562,106 @@ def mark_pending_and_group(
             return gid
         finally:
             db.close()
-    except Exception:  # noqa: BLE001 — best-effort
+    except Exception:  # noqa: BLE001 — 尽力而为
         _logger.exception(
             "mark_pending_and_group failed (user=%s, n=%s)", user_id, len(article_ids)
+        )
+        return None
+
+
+def mark_pending_and_append_daily(
+    session_factory,
+    *,
+    article_ids: list[int],
+    user_id: int,
+    group_name: str,
+) -> int | None:
+    """把文章标 review_status='pending' 并追加进 (user_id, group_name) 分组：
+    有同名未软删组则复用，软删同名组则复活，都没有则新建；去重追加，sort_order 接 max+1。
+    并发两个 run 同时建组撞 (user_id, name) 唯一约束 → rollback、重标 pending、回查复用。
+    尽力而为：失败记日志、不抛；独立 session、本函数内 commit+close。返回 group_id 或 None。"""
+    if not article_ids:
+        return None
+    try:
+        from sqlalchemy.exc import IntegrityError
+
+        db = session_factory()
+        try:
+
+            def _mark_pending() -> None:
+                for aid in article_ids:
+                    art = db.get(Article, aid)
+                    if art is not None:
+                        art.review_status = "pending"
+
+            def _resolve_group() -> ArticleGroup:
+                existing = (
+                    db.query(ArticleGroup)
+                    .filter(ArticleGroup.user_id == user_id, ArticleGroup.name == group_name)
+                    .first()
+                )
+                if existing is not None:
+                    if existing.is_deleted:  # 软删同名 → 复活并清空旧成员
+                        existing.is_deleted = False
+                        existing.deleted_at = None
+                        existing.version += 1
+                        existing.updated_at = utcnow()
+                        existing.items.clear()
+                        db.flush()
+                    return existing
+                grp = ArticleGroup(user_id=user_id, name=group_name)
+                db.add(grp)
+                db.flush()  # 撞唯一约束在此抛 IntegrityError
+                return grp
+
+            _mark_pending()
+            try:
+                group = _resolve_group()
+            except IntegrityError:
+                db.rollback()
+                _mark_pending()
+                group = (
+                    db.query(ArticleGroup)
+                    .filter(
+                        ArticleGroup.user_id == user_id,
+                        ArticleGroup.name == group_name,
+                        ArticleGroup.is_deleted.is_(False),
+                    )
+                    .first()
+                )
+                if group is None:
+                    raise
+
+            existing_ids = {
+                row[0]
+                for row in db.query(ArticleGroupItem.article_id)
+                .filter(ArticleGroupItem.group_id == group.id)
+                .all()
+            }
+            max_order = (
+                db.query(func.max(ArticleGroupItem.sort_order))
+                .filter(ArticleGroupItem.group_id == group.id)
+                .scalar()
+            )
+            next_order = (max_order + 1) if max_order is not None else 0
+            for aid in article_ids:
+                if aid in existing_ids:
+                    continue
+                db.add(ArticleGroupItem(group_id=group.id, article_id=aid, sort_order=next_order))
+                existing_ids.add(aid)
+                next_order += 1
+
+            group.updated_at = utcnow()
+            gid = group.id
+            db.commit()
+            return gid
+        finally:
+            db.close()
+    except Exception:  # noqa: BLE001 — 尽力而为
+        _logger.exception(
+            "mark_pending_and_append_daily failed (user=%s, name=%s, n=%s)",
+            user_id,
+            group_name,
+            len(article_ids),
         )
         return None

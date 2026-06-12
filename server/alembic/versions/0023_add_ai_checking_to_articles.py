@@ -1,8 +1,8 @@
-"""add ai_checking lock fields to articles
+"""为 articles 添加 ai_checking 锁字段
 
-Revision ID: 0023
-Revises: 0022
-Create Date: 2026-05-22
+修订 ID: 0023
+上一修订: 0022
+创建日期: 2026-05-22
 """
 from typing import Sequence, Union
 

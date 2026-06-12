@@ -81,7 +81,7 @@ def test_validate_schedule_consistency():
             window_start=None,
             window_end=None,
         )
-    # weekly 全齐 OK
+    # weekly 字段齐全，可通过
     validate_agent_fields(
         name="a",
         type="general",
@@ -96,7 +96,7 @@ def test_validate_schedule_consistency():
 
 
 def test_validate_window_order():
-    # overnight window (start > end) is now ACCEPTED
+    # 跨天窗口（start > end）现在允许通过
     validate_agent_fields(
         name="a",
         type="general",
@@ -108,7 +108,7 @@ def test_validate_window_order():
         window_start=dt.time(22, 0),
         window_end=dt.time(6, 0),
     )
-    # zero-length window (start == end) still rejected
+    # 零长度窗口（start == end）仍会被拒绝
     with pytest.raises(ValidationError):
         validate_agent_fields(
             name="a",
@@ -121,7 +121,7 @@ def test_validate_window_order():
             window_start=dt.time(10, 0),
             window_end=dt.time(10, 0),
         )
-    # paired-presence enforced: only one of start/end set → raises
+    # start/end 必须成对出现：只设置其中一个会抛错
     with pytest.raises(ValidationError):
         validate_agent_fields(
             name="a",
@@ -249,7 +249,7 @@ def test_run_due_skips_disabled_window_and_no_nodes(monkeypatch):
         from server.app.modules.pipelines.scheduler import run_due_pipelines_once
 
         now = dt.datetime(2026, 6, 5, 9, 30, tzinfo=TZ)
-        # disabled
+        # 已禁用
         _publish_simple_pipeline(
             client,
             name="停用",
@@ -292,7 +292,7 @@ def test_tags_dedup_on_create_and_patch(monkeypatch):
     test_app = build_test_app(monkeypatch)
     client = test_app.client
     try:
-        # create with duplicates and whitespace variants
+        # 创建时带重复值和空白差异
         resp = client.post(
             "/api/pipelines",
             json={"name": "去重体", "tags": ["a", "a", "b", " b ", "c"]},
@@ -302,7 +302,7 @@ def test_tags_dedup_on_create_and_patch(monkeypatch):
         got = client.get(f"/api/pipelines/{pid}").json()
         assert got["tags"] == ["a", "b", "c"]
 
-        # patch with duplicates also deduped
+        # PATCH 时带重复值也会去重
         resp2 = client.patch(
             f"/api/pipelines/{pid}",
             json={"tags": ["x", "x", " y", "y"]},
@@ -368,7 +368,7 @@ def test_ignore_exception_fail_fast_vs_continue(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Pure-logic tests for last_due_slot (no DB needed)
+# last_due_slot 纯逻辑测试（不需要数据库）
 # ---------------------------------------------------------------------------
 from server.app.modules.pipelines.schedule_calc import last_due_slot  # noqa: E402
 
@@ -399,7 +399,7 @@ def test_last_due_slot_none_kind():
 
 
 # ---------------------------------------------------------------------------
-# DB tests: Task 6 (drift) + Task 7 (atomic claim)
+# 数据库测试：任务 6（调度漂移）+ 任务 7（原子抢占）
 # ---------------------------------------------------------------------------
 from server.app.modules.system.models import User  # noqa: E402
 
@@ -434,9 +434,9 @@ def test_run_due_triggers_even_when_poll_minute_mismatch(monkeypatch):
             )
             db.commit()
         monkeypatch.setattr(sched, "run_pipeline", lambda *a, **k: None)
-        now = _local(2026, 6, 5, 9, 47)  # schedule minute=30; poll at :47 — old impl would miss
+        now = _local(2026, 6, 5, 9, 47)  # 调度分钟为 30，轮询发生在 :47；旧实现会漏掉
         assert sched.run_due_pipelines_once(app.session_factory, now=now) == 1
-        assert sched.run_due_pipelines_once(app.session_factory, now=now) == 0  # same slot deduped
+        assert sched.run_due_pipelines_once(app.session_factory, now=now) == 0  # 同一时段去重
     finally:
         app.cleanup()
 
@@ -479,14 +479,14 @@ def test_claim_rolled_back_when_create_run_fails(monkeypatch):
         now = _local(2026, 6, 5, 9, 47)
         assert sched.run_due_pipelines_once(app.session_factory, now=now) == 0
         with app.session_factory() as db:
-            assert db.get(Pipeline, pid).last_scheduled_run_at is None  # claim rolled back
+            assert db.get(Pipeline, pid).last_scheduled_run_at is None  # 抢占已回滚
     finally:
         app.cleanup()
 
 
 @pytest.mark.mysql
 def test_patch_can_clear_window(monkeypatch):
-    """PATCH with None for window_start/window_end should clear those nullable fields."""
+    """PATCH 传入 None 时应清空 window_start/window_end 这两个可空字段。"""
     app = build_test_app(monkeypatch)
     try:
         from server.app.modules.pipelines import service as svc

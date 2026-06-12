@@ -1,10 +1,10 @@
 """
-Worker executor: polls the DB for pending tasks and executes them.
+发布 worker 执行器：轮询数据库中的待处理任务并执行。
 
-Run as: python -m server.worker.executor
+运行方式：python -m server.worker.executor
 
-Each worker registers itself with a unique WORKER_ID (hostname + PID).
-Tasks are claimed atomically via optimistic locking on the worker_id column.
+每个 worker 使用唯一的 WORKER_ID（主机名 + PID）注册。
+任务通过 worker_id 列上的乐观锁原子抢占。
 """
 
 from __future__ import annotations
@@ -20,16 +20,19 @@ from datetime import timedelta
 from sqlalchemy import select
 from sqlalchemy import update as sa_update
 
-import server.app.modules.image_library.models  # noqa: F401  # 确保 StockCategory 注册到 mapper registry（Article.stock_category 关系依赖它）
+import server.app.modules.image_library.models  # noqa: F401  # 确保 StockCategory 注册到映射注册表（Article.stock_category 关系依赖它）
 
-# Import all drivers to trigger registration. The worker runs as a SEPARATE
-# process from the web app, so it must register drivers itself — both the default
-# DOM driver and the in-page variant (so GEO_TOUTIAO_DRIVER=inpage works here).
-import server.app.modules.tasks.drivers.toutiao  # noqa: F401
-import server.app.modules.tasks.drivers.toutiao_inpage  # noqa: F401
+# 导入全部驱动以触发注册。worker 与 Web 应用是不同进程，因此必须自行注册全部驱动
+# （含默认 DOM 驱动、页内变体、wechat_mp 等 API 驱动）。注册集中在 drivers.bootstrap，
+# 与 main.py 共用同一份，避免「main.py 加了驱动忘了同步 worker」的漂移。
+import server.app.modules.tasks.drivers.bootstrap  # noqa: F401
 from server.app.core.time import utcnow
 from server.app.db.session import SessionLocal
-from server.app.modules.accounts import process_account_login_session_requests
+from server.app.modules.accounts import (
+    expire_stale_login_sessions,
+    process_account_login_session_requests,
+    recover_stuck_login_sessions,
+)
 from server.app.modules.accounts.models import (
     Account,
     AccountLoginSession,
@@ -49,13 +52,18 @@ from server.app.modules.tasks.models import PublishRecord, PublishTask
 
 _logger = logging.getLogger(__name__)
 
-# Unique identity for this worker process
+# 当前 worker 进程的唯一标识
 WORKER_ID = f"{socket.gethostname()}-{os.getpid()}"
 CLAIM_LEASE_MINUTES = 10
 PROFILE_LOCK_HEARTBEAT_SECONDS = 30
 PROFILE_LOCK_LEASE_SECONDS = 900
+# active 登录会话被遗弃（用户关标签页/刷新/崩溃，没走 finish/cancel）时，其 profile 锁会被
+# 心跳无限续租、永久把账号挡在登录之外（#85 死锁的残留路径）。超过这个时长即视为僵死、按取消
+# 流程收尾释放锁。阈值远大于真人扫码登录耗时，不会误杀进行中的真实登录。
+LOGIN_SESSION_MAX_ACTIVE_SECONDS = 1800
+LOGIN_SESSION_STALE_CHECK_SECONDS = 60
 
-# Graceful shutdown flag
+# 优雅退出标记
 _shutdown = False
 _profile_lock_heartbeat_at = 0.0
 _profile_lock_heartbeat_lock = threading.Lock()
@@ -68,12 +76,12 @@ def _handle_signal(signum, frame) -> None:
 
 
 def _claim_next_task(db) -> PublishTask | None:
-    """Claim a pending task with pending records via optimistic locking. Returns the task or None."""
+    """通过乐观锁抢占带待处理记录的任务，成功时返回任务，否则返回 None。"""
     from sqlalchemy import exists
 
     from server.app.modules.tasks.models import PublishRecord
 
-    # Find a task with at least one pending record and no active worker claim
+    # 查找至少有一条待处理记录且尚未被 worker 抢占的任务
     candidate_id = db.execute(
         select(PublishTask.id)
         .where(
@@ -108,7 +116,7 @@ def _claim_next_task(db) -> PublishTask | None:
     ).rowcount
 
     if rows == 0:
-        return None  # Race: another worker claimed it first
+        return None  # 竞态：其他 worker 已先抢占
 
     db.commit()
     return get_task(db, candidate_id)
@@ -194,8 +202,9 @@ def _heartbeat_active_profile_locks(db) -> None:
 
 
 def _account_login_loop() -> None:
-    """Process interactive login commands independently from publish task execution."""
+    """独立于发布任务执行，处理交互式登录命令。"""
     last_heartbeat = 0.0
+    last_stale_check = 0.0
     while not _shutdown:
         db = SessionLocal()
         processed = False
@@ -204,6 +213,16 @@ def _account_login_loop() -> None:
             if now - last_heartbeat >= 10:
                 _write_worker_heartbeat(db)
                 last_heartbeat = now
+            if now - last_stale_check >= LOGIN_SESSION_STALE_CHECK_SECONDS:
+                last_stale_check = now
+                try:
+                    expire_stale_login_sessions(
+                        db,
+                        worker_id=WORKER_ID,
+                        max_active_seconds=LOGIN_SESSION_MAX_ACTIVE_SECONDS,
+                    )
+                except Exception:
+                    _logger.exception("Worker %s: stale login session expiry failed", WORKER_ID)
             processed = process_account_login_session_requests(db, WORKER_ID)
         except Exception:
             _logger.exception("Worker %s: error processing account login request", WORKER_ID)
@@ -216,9 +235,10 @@ def _account_login_loop() -> None:
 
 
 def _startup(db) -> None:
-    """Run recovery routines on worker startup."""
+    """worker 启动时执行恢复流程。"""
     recover_stuck_records(db)
     recover_stuck_task_claims(db)
+    recover_stuck_login_sessions(db)
     _write_worker_heartbeat(db)
     _logger.info("Worker %s started", WORKER_ID)
 
@@ -253,7 +273,7 @@ def _check_stuck_tasks(db) -> None:
 
 
 def main() -> None:
-    # Register as GEO_WORKER_ID so browser_sessions.py can tag DB rows
+    # 注册为 GEO_WORKER_ID，供 browser_sessions.py 标记数据库行
     os.environ["GEO_WORKER_ID"] = WORKER_ID
 
     signal.signal(signal.SIGTERM, _handle_signal)
@@ -283,7 +303,7 @@ def main() -> None:
         task_id: int | None = None
         try:
             _write_worker_heartbeat(db)
-            # Periodic recovery: detect tasks stuck in "running" with all records terminal
+            # 周期性恢复：检测记录均已终态但任务仍卡在 "running" 的情况
             if _recovery_cycle % 60 == 0:
                 try:
                     _check_stuck_tasks(db)
@@ -319,6 +339,13 @@ def main() -> None:
                 db.close()
             except Exception:
                 pass
+
+    try:
+        from server.app.modules.accounts.login_broker import login_broker
+
+        login_broker.shutdown()
+    except Exception:
+        _logger.warning("Worker %s: login broker shutdown failed", WORKER_ID, exc_info=True)
 
     _logger.info("Worker %s exited", WORKER_ID)
 

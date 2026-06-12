@@ -1,9 +1,18 @@
+"""账号登录态获取与导入导出。
+
+交互式登录走 worker 驱动的命令/状态机：API 端写一行 account_login_sessions
+（status=pending）并立即返回 request_id，worker 轮询 process_account_login_session_requests
+认领、拉起远程浏览器、推进状态（pending/queued → starting → active →
+finish_requested/cancel_requested → finished/cancelled/failed）；API 端的
+finish/stop 只改状态并轮询等 worker 落地。所有 Playwright sync API 调用都包在
+_run_in_plain_thread 里，避开 FastAPI/AnyIO 的事件循环。
+"""
+
 from __future__ import annotations
 
 import io
 import json
 import logging
-import os
 import shutil
 import sys
 import tempfile
@@ -13,18 +22,19 @@ import uuid
 import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from sqlalchemy import and_, or_, select
+from sqlalchemy import delete as sa_delete
 from sqlalchemy import update as sa_update
 from sqlalchemy.orm import Session
 
 from server.app.core.config import get_settings
 from server.app.core.paths import ensure_data_dirs, get_data_dir
 from server.app.core.time import utcnow
-from server.app.modules.accounts.models import Account, AccountLoginSession
+from server.app.modules.accounts.models import Account, AccountLoginSession, BrowserProfileLock
 from server.app.modules.accounts.schemas import (
     AccountCheckRequest,
     AccountExportRequest,
@@ -93,15 +103,15 @@ LOGIN_SESSION_POLL_SECONDS = 0.25
 
 
 def _run_in_plain_thread(fn: Callable[[], Any]) -> Any:
-    """Run Playwright sync API work outside FastAPI/AnyIO worker threads."""
+    """在 FastAPI/AnyIO worker 线程之外运行 Playwright 同步 API 工作。"""
     result: list[Any] = []
     error: list[tuple[type[BaseException], BaseException, Any]] = []
 
     def _target() -> None:
-        # Python 3.10+ copies the parent's contextvars Context into new threads
-        # via threading.Thread. On Python 3.13+ asyncio stores _running_loop as
-        # a ContextVar, so the spawned thread inherits the main event loop and
-        # Playwright's sync-API guard fires. Reset it before any Playwright call.
+        # Python 3.10+ 会通过 threading.Thread 把父线程的 contextvars Context
+        # 复制到新线程。Python 3.13+ 的 asyncio 把 _running_loop 存成 ContextVar，
+        # 因而新线程会继承主事件循环并触发 Playwright 同步 API 的保护逻辑。
+        # 在任何 Playwright 调用前先重置它。
         try:
             import asyncio.events as _ae
 
@@ -131,6 +141,11 @@ def register_account_from_storage_state(
     platform_code: str,
     payload: PlatformLoginRequest,
 ) -> Account:
+    """从磁盘上已有的 storage_state.json 登记 / 更新一个账号（不开浏览器）。
+
+    upsert：按 (user_id, platform_id, state_path) 命中则复活并刷新，否则新建，状态直接置 valid。
+    use_browser=True 属于交互登录，必须改走 start_login_session。
+    """
     if payload.use_browser:
         raise ClientError("Browser login must use login-session")
 
@@ -145,6 +160,7 @@ def register_account_from_storage_state(
         raise ClientError(f"Storage state not found: {state_path}")
 
     relative_state_path = relative_to_data_dir(state_path)
+    # 同时匹配新的按用户隔离路径与旧的无用户层路径，避免旧账号被当成新账号重复建
     legacy_relative_state_path = relative_to_data_dir(
         state_path_for_key(platform_code, account_key)
     )
@@ -190,6 +206,11 @@ def start_login_session(
     platform_code: str,
     payload: PlatformLoginRequest,
 ) -> AccountBrowserSessionResult:
+    """发起新平台的交互式登录：upsert 账号（置 unknown）并下一条 worker 登录命令，立即返回。
+
+    不等浏览器起来——只回 request_id（=session_id）与 status=pending，后续靠 worker 推进、
+    前端轮询 /status。previous_status 透传给 worker，登录被取消时用于回滚账号状态。
+    """
     driver = _get_driver(platform_code)
     platform = get_or_create_platform(db, driver.code, driver.name, driver.home_url)
     account_key = normalize_account_key(payload.account_key)
@@ -218,6 +239,9 @@ def start_login_session(
             status="unknown",
             state_path=relative_state_path,
             note=payload.note,
+            contact=payload.contact,
+            avatar_asset_id=payload.avatar_asset_id,
+            distribution_enabled=payload.distribution_enabled,
             last_checked_at=now,
         )
         db.add(account)
@@ -225,6 +249,9 @@ def start_login_session(
         previous_status = account.status
         account.display_name = payload.display_name
         account.note = payload.note
+        account.contact = payload.contact
+        account.avatar_asset_id = payload.avatar_asset_id
+        account.distribution_enabled = payload.distribution_enabled
         account.status = "unknown"
         account.state_path = relative_state_path
         account.is_deleted = False
@@ -255,6 +282,7 @@ def start_login_session(
 def _copy_legacy_state_if_needed(
     platform_code: str, account_key: str, user_state_path: Path
 ) -> None:
+    """旧布局（无用户层）的登录态目录整体复制到新的按用户隔离目录，做一次性数据迁移。"""
     if user_state_path.exists():
         return
     legacy_dir = state_dir_for_key(platform_code, account_key)
@@ -275,6 +303,9 @@ def _copy_legacy_state_if_needed(
 def start_account_login_session(
     db: Session, account: Account, payload: AccountCheckRequest
 ) -> AccountBrowserSessionResult:
+    """对已有账号重新登录（如登录态失效）：置 unknown 并下 worker 登录命令，立即返回 pending。"""
+    if account.state_path is None:
+        raise ClientError("API 接入账号无法进行浏览器登录")
     platform_code, account_key = account_key_from_state_path(account.state_path)
     previous_status = account.status
     account.status = "unknown"
@@ -304,10 +335,17 @@ def start_account_login_session(
 def finish_account_login_session(
     db: Session, account: Account, session_id: str
 ) -> tuple[Account, BrowserCheckResult]:
+    """完成登录：保存登录态并据此刷新账号 valid/expired。
+
+    有 worker 命令行就走 worker 路径（改状态 + 轮询等 finished）；否则按本地路径直接收尾
+    （API 与 worker 同进程的开发场景）。
+    """
     request = _find_account_login_request(db, account.id, session_id)
     if request is not None:
         return _finish_login_browser_via_worker(db, account, request)
 
+    if account.state_path is None:
+        raise ClientError("API 接入账号无法进行浏览器登录")
     platform_code, account_key = account_key_from_state_path(account.state_path)
     result = _finish_login_browser_local(platform_code, account_key, account.state_path, session_id)
     _apply_login_result(account, result)
@@ -316,11 +354,13 @@ def finish_account_login_session(
 
 
 def stop_account_login_session(db: Session, account: Account, session_id: str) -> None:
+    """中止登录会话：有 worker 命令行则请求取消，否则本地直接停掉远程浏览器。"""
     request = _find_account_login_request(db, account.id, session_id)
     if request is not None:
         _cancel_login_browser_via_worker(db, request)
         return
-
+    if account.state_path is None:
+        raise ClientError("API 接入账号无法进行浏览器登录")
     _, account_key = account_key_from_state_path(account.state_path)
     _stop_login_browser_local(account_key, session_id)
 
@@ -336,6 +376,7 @@ def _touch_login_request(request: AccountLoginSession) -> None:
 def _find_account_login_request(
     db: Session, account_id: int, session_id: str
 ) -> AccountLoginSession | None:
+    # session_id 可能是登录命令行 id，也可能是底层 browser_session_id：两者都匹配，取最新一条
     return db.execute(
         select(AccountLoginSession)
         .where(
@@ -353,7 +394,7 @@ def _find_account_login_request(
 def get_login_session_status(
     db: Session, account: Account, session_id: str
 ) -> AccountLoginSession | None:
-    """Return the AccountLoginSession row for status polling."""
+    """返回用于状态轮询的 AccountLoginSession 记录。"""
     return _find_account_login_request(db, account.id, session_id)
 
 
@@ -364,8 +405,13 @@ def _wait_for_account_login_request(
     timeout_seconds: float,
     timeout_message: str,
 ) -> AccountLoginSession:
+    """轮询登录命令行直到进入 desired_statuses；遇 failed / 其它终态 / 超时则抛 ClientError。
+
+    每轮先 rollback + expire_all，强制下次读重新查库，才能看到 worker 进程刚 commit 的状态变更。
+    """
     deadline = time.monotonic() + timeout_seconds
     while True:
+        # 丢弃本事务快照 + 失效已加载对象，否则读到的是缓存、看不到 worker 的提交
         db.rollback()
         db.expire_all()
         request = db.get(AccountLoginSession, request_id)
@@ -391,7 +437,7 @@ def _start_login_browser_via_worker(
     executable_path: str | None,
     previous_status: str | None = None,
 ) -> str:
-    """Create a login-session request row and return the request ID immediately."""
+    """创建登录会话请求行，并立即返回请求 ID。"""
     request = AccountLoginSession(
         id=_new_login_session_request_id(),
         account_id=account_id,
@@ -472,7 +518,13 @@ def _cancel_login_browser_via_worker(db: Session, request: AccountLoginSession) 
 
 
 def process_account_login_session_requests(db: Session, worker_id: str) -> bool:
-    """Claim and process one account-login browser command for this worker."""
+    """为当前 worker 抢占并处理一条账号登录浏览器命令。
+
+    Worker 轮询入口：认领并处理一条登录命令，处理了返回 True，无活儿返回 False。
+    认领两类命令：(a) 未被占用的 pending/queued 新登录；(b) 本 worker 名下待 finish/cancel 的命令。
+    认领靠条件 UPDATE：只有把 status 从旧值推进到 *ing 且 rowcount==1 才算抢到（跨 worker 去重）。
+    新登录在推进前先抢 profile 锁，抢不到则置 queued 让出。
+    """
     row = db.execute(
         select(AccountLoginSession.id, AccountLoginSession.status)
         .where(
@@ -514,15 +566,16 @@ def process_account_login_session_requests(db: Session, worker_id: str) -> bool:
     else:
         where_clause.append(AccountLoginSession.worker_id == worker_id)
 
+    # claim：条件 UPDATE（旧状态 + worker 归属都进 where），rowcount==1 才算抢到、跨 worker 去重
     result = db.execute(
         sa_update(AccountLoginSession)
         .where(*where_clause)
         .values(status=next_status, worker_id=worker_id, queue_reason=None, updated_at=utcnow())
     )
-    rows = result.rowcount  # type: ignore[attr-defined]  # DML execute returns CursorResult
+    rows = result.rowcount  # type: ignore[attr-defined]  # DML 执行返回 CursorResult
     db.commit()
     if rows == 0:
-        return False
+        return False  # 被别的 worker 抢先了
 
     request = db.get(AccountLoginSession, request_id)
     if request is None:
@@ -537,12 +590,23 @@ def process_account_login_session_requests(db: Session, worker_id: str) -> bool:
 
 
 def _try_acquire_login_profile_lock(db: Session, request: AccountLoginSession) -> bool:
+    """登录前抢账号 profile 锁。抢到返回 True；被发布 / 别的登录占用则置 queued 让出返回 False。
+
+    与发布、check_account 共用同一把 profile 锁，保证同一 Chromium profile 目录串行使用。
+    """
     from server.app.modules.accounts.browser import try_acquire_profile_lock
 
     account = db.get(Account, request.account_id)
     if account is None:
         request.status = LOGIN_STATUS_FAILED
         request.error_message = "Account not found"
+        request.queue_reason = None
+        _touch_login_request(request)
+        db.commit()
+        return False
+    if account.state_path is None:
+        request.status = LOGIN_STATUS_FAILED
+        request.error_message = "API 接入账号无法进行浏览器登录"
         request.queue_reason = None
         _touch_login_request(request)
         db.commit()
@@ -564,10 +628,16 @@ def _try_acquire_login_profile_lock(db: Session, request: AccountLoginSession) -
 
 
 def _worker_start_login_session(db: Session, request: AccountLoginSession) -> None:
+    """Worker：拉起远程浏览器并打开登录页，成功置 active 并记下 browser_session_id/novnc_url。
+
+    失败置 failed 并立刻释放 profile 锁（active 时不释放——浏览器还开着，要留到 finish/cancel）。
+    """
     try:
         account = db.get(Account, request.account_id)
         if account is None:
             raise ClientError("Account not found")
+        if account.state_path is None:
+            raise ClientError("API 接入账号无法进行浏览器登录")
         platform_code = request.platform_code
         account_key = request.account_key
         session = _start_login_browser_impl(
@@ -585,9 +655,10 @@ def _worker_start_login_session(db: Session, request: AccountLoginSession) -> No
         request.queue_reason = None
         _touch_login_request(request)
         db.commit()
-        _load_login_page_for_session(
-            session, platform_code, account_key, _get_driver(platform_code).home_url
-        )
+        # active 已落库（前端尽快看到可接管），再 best-effort 把登录页 goto 过去
+        from server.app.modules.accounts.login_broker import login_broker
+
+        login_broker.load_login_page(session.id, _get_driver(platform_code).home_url)
         return
     except Exception as exc:
         request.status = LOGIN_STATUS_FAILED
@@ -600,10 +671,17 @@ def _worker_start_login_session(db: Session, request: AccountLoginSession) -> No
 
 
 def _worker_finish_login_session(db: Session, request: AccountLoginSession) -> None:
+    """Worker：读回登录态存盘、据此刷新账号 valid/expired、置 finished；finally 释放 profile 锁。"""
     account = db.get(Account, request.account_id)
     if account is None:
         request.status = LOGIN_STATUS_FAILED
         request.error_message = "Account not found"
+        _touch_login_request(request)
+        db.commit()
+        return
+    if account.state_path is None:
+        request.status = LOGIN_STATUS_FAILED
+        request.error_message = "API 接入账号无法进行浏览器登录"
         _touch_login_request(request)
         db.commit()
         return
@@ -636,6 +714,7 @@ def _worker_finish_login_session(db: Session, request: AccountLoginSession) -> N
 
 
 def _worker_cancel_login_session(db: Session, request: AccountLoginSession) -> None:
+    """Worker：停掉浏览器、置 cancelled，并把账号状态从 unknown 回滚到登录前的 previous_status。"""
     try:
         if request.browser_session_id:
             _stop_login_browser_impl(request.account_key, request.browser_session_id)
@@ -662,7 +741,7 @@ def _release_login_profile_lock(db: Session, request: AccountLoginSession) -> No
     from server.app.modules.accounts.browser import release_profile_lock
 
     account = db.get(Account, request.account_id)
-    if account is None:
+    if account is None or account.state_path is None:
         return
     try:
         release_profile_lock(
@@ -672,6 +751,82 @@ def _release_login_profile_lock(db: Session, request: AccountLoginSession) -> No
         _logger.warning(
             "Failed to release login profile lock for request %s", request.id, exc_info=True
         )
+
+
+def recover_stuck_login_sessions(db: Session) -> None:
+    """Worker 启动复位残留登录会话：所有非终态登录会话置 cancelled，并清掉全部 login profile 锁。
+
+    交互式登录浏览器只活在 worker 进程内，worker 一重启全死——任何存活的非终态会话都是僵死的，
+    其持有的 profile 锁若不清会永久把账号挡在登录之外（生产死锁事故的根因）。发布侧
+    recover_stuck_records 靠租约只复位过期记录；登录无租约保护（浏览器随 worker 进程消亡），
+    故全量复位。只清 owner_kind='login' 的锁，不碰 publish。自带 commit。
+    """
+    sessions = list(
+        db.execute(
+            select(AccountLoginSession).where(
+                AccountLoginSession.status.not_in(tuple(LOGIN_TERMINAL_STATUSES))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for session in sessions:
+        session.status = LOGIN_STATUS_CANCELLED
+        session.queue_reason = None
+        session.worker_id = None
+        # 登录前账号被置 unknown，复位时回滚到登录前状态
+        if session.previous_status is not None:
+            account = db.get(Account, session.account_id)
+            if account is not None and account.status == "unknown":
+                account.status = session.previous_status
+                account.updated_at = utcnow()
+        _touch_login_request(session)
+
+    lock_result = db.execute(
+        sa_delete(BrowserProfileLock).where(BrowserProfileLock.owner_kind == "login")
+    )
+    cleared = lock_result.rowcount  # type: ignore[attr-defined]  # DML 执行返回 CursorResult
+    if sessions or cleared:
+        _logger.warning(
+            "Recovered %d stuck login sessions, cleared %d login profile locks",
+            len(sessions),
+            cleared,
+        )
+        db.commit()
+
+
+def expire_stale_login_sessions(db: Session, *, worker_id: str, max_active_seconds: int) -> int:
+    """worker 运行期周期兜底：把本 worker 名下卡在 active 过久的登录会话当作被遗弃的收尾。
+
+    active 登录会话的 profile 锁被 _heartbeat_active_profile_locks 每 30s 无限续租，租约
+    永不过期。用户关浏览器标签 / 刷新 / 崩溃而没走 finish/cancel 时，前端关弹窗的 DELETE
+    兜底不会触发，这把锁就把账号永久挡在登录之外（#85 死锁的残留路径——启动复位只在重启时
+    跑，进程不重启就一直卡）。这里给 active 会话设最大存活时长上限：超时即走正常取消流程
+    （_worker_cancel_login_session：停浏览器 + 释放锁 + 账号状态从 unknown 回滚），让账号
+    能重新登录。阈值远大于真人扫码登录耗时，不会误杀进行中的真实登录。只动本 worker 自己
+    启的会话（浏览器在本进程内、能干净关掉）。返回收尾的会话数。
+    """
+    cutoff = utcnow() - timedelta(seconds=max_active_seconds)
+    sessions = list(
+        db.execute(
+            select(AccountLoginSession).where(
+                AccountLoginSession.status == LOGIN_STATUS_ACTIVE,
+                AccountLoginSession.worker_id == worker_id,
+                AccountLoginSession.updated_at < cutoff,
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for session in sessions:
+        _logger.warning(
+            "Expiring stale active login session %s (account %s, active since %s)",
+            session.id,
+            session.account_id,
+            session.updated_at,
+        )
+        _worker_cancel_login_session(db, session)  # 内部 finally 释放锁并 commit
+    return len(sessions)
 
 
 def _apply_login_result(account: Account, result: BrowserCheckResult) -> None:
@@ -689,36 +844,39 @@ def _finish_login_browser_local(
     state_path: str,
     session_id: str,
 ) -> BrowserCheckResult:
-    return _run_in_plain_thread(
-        lambda: _finish_login_browser_impl(platform_code, account_key, state_path, session_id)
-    )
+    return _finish_login_browser_impl(platform_code, account_key, state_path, session_id)
 
 
 def _finish_login_browser_impl(
     platform_code: str, account_key: str, state_path: str, session_id: str
 ) -> BrowserCheckResult:
     from server.app.modules.accounts.browser import get_session, stop_remote_browser_session
+    from server.app.modules.accounts.login_broker import login_broker
 
     session = get_session(session_id)
     if session is None:
         raise ClientError(f"Remote browser session not found: {session_id}")
     if session.account_key != account_key:
         raise ClientError("Remote browser session does not belong to this account")
-    if session.browser_context is None:
+    if not login_broker.owns(session_id):
         raise ClientError("Remote browser session has no browser context")
 
+    driver = _get_driver(platform_code)
     try:
-        return _read_and_save_login_state_from_remote_session(
-            session,
-            platform_code,
-            get_data_dir() / state_path,
+        result = login_broker.read_login_state(
+            session_id,
+            detect=lambda url, title, body: driver.detect_logged_in(
+                url=url, title=title, body=body
+            ),
+            state_path=get_data_dir() / state_path,
         )
+        return BrowserCheckResult(logged_in=result.logged_in, url=result.url, title=result.title)
     finally:
         stop_remote_browser_session(session_id)
 
 
 def _stop_login_browser_local(account_key: str, session_id: str) -> None:
-    _run_in_plain_thread(lambda: _stop_login_browser_impl(account_key, session_id))
+    _stop_login_browser_impl(account_key, session_id)
 
 
 def _stop_login_browser_impl(account_key: str, session_id: str) -> None:
@@ -736,10 +894,8 @@ def _start_login_browser(
     platform_code: str, account_key: str, channel: str, executable_path: str | None
 ):
     state_path = relative_to_data_dir(state_path_for_key(platform_code, account_key))
-    return _run_in_plain_thread(
-        lambda: _start_login_browser_impl(
-            platform_code, account_key, state_path, channel, executable_path
-        )
+    return _start_login_browser_impl(
+        platform_code, account_key, state_path, channel, executable_path
     )
 
 
@@ -751,14 +907,17 @@ def _start_login_browser_impl(
     executable_path: str | None,
     load_login_page: bool = True,
 ):
-    from playwright.sync_api import sync_playwright
-
+    """起远程会话（Xvfb→x11vnc→websockify），再交给 login_broker 用 async Playwright 打开持久化
+    context。浏览器句柄由 broker 在它自己的事件循环上持有并保活，一直开着等用户在 noVNC 里扫码，
+    直到 finish/cancel。多个账号并发登录互不干扰（同步 Playwright 单线程那套并发限制不再适用）。
+    失败时让 broker 拆掉浏览器并停掉远程会话。
+    """
     from server.app.modules.accounts.browser import (
-        attach_browser_handles,
         keep_session_alive,
         start_remote_browser_session,
         stop_remote_browser_session,
     )
+    from server.app.modules.accounts.login_broker import login_broker
 
     driver = _get_driver(platform_code)
     ensure_data_dirs()
@@ -770,171 +929,30 @@ def _start_login_browser_impl(
         platform_code=platform_code,
         profile_key=profile_key_from_state_path(state_path),
     )
-    pw = None
-    context = None
     try:
-        pw = sync_playwright().start()
         options = launch_options(channel, executable_path)
-        options["env"] = {**os.environ, "DISPLAY": session.display}
-
         clear_profile_locks(profile_dir)
-        context = pw.chromium.launch_persistent_context(
-            user_data_dir=str(profile_dir),
-            **options,
-        )
-        context.set_default_navigation_timeout(30000)
-        page = _primary_page_for_context(context)
-        attach_browser_handles(
-            session.id, pw, context, page, context_thread_id=threading.get_ident()
+        login_broker.launch_login_browser(
+            session.id, profile_dir=profile_dir, options=options, display=session.display
         )
         keep_session_alive(session.id)
         if load_login_page:
-            _load_login_page_for_session(
-                session, platform_code, account_key, driver.home_url, raise_on_error=True
-            )
+            login_broker.load_login_page(session.id, driver.home_url)
         return session
     except Exception:
-        try:
-            if context is not None:
-                context.close()
-        finally:
-            if pw is not None:
-                pw.stop()
+        login_broker.close_if_owned(session.id)
         stop_remote_browser_session(session.id)
         raise
 
 
-def _primary_page_for_context(context):
-    pages = list(getattr(context, "pages", []) or [])
-    if pages:
-        page = pages[0]
-        for extra_page in pages[1:]:
-            try:
-                extra_page.close()
-            except Exception:
-                pass
-        return page
-    return context.new_page()
-
-
-def _load_login_page(page, platform_code: str, account_key: str, home_url: str) -> None:
-    try:
-        page.goto(home_url, wait_until="domcontentloaded", timeout=60000)
-        try:
-            page.wait_for_load_state("networkidle", timeout=10000)
-        except Exception:
-            _logger.warning(
-                "Remote login page did not reach networkidle for %s account %s",
-                platform_code,
-                account_key,
-                exc_info=True,
-            )
-    except Exception as exc:
-        _logger.warning(
-            "Remote login page load failed for %s account %s",
-            platform_code,
-            account_key,
-            exc_info=True,
-        )
-        raise ClientError(f"Remote login page load failed: {home_url}") from exc
-
-
-def _load_login_page_for_session(
-    session,
-    platform_code: str,
-    account_key: str,
-    home_url: str,
-    raise_on_error: bool = False,
-) -> None:
-    operation_lock = getattr(session, "operation_lock", None)
-    if operation_lock is None or getattr(session, "page", None) is None:
-        return
-    with operation_lock:
-        page = getattr(session, "page", None)
-        if page is None:
-            return
-        try:
-            _load_login_page(page, platform_code, account_key, home_url)
-        except Exception:
-            _logger.warning(
-                "Login page load failed for %s/%s", platform_code, account_key, exc_info=True
-            )
-            if raise_on_error:
-                raise
-
-
-def _start_login_page_loader(
-    session_id: str, platform_code: str, account_key: str, home_url: str
-) -> None:
-    def _load() -> None:
-        from server.app.modules.accounts.browser import get_session
-
-        session = get_session(session_id)
-        if session is None or session.page is None:
-            return
-        with session.operation_lock:
-            page = session.page
-            if page is None:
-                return
-            try:
-                _load_login_page(page, platform_code, account_key, home_url)
-            except Exception:
-                _logger.warning(
-                    "Async login page load failed for %s/%s",
-                    platform_code,
-                    account_key,
-                    exc_info=True,
-                )
-
-    worker = threading.Thread(
-        target=_load,
-        daemon=True,
-        name=f"geo-login-page-loader-{platform_code}-{account_key}",
-    )
-    worker.start()
-
-
-def _read_and_save_login_state_from_remote_session(
-    session, platform_code: str, state_path: Path
-) -> BrowserCheckResult:
-    with session.operation_lock:
-        result = _read_login_state_from_remote_session(session, platform_code)
-        session.browser_context.storage_state(path=str(state_path))
-        return result
-
-
-def _read_login_state_from_remote_session(session, platform_code: str) -> BrowserCheckResult:
-    driver = _get_driver(platform_code)
-    context = session.browser_context
-    page = session.page
-    if context is not None:
-        pages = list(getattr(context, "pages", []) or [])
-        if pages:
-            page = pages[-1]
-    if page is None:
-        raise ClientError("Remote browser session has no page")
-
-    try:
-        page.wait_for_load_state("networkidle", timeout=10000)
-    except Exception:
-        pass
-    url = page.url
-    title = ""
-    body = ""
-    try:
-        title = page.title()
-        body = page.locator("body").inner_text(timeout=5000)
-    except Exception:
-        _logger.warning("Remote login state read failed", exc_info=True)
-
-    return BrowserCheckResult(
-        logged_in=driver.detect_logged_in(url=url, title=title, body=body),
-        url=url,
-        title=title,
-    )
-
-
 def check_account(db: Session, account: Account, payload: AccountCheckRequest) -> Account:
+    """检查账号登录态是否仍有效，刷新 status 为 valid/expired。
+
+    use_browser 时无头开浏览器载入登录态、由 driver.detect_logged_in 判定，并抢同一把 profile 锁
+    （和发布 / 登录互斥，抢不到直接 ClientError，不排队）；否则仅按 storage_state 文件是否存在粗判。
+    """
+    if account.state_path is None:
+        raise ClientError("API 接入账号无法检查浏览器登录态")
     platform_code, _ = account_key_from_state_path(account.state_path)
     driver = _get_driver(platform_code)
     abs_state_path = get_data_dir() / account.state_path
@@ -1001,6 +1019,9 @@ def _check_account_in_browser(driver, abs_state_path: Path, payload: AccountChec
 
 
 def relogin_account(db: Session, account: Account, payload: AccountCheckRequest) -> Account:
+    """从磁盘已有登录态重新登记账号（use_browser=False），不开浏览器、复用现有 state 文件。"""
+    if account.state_path is None:
+        raise ClientError("API 接入账号无法重新登记")
     platform_code, account_key = account_key_from_state_path(account.state_path)
     request = PlatformLoginRequest(
         display_name=account.display_name,
@@ -1014,6 +1035,11 @@ def relogin_account(db: Session, account: Account, payload: AccountCheckRequest)
 
 
 def export_accounts_auth_package(db: Session, payload: AccountExportRequest) -> Path:
+    """把账号元数据 + 各自的 storage_state.json 打包成授权 ZIP，返回落盘路径。
+
+    只导出账号与登录态（manifest 里列了显式排除的 articles/assets/publish_tasks 等）；
+    某账号 state 文件缺失只跳过不致命。account_ids 为空表示导出全部。
+    """
     ensure_data_dirs()
     accounts = _accounts_for_export(db, payload.account_ids)
     if not accounts:
@@ -1040,14 +1066,20 @@ def export_accounts_auth_package(db: Session, payload: AccountExportRequest) -> 
             )
             exported_files.append(f"{account_dir}/account.json")
 
-            try:
-                state_file = _resolve_data_file(account.state_path)
-                state_archive_path = f"{account_dir}/storage_state.json"
-                archive.write(state_file, state_archive_path)
-                exported_files.append(state_archive_path)
-            except ClientError:
+            if account.state_path:
+                try:
+                    state_file = _resolve_data_file(account.state_path)
+                    state_archive_path = f"{account_dir}/storage_state.json"
+                    archive.write(state_file, state_archive_path)
+                    exported_files.append(state_archive_path)
+                except ClientError:
+                    _logger.warning(
+                        "Skipping storage_state.json for account %s - file not found",
+                        account.display_name,
+                    )
+            else:
                 _logger.warning(
-                    "Skipping storage_state.json for account %s - file not found",
+                    "Skipping storage_state.json for account %s - no browser state path",
                     account.display_name,
                 )
 
@@ -1089,6 +1121,12 @@ def _assess_imported_status(state_path: Path) -> str:
 def import_accounts_auth_package(
     db: Session, user_id: int, zip_bytes: bytes
 ) -> dict[str, list[str]]:
+    """导入授权 ZIP：逐账号落 storage_state 文件并 upsert 到当前 user_id 名下。
+
+    已存在（同 state_path 且未软删）的跳过；格式 / 路径异常的逐条 skip 不中断整包。
+    写盘前用 is_relative_to 校验目标在 data 目录内，防 ZIP 路径穿越逃逸。
+    返回 {"imported": [...], "skipped": [...]}（按 display_name 记账）。
+    """
     ensure_data_dirs()
     imported: list[str] = []
     skipped: list[str] = []
@@ -1132,6 +1170,7 @@ def import_accounts_auth_package(
                 skipped.append(f"{display_name}（ZIP 中缺少 storage_state.json）")
                 continue
 
+            # 防 ZIP 路径穿越：解析后必须仍在 data 目录内，否则可能写到任意路径
             if not dest.resolve().is_relative_to(get_data_dir().resolve()):
                 raise ClientError(f"ZIP entry path escapes data directory: {state_path_rel}")
             dest.parent.mkdir(parents=True, exist_ok=True)
@@ -1183,6 +1222,7 @@ def import_accounts_auth_package(
 
 
 def _new_export_path(now) -> Path:
+    """生成唯一导出文件名；data/exports 不可写（探针写失败）时退回系统临时目录。"""
     filename = f"geo-auth-export-{now.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}.zip"
     export_dir = get_data_dir() / "exports"
     try:
@@ -1201,7 +1241,11 @@ def _new_export_path(now) -> Path:
 def _accounts_for_export(db: Session, account_ids: list[int] | None) -> list[Account]:
     from sqlalchemy.orm import selectinload
 
-    stmt = select(Account).options(selectinload(Account.platform))
+    stmt = (
+        select(Account)
+        .where(Account.is_deleted == False)  # noqa: E712
+        .options(selectinload(Account.platform))
+    )
     if account_ids:
         unique_ids = sorted(set(account_ids))
         stmt = stmt.where(Account.id.in_(unique_ids))
@@ -1219,6 +1263,7 @@ def _accounts_for_export(db: Session, account_ids: list[int] | None) -> list[Acc
 
 
 def _resolve_data_file(relative_path: str) -> Path:
+    """把相对路径解析为 data 目录下的真实文件，越界或不存在则抛 ClientError（防路径穿越）。"""
     data_dir = get_data_dir().resolve()
     path = (data_dir / relative_path).resolve()
     if not path.is_relative_to(data_dir) or not path.is_file():

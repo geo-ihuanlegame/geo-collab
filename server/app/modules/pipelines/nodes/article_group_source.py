@@ -1,38 +1,86 @@
+"""article_group_source 源节点（「已审核分组源」）：选一个分组并输出其中「已审 + 未分发」文章子集。
+
+group_id 留空时按 FIFO 自动选最早一个含候选文章的分组。「已分发/在途」口径与
+approved_content_source 一致：failed/cancelled/软删的发布记录不算占用，文章可重试。"""
+
 from server.app.modules.pipelines.nodes.base import NodeResult, NodeRunContext, register
 from server.app.shared.errors import ValidationError
 
 
 def run_article_group_source(ctx: NodeRunContext) -> NodeResult:
-    from server.app.modules.articles.models import Article, ArticleGroup, ArticleGroupItem
+    from sqlalchemy import select
 
-    group_id = (ctx.config or {}).get("group_id")
-    if not group_id:
-        raise ValidationError("article_group_source 节点需配置 group_id")
+    from server.app.modules.articles.models import Article, ArticleGroup, ArticleGroupItem
+    from server.app.modules.system.models import User
+    from server.app.modules.tasks.models import PublishRecord
+
+    cfg = ctx.config or {}
+    # group_id 可选：上游注入 > 节点配置 > 空（自动按 FIFO 选组）
+    configured_group_id = ctx.inputs.get("group_id") or cfg.get("group_id")
 
     db = ctx.session_factory()
     try:
-        group = db.get(ArticleGroup, group_id)
-        if group is None or group.is_deleted:
-            raise ValidationError("分组不存在")
-        if group.user_id != ctx.user_id:
-            # admin 放行（与其它模块一致：role 需从 user 取）
-            from server.app.modules.system.models import User
+        user = db.get(User, ctx.user_id)
+        is_admin = user is not None and user.role == "admin"
 
-            user = db.get(User, ctx.user_id)
-            if user is None or user.role != "admin":
+        # 候选文章 = 已审核 + 未删 + 未分发或在途 + 所有者/管理员。
+        # 「已分发/在途」= 有未软删、且非 failed/cancelled 的 PublishRecord（与
+        # approved_content_source 同口径）：失败 / 取消 / 软删的记录不算，文章可重试、不被永久埋没。
+        def _candidate_filters(stmt):
+            stmt = stmt.where(
+                Article.review_status == "approved",
+                Article.is_deleted == False,  # noqa: E712
+                Article.id.notin_(
+                    select(PublishRecord.article_id).where(
+                        PublishRecord.is_deleted == False,  # noqa: E712
+                        PublishRecord.status.notin_(["failed", "cancelled"]),
+                    )
+                ),
+            )
+            if not is_admin:
+                stmt = stmt.where(Article.user_id == ctx.user_id)
+            return stmt
+
+        if configured_group_id:
+            group = db.get(ArticleGroup, configured_group_id)
+            if group is None or group.is_deleted:
+                raise ValidationError("分组不存在")
+            if group.user_id != ctx.user_id and not is_admin:
                 raise ValidationError("无权访问该分组")
-        rows = (
-            db.query(ArticleGroupItem.article_id)
+            chosen_group_id = configured_group_id
+        else:
+            # 自动 FIFO：含 ≥1 篇候选文章、未删、所有者/管理员的最早分组
+            grp_stmt = (
+                select(ArticleGroup.id)
+                .join(ArticleGroupItem, ArticleGroupItem.group_id == ArticleGroup.id)
+                .join(Article, Article.id == ArticleGroupItem.article_id)
+                .where(ArticleGroup.is_deleted == False)  # noqa: E712
+            )
+            grp_stmt = _candidate_filters(grp_stmt)
+            if not is_admin:
+                grp_stmt = grp_stmt.where(ArticleGroup.user_id == ctx.user_id)
+            grp_stmt = grp_stmt.order_by(
+                ArticleGroup.created_at.asc(), ArticleGroup.id.asc()
+            ).limit(1)
+            chosen_group_id = db.execute(grp_stmt).scalars().first()
+
+        if chosen_group_id is None:
+            return NodeResult(output={"group_id": None, "article_ids": []}, article_ids=[])
+
+        art_stmt = (
+            select(ArticleGroupItem.article_id)
             .join(Article, Article.id == ArticleGroupItem.article_id)
-            .filter(ArticleGroupItem.group_id == group_id, Article.is_deleted.is_(False))
-            .order_by(ArticleGroupItem.sort_order.asc())
-            .all()
+            .where(ArticleGroupItem.group_id == chosen_group_id)
         )
-        article_ids = [r[0] for r in rows]
+        art_stmt = _candidate_filters(art_stmt)
+        art_stmt = art_stmt.order_by(ArticleGroupItem.sort_order.asc())
+        article_ids = list(db.execute(art_stmt).scalars().all())
     finally:
         db.close()
 
-    return NodeResult(output={"group_id": group_id, "article_ids": article_ids}, article_ids=[])
+    return NodeResult(
+        output={"group_id": chosen_group_id, "article_ids": article_ids}, article_ids=[]
+    )
 
 
 register("article_group_source", run_article_group_source)

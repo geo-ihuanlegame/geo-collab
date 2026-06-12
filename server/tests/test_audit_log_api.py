@@ -1,4 +1,4 @@
-"""审计日志：helper + 查询 API + 端到端 hook 测试（对应 plan.md A.8 八用例）。"""
+"""审计日志：辅助函数 + 查询 API + 端到端钩子测试（对应 plan.md A.8 八用例）。"""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ def _make_operator_client(test_app, username: str = "op1") -> tuple[TestClient, 
 
 
 def _seed_test_account(test_app, *, display_name: str = "测试账号") -> int:
-    """直接 DB 写入，跳过浏览器登录流程，返回 account_id。"""
+    """直接写入数据库，跳过浏览器登录流程，返回 account_id。"""
     from server.app.modules.accounts.models import Account
 
     with test_app.session_factory() as db:
@@ -50,7 +50,7 @@ def _seed_test_account(test_app, *, display_name: str = "测试账号") -> int:
         return account.id
 
 
-# ============== 1. helper 直接写入 ==============
+# ============== 1. 辅助函数直接写入 ==============
 
 
 def test_add_audit_entry_writes_row(monkeypatch):
@@ -58,7 +58,7 @@ def test_add_audit_entry_writes_row(monkeypatch):
     try:
         with test_app.session_factory() as db:
             admin = db.query(User).filter(User.username == "testadmin").one()
-            admin_id = admin.id  # 先捞出来，避免 session 关闭后 detached
+            admin_id = admin.id  # 先捞出来，避免会话关闭后对象脱管
             add_audit_entry(
                 db,
                 user=admin,
@@ -109,7 +109,7 @@ def test_audit_helper_redacts_password_payload(monkeypatch):
         assert out["list_with_secret"][0]["access_token"] == "***"
         assert out["list_with_secret"][1]["keep"] == "this"
 
-        # 通过 helper 走端到端：DB 中应当落盘脱敏后的值
+        # 通过辅助函数走端到端：数据库中应当落盘脱敏后的值
         with test_app.session_factory() as db:
             admin = db.query(User).filter(User.username == "testadmin").one()
             add_audit_entry(
@@ -127,7 +127,7 @@ def test_audit_helper_redacts_password_payload(monkeypatch):
         test_app.cleanup()
 
 
-# ============== 3. 故障注入：audit 失败不影响主流程 ==============
+# ============== 3. 故障注入：审计失败不影响主流程 ==============
 
 
 def test_audit_failure_does_not_break_main_flow(monkeypatch):
@@ -135,7 +135,7 @@ def test_audit_failure_does_not_break_main_flow(monkeypatch):
     try:
         account_id = _seed_test_account(test_app, display_name="不能 audit 的账号")
 
-        # 让 helper 内部抛异常：拦截 AuditLog 的构造
+        # 让辅助函数内部抛异常：拦截 AuditLog 的构造
         from server.app.modules.audit import service as audit_service
 
         class BadAuditLog:
@@ -144,11 +144,11 @@ def test_audit_failure_does_not_break_main_flow(monkeypatch):
 
         monkeypatch.setattr(audit_service, "AuditLog", BadAuditLog)
 
-        # DELETE 应当仍成功，audit 异常被 helper 吞掉
+        # DELETE 应当仍成功，审计异常被辅助函数吞掉
         resp = test_app.client.delete(f"/api/accounts/{account_id}")
         assert resp.status_code in (200, 204)
 
-        # 数据库里没有 account.delete 的 audit 行（写入被吞了）
+        # 数据库里没有 account.delete 的审计行（写入被吞了）
         with test_app.session_factory() as db:
             count = db.query(AuditLog).filter(AuditLog.action == "account.delete").count()
             assert count == 0
@@ -282,7 +282,7 @@ def test_list_endpoint_filters_by_action_prefix(monkeypatch):
         for it in data["items"]:
             assert it["action"].startswith("account.")
 
-        # target_type 过滤
+        # 按 target_type 过滤
         resp = test_app.client.get("/api/audit-logs", params={"target_type": "user"})
         data = resp.json()
         assert len(data["items"]) == 3
@@ -320,7 +320,7 @@ def test_list_endpoint_cursor_pagination(monkeypatch):
         assert len(page3["items"]) == 2
         assert page3["next_cursor"] is None  # 已无更多
 
-        # 三页 id 不重复
+        # 三页 ID 不重复
         all_ids = (
             [it["id"] for it in page1["items"]]
             + [it["id"] for it in page2["items"]]

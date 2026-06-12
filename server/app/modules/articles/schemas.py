@@ -1,5 +1,5 @@
 """
-文章模块 Pydantic schemas + 序列化函数。
+文章模块 Pydantic 请求 / 响应模型 + 序列化函数。
 
 合并自：
   - schemas/article.py
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from server.app.modules.articles.models import Article, ArticleGroup
 
 
-# ── Asset ────────────────────────────────────────────────────────────────────
+# ── 资产 ────────────────────────────────────────────────────────────────────
 
 
 class AssetRead(BaseModel):
@@ -37,7 +37,7 @@ class AssetRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
-# ── Article ──────────────────────────────────────────────────────────────────
+# ── 文章 ────────────────────────────────────────────────────────────────────
 
 
 class ArticleBodyAssetRead(BaseModel):
@@ -104,7 +104,7 @@ class ArticleListRead(BaseModel):
     word_count: int
     status: str
     version: int
-    review_status: str  # pending / approved
+    review_status: str  # 审核状态：pending / approved
     published_count: int = 0
     created_at: datetime
     updated_at: datetime
@@ -121,7 +121,7 @@ class ArticleRead(BaseModel):
     word_count: int
     status: str
     version: int
-    review_status: str  # pending / approved
+    review_status: str  # 审核状态：pending / approved
     body_assets: list[ArticleBodyAssetRead]
     published_count: int = 0  # 成功发布次数
     stock_category_id: int | None = None
@@ -132,7 +132,7 @@ class ArticleRead(BaseModel):
     updated_at: datetime
 
 
-# ── ArticleGroup ─────────────────────────────────────────────────────────────
+# ── 文章分组 ────────────────────────────────────────────────────────────────
 
 
 class ArticleGroupBase(BaseModel):

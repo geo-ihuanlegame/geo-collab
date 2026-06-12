@@ -1,8 +1,8 @@
-"""create platforms
+"""创建平台表
 
-Revision ID: 0001
-Revises:
-Create Date: 2026-05-12
+修订 ID: 0001
+上一修订:
+创建日期: 2026-05-12
 """
 from typing import Sequence, Union
 

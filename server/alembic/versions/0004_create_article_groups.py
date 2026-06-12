@@ -1,8 +1,8 @@
-"""create article_groups, article_group_items
+"""创建 article_groups、article_group_items 表
 
-Revision ID: 0004
-Revises: 0003
-Create Date: 2026-05-12
+修订 ID: 0004
+上一修订: 0003
+创建日期: 2026-05-12
 """
 from typing import Sequence, Union
 

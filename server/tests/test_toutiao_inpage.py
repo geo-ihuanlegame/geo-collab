@@ -20,7 +20,7 @@ from server.app.modules.tasks.drivers.toutiao_inpage import (
 
 
 def _write_png(path: Path) -> Path:
-    """Write a tiny real PNG so the driver can base64-read it from disk."""
+    """写入一个真实的小 PNG，方便驱动从磁盘读取并转 base64。"""
     from PIL import Image
 
     Image.new("RGB", (8, 8), (123, 200, 50)).save(path)
@@ -34,10 +34,10 @@ def test_build_publish_form_minimal_draft():
     assert form["save"] == "0"
     assert form["source"] == "29"
     assert form["pgc_feed_covers"] == "[]"
-    # extra is valid JSON carrying the word count
+    # extra 是合法 JSON，并携带字数。
     extra = json.loads(form["extra"])
     assert extra["content_word_cnt"] == len("正文")
-    assert "pgc_id" not in form  # omitted on first draft
+    assert "pgc_id" not in form  # 首次草稿时不带该字段
 
 
 def test_build_publish_form_reuses_pgc_id():
@@ -46,19 +46,19 @@ def test_build_publish_form_reuses_pgc_id():
 
 
 def test_build_publish_form_save_flag_real_publish():
-    """save=1 -> real publish (entrance=main); draft_form_data + default cover intact."""
+    """save=1 表示真实发布（entrance=main）；draft_form_data 和默认封面字段保持不变。"""
     form = build_publish_form(title="t", content_html="<p>x</p>", save=1)
     assert form["save"] == "1"
     assert form["entrance"] == "main"
-    # draft form data still carries the cover type even on real publish
+    # 即便是真实发布，草稿表单数据仍携带封面类型。
     assert json.loads(form["draft_form_data"]) == {"coverType": 2}
     assert form["pgc_feed_covers"] == "[]"
 
 
 class _FakePage:
-    """Minimal stand-in for a Playwright Page used in driver.publish().
+    """driver.publish() 使用的最小 Playwright Page 替身。
 
-    # NOTE: url is fixed at construction; does not simulate a post-goto redirect.
+    # 注意：url 在构造时固定，不模拟 goto 后的跳转。
     """
 
     def __init__(self, *, url, evaluate_result):
@@ -87,8 +87,8 @@ class _FakePage:
         return self._evaluate_result
 
     def get_by_role(self, role, name=None):
-        # Default page: the editor title box is present unless we are on a
-        # login wall. Subclasses override this to simulate slow-render / walls.
+        # 默认页面：除非处于登录墙，否则认为编辑器标题框存在。
+        # 子类会覆写这里来模拟慢渲染或登录墙。
         page = self
 
         class _Loc:
@@ -116,7 +116,7 @@ def _payload(tmp_path: Path, *, with_cover: bool = True, body_image: bool = Fals
 
 
 def _publish_envelope(publish_dict, uploads=None):
-    """Wrap an inner publish dict in the M2 full-response envelope."""
+    """把内部 publish 字典包进 M2 完整响应信封。"""
     return {
         "ok": True,
         "step": "publish",
@@ -173,7 +173,7 @@ def test_publish_api_error_raises_publish_error(tmp_path):
 
 
 def test_publish_waits_for_editor_then_proceeds(tmp_path):
-    """Editor title box appears after a couple polls -> no false UserInputRequired."""
+    """编辑器标题框在几次轮询后出现时，不应误判为 UserInputRequired。"""
 
     class _SlowReadyPage(_FakePage):
         def __init__(self):
@@ -203,8 +203,7 @@ def test_publish_waits_for_editor_then_proceeds(tmp_path):
     result = ToutiaoInPageDriver().publish(
         page=page, context=None, payload=_payload(tmp_path), stop_before_publish=True
     )
-    # The driver must actually poll for the editor (not proceed blindly),
-    # then proceed once it is ready.
+    # 驱动必须实际轮询编辑器，而不是盲目前进；就绪后再继续。
     assert page._title_polls >= 3
     assert "7" in result.message
 
@@ -229,7 +228,7 @@ def test_publish_persistent_login_wall_raises(tmp_path):
 
 
 def test_publish_uploads_cover_and_body_then_maps_url(tmp_path):
-    """Full M2 path: cover + one body image upload then publish -> article URL."""
+    """完整 M2 路径：上传封面和一张正文图后发布，并映射出文章 URL。"""
     page = _FakePage(
         url="https://mp.toutiao.com/profile_v4/graphic/publish",
         evaluate_result=_publish_envelope(
@@ -296,7 +295,7 @@ def test_publish_evaluate_arg_shape(tmp_path):
     arg = page.evaluate_arg
     assert arg["uploadUrl"] == UPLOAD_URL
     assert arg["publishUrl"] == PUBLISH_API_URL
-    assert arg["cover"]["b64"]  # non-empty base64
+    assert arg["cover"]["b64"]  # 非空 base64
     assert arg["cover"]["mime"] == "image/png"
     assert arg["bodyImages"][0]["token"] == "__GEO_IMG_0__"
     assert arg["bodyImages"][0]["b64"]
@@ -304,7 +303,7 @@ def test_publish_evaluate_arg_shape(tmp_path):
 
 
 def test_publish_save_flag_reflects_stop_before_publish(tmp_path):
-    # stop_before_publish=True -> draft (save=0)
+    # stop_before_publish=True 表示草稿（save=0）。
     page = _FakePage(
         url="https://mp.toutiao.com/profile_v4/graphic/publish",
         evaluate_result=_publish_envelope(
@@ -316,7 +315,7 @@ def test_publish_save_flag_reflects_stop_before_publish(tmp_path):
     )
     assert page.evaluate_arg["form"]["save"] == "0"
 
-    # stop_before_publish=False -> real publish (save=1)
+    # stop_before_publish=False 表示真实发布（save=1）。
     page2 = _FakePage(
         url="https://mp.toutiao.com/profile_v4/graphic/publish",
         evaluate_result=_publish_envelope(
@@ -330,7 +329,7 @@ def test_publish_save_flag_reflects_stop_before_publish(tmp_path):
 
 
 def test_publish_real_publish_requires_cover(tmp_path):
-    """save=1 without a cover must raise before evaluate."""
+    """save=1 但无封面时，必须在 evaluate 前抛错。"""
     page = _FakePage(
         url="https://mp.toutiao.com/profile_v4/graphic/publish",
         evaluate_result=_publish_envelope(
@@ -346,11 +345,11 @@ def test_publish_real_publish_requires_cover(tmp_path):
         )
 
 
-# --- TASK 5: harden publish-response URL/pgc_id extraction ---------------------
+# --- 任务 5：加固发布响应中的 URL/pgc_id 提取 ---------------------
 
 
 def _ok_publish(inner):
-    """HTTP-200 / code:0 publish dict carrying the given inner ``data`` payload."""
+    """携带指定内部 ``data`` 载荷的 HTTP-200 / code:0 发布字典。"""
     return {"httpStatus": 200, "data": {"code": 0, "data": inner}, "raw": "{}"}
 
 
@@ -381,8 +380,8 @@ def test_map_publish_response_display_url_fallback_surfaces():
 
 def test_map_publish_response_pgc_id_only_falls_back_to_pgc_id_url():
     result = _map_publish_response(_ok_publish({"pgc_id": "777"}), "标题")
-    # No URL field at all -> never crash; url falls back to a pgc_id= form and
-    # the message still carries the pgc_id.
+    # 完全没有 URL 字段时也不能崩溃；url 回退为 pgc_id= 形式，
+    # message 仍携带 pgc_id。
     assert result.url == "pgc_id=777"
     assert "777" in result.message
 
@@ -394,14 +393,14 @@ def test_map_publish_response_id_fallback_for_pgc_id():
 
 
 def test_map_publish_response_no_inner_data_does_not_crash():
-    # data has NO inner "data" key (i.e. {"code":0}) -> graceful, no crash.
+    # data 没有内部 "data" 键（即 {"code":0}）时优雅处理，不崩溃。
     result = _map_publish_response({"httpStatus": 200, "data": {"code": 0}, "raw": "{}"}, "标题")
     assert result.url is None
     assert result.title == "标题"
 
 
 def test_map_publish_response_inner_data_non_dict_does_not_crash():
-    # data.data present but not a dict -> graceful, no crash.
+    # data.data 存在但不是字典时优雅处理，不崩溃。
     result = _map_publish_response(
         {"httpStatus": 200, "data": {"code": 0, "data": "oops"}, "raw": "{}"}, "标题"
     )
@@ -409,7 +408,7 @@ def test_map_publish_response_inner_data_non_dict_does_not_crash():
 
 
 def test_map_publish_response_code_none_is_success():
-    # Success predicate keeps code in (0, None); code:None must not raise.
+    # 成功判定保留 code in (0, None)；code:None 不应抛错。
     result = _map_publish_response(
         {"httpStatus": 200, "data": {"data": {"pgc_id": "9"}}, "raw": "{}"}, "标题"
     )
@@ -428,11 +427,11 @@ def test_map_publish_response_non_200_still_raises():
         _map_publish_response({"httpStatus": 500, "data": {"code": 0}, "raw": "boom"}, "标题")
 
 
-# --- TASK 6: draft-vs-publish messaging ----------------------------------------
+# --- 任务 6：草稿与正式发布的消息区分 ----------------------------------------
 
 
 def test_publish_draft_message_indicates_draft(tmp_path):
-    """stop_before_publish=True (save=0) -> message says DRAFT, not 发布成功."""
+    """stop_before_publish=True（save=0）时，message 表示草稿而非发布成功。"""
     page = _FakePage(
         url="https://mp.toutiao.com/profile_v4/graphic/publish",
         evaluate_result=_publish_envelope(
@@ -444,12 +443,12 @@ def test_publish_draft_message_indicates_draft(tmp_path):
     )
     assert "草稿" in result.message
     assert "发布成功" not in result.message
-    # pgc_id still present in the message.
+    # message 仍携带 pgc_id。
     assert "555" in result.message
 
 
 def test_publish_real_publish_message_indicates_publish(tmp_path):
-    """stop_before_publish=False (save=1) -> message says real PUBLISH success."""
+    """stop_before_publish=False（save=1）时，message 表示真实发布成功。"""
     page = _FakePage(
         url="https://mp.toutiao.com/profile_v4/graphic/publish",
         evaluate_result=_publish_envelope(

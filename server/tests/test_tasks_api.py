@@ -621,7 +621,7 @@ def test_retry_failed_record_creates_pending_record_and_resets_task(monkeypatch)
         assert retried.status_code == 200
         assert retried.json()["retry_of_record_id"] == records_before[0]["id"]
 
-        # Wait for auto-execute to complete (FakePublisher always fails)
+        # 等待自动执行完成（FakePublisher 总是失败）。
         import time as _time
 
         deadline = _time.time() + 5.0
@@ -673,7 +673,7 @@ def test_retry_record_cannot_create_duplicate_retry_chain(monkeypatch):
         assert duplicate_retry.status_code == 400
         assert "already has retry record" in duplicate_retry.json()["detail"]
 
-        # Poll for auto-execute completion instead of POST execute
+        # 轮询自动执行完成状态，而不是再次 POST execute。
         import time as _time
 
         deadline = _time.time() + 5.0

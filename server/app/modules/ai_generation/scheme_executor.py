@@ -1,11 +1,11 @@
-"""方案运行 executor：展开 run tasks → 并发执行 → 汇总 run 状态。
+"""方案运行执行器：展开运行任务 → 并发执行 → 汇总运行状态。
 
 设计要点（对照可行性分析 Q3/Q4）：
-- 三段式：`create_run`（展开快照→pending tasks）/ `run_scheme`（并发执行+汇总）/ 纯函数易测。
-- 每篇文章一条 task，互不依赖（embarrassingly parallel），用 ThreadPoolExecutor(max_workers=4)。
-- 每个并行 worker 自带独立 DB session（session 非线程安全）。
-- 运行时每条 task 从该问题类型允许列表随机抽一个**有效**模板（不存在/停用/删除/非 generation
-  都视为无效）；若整列无效 → 该 task 失败、其他类型继续。
+- 三段式：`create_run`（展开快照→待处理任务）/ `run_scheme`（并发执行+汇总）/ 纯函数易测。
+- 每篇文章一条任务，互不依赖，使用 ThreadPoolExecutor(max_workers=4)。
+- 每个并行工作线程自带独立数据库会话（会话非线程安全）。
+- 运行时每条任务从该问题类型允许列表随机抽一个**有效**模板（不存在/停用/删除/非 generation
+  都视为无效）；若整列无效 → 该任务失败、其他类型继续。
 - 只读方案快照（question_text），不碰 QuestionItem.status/article_id。
 """
 
@@ -17,6 +17,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
+from server.app.core.config import get_settings
 from server.app.core.time import utcnow
 from server.app.modules.ai_generation.article_writer import generate_article_from_prompt
 from server.app.modules.ai_generation.models import (
@@ -44,7 +45,7 @@ def _render_questions(questions: list[Any]) -> str:
 
 
 def create_run(db: Any, *, scheme: GenerationScheme, user_id: int) -> GenerationSchemeRun:
-    """按方案行展开 run tasks（每行 article_count 条）。使用方案快照，不读问题池最新文本。"""
+    """按方案行展开运行任务（每行 article_count 条）。使用方案快照，不读问题池最新文本。"""
     run = GenerationSchemeRun(
         scheme_id=scheme.id,
         user_id=user_id,
@@ -107,7 +108,7 @@ def _execute_task(
     session_factory: SessionFactory,
     model_override: str | None = None,
 ) -> int | None:
-    """执行一条 task：选模板 → 生文 → 写结果。返回 article_id 或 None（失败）。
+    """执行一条任务：选模板 → 生文 → 写结果。返回 article_id 或 None（失败）。
 
     model_override 为方案级 AI 引擎（None / 空 = 用系统默认写作模型）。
     """
@@ -169,15 +170,15 @@ def _execute_task(
     finally:
         db.close()
 
-    # 生文成功后自动 AI 排版 + 全 bucket 智能配图（best-effort，不影响 task 结果）
+    # 生文成功后自动 AI 排版 + 全 bucket 智能配图（尽力而为，不影响任务结果）
     _auto_format_article(article_id, user_id, session_factory)
-    # [临时] 封面兜底：从 cantingyangchengji bucket 随机取图当封面（后期删除本行 + _assign_temp_cover_from_bucket）
+    # [临时] 封面兜底：从 GEO_TEMP_COVER_BUCKET 随机取图当封面（后期删除本行 + _assign_temp_cover_from_bucket）
     _assign_temp_cover_from_bucket(article_id, user_id, session_factory)
     return article_id
 
 
 def run_scheme(run_id: int, session_factory: SessionFactory) -> None:
-    """方案运行入口（由后台线程调用）：并发执行所有 task，汇总 run 状态。"""
+    """方案运行入口（由后台线程调用）：并发执行所有任务，汇总运行状态。"""
     db = session_factory()
     try:
         run = db.get(GenerationSchemeRun, run_id)
@@ -288,13 +289,27 @@ def _group_run_articles(run_id: int, session_factory: SessionFactory) -> None:
     finally:
         db.close()
 
-    mark_pending_and_group(
+    gid = mark_pending_and_group(
         session_factory,
         article_ids=article_ids,
         user_id=uid,
         base_name=base_name,
         fallback_suffix=f"#{rid}",
     )
+    if gid is None:
+        # 成组/送审失败：与 pipeline 执行器对齐，降级运行状态 + 写明原因，
+        # 避免 UI 显示成功而文章其实未送审/未成组。
+        db = session_factory()
+        try:
+            run = db.get(GenerationSchemeRun, run_id)
+            if run is not None:
+                if run.status == "done":
+                    run.status = "partial_failed"
+                note = "文章已生成但送审/成组失败，请手动核对审核状态"
+                run.error_message = f"{run.error_message}; {note}" if run.error_message else note
+                db.commit()
+        finally:
+            db.close()
 
 
 def _auto_format_article(
@@ -304,7 +319,7 @@ def _auto_format_article(
 ) -> None:
     """方案生文成功后自动 AI 排版 + 用全部图片 bucket 智能配图。
 
-    best-effort：任何失败只记日志，绝不影响已生成的文章 / task 状态。
+    尽力而为：任何失败只记日志，绝不影响已生成的文章 / 任务状态。
     """
     try:
         from server.app.modules.articles.ai_format import has_ai_format_targets
@@ -347,11 +362,10 @@ def _auto_format_article(
 # ─────────────────────────────────────────────────────────────────────────────
 # [临时] 封面兜底
 #
-# 封面图目前没有自动生成逻辑。在接入真正的封面方案之前，先从 cantingyangchengji
-# （餐厅养成记）bucket 随机取一张图当封面。后期删除整段（常量 + 函数 + _execute_task
-# 里的调用）即可，不影响其它逻辑。
+# 封面图目前没有自动生成逻辑。在接入真正的封面方案之前，先从 GEO_TEMP_COVER_BUCKET
+# 指定的 bucket 随机取一张图当封面（默认 cantingyangchengji；置空则整段禁用）。
+# 后期删除整段（配置 temp_cover_bucket + 函数 + _execute_task 里的调用）即可。
 # ─────────────────────────────────────────────────────────────────────────────
-_TEMP_COVER_BUCKET = "cantingyangchengji"
 
 
 def _assign_temp_cover_from_bucket(
@@ -359,16 +373,18 @@ def _assign_temp_cover_from_bucket(
     user_id: int,
     session_factory: SessionFactory,
 ) -> None:
-    """[临时] 从 cantingyangchengji bucket 随机取一张图，落成 Asset 后设为文章封面。
+    """[临时] 从 GEO_TEMP_COVER_BUCKET 指定 bucket 随机取一张图，落成 Asset 后设为封面。
 
+    - 未配置 GEO_TEMP_COVER_BUCKET（空字符串）时整段跳过，连会话都不开。
     - 走 store_bytes 落成真实 Asset（cover_asset_id 外键有效，发布驱动可上传文件）。
     - 已有封面的文章跳过，不覆盖。
-    - best-effort：任何失败只记日志，绝不影响已生成的文章 / task 状态。
+    - 尽力而为：任何失败只记日志，绝不影响已生成的文章 / 任务状态。
     """
+    bucket = get_settings().temp_cover_bucket
+    if not bucket:
+        return  # 未配置临时封面 bucket：整段禁用
     try:
         import mimetypes
-
-        from sqlalchemy import func
 
         from server.app.modules.articles.models import Article
         from server.app.modules.articles.store import store_bytes
@@ -381,23 +397,24 @@ def _assign_temp_cover_from_bucket(
             if article is None or article.is_deleted or article.cover_asset_id:
                 return
 
-            category = (
-                db.query(StockCategory)
-                .filter(StockCategory.bucket_name == _TEMP_COVER_BUCKET)
-                .first()
-            )
+            category = db.query(StockCategory).filter(StockCategory.bucket_name == bucket).first()
             if category is None:
-                logger.info("temp cover: bucket %s 未注册，跳过", _TEMP_COVER_BUCKET)
+                logger.info("temp cover: bucket %s 未注册，跳过", bucket)
                 return
 
+            # 预采样随机：先取数量再随机 offset，避免 ORDER BY RAND() 全表排序
+            count = db.query(StockImage).filter(StockImage.category_id == category.id).count()
+            if count == 0:
+                logger.info("temp cover: bucket %s 无图片，跳过", bucket)
+                return
             image = (
                 db.query(StockImage)
                 .filter(StockImage.category_id == category.id)
-                .order_by(func.rand())
+                .order_by(StockImage.id.asc())
+                .offset(random.randint(0, count - 1))
                 .first()
             )
             if image is None:
-                logger.info("temp cover: bucket %s 无图片，跳过", _TEMP_COVER_BUCKET)
                 return
 
             data = get_object_bytes(category.bucket_name, image.minio_key)

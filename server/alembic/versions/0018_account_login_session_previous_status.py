@@ -1,8 +1,8 @@
-"""account_login_sessions: add previous_status to restore on cancel
+"""为 account_login_sessions 添加 previous_status 以便取消时恢复
 
-Revision ID: 0018
-Revises: 0017
-Create Date: 2026-05-20
+修订 ID: 0018
+上一修订: 0017
+创建日期: 2026-05-20
 """
 from typing import Sequence, Union
 

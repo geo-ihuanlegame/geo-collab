@@ -2,24 +2,20 @@ import { useEditor } from "@tiptap/react";
 import {
   AlignCenter, AlignLeft, AlignRight, Baseline, Bold, Eraser,
   Heading1, Heading2, Highlighter, ImagePlus, Italic, LinkIcon,
-  List, ListOrdered, Quote, Redo2, Strikethrough,
+  List, ListOrdered, Quote, Redo2, Save, Strikethrough,
   Underline as UnderlineIcon, Undo2,
 } from "lucide-react";
 
 export function EditorToolbar({
   editor,
   onImageUpload,
-  aiChecking,
-  aiFormatRemainingSeconds,
-  onAiFormat,
-  stockCategorySelected,
+  imageSelected,
+  onSaveImage,
 }: {
   editor: ReturnType<typeof useEditor>;
   onImageUpload: (files: File[]) => Promise<void>;
-  aiChecking: boolean;
-  aiFormatRemainingSeconds?: number;
-  onAiFormat: () => void;
-  stockCategorySelected?: boolean;
+  imageSelected: boolean;
+  onSaveImage: () => void;
 }) {
   if (!editor) return null;
 
@@ -85,14 +81,12 @@ export function EditorToolbar({
       <span className="toolbarSep" />
 
       <button
-        onClick={onAiFormat}
-        disabled={aiChecking}
-        title={stockCategorySelected ? "AI 格式调整（将自动配图）" : "AI 格式调整"}
+        onClick={onSaveImage}
+        disabled={!imageSelected}
+        title={imageSelected ? "图片保存到图库" : "先选中正文中的图片"}
         type="button"
       >
-        {aiChecking
-          ? `AI 调整中 ${Math.max(0, aiFormatRemainingSeconds ?? 0)}s`
-          : stockCategorySelected ? "AI格式·配图" : "AI 格式"}
+        <Save size={16} />
       </button>
     </div>
   );

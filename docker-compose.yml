@@ -30,6 +30,11 @@ services:
       timeout: 5s
       retries: 5
 
+  dailyhot-api:
+    build: ./services/dailyhot-api
+    restart: unless-stopped
+    # 镜像内置 NODE_ENV=docker + EXPOSE 6688，容器自启服务；仅内部网络，不映射宿主端口
+
   app:
     build: .
     restart: unless-stopped
@@ -37,6 +42,8 @@ services:
       mysql:
         condition: service_healthy
       minio:
+        condition: service_started
+      dailyhot-api:
         condition: service_started
     env_file:
       - .env
@@ -48,6 +55,7 @@ services:
       GEO_DB_NAME: ${MYSQL_DATABASE:-geo_collab}
       GEO_DATA_DIR: /app/data
       GEO_NGINX_ACCEL: "1"
+      GEO_HOTLIST_API_URL: http://dailyhot-api:6688
     volumes:
       - app_data:/app/data
 

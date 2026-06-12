@@ -1,3 +1,10 @@
+"""GenerationSession CRUD（旧 /sessions 批次元数据表）。
+
+旧问题池直连 + LangGraph 流水线的会话状态机；`/api/generation/sessions` 已硬切 410、
+休眠不删（见 CLAUDE.md）。`article_ids` 以 JSON 字符串存于 Text 列，读写都在这里序列化。
+新方案流不走这里，改用 scheme_service / scheme_executor。
+"""
+
 import json
 from datetime import UTC, datetime
 
@@ -17,6 +24,7 @@ def create_session(
     question_item_ids: list[int] | None = None,
     auto_count: int | None = None,
 ) -> GenerationSession:
+    """建一条 pending 会话；question_item_ids 序列化成 JSON 字符串入 Text 列。article_ids 初始化为空（"[]"），生成完成后由 update_session_status 回填。"""
     session = GenerationSession(
         user_id=user_id,
         skill_id=skill_id,
@@ -45,6 +53,7 @@ def update_session_status(
     article_ids: list[int] | None = None,
     error_message: str | None = None,
 ) -> None:
+    """更新会话状态；status 落到 done/failed 时记 completed_at。article_ids 传入则重写 JSON。"""
     session = db.query(GenerationSession).filter(GenerationSession.id == session_id).first()
     if session is None:
         return

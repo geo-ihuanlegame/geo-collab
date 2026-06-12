@@ -1,8 +1,8 @@
-"""Add worker_id to publish_tasks; add browser_sessions and record_browser_sessions tables
+"""为 publish_tasks 添加 worker_id，并创建 browser_sessions 和 record_browser_sessions 表
 
-Revision ID: 0010
-Revises: 0009
-Create Date: 2026-05-14
+修订 ID: 0010
+上一修订: 0009
+创建日期: 2026-05-14
 """
 from typing import Sequence, Union
 

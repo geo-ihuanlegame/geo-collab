@@ -1,14 +1,14 @@
 """
-Security boundary tests covering:
-- R1/P4: account export restricted to admin
-- R2:    article client_request_id dedup still works for same user (regression guard)
-- R4:    /api/tasks/preview requires authentication
-- R5:    must_change_password blocks all protected endpoints, allows /auth/change-password
-- R9:    task creation validates account/article ownership per user
-- P1:    operator cannot delete articles
-- P2:    operator cannot delete article groups
-- P4:    operator cannot delete accounts
-- P6:    operator cannot access system status
+安全边界测试覆盖：
+- R1/P4：账号导出仅限 admin
+- R2：同一用户的 article client_request_id 去重仍然生效（回归保护）
+- R4：/api/tasks/preview 需要鉴权
+- R5:    must_change_password 阻断所有受保护端点，但允许 /auth/change-password
+- R9：创建任务时按用户校验账号 / 文章归属
+- P1：operator 不能删除文章
+- P2：operator 不能删除文章分组
+- P4：operator 不能删除账号
+- P6：operator 不能访问系统状态
 """
 
 from fastapi.testclient import TestClient
@@ -75,7 +75,7 @@ def _create_group(client, name="Test Group") -> int:
     return resp.json()["id"]
 
 
-# ── R1/P4: export admin-only ──────────────────────────────────────────────────
+# ── R1/P4：导出仅限管理员 ──────────────────────────────────────────────────
 
 
 class TestAccountExportAdminOnly:
@@ -99,19 +99,19 @@ class TestAccountExportAdminOnly:
             test_app.cleanup()
 
 
-# ── R2: article client_request_id idempotency (same user) ────────────────────
+# ── R2：文章 client_request_id 幂等（同一用户） ────────────────────
 
 
 class TestArticleClientRequestIdIdempotency:
     def test_same_user_duplicate_returns_existing(self, monkeypatch):
-        """Same user sending the same client_request_id twice gets the same article back."""
+        """同一用户重复发送相同 client_request_id 时返回同一篇文章。"""
         test_app = build_test_app(monkeypatch)
         try:
             client = test_app.client
             crid = "dedup-test-crid-001"
             article_id = _create_article(client, crid=crid)
 
-            # Second request with same crid from same user → idempotent
+            # 同一用户使用相同 crid 的第二次请求应保持幂等。
             resp2 = client.post(
                 "/api/articles",
                 json={
@@ -126,7 +126,7 @@ class TestArticleClientRequestIdIdempotency:
             test_app.cleanup()
 
 
-# ── R4: /api/tasks/preview requires authentication ────────────────────────────
+# ── R4：/api/tasks/preview 需要鉴权 ────────────────────────────
 
 
 class TestTasksPreviewAuth:
@@ -143,20 +143,20 @@ class TestTasksPreviewAuth:
             test_app.cleanup()
 
     def test_authenticated_user_can_reach_preview(self, monkeypatch):
-        """Authenticated request reaches the endpoint (may return 400 due to missing data, not 401)."""
+        """已认证请求应能到达端点；可因缺少数据返回 400，但不能返回 401。"""
         test_app = build_test_app(monkeypatch)
         try:
             resp = test_app.client.post(
                 "/api/tasks/preview",
                 json={"name": "T", "task_type": "single", "accounts": []},
             )
-            # 400 is fine — means auth passed but payload validation failed
+            # 400 可以接受：表示鉴权已通过，只是请求体验证失败。
             assert resp.status_code != 401
         finally:
             test_app.cleanup()
 
 
-# ── R5: must_change_password blocks protected endpoints ───────────────────────
+# ── R5：must_change_password 拦截受保护端点 ───────────────────────
 
 
 class TestMustChangePasswordBlocking:
@@ -191,7 +191,7 @@ class TestMustChangePasswordBlocking:
             test_app.cleanup()
 
     def test_allows_change_password(self, monkeypatch):
-        """change-password bypasses get_current_user — must work for must_change_password users."""
+        """change-password 绕过 get_current_user，必须对 must_change_password 用户可用。"""
         test_app = build_test_app(monkeypatch)
         try:
             mc = _make_must_change_client(test_app)
@@ -215,7 +215,7 @@ class TestMustChangePasswordBlocking:
             test_app.cleanup()
 
 
-# ── P1: operator cannot delete articles ──────────────────────────────────────
+# ── P1：operator 不能删除文章 ──────────────────────────────────────
 
 
 class TestOperatorCannotDeleteArticle:
@@ -240,7 +240,7 @@ class TestOperatorCannotDeleteArticle:
             test_app.cleanup()
 
 
-# ── P2: operator cannot delete article groups ─────────────────────────────────
+# ── P2：operator 不能删除文章分组 ─────────────────────────────────
 
 
 class TestOperatorCannotDeleteArticleGroup:
@@ -265,7 +265,7 @@ class TestOperatorCannotDeleteArticleGroup:
             test_app.cleanup()
 
 
-# ── P4: operator cannot delete accounts ──────────────────────────────────────
+# ── P4：operator 不能删除账号 ──────────────────────────────────────
 
 
 class TestOperatorCannotDeleteAccount:
@@ -290,7 +290,7 @@ class TestOperatorCannotDeleteAccount:
             test_app.cleanup()
 
 
-# ── P6: operator cannot access system status ──────────────────────────────────
+# ── P6：operator 不能访问系统状态 ──────────────────────────────────
 
 
 class TestOperatorCannotAccessSystemStatus:
@@ -322,17 +322,17 @@ class TestOperatorCannotAccessSystemStatus:
             test_app.cleanup()
 
 
-# ── R9: task ownership validation ─────────────────────────────────────────────
+# ── R9：任务归属校验 ─────────────────────────────────────────────
 
 
 class TestTaskOwnershipValidation:
     def test_operator_cannot_use_admin_account(self, monkeypatch):
-        """Operator cannot create a task with another user's account — returns 400."""
+        """operator 不能使用其他用户的账号创建任务，应返回 400。"""
         test_app = build_test_app(monkeypatch)
         try:
-            # Admin creates an account (belongs to admin)
+            # admin 创建一个账号（归 admin 所有）。
             admin_account_id = _create_account(test_app, key="admin-acc-r9")
-            # Operator creates their own article
+            # operator 创建自己的文章。
             op_client, _ = _make_operator_client(test_app)
             op_article_id = _create_article(op_client, title="Op Article R9")
 
@@ -351,12 +351,12 @@ class TestTaskOwnershipValidation:
             test_app.cleanup()
 
     def test_operator_cannot_use_admin_article(self, monkeypatch):
-        """Operator cannot create a task with another user's article — returns 400."""
+        """operator 不能使用其他用户的文章创建任务，应返回 400。"""
         test_app = build_test_app(monkeypatch)
         try:
-            # Admin creates an article (belongs to admin)
+            # admin 创建一篇文章（归 admin 所有）。
             admin_article_id = _create_article(test_app.client, title="Admin Article R9")
-            # Operator creates their own account
+            # operator 创建自己的账号。
             op_client, _ = _make_operator_client(test_app)
             op_account_id = _create_account(test_app, key="op-acc-r9", client=op_client)
 
@@ -375,13 +375,13 @@ class TestTaskOwnershipValidation:
             test_app.cleanup()
 
     def test_admin_can_use_any_account(self, monkeypatch):
-        """Admin bypasses ownership check and can create a task with any user's account."""
+        """admin 跳过归属检查，可以使用任意用户的账号创建任务。"""
         test_app = build_test_app(monkeypatch)
         try:
-            # Operator creates their own account
+            # operator 创建自己的账号。
             op_client, _ = _make_operator_client(test_app)
             op_account_id = _create_account(test_app, key="op-acc-r9-admin", client=op_client)
-            # Admin creates their own article
+            # admin 创建自己的文章。
             admin_article_id = _create_article(test_app.client, title="Admin Article R9 Admin")
 
             resp = test_app.client.post(
@@ -398,7 +398,7 @@ class TestTaskOwnershipValidation:
             test_app.cleanup()
 
     def test_operator_can_use_own_account_and_article(self, monkeypatch):
-        """Operator can create a task with their own account and article."""
+        """operator 可以使用自己的账号和文章创建任务。"""
         test_app = build_test_app(monkeypatch)
         try:
             op_client, _ = _make_operator_client(test_app)

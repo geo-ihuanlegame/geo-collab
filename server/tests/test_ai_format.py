@@ -1,4 +1,4 @@
-"""Tests for AI format lock handling and正文小标题 conversion."""
+"""测试 AI 排版锁处理与正文小标题转换。"""
 
 from __future__ import annotations
 
@@ -323,9 +323,8 @@ def test_ai_format_button_path_triggers_image_insertion_when_categories_selected
         monkeypatch.setattr(
             "server.app.modules.articles.ai_format._maybe_insert_images", fake_maybe_insert_images
         )
-        # The flow re-reads settings from the env (get_settings.cache_clear) and
-        # requires an API key before the (mocked) model call. Set it here so the
-        # test is hermetic instead of depending on the dev's ambient GEO_AI_* env.
+        # 流程会从环境重新读取配置（get_settings.cache_clear），并且在模拟模型调用前要求有 API key。
+        # 这里显式设置，避免测试依赖开发机环境中的 GEO_AI_* 变量。
         monkeypatch.setenv("GEO_AI_FORMAT_API_KEY", "test-key")
 
         response = client.post(f"/api/articles/{article_id}/ai-format")
@@ -402,6 +401,63 @@ def test_headings_only_prompt_includes_node_text():
     assert "1 [段落]" in prompt
 
 
+def test_image_prompt_offers_game_field_when_web_fallback_on():
+    """根因修复：自动建陪衬栏目这条路必须被提示词【正文】鼓励、带示例，而不是只靠末尾弱后缀。
+
+    web_fallback=True 时组装出的配图提示词应包含 game 字段用法（让模型点名列表外游戏）；
+    关时不出现（向后兼容，纯 category_id 行为）。覆盖 #76 之后的 AI配图 联网兜底根因。
+    """
+    from server.app.modules.articles.ai_format import _load_ai_format_prompt
+
+    text_nodes = [
+        (0, {"type": "paragraph", "content": [{"type": "text", "text": "某款手游真好玩"}]})
+    ]
+    cats = [{"id": 5, "name": "主推A", "description": None}]
+
+    on = _load_ai_format_prompt(
+        None,
+        preset_id=None,
+        user_id=None,
+        include_images=True,
+        text_nodes=text_nodes,
+        available_categories=cats,
+        web_fallback=True,
+    )
+    off = _load_ai_format_prompt(
+        None,
+        preset_id=None,
+        user_id=None,
+        include_images=True,
+        text_nodes=text_nodes,
+        available_categories=cats,
+        web_fallback=False,
+    )
+
+    # 开：明确给出 game 字段用法（点名列表外游戏）
+    assert '"game"' in on
+    assert "用游戏名" in on
+    # 关：完全不出现 game 指引，保持纯 category_id
+    assert '"game"' not in off
+    assert "用游戏名" not in off
+
+
+def test_headings_only_prompt_ignores_web_fallback():
+    """纯小标题识别（include_images=False）不配图，更不应出现联网兜底 game 指引。"""
+    from server.app.modules.articles.ai_format import _load_ai_format_prompt
+
+    text_nodes = [(0, {"type": "paragraph", "content": [{"type": "text", "text": "正文"}]})]
+    prompt = _load_ai_format_prompt(
+        None,
+        preset_id=None,
+        user_id=None,
+        include_images=False,
+        text_nodes=text_nodes,
+        available_categories=[],
+        web_fallback=True,
+    )
+    assert '"game"' not in prompt
+
+
 def test_render_ai_format_prompt_strict_undefined_raises():
     from jinja2 import UndefinedError
 
@@ -413,6 +469,123 @@ def test_render_ai_format_prompt_strict_undefined_raises():
             text_nodes=[],
             available_categories=[],
         )
+
+
+def test_aggressive_builtin_prompt_variant_and_numeric_overrides():
+    """builtin_variant='aggressive' → 积极配图措辞；max_images/min_spacing 覆盖注入占位。
+
+    保守变体不含"积极配图"、保留"图少文多"；两者都保留"不确定不插"准星——激进≠瞎插。
+    """
+    from server.app.modules.articles.ai_format import _load_ai_format_prompt
+
+    text_nodes = [(0, {"type": "paragraph", "content": [{"type": "text", "text": "某游戏真好玩"}]})]
+    cats = [{"id": 5, "name": "主推A", "description": None}]
+
+    aggressive = _load_ai_format_prompt(
+        None,
+        preset_id=None,
+        user_id=None,
+        include_images=True,
+        text_nodes=text_nodes,
+        available_categories=cats,
+        max_images=7,
+        min_spacing=2,
+        builtin_variant="aggressive",
+    )
+    conservative = _load_ai_format_prompt(
+        None,
+        preset_id=None,
+        user_id=None,
+        include_images=True,
+        text_nodes=text_nodes,
+        available_categories=cats,
+        builtin_variant="conservative",
+    )
+
+    # 激进：积极配图措辞 + 数字旋钮覆盖生效
+    assert "积极配图" in aggressive
+    assert "最多 7 张" in aggressive
+    assert "不少于 2 个节点" in aggressive
+    assert "吃不准" in aggressive  # 准星仍在
+    # 保守：旧措辞，无积极配图模式；默认派生上限 3
+    assert "积极配图" not in conservative
+    assert "图少文多" in conservative
+    assert "不超过 3 张" in conservative
+
+
+def test_maybe_insert_images_hard_caps_at_max_images(monkeypatch):
+    """max_images 为硬上限：模型给 4 个位置、max_images=2 → 只插靠前 2 张并提前停止。"""
+    from server.app.modules.articles.ai_format import _maybe_insert_images
+
+    pick_calls = []
+
+    def fake_pick(query, db):
+        pick_calls.append(1)
+        return 42
+
+    fake_ref = SimpleNamespace(
+        id=42, url="/api/stock-images/42/file", filename="t.jpg", width=800, height=600
+    )
+    monkeypatch.setattr("server.app.modules.articles.ai_format.pick_image_id", fake_pick)
+    monkeypatch.setattr(
+        "server.app.modules.articles.ai_format.fetch_image_by_id", lambda image_id, db: fake_ref
+    )
+    monkeypatch.setattr(
+        "server.app.modules.articles.ai_format.has_images_in_content", lambda content: False
+    )
+
+    inserted_positions = []
+
+    def fake_insert(content_json, refs, positions):
+        inserted_positions.extend(positions)
+        return content_json
+
+    monkeypatch.setattr(
+        "server.app.modules.articles.ai_format.insert_images_at_positions", fake_insert
+    )
+
+    cat = SimpleNamespace(id=1)
+    article = _make_article_stub(stock_categories=[cat])
+    parsed = {
+        "image_positions": [
+            {"index": 0, "category_id": 1},
+            {"index": 1, "category_id": 1},
+            {"index": 2, "category_id": 1},
+            {"index": 3, "category_id": 1},
+        ]
+    }
+    _, count = _maybe_insert_images(_simple_content(), parsed, article, db=None, max_images=2)
+
+    assert count == 2  # 硬截断到 2 张
+    assert inserted_positions == [0, 1]  # 取靠前的两个
+    assert len(pick_calls) == 2  # 达上限即停，不再为第 3/4 个位置取图
+
+
+def test_maybe_insert_images_no_cap_when_max_images_none(monkeypatch):
+    """max_images=None（手动排版/方案配图）→ 不硬截断，沿用原行为：模型给几个插几个。"""
+    from server.app.modules.articles.ai_format import _maybe_insert_images
+
+    fake_ref = SimpleNamespace(
+        id=42, url="/api/stock-images/42/file", filename="t.jpg", width=800, height=600
+    )
+    monkeypatch.setattr("server.app.modules.articles.ai_format.pick_image_id", lambda q, db: 42)
+    monkeypatch.setattr(
+        "server.app.modules.articles.ai_format.fetch_image_by_id", lambda image_id, db: fake_ref
+    )
+    monkeypatch.setattr(
+        "server.app.modules.articles.ai_format.has_images_in_content", lambda content: False
+    )
+    monkeypatch.setattr(
+        "server.app.modules.articles.ai_format.insert_images_at_positions",
+        lambda content_json, refs, positions: content_json,
+    )
+
+    cat = SimpleNamespace(id=1)
+    article = _make_article_stub(stock_categories=[cat])
+    parsed = {"image_positions": [{"index": i, "category_id": 1} for i in range(4)]}
+    _, count = _maybe_insert_images(_simple_content(), parsed, article, db=None)
+
+    assert count == 4  # 不截断
 
 
 def test_maybe_insert_images_skips_when_no_stock_categories(monkeypatch):
@@ -734,9 +907,8 @@ def test_run_ai_format_uses_candidate_categories_when_article_has_none(monkeypat
                 inserted.update({"refs": refs, "positions": positions}) or content_json
             ),
         )
-        # run_ai_format re-reads settings (get_settings.cache_clear) and requires an
-        # API key before the (mocked) model call. Set it here so the test is hermetic
-        # instead of depending on the dev's ambient GEO_AI_* env (CI has none).
+        # run_ai_format 会重新读取配置（get_settings.cache_clear），并且在模拟模型调用前要求有 API key。
+        # 这里显式设置，避免测试依赖开发机环境中的 GEO_AI_* 变量（CI 中没有）。
         monkeypatch.setenv("GEO_AI_FORMAT_API_KEY", "test-key")
 
         candidate = [{"id": 777, "name": "王者荣耀", "description": "MOBA"}]

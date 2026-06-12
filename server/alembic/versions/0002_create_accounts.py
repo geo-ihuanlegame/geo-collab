@@ -1,8 +1,8 @@
-"""create accounts
+"""创建账号表
 
-Revision ID: 0002
-Revises: 0001
-Create Date: 2026-05-12
+修订 ID: 0002
+上一修订: 0001
+创建日期: 2026-05-12
 """
 from typing import Sequence, Union
 

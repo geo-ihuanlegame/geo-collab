@@ -1,0 +1,267 @@
+erDiagram
+  USERS {
+    int id PK
+    string username
+    string role
+    bool is_active
+    bool must_change_password
+    int ai_format_preset_id
+  }
+
+  PLATFORMS {
+    int id PK
+    string code
+    string name
+    bool enabled
+  }
+
+  ACCOUNTS {
+    int id PK
+    int user_id FK
+    int platform_id FK
+    string display_name
+    string platform_user_id
+    string status
+    string state_path
+    bool is_deleted
+  }
+
+  ARTICLES {
+    int id PK
+    int user_id FK
+    string title
+    string cover_asset_id FK
+    text content_json
+    text content_html
+    text plain_text
+    string status
+    string review_status
+    int stock_category_id FK
+    bool is_deleted
+  }
+
+  ASSETS {
+    string id PK
+    int user_id FK
+    string filename
+    string mime_type
+    int size
+    string sha256
+    string storage_key
+    bool is_deleted
+  }
+
+  ARTICLE_GROUPS {
+    int id PK
+    int user_id FK
+    string name
+    int version
+    bool is_deleted
+  }
+
+  ARTICLE_GROUP_ITEMS {
+    int id PK
+    int group_id FK
+    int article_id FK
+    int sort_order
+  }
+
+  PUBLISH_TASKS {
+    int id PK
+    int user_id FK
+    string name
+    string task_type
+    string status
+    int platform_id FK
+    int article_id FK
+    int group_id FK
+    bool stop_before_publish
+  }
+
+  PUBLISH_TASK_ACCOUNTS {
+    int id PK
+    int task_id FK
+    int account_id FK
+    int sort_order
+  }
+
+  PUBLISH_RECORDS {
+    int id PK
+    int task_id FK
+    int article_id FK
+    int platform_id FK
+    int account_id FK
+    string status
+    string publish_url
+    int retry_of_record_id FK
+  }
+
+  TASK_LOGS {
+    int id PK
+    int task_id FK
+    int record_id FK
+    string level
+    text message
+    string screenshot_asset_id FK
+  }
+
+  QUESTION_POOLS {
+    int id PK
+    int user_id FK
+    string name
+    string feishu_app_token
+    string feishu_table_id
+    bool auto_sync_enabled
+  }
+
+  QUESTION_ITEMS {
+    int id PK
+    int pool_id FK
+    string record_id
+    json fields
+    text question_text
+    string category
+    bool source_active
+  }
+
+  PROMPT_TEMPLATES {
+    int id PK
+    string name
+    text content
+    string scope
+    int user_id FK
+    bool is_system
+    bool is_enabled
+  }
+
+  GENERATION_SCHEMES {
+    int id PK
+    int user_id FK
+    int pool_id FK
+    string name
+    string ai_engine
+    bool is_enabled
+  }
+
+  GENERATION_SCHEME_LINES {
+    int id PK
+    int scheme_id FK
+    string question_type
+    int article_count
+    json allowed_prompt_template_ids
+  }
+
+  GENERATION_SCHEME_RUNS {
+    int id PK
+    int scheme_id FK
+    int user_id FK
+    string status
+    json article_ids
+    string ai_engine
+  }
+
+  GENERATION_SCHEME_RUN_TASKS {
+    int id PK
+    int run_id FK
+    int scheme_line_id FK
+    string question_type
+    int actual_prompt_template_id FK
+    string status
+    int article_id FK
+  }
+
+  PIPELINES {
+    int id PK
+    int user_id FK
+    string name
+    json draft_snapshot
+    bool has_draft
+    string type
+    bool ignore_exception
+    bool is_enabled
+    string schedule_kind
+  }
+
+  PIPELINE_NODES {
+    int id PK
+    int pipeline_id FK
+    string node_type
+    string name
+    int node_index
+    json config
+    json flow_meta
+  }
+
+  PIPELINE_VERSIONS {
+    int id PK
+    int pipeline_id FK
+    int version_no
+    json snapshot
+    int created_by FK
+  }
+
+  PIPELINE_RUNS {
+    int id PK
+    int pipeline_id FK
+    int user_id FK
+    string status
+    json node_results
+    json article_ids
+    json snapshot
+  }
+
+  STOCK_CATEGORIES {
+    int id PK
+    string name
+    string bucket_name
+    string official_url
+  }
+
+  STOCK_IMAGES {
+    int id PK
+    int category_id FK
+    string minio_key
+    string filename
+    json tags
+  }
+
+  AUDIT_LOGS {
+    int id PK
+    int user_id FK
+    string username
+    string action
+    string target_type
+    string target_id
+    json payload_json
+  }
+
+  USERS ||--o{ ACCOUNTS : owns
+  USERS ||--o{ ARTICLES : owns
+  USERS ||--o{ PIPELINES : owns
+  USERS ||--o{ PUBLISH_TASKS : creates
+  USERS ||--o{ QUESTION_POOLS : owns
+  PLATFORMS ||--o{ ACCOUNTS : has
+  PLATFORMS ||--o{ PUBLISH_TASKS : targets
+  PLATFORMS ||--o{ PUBLISH_RECORDS : targets
+  ARTICLES ||--o{ ARTICLE_GROUP_ITEMS : grouped_by
+  ARTICLE_GROUPS ||--o{ ARTICLE_GROUP_ITEMS : contains
+  ARTICLES ||--o{ PUBLISH_RECORDS : published_by
+  ARTICLES ||--o{ TASK_LOGS : screenshots
+  ASSETS ||--o{ TASK_LOGS : screenshot
+  PUBLISH_TASKS ||--o{ PUBLISH_TASK_ACCOUNTS : uses
+  ACCOUNTS ||--o{ PUBLISH_TASK_ACCOUNTS : selected
+  PUBLISH_TASKS ||--o{ PUBLISH_RECORDS : expands_to
+  PUBLISH_TASKS ||--o{ TASK_LOGS : logs
+  PUBLISH_RECORDS ||--o{ TASK_LOGS : logs
+  QUESTION_POOLS ||--o{ QUESTION_ITEMS : contains
+  QUESTION_POOLS ||--o{ GENERATION_SCHEMES : drives
+  GENERATION_SCHEMES ||--o{ GENERATION_SCHEME_LINES : has
+  GENERATION_SCHEMES ||--o{ GENERATION_SCHEME_RUNS : runs
+  GENERATION_SCHEME_RUNS ||--o{ GENERATION_SCHEME_RUN_TASKS : expands_to
+  GENERATION_SCHEME_RUN_TASKS }o--|| ARTICLES : creates
+  PROMPT_TEMPLATES ||--o{ GENERATION_SCHEME_RUN_TASKS : used_by
+  PIPELINES ||--o{ PIPELINE_NODES : has
+  PIPELINES ||--o{ PIPELINE_VERSIONS : versions
+  PIPELINES ||--o{ PIPELINE_RUNS : runs
+  STOCK_CATEGORIES ||--o{ STOCK_IMAGES : contains
+  USERS ||--o{ AUDIT_LOGS : writes

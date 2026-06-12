@@ -16,19 +16,19 @@ def _write_png(path: Path, width: int, height: int) -> Path:
 
 
 def test_small_image_passthrough(tmp_path: Path) -> None:
-    """A small image under the size/width caps yields the same path, no temp file."""
+    """低于大小和宽度限制的小图返回原路径，不生成临时文件。"""
     src = _write_png(tmp_path / "small.png", 10, 10)
 
     with _maybe_resize_for_upload(src) as out:
         assert out == src
         assert out.exists()
 
-    # Original is untouched and still present.
+    # 原图不会被修改，且仍然存在。
     assert src.exists()
 
 
 def test_wide_image_is_resized_to_jpeg_and_cleaned_up(tmp_path: Path) -> None:
-    """A >1920px-wide image yields a different .jpg temp that is removed on exit."""
+    """宽度超过 1920px 的图片会生成临时 .jpg，退出上下文后删除。"""
     src = _write_png(tmp_path / "wide.png", 2000, 10)
 
     with _maybe_resize_for_upload(src) as out:
@@ -37,6 +37,6 @@ def test_wide_image_is_resized_to_jpeg_and_cleaned_up(tmp_path: Path) -> None:
         assert out.exists()
         resized_path = out
 
-    # Temp file is cleaned up after the context exits; original remains.
+    # 上下文退出后临时文件会被清理，原图保留。
     assert not resized_path.exists()
     assert src.exists()

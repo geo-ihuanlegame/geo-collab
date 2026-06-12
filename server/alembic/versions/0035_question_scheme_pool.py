@@ -1,8 +1,8 @@
-"""question pool mirror columns + scheme pool / scheme run tables
+"""问题池镜像列与方案池 / 方案运行表
 
-Revision ID: 0035
-Revises: 0034
-Create Date: 2026-06-03
+修订 ID: 0035
+上一修订: 0034
+创建日期: 2026-06-03
 """
 from __future__ import annotations
 

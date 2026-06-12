@@ -7,7 +7,7 @@ from server.tests.utils import build_test_app
 
 
 def _make_1x1_png(r: int, g: int, b: int) -> bytes:
-    """Create a minimal 1x1 RGB PNG with the given pixel color."""
+    """创建一个使用指定像素颜色的最小 1x1 RGB PNG。"""
 
     def chunk(typ: bytes, data: bytes) -> bytes:
         c = typ + data

@@ -1,12 +1,11 @@
-"""方案流生文内核：与 session/scheme/LangGraph 解耦的可复用单元。
+"""方案流生文内核：与会话、方案、LangGraph 解耦的可复用单元。
 
-未来自动化 pipeline 可把"生成一篇文章"当作一个节点直接复用本函数——它只依赖
-（模板内容 + 问题文本 + 用户 id + session 工厂），不感知方案/运行/会话。
+未来自动化工作流可把"生成一篇文章"当作一个节点直接复用本函数——它只依赖
+（模板内容 + 问题文本 + 用户 ID + 会话工厂），不感知方案、运行或会话。
 """
 
 from __future__ import annotations
 
-import os
 import re
 import uuid
 from collections.abc import Callable
@@ -41,12 +40,6 @@ def render_question_prompt(template_content: str, question_text: str) -> str:
     )
 
 
-def _inject_api_key(api_key: str) -> None:
-    if api_key:
-        os.environ.setdefault("ANTHROPIC_API_KEY", api_key)
-        os.environ.setdefault("OPENAI_API_KEY", api_key)
-
-
 def generate_article_from_prompt(
     *,
     session_factory: Callable[[], Any],
@@ -55,32 +48,32 @@ def generate_article_from_prompt(
     question_text: str,
     model: str | None = None,
 ) -> int:
-    """组 prompt → LLM → 取标题 → 转 Tiptap/HTML → create_article。返回 article_id。
+    """组装提示词 → 调用 LLM → 取标题 → 转 Tiptap/HTML → create_article。返回 article_id。
 
     通用系统提示词（不拼 Skill）。`model` 为方案级 AI 引擎覆盖（None / 空 = 用 settings.ai_model）。
-    异常向上抛（由调用方记 task 失败）。每次调用自带独立 session。
+    异常向上抛（由调用方记任务失败）。每次调用自带独立会话。
     """
     import litellm
 
-    from server.app.core.config import get_settings
+    from server.app.core.config import resolve_engine
     from server.app.modules.ai_generation.converter import markdown_to_html, markdown_to_tiptap
     from server.app.modules.articles.schemas import ArticleCreate
     from server.app.modules.articles.service import create_article
 
-    settings = get_settings()
-    _inject_api_key(settings.ai_api_key)
+    model_str, api_key, base_url = resolve_engine(model)
 
     user_prompt = (
         render_question_prompt(template_content, question_text)
         + "\n\n请开始写作（只输出 Markdown 正文，含 # 一级标题，不要解释）："
     )
     response = litellm.completion(
-        model=(model or "").strip() or settings.ai_model,
+        model=model_str,
         messages=[
             {"role": "system", "content": _GENERIC_SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
         ],
-        api_key=settings.ai_api_key or None,
+        api_key=api_key or None,
+        api_base=base_url or None,
         timeout=300,
         max_tokens=12000,
     )
@@ -106,7 +99,7 @@ def generate_article_from_prompt(
     db = session_factory()
     try:
         article = create_article(db, user_id, article_payload)
-        # AI 生文一律未审：不依赖 run 后 mark_pending_and_group 翻转
+        # AI 生文一律未审：不依赖运行后的 mark_pending_and_group 翻转
         article.review_status = "pending"
         db.commit()
         return article.id

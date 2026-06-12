@@ -14,9 +14,20 @@ def test_apply_input_mapping_copies_upstream_to_target_names():
     assert out == {"question_text": "Hello"}
 
 
-def test_apply_input_mapping_none_meta_returns_empty():
-    assert apply_input_mapping(None, {"a": "b"}) == {}
-    assert apply_input_mapping({}, {"a": "b"}) == {}
+def test_apply_input_mapping_passes_through_when_no_mapping():
+    # 无 inputMapping（meta 为 None / 无该键 / 空列表）→ 默认透传整个上游：
+    # 选定上游节点（或默认合并全部上游）即自动把上游字段传给本节点，无需手填同名映射。
+    assert apply_input_mapping(None, {"a": "b"}) == {"a": "b"}
+    assert apply_input_mapping({}, {"a": "b"}) == {"a": "b"}
+    assert apply_input_mapping({"inputMapping": []}, {"question_text": "Q"}) == {
+        "question_text": "Q"
+    }
+
+
+def test_apply_input_mapping_explicit_mapping_filters_unmapped():
+    # 配了映射 → 只注入命中的字段（改名/筛选），未映射的字段不透传。
+    meta = {"inputMapping": [{"from": "title", "to": "question_text"}]}
+    assert apply_input_mapping(meta, {"title": "Hi", "other": "x"}) == {"question_text": "Hi"}
 
 
 def test_should_skip_eq_met_false_not_met_true():

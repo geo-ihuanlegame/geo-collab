@@ -171,7 +171,7 @@ TERMINAL_STATUSES = {"succeeded", "partial_failed", "failed", "cancelled"}
 
 
 def _wait_task_terminal(client, task_id: int, timeout: float = 15.0) -> dict:
-    """Poll task until it reaches a terminal status."""
+    """轮询任务，直到进入终态。"""
     deadline = time.time() + timeout
     while time.time() < deadline:
         detail = client.get(f"/api/tasks/{task_id}").json()
@@ -182,7 +182,7 @@ def _wait_task_terminal(client, task_id: int, timeout: float = 15.0) -> dict:
 
 
 def test_same_account_across_tasks_is_serialized(monkeypatch):
-    """Two tasks targeting the same account never run their publish runner concurrently."""
+    """指向同一账号的两个任务不能并发运行发布执行器。"""
     from server.app.modules.tasks import executor as tasks_mod
 
     active = 0

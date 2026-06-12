@@ -1,8 +1,8 @@
-"""content/tasks: add soft delete columns
+"""为内容和任务相关表添加软删除列
 
-Revision ID: 0019
-Revises: 0018
-Create Date: 2026-05-20
+修订 ID: 0019
+上一修订: 0018
+创建日期: 2026-05-20
 """
 from typing import Sequence, Union
 

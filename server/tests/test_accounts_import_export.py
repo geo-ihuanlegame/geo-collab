@@ -158,7 +158,7 @@ def test_import_oversized_entry_returns_400(monkeypatch):
         test_app.cleanup()
 
 
-# ── _assess_imported_status 单元测试 ─────────────────────────────────────────
+# ── 导入状态评估单元测试 ───────────────────────────────────────────────────
 
 
 def test_assess_imported_status_empty_cookies(tmp_path):
@@ -176,7 +176,7 @@ def test_assess_imported_status_all_expired(tmp_path):
 
     from server.app.modules.accounts.auth import _assess_imported_status
 
-    past = int(time.time()) - 3600  # 1 hour ago
+    past = int(time.time()) - 3600  # 1 小时前
     state_file = tmp_path / "storage_state.json"
     state_file.write_text(
         json.dumps({"cookies": [{"name": "sid", "value": "x", "expires": past}], "origins": []}),
@@ -203,7 +203,7 @@ def test_assess_imported_status_future_cookie(tmp_path):
 
     from server.app.modules.accounts.auth import _assess_imported_status
 
-    future = int(time.time()) + 86400  # 1 day from now
+    future = int(time.time()) + 86400  # 1 天后
     state_file = tmp_path / "storage_state.json"
     state_file.write_text(
         json.dumps({"cookies": [{"name": "tok", "value": "y", "expires": future}], "origins": []}),

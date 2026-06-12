@@ -1,3 +1,10 @@
+"""配图选择器：从图库栏目里挑图供文章正文插图。
+
+两条路径：随机选图（pick_image_id / select_images，旧调用方）与按 hint
+语义匹配（select_images_by_hints，新增）。pick_image_id 是预留的「升级点」——
+将来换 AI 语义选图 / AI 生图只改它，调用方不感知。
+"""
+
 from __future__ import annotations
 
 import dataclasses
@@ -36,7 +43,7 @@ class StockImageRef:
     official_url: str | None = None
 
 
-# ══ THE UPGRADE POINT ════════════════════════════════════════════════════════
+# ══ 预留升级点 ═════════════════════════════════════════════════════════════
 def pick_image_id(query: ImageQuery, db: Session) -> int | None:
     """从指定栏目随机取一张图的 ID，排除已选 ID。
 
@@ -51,6 +58,7 @@ def pick_image_id(query: ImageQuery, db: Session) -> int | None:
     stmt = select(StockImage.id).where(StockImage.category_id.in_(query.category_ids))
     if query.excluded_ids:
         stmt = stmt.where(StockImage.id.notin_(query.excluded_ids))
+    # func.rand() 是 MySQL 的随机排序（本仓库 MySQL only）；取一张
     stmt = stmt.order_by(func.rand()).limit(1)
     return db.execute(stmt).scalar_one_or_none()
 
@@ -76,7 +84,7 @@ def fetch_image_by_id(image_id: int, db: Session) -> StockImageRef | None:
 
 
 def select_images(query: ImageQuery, db: Session) -> list[StockImageRef]:
-    """取 query.count 张不重复的图，不足时按实际数量返回。"""
+    """按 query.count 取不重复图片，不足时按实际数量返回。"""
     excluded: list[int] = list(query.excluded_ids)
     results: list[StockImageRef] = []
     for _ in range(query.count):

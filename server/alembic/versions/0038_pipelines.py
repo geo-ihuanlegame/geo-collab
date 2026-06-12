@@ -1,8 +1,8 @@
-"""pipelines orchestration tables
+"""pipeline 编排表
 
-Revision ID: 0038
-Revises: 0037
-Create Date: 2026-06-04
+修订 ID: 0038
+上一修订: 0037
+创建日期: 2026-06-04
 """
 from __future__ import annotations
 

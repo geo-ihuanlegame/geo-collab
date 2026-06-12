@@ -1,8 +1,8 @@
-"""add user ai format preset
+"""添加用户 AI 排版预设
 
-Revision ID: 0027
-Revises: 0026
-Create Date: 2026-05-25
+修订 ID: 0027
+上一修订: 0026
+创建日期: 2026-05-25
 """
 from typing import Sequence, Union
 

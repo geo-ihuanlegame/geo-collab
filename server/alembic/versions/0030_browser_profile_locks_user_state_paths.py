@@ -1,8 +1,8 @@
-"""browser profile locks and user scoped account state paths
+"""浏览器 profile 锁和按用户隔离的账号 state_path
 
-Revision ID: 0030
-Revises: 0029
-Create Date: 2026-05-26
+修订 ID: 0030
+上一修订: 0029
+创建日期: 2026-05-26
 """
 from __future__ import annotations
 

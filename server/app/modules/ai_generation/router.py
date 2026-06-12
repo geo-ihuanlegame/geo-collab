@@ -9,7 +9,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
-from server.app.core.security import get_current_user
+from server.app.core.security import get_current_user, require_admin
 from server.app.db.session import get_db
 from server.app.modules.ai_generation import question_bank as qb
 from server.app.modules.ai_generation.schemas import (
@@ -18,6 +18,7 @@ from server.app.modules.ai_generation.schemas import (
     QuestionItemRead,
     QuestionPoolCreate,
     QuestionPoolRead,
+    QuestionPoolUpdate,
     QuestionTypeRead,
     SyncResult,
 )
@@ -70,9 +71,10 @@ def _pool_to_read(pool: Any, pending_count: int) -> QuestionPoolRead:
     )
 
 
-def _get_owned_pool(db: Session, pool_id: int, current_user: User) -> Any:
+def _get_pool_or_404(db: Session, pool_id: int) -> Any:
+    """问题池全员共享：仅在不存在 / 已软删除时 404，不再按属主隔离。"""
     pool = qb.get_pool(db, pool_id)
-    if pool is None or (current_user.role != "admin" and pool.user_id != current_user.id):
+    if pool is None:
         raise HTTPException(status_code=404, detail="问题池不存在")
     return pool
 
@@ -82,7 +84,7 @@ def list_question_pools(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Any:
-    pools = qb.list_pools(db, user_id=current_user.id, is_admin=current_user.role == "admin")
+    pools = qb.list_pools(db)
     return [_pool_to_read(p, len(qb.list_items(db, p.id, status="pending"))) for p in pools]
 
 
@@ -120,7 +122,7 @@ def sync_question_pool(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Any:
-    pool = _get_owned_pool(db, pool_id, current_user)
+    pool = _get_pool_or_404(db, pool_id)
     result = qb.sync_pool(db, pool)
     db.commit()
     add_audit_entry(
@@ -141,6 +143,61 @@ def sync_question_pool(
     return SyncResult(**result)
 
 
+@router.patch("/question-pools/{pool_id}", response_model=QuestionPoolRead)
+def update_question_pool(
+    pool_id: int,
+    payload: QuestionPoolUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Any:
+    """改名 / 重绑飞书表 / 自动同步开关。问题池共享，任意登录用户均可修改。"""
+    pool = _get_pool_or_404(db, pool_id)
+    qb.update_pool(
+        db,
+        pool,
+        name=payload.name,
+        feishu_app_token=payload.feishu_app_token,
+        feishu_table_id=payload.feishu_table_id,
+        auto_sync_enabled=payload.auto_sync_enabled,
+    )
+    db.commit()
+    db.refresh(pool)
+    add_audit_entry(
+        db,
+        user=current_user,
+        action="question_pool.update",
+        target_type="question_pool",
+        target_id=pool.id,
+        payload={"name": pool.name},
+        request=request,
+    )
+    return _pool_to_read(pool, len(qb.list_items(db, pool.id, status="pending")))
+
+
+@router.delete("/question-pools/{pool_id}", status_code=204)
+def delete_question_pool(
+    pool_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+) -> None:
+    """删除问题池仅限 admin（软删除）。其他用户可建 / 看 / 改名 / 同步，但不可删。"""
+    pool = _get_pool_or_404(db, pool_id)
+    pool_name = pool.name
+    qb.soft_delete_pool(db, pool)
+    db.commit()
+    add_audit_entry(
+        db,
+        user=current_user,
+        action="question_pool.delete",
+        target_type="question_pool",
+        target_id=pool_id,
+        payload={"name": pool_name},
+        request=request,
+    )
+
+
 @router.get("/question-pools/{pool_id}/items", response_model=list[QuestionItemRead])
 def list_question_items(
     pool_id: int,
@@ -148,7 +205,7 @@ def list_question_items(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Any:
-    pool = _get_owned_pool(db, pool_id, current_user)
+    pool = _get_pool_or_404(db, pool_id)
     return qb.list_items(db, pool.id, status=(None if status == "all" else status))
 
 
@@ -164,7 +221,7 @@ def list_question_types(
     """按问题类型（category）聚合该池所有 source_active 问题，供方案录入页使用。"""
     from server.app.modules.ai_generation import scheme_service as svc
 
-    pool = _get_owned_pool(db, pool_id, current_user)
+    pool = _get_pool_or_404(db, pool_id)
     return [
         QuestionTypeRead(
             question_type=qtype,

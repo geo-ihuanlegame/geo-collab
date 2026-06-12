@@ -1,4 +1,4 @@
-"""纯逻辑：pipeline_nodes <-> 快照 dict 互转。"""
+"""纯逻辑：pipeline_nodes 与快照字典互转。"""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ SCHEMA_VERSION = 1
 
 
 def nodes_to_snapshot(nodes: list[Any]) -> dict:
-    """已发布节点（按 node_index 顺序传入）-> 快照 dict。"""
+    """已发布节点（按 node_index 顺序传入）转快照字典。"""
     return {
         "schemaVersion": SCHEMA_VERSION,
         "nodes": [
@@ -25,7 +25,7 @@ def nodes_to_snapshot(nodes: list[Any]) -> dict:
 
 
 def snapshot_to_node_dicts(snapshot: dict | None) -> list[dict]:
-    """快照 dict -> 可用于创建 PipelineNode 的字段 dict 列表。"""
+    """快照字典转可用于创建 PipelineNode 的字段字典列表。"""
     if not snapshot:
         return []
     return [

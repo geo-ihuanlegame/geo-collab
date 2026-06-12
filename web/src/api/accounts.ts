@@ -78,8 +78,10 @@ export type AccountImportResult = {
   skipped: string[];
 };
 
-export function listAccounts(): Promise<Account[]> {
-  return api<Account[]>("/api/accounts");
+export function listAccounts(q?: string): Promise<Account[]> {
+  const keyword = q?.trim();
+  const path = keyword ? `/api/accounts?q=${encodeURIComponent(keyword)}` : "/api/accounts";
+  return api<Account[]>(path);
 }
 
 export function listPlatforms(): Promise<PlatformOption[]> {
@@ -127,6 +129,24 @@ export function updateAccountDisplayName(accountId: number, displayName: string)
     method: "PATCH",
     body: JSON.stringify({ display_name: displayName }),
   });
+}
+
+export function updateAccount(accountId: number, payload: Record<string, unknown>): Promise<Account> {
+  return api<Account>(`/api/accounts/${accountId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function createApiAccount(payload: Record<string, unknown>): Promise<Account> {
+  return api<Account>("/api/accounts", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function verifyCredentials(accountId: number): Promise<Account> {
+  return api<Account>(`/api/accounts/${accountId}/verify-credentials`, { method: "POST" });
 }
 
 export async function exportAccountPackage(accountIds: number[]): Promise<Response> {

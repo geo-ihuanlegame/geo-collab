@@ -1,0 +1,18 @@
+flowchart TD
+  question["问题来源<br/>question_pools/question_items<br/>或人工输入"] --> ai["AI 生文<br/>article_writer / pipeline node"]
+  ai --> article["articles<br/>content_json / content_html / plain_text"]
+  article --> format["ai_format + image_library<br/>排版、标题识别、智能配图"]
+  format --> review["待审核内容<br/>review_status = pending"]
+  review --> approved["人工审核<br/>review_status = approved"]
+  approved --> group["article_groups<br/>内容分组"]
+  group --> task["publish_tasks<br/>发布任务"]
+  task --> record["publish_records<br/>每篇文章 x 每个账号"]
+  record --> worker["Worker 抢占记录"]
+  worker --> driver["PlatformDriver<br/>Playwright DOM 或 inpage API"]
+  driver --> platform["外部平台"]
+  driver --> result["结果回写<br/>status / publish_url / task_logs / screenshots"]
+
+  pipeline["pipelines 智能体"] --> question
+  pipeline --> ai
+  pipeline --> approved
+  pipeline --> task

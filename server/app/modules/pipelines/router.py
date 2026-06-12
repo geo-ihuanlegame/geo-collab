@@ -1,4 +1,7 @@
-# server/app/modules/pipelines/router.py
+# Pipeline 编排路由
+"""Pipeline 编排 API（/api/pipelines/*，前端 UI 叫「智能体管理」）：增删改查、草稿 / 发布 / 版本、
+触发运行与运行日志。运行在 create_app() 注入的 bg_session_factory 后台线程里跑，无独立工作进程。"""
+
 from __future__ import annotations
 
 import threading
@@ -19,6 +22,7 @@ from server.app.modules.pipelines.schemas import (
     PipelinePatch,
     PipelineRead,
     PublishRequest,
+    RunLogPage,
     RunRead,
     VersionRead,
 )
@@ -57,7 +61,7 @@ def _to_read(db: Session, p) -> dict:
 
 @router.get("/node-types")
 def get_node_types() -> dict:
-    # 节点 config 字段 schema，供前端属性面板渲染
+    # 节点 config 字段结构，供前端属性面板渲染
     return {
         "node_types": [
             {
@@ -73,22 +77,122 @@ def get_node_types() -> dict:
                 "config_schema": [
                     {"key": "prompt_template_id", "type": "prompt_template", "label": "提示词模板"},
                     {"key": "count", "type": "number", "label": "生成数量"},
-                    {"key": "model", "type": "text", "label": "模型(可空)"},
-                ],
-            },
-            {
-                "type": "article_group_source",
-                "label": "已审核分组源",
-                "config_schema": [
-                    {"key": "group_id", "type": "article_group", "label": "内容分组"},
+                    {"key": "model", "type": "ai_engine", "label": "模型"},
                 ],
             },
             {
                 "type": "distribute",
                 "label": "内容分发",
                 "config_schema": [
-                    {"key": "account_ids", "type": "accounts", "label": "分发账号"},
+                    {"key": "account_selection", "type": "account_selector", "label": "分发账号"},
                     {"key": "name", "type": "text", "label": "任务名(可空)"},
+                ],
+            },
+            {
+                "type": "question_source",
+                "label": "问题源",
+                "config_schema": [
+                    {"key": "pool_id", "type": "question_pool", "label": "问题池"},
+                    {
+                        "key": "question_types",
+                        "type": "question_types",
+                        "label": "问题类型（多选，留空=全部）",
+                    },
+                    {
+                        "key": "question_record_ids",
+                        "type": "question_records",
+                        "label": "具体问题（可选，留空=上述类型全部）",
+                    },
+                ],
+            },
+            {
+                "type": "ai_compose",
+                "label": "AI创作",
+                "config_schema": [
+                    {"key": "ai_engine", "type": "ai_engine", "label": "AI 模型"},
+                    {
+                        "key": "prompt_template_ids",
+                        "type": "prompt_templates",
+                        "label": "提示词模板(可多选,运行时随机)",
+                    },
+                    {"key": "count", "type": "number", "label": "生成数量"},
+                ],
+            },
+            {
+                "type": "ai_illustrate",
+                "label": "AI配图",
+                "config_schema": [
+                    {
+                        "key": "main_category_id",
+                        "type": "stock_category_main",
+                        "label": "图片库 · 主推游戏",
+                    },
+                    # 配图风格：开=「积极配图」(每个明确出现的游戏都插，保留"不确定不插"准星)，
+                    # 关=保守(图少文多)。默认开。见 ai_format._builtin_prompt_template 的 aggressive 变体。
+                    {
+                        "key": "aggressive_images",
+                        "type": "toggle",
+                        "label": "激进配图（每个游戏都插）",
+                        "hint": "开=每个明确出现的游戏都配图；关=保守·图少文多",
+                        "default": True,
+                    },
+                    # 数量旋钮：与风格解耦，单独控制上限/间距。留空随风格取默认(激进12/1、保守3/5)，
+                    # 同时作为插图阶段硬上限。见 ai_format._maybe_insert_images。
+                    {
+                        "key": "max_images",
+                        "type": "number",
+                        "label": "最多配图数（默认激进12 / 保守3）",
+                    },
+                    {
+                        "key": "min_spacing",
+                        "type": "number",
+                        "label": "最小配图间距·节点数（默认激进1 / 保守5）",
+                    },
+                    # 联网兜底：开启后，模型可点名可用栏目外的陪衬游戏，执行器自动建栏目 +
+                    # 百度千帆搜图补图（需配 GEO_BAIDU_API_KEY）。见 ai_format._maybe_insert_images。
+                    {
+                        "key": "web_fallback",
+                        "type": "toggle",
+                        "label": "联网兜底",
+                        "hint": "陪衬游戏在库中无图时，联网搜图补充",
+                        "default": False,
+                    },
+                    # 顺带配封面：从主推游戏栏目随机取一张落成 Asset 设为封面，
+                    # 仅当文章还没封面时生效。见 image_library.cover.set_random_cover_from_category。
+                    {
+                        "key": "set_cover",
+                        "type": "toggle",
+                        "label": "顺带配封面",
+                        "hint": "从主推游戏图库随机取一张作封面（仅当文章还没封面）",
+                        "default": True,
+                    },
+                ],
+            },
+            {
+                "type": "to_review",
+                "label": "进入未审核库",
+                "config_schema": [
+                    {"key": "group_name", "type": "text", "label": "分组名(可空)"},
+                    {
+                        "key": "daily_group",
+                        "type": "toggle",
+                        "label": "按天归组",
+                        "hint": "开启后，当天所有运行/流水线产出并入同一个「每日生成 · 日期」分组",
+                        "default": False,
+                    },
+                ],
+            },
+            {
+                "type": "approved_content_source",
+                "label": "已审核待发布",
+                "config_schema": [
+                    {"key": "limit", "type": "number", "label": "取多少篇(默认20)"},
+                    {
+                        "key": "exclude_distributed",
+                        "type": "checkbox",
+                        "label": "跳过已分发过的",
+                        "default": True,
+                    },
                 ],
             },
         ],
@@ -205,7 +309,7 @@ def list_versions(
     return out
 
 
-# 预留给「版本详情/diff」UI（当前前端未调用，勿当死代码删）
+# 预留给「版本详情/差异」UI（当前前端未调用，勿当死代码删）
 @router.get("/versions/{version_id}")
 def get_version(
     version_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
@@ -270,7 +374,7 @@ def create_run(
     return JSONResponse(status_code=202, content={"run_id": run_id, "status": "pending"})
 
 
-# 预留给「运行历史」列表 UI（当前前端只轮询单个 run，勿当死代码删）
+# 预留给「运行历史」列表 UI（当前前端只轮询单个运行，勿当死代码删）
 @router.get("/{pipeline_id}/runs")
 def list_runs(
     pipeline_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
@@ -296,3 +400,32 @@ def get_run(run_id: int, db: Session = Depends(get_db), user: User = Depends(get
         raise HTTPException(status_code=404, detail="运行记录不存在")
     _owned(db, r.pipeline_id, user)
     return RunRead.model_validate(r).model_dump()
+
+
+@router.get("/{pipeline_id}/logs")
+def list_run_logs(
+    pipeline_id: int,
+    page: int = 1,
+    page_size: int = 30,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    from server.app.modules.pipelines.run_logs import (
+        beijing_day_to_utc_range,
+        list_run_log_page,
+    )
+
+    _owned(db, pipeline_id, user)
+    page = max(1, page)
+    page_size = page_size if page_size in (20, 30) else 30
+    try:
+        start_dt, end_dt = beijing_day_to_utc_range(start_date, end_date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="日期格式应为 YYYY-MM-DD") from None
+
+    rows, total = list_run_log_page(
+        db, pipeline_id, page=page, page_size=page_size, start_dt=start_dt, end_dt=end_dt
+    )
+    return RunLogPage(items=rows, total=total, page=page, page_size=page_size).model_dump()
