@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import os
 import re
 import uuid
 from collections.abc import Callable
@@ -41,12 +40,6 @@ def render_question_prompt(template_content: str, question_text: str) -> str:
     )
 
 
-def _inject_api_key(api_key: str) -> None:
-    if api_key:
-        os.environ.setdefault("ANTHROPIC_API_KEY", api_key)
-        os.environ.setdefault("OPENAI_API_KEY", api_key)
-
-
 def generate_article_from_prompt(
     *,
     session_factory: Callable[[], Any],
@@ -62,25 +55,25 @@ def generate_article_from_prompt(
     """
     import litellm
 
-    from server.app.core.config import get_settings
+    from server.app.core.config import resolve_engine
     from server.app.modules.ai_generation.converter import markdown_to_html, markdown_to_tiptap
     from server.app.modules.articles.schemas import ArticleCreate
     from server.app.modules.articles.service import create_article
 
-    settings = get_settings()
-    _inject_api_key(settings.ai_api_key)
+    model_str, api_key, base_url = resolve_engine(model)
 
     user_prompt = (
         render_question_prompt(template_content, question_text)
         + "\n\n请开始写作（只输出 Markdown 正文，含 # 一级标题，不要解释）："
     )
     response = litellm.completion(
-        model=(model or "").strip() or settings.ai_model,
+        model=model_str,
         messages=[
             {"role": "system", "content": _GENERIC_SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
         ],
-        api_key=settings.ai_api_key or None,
+        api_key=api_key or None,
+        api_base=base_url or None,
         timeout=300,
         max_tokens=12000,
     )

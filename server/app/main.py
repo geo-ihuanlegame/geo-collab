@@ -52,6 +52,7 @@ from server.app.modules.articles.router import (
     chunked_assets_router,
 )
 from server.app.modules.audit.router import router as audit_router
+from server.app.modules.hot_lists.router import router as hot_lists_router
 from server.app.modules.image_library.router import files_router as stock_files_router
 from server.app.modules.image_library.router import router as stock_images_router
 from server.app.modules.pipelines.router import router as pipelines_router
@@ -80,9 +81,9 @@ def create_app() -> FastAPI:
     ensure_data_dirs()
 
     # 导入触发注册副作用：pipelines 节点类型 + 所有平台驱动
+    # 驱动注册集中在 drivers.bootstrap，web 进程与发布 worker 共用同一份，避免漂移（见该模块注释）。
     import server.app.modules.pipelines.nodes  # noqa: F401
-    import server.app.modules.tasks.drivers.toutiao  # noqa: F401
-    import server.app.modules.tasks.drivers.toutiao_inpage  # noqa: F401
+    import server.app.modules.tasks.drivers.bootstrap  # noqa: F401
 
     app = FastAPI(
         title="Geo Collab API",
@@ -256,6 +257,12 @@ def create_app() -> FastAPI:
         audit_router,
         prefix="/api/audit-logs",
         tags=["audit-logs"],
+        dependencies=[Depends(get_current_user)],
+    )
+    app.include_router(
+        hot_lists_router,
+        prefix="/api/hot-lists",
+        tags=["hot-lists"],
         dependencies=[Depends(get_current_user)],
     )
 

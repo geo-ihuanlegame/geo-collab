@@ -177,7 +177,7 @@ jobs:
       - name: pip-audit (non-blocking)
         if: needs.changes.outputs.code == 'true'
         continue-on-error: true
-        run: pip-audit -r requirements.txt -r requirements-dev.txt
+        run: pip-audit -r requirements-audit.txt
       - uses: pnpm/action-setup@v4
         with:
           version: "10.4.0"

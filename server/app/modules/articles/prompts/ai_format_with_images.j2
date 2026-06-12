@@ -58,12 +58,17 @@ NOT 小标题（以下任一即排除）：
 {% endfor %}
 
 {% if available_categories %}
-以下是本文允许使用的游戏图片栏目，你只能从这些 category_id 中选择，不要编造：
-{% for category in available_categories -%}
-  - category_id={{ category.id }}，栏目名={{ category.name }}{% if category.description %}，描述={{ category.description }}{% endif %}
+以下是本文可用的游戏图片栏目（属于其中某栏目的游戏用对应 category_id，不要编造 category_id）：
+{% for category in available_categories %}
+- category_id={{ category.id }}，栏目名={{ category.name }}{{ "，描述=" ~ category.description if category.description else "" }}
 {% endfor %}
+{% if not web_fallback %}
+只能使用上面列出的 category_id；段落若不属于其中任何栏目，就不要给它配图。
+{% endif %}
 {% else %}
+{% if not web_fallback %}
 本文没有可用游戏图片栏目，image_positions 返回空数组。
+{% endif %}
 {% endif %}
 
 你需要完成两项判断：
@@ -73,14 +78,16 @@ NOT 小标题（以下任一即排除）：
 - 不生成新标题，不改写任何文字
 
 【配图位置判断】
-对每个段落节点，判断其内容是否明确属于某个可用游戏栏目，若是则记录该位置和对应 category_id。
+对每个段落节点，判断其内容是否明确属于某款游戏，若是则在该位置配图。
 - 只在段落节点后插图，不在小标题后插图
 - 相邻配图间距不少于 {{ min_spacing }} 个节点
 - 全文配图不超过 {{ max_images }} 张
 - 全文整体要"图少文多"，不要让读者感觉每段都有图；宁少插一张也不要让图片过密
-- 只有能明确判断段落所属游戏栏目时才插图，不确定就不插
-- category_id 必须来自上面的可用栏目列表，不要编造
-- 若无明显适合位置，image_positions 返回空数组
+- 不确定段落属于哪款游戏就不插
+- category_id 必须来自上面的可用栏目列表，不要编造 category_id
+{% if not web_fallback %}
+- 段落所属游戏不在可用栏目列表里时，不要给它配图；若全文都无合适位置，image_positions 返回空数组
+{% endif %}
 
 返回：仅返回一行 JSON，不添加任何解释：
 {"heading_indices":[2,7],"image_positions":[{"index":4,"category_id":12}]}

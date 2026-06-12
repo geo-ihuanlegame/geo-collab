@@ -22,14 +22,17 @@ from sqlalchemy import update as sa_update
 
 import server.app.modules.image_library.models  # noqa: F401  # 确保 StockCategory 注册到映射注册表（Article.stock_category 关系依赖它）
 
-# 导入全部驱动以触发注册。worker 与 Web 应用是不同进程，
-# 因此必须自行注册默认 DOM 驱动和页内变体，
-# 这样 GEO_TOUTIAO_DRIVER=inpage 在这里也能生效。
-import server.app.modules.tasks.drivers.toutiao  # noqa: F401
-import server.app.modules.tasks.drivers.toutiao_inpage  # noqa: F401
+# 导入全部驱动以触发注册。worker 与 Web 应用是不同进程，因此必须自行注册全部驱动
+# （含默认 DOM 驱动、页内变体、wechat_mp 等 API 驱动）。注册集中在 drivers.bootstrap，
+# 与 main.py 共用同一份，避免「main.py 加了驱动忘了同步 worker」的漂移。
+import server.app.modules.tasks.drivers.bootstrap  # noqa: F401
 from server.app.core.time import utcnow
 from server.app.db.session import SessionLocal
-from server.app.modules.accounts import process_account_login_session_requests
+from server.app.modules.accounts import (
+    expire_stale_login_sessions,
+    process_account_login_session_requests,
+    recover_stuck_login_sessions,
+)
 from server.app.modules.accounts.models import (
     Account,
     AccountLoginSession,
@@ -54,6 +57,11 @@ WORKER_ID = f"{socket.gethostname()}-{os.getpid()}"
 CLAIM_LEASE_MINUTES = 10
 PROFILE_LOCK_HEARTBEAT_SECONDS = 30
 PROFILE_LOCK_LEASE_SECONDS = 900
+# active 登录会话被遗弃（用户关标签页/刷新/崩溃，没走 finish/cancel）时，其 profile 锁会被
+# 心跳无限续租、永久把账号挡在登录之外（#85 死锁的残留路径）。超过这个时长即视为僵死、按取消
+# 流程收尾释放锁。阈值远大于真人扫码登录耗时，不会误杀进行中的真实登录。
+LOGIN_SESSION_MAX_ACTIVE_SECONDS = 1800
+LOGIN_SESSION_STALE_CHECK_SECONDS = 60
 
 # 优雅退出标记
 _shutdown = False
@@ -196,6 +204,7 @@ def _heartbeat_active_profile_locks(db) -> None:
 def _account_login_loop() -> None:
     """独立于发布任务执行，处理交互式登录命令。"""
     last_heartbeat = 0.0
+    last_stale_check = 0.0
     while not _shutdown:
         db = SessionLocal()
         processed = False
@@ -204,6 +213,16 @@ def _account_login_loop() -> None:
             if now - last_heartbeat >= 10:
                 _write_worker_heartbeat(db)
                 last_heartbeat = now
+            if now - last_stale_check >= LOGIN_SESSION_STALE_CHECK_SECONDS:
+                last_stale_check = now
+                try:
+                    expire_stale_login_sessions(
+                        db,
+                        worker_id=WORKER_ID,
+                        max_active_seconds=LOGIN_SESSION_MAX_ACTIVE_SECONDS,
+                    )
+                except Exception:
+                    _logger.exception("Worker %s: stale login session expiry failed", WORKER_ID)
             processed = process_account_login_session_requests(db, WORKER_ID)
         except Exception:
             _logger.exception("Worker %s: error processing account login request", WORKER_ID)
@@ -219,6 +238,7 @@ def _startup(db) -> None:
     """worker 启动时执行恢复流程。"""
     recover_stuck_records(db)
     recover_stuck_task_claims(db)
+    recover_stuck_login_sessions(db)
     _write_worker_heartbeat(db)
     _logger.info("Worker %s started", WORKER_ID)
 
@@ -319,6 +339,13 @@ def main() -> None:
                 db.close()
             except Exception:
                 pass
+
+    try:
+        from server.app.modules.accounts.login_broker import login_broker
+
+        login_broker.shutdown()
+    except Exception:
+        _logger.warning("Worker %s: login broker shutdown failed", WORKER_ID, exc_info=True)
 
     _logger.info("Worker %s exited", WORKER_ID)
 

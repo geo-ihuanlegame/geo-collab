@@ -22,24 +22,21 @@ import {
   listArticleGroups,
   listArticles,
   revokeArticleApproval,
-  triggerAiFormat,
   updateArticle,
   updateArticleCover,
   updateArticleGroup,
   updateArticleGroupItems,
 } from "../../api/articles";
 import { listAccounts } from "../../api/accounts";
-import { listCategories } from "../../api/image-library";
-import { listPromptTemplates, updateUserAiFormatPreset } from "../../api/prompt-templates";
 import { uploadAsset as uploadAssetRequest } from "../../api/assets";
 import { assetSrc, assetThumbSrc, countWords, emptyDoc, newClientRequestId, singleFlight, withAssetToken } from "../../api/core";
-import type { Account, Article, ArticleCreatePayload, ArticleGroup, ArticleGroupUpdateItemsPayload, ArticleSummary, ArticleUpdatePayload, Draft, PromptTemplate, ReviewStatus, StockCategory } from "../../types";
+import type { Account, Article, ArticleCreatePayload, ArticleGroup, ArticleGroupUpdateItemsPayload, ArticleSummary, ArticleUpdatePayload, Draft, ReviewStatus } from "../../types";
 import { formatDateTime } from "../../utils/dateFormat";
 import { EditorToolbar } from "../../components/editor/EditorToolbar";
+import { ImageSaveDialog } from "../../components/editor/ImageSaveDialog";
 import { ArticleListItem, ReviewBadge } from "../../components/ArticleListItem";
 import { Modal } from "../../components/Modal";
 import { Pagination } from "../../components/Pagination";
-import { useAuth } from "../auth/AuthContext";
 import { DistributeModal, type DistributeTarget } from "./DistributeModal";
 
 function makeEmptyDraft(): Draft {
@@ -310,7 +307,6 @@ const CustomImage = Image.extend({
 
 const LIST_PAGE_SIZE = 10;
 const ARTICLE_FETCH_LIMIT = 200;
-const AI_FORMAT_TIMEOUT_SECONDS = 120;
 
 type UnifiedListItem =
   | { type: "article"; article: ArticleSummary; sortTime: number }
@@ -319,16 +315,10 @@ type UnifiedListItem =
 interface Props {
   dirtyCheckRef?: MutableRefObject<() => boolean>;
   isActive?: boolean;
-  reviewTab?: ReviewStatus;
-  isMobile?: boolean;
-  onReviewTabChange?: (t: ReviewStatus) => void;
 }
 
-export function ContentWorkspace(
-  { dirtyCheckRef, isActive, reviewTab: reviewTabProp, isMobile, onReviewTabChange }: Props = {},
-) {
+export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
   const { toast } = useToast();
-  const { user } = useAuth();
   const [articles, setArticles] = useState<ArticleSummary[]>([]);
   const [groups, setGroups] = useState<ArticleGroup[]>([]);
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
@@ -343,19 +333,12 @@ export function ContentWorkspace(
   const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
   const [expandedGroupIds, setExpandedGroupIds] = useState<Set<number>>(new Set());
   const [groupPickerArticle, setGroupPickerArticle] = useState<ArticleSummary | null>(null);
-  const [aiChecking, setAiChecking] = useState(false);
-  const [aiCheckStartedAt, setAiCheckStartedAt] = useState<number | null>(null);
-  const [aiFormatRemainingSeconds, setAiFormatRemainingSeconds] = useState(AI_FORMAT_TIMEOUT_SECONDS);
-  const [aiFormatTriggerVersion, setAiFormatTriggerVersion] = useState<number | null>(null);
-  const [stockCategories, setStockCategories] = useState<StockCategory[]>([]);
-  const [aiFormatPresets, setAiFormatPresets] = useState<PromptTemplate[]>([]);
-  const [selectedAiFormatPresetId, setSelectedAiFormatPresetId] = useState<number | "">(user?.ai_format_preset_id ?? "");
+  const [saveImageSrc, setSaveImageSrc] = useState<string | null>(null);
   const [groupPickerSelectedId, setGroupPickerSelectedId] = useState<number | null>(null);
   const [confirmDeleteArticle, setConfirmDeleteArticle] = useState(false);
   const [confirmDeleteGroup, setConfirmDeleteGroup] = useState(false);
   const [confirmUnsavedNew, setConfirmUnsavedNew] = useState(false);
   const [reviewTab, setReviewTab] = useState<ReviewStatus>("pending");
-  const [mobileView, setMobileView] = useState<"list" | "editor">("list");
   const [reviewBusyId, setReviewBusyId] = useState<number | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [distributeTarget, setDistributeTarget] = useState<DistributeTarget | null>(null);
@@ -451,7 +434,30 @@ export function ContentWorkspace(
     return { total, approved };
   }
 
-  // Tab counts: standalone (ungrouped) articles split by review_status.
+  // 组在某标签是否可见：有该状态成员就出现（混合组两个标签都在）。空组(total=0)算 pending。
+  function groupHasStatus(group: ArticleGroup, status: ReviewStatus): boolean {
+    const counts = groupReviewCounts(group);
+    if (counts.total === 0) return status === "pending";
+    const pendingCount = counts.total - counts.approved;
+    return status === "approved" ? counts.approved > 0 : pendingCount > 0;
+  }
+
+  // Tab counts: standalone (ungrouped) articles + groups, split by (derived) review status.
+  const reviewCounts = useMemo(() => {
+    let pending = 0;
+    let approved = 0;
+    for (const article of articles) {
+      if (groupedArticleIdSet.has(article.id)) continue;
+      if (article.review_status === "approved") approved += 1;
+      else pending += 1;
+    }
+    for (const group of groups) {
+      if (groupHasStatus(group, "pending")) pending += 1;
+      if (groupHasStatus(group, "approved")) approved += 1;
+    }
+    return { pending, approved };
+  }, [articles, groups, groupedArticleIdSet, articleById]);
+
   const unifiedList = useMemo(() => {
     const items: UnifiedListItem[] = [];
     for (const article of articles) {
@@ -459,8 +465,9 @@ export function ContentWorkspace(
       if (article.review_status !== reviewTab) continue;
       items.push({ type: "article", article, sortTime: new Date(article.created_at).getTime() });
     }
-    // Groups always appear in both tabs (scheme batches); actions differ per tab.
+    // 混合组双标签可见：当前标签有对应状态成员就纳入。
     for (const group of groups) {
+      if (!groupHasStatus(group, reviewTab)) continue;
       if (!query || group.name.toLowerCase().includes(query.toLowerCase()) || group.items.some((item) => articleById[item.article_id])) {
         items.push({ type: "group", group, sortTime: new Date(group.created_at).getTime() });
       }
@@ -503,52 +510,10 @@ export function ContentWorkspace(
     }
   }
 
-  function syncArticleAfterAiFormat(detail: Article) {
-    setSelectedArticle(detail);
-    setDraft({
-      id: detail.id,
-      title: detail.title,
-      author: detail.author ?? "",
-      cover_asset_id: detail.cover_asset_id,
-      status: detail.status,
-      version: detail.version,
-      stock_category_ids: detail.stock_category_ids ?? [],
-    });
-
-    const displayDoc = normalizeEditorDocument(detail.content_json || emptyDoc, "display");
-    editor?.commands.setContent(displayDoc);
-    savedStateRef.current = {
-      title: detail.title?.trim() ?? "",
-      author: detail.author ?? "",
-      cover_asset_id: detail.cover_asset_id,
-      bodyState: stableStringify(normalizeEditorDocument(detail.content_json || emptyDoc, "save")),
-    };
-    setArticles((prev) =>
-      prev.map((article) =>
-        article.id === detail.id
-          ? {
-              ...article,
-              title: detail.title,
-              author: detail.author,
-              cover_asset_id: detail.cover_asset_id,
-              word_count: detail.word_count,
-              status: detail.status,
-              version: detail.version,
-              updated_at: detail.updated_at,
-            }
-          : article,
-      ),
-    );
-  }
-
   useEffect(() => {
     void refreshArticles();
     void refreshGroups();
-    listCategories().then(setStockCategories).catch(() => {});
     listAccounts().then(setAccounts).catch(() => {});
-    listPromptTemplates("ai_format")
-      .then((data) => setAiFormatPresets(data.filter((prompt) => prompt.is_enabled)))
-      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -561,91 +526,13 @@ export function ContentWorkspace(
     void refreshGroups();
   }, [isActive]);
 
-  // 审核子页（未审核/已审核）由侧边栏父菜单驱动
-  useEffect(() => {
-    if (!reviewTabProp) return;
-    setReviewTab(reviewTabProp);
-    setArticlePage(0);
-    setSelectedArticleIds([]);
-  }, [reviewTabProp]);
-
-  useEffect(() => {
-    setSelectedAiFormatPresetId(user?.ai_format_preset_id ?? "");
-  }, [user?.id, user?.ai_format_preset_id]);
-
-  useEffect(() => {
-    if (!aiChecking || !draft?.id) return;
-    const interval = setInterval(async () => {
-      try {
-        const data = await getArticle(draft.id!);
-        if (data.ai_checking) return;
-        setAiChecking(false);
-        setAiCheckStartedAt(null);
-        setAiFormatTriggerVersion(null);
-        if (data.version === aiFormatTriggerVersion) {
-          toast(data.ai_format_error || "AI 排版执行失败，请检查配置或重试", "error");
-          return;
-        }
-        syncArticleAfterAiFormat(data);
-      } catch {
-        // Keep polling; transient failures should not unlock the editor.
-      }
-    }, 2000);
-    return () => clearInterval(interval);
-  }, [aiChecking, draft?.id, aiFormatTriggerVersion, editor]);
-
-  useEffect(() => {
-    if (!aiChecking || aiCheckStartedAt == null) {
-      setAiFormatRemainingSeconds(AI_FORMAT_TIMEOUT_SECONDS);
-      return;
-    }
-
-    const tick = () => {
-      const elapsed = Math.floor((Date.now() - aiCheckStartedAt) / 1000);
-      const remaining = Math.max(0, AI_FORMAT_TIMEOUT_SECONDS - elapsed);
-      setAiFormatRemainingSeconds(remaining);
-      if (remaining > 0) return;
-      setAiChecking(false);
-      setAiCheckStartedAt(null);
-      setAiFormatTriggerVersion(null);
-      if (draft?.id) {
-        void getArticle(draft.id).then((data) => {
-          if (data.ai_checking) {
-            toast("AI 排版超时：后台任务仍在运行，请稍后刷新查看结果", "error");
-            return;
-          }
-          if (data.version === aiFormatTriggerVersion) {
-            toast(data.ai_format_error || "AI 排版超时：模型服务响应超时或后台任务未完成，请重试", "error");
-            return;
-          }
-          syncArticleAfterAiFormat(data);
-        }).catch(() => {
-          toast("AI 排版超时：无法确认后台状态，请刷新后重试", "error");
-        });
-      } else {
-        toast("AI 排版超时：模型服务响应超时或后台任务未完成，请重试", "error");
-      }
-    };
-
-    tick();
-    const timer = window.setInterval(tick, 1000);
-    return () => window.clearInterval(timer);
-  }, [aiChecking, aiCheckStartedAt, draft?.id, aiFormatTriggerVersion, toast]);
-
-  useEffect(() => {
-    editor?.setEditable(!aiChecking);
-  }, [aiChecking, editor]);
-
   function resetDraft() {
     setDraft(makeEmptyDraft());
     setSelectedArticle(null);
     setPendingCoverUrl((url) => { if (url) URL.revokeObjectURL(url); return null; });
     editor?.commands.setContent(emptyDoc);
     setSelectedArticleIds([]);
-    setAiChecking(false);
-    setAiCheckStartedAt(null);
     savedStateRef.current = null;
-    setMobileView("editor");
   }
 
   async function loadArticle(article: ArticleSummary) {
@@ -674,8 +561,6 @@ export function ContentWorkspace(
         version: detail.version,
         stock_category_ids: detail.stock_category_ids ?? [],
       });
-      setAiChecking(detail.ai_checking ?? false);
-      setAiCheckStartedAt(detail.ai_checking ? Date.now() : null);
       const displayDoc = normalizeEditorDocument(detail.content_json || emptyDoc, "display");
       editor?.commands.setContent(displayDoc);
       const bodyState = editor
@@ -693,7 +578,6 @@ export function ContentWorkspace(
       setLoading(false);
       setStatusText("");
     }
-    setMobileView("editor");
   }
 
   function applySavedArticle(saved: Article, contentJson?: Record<string, unknown>) {
@@ -871,44 +755,6 @@ export function ContentWorkspace(
     await persistArticle();
   }
 
-  async function handleAiFormatPresetChange(value: string) {
-    const previous = selectedAiFormatPresetId;
-    const nextValue = value ? Number(value) : "";
-    setSelectedAiFormatPresetId(nextValue);
-    try {
-      await updateUserAiFormatPreset(nextValue === "" ? null : nextValue);
-      toast("AI 格式预设已更新", "success");
-    } catch (error) {
-      setSelectedAiFormatPresetId(previous);
-      toast(error instanceof Error ? error.message : "AI 格式预设更新失败", "error");
-    }
-  }
-
-  async function handleAiFormat() {
-    const saved = await persistArticle({ quiet: true });
-    if (!saved) {
-      toast("请先保存有效文章后再启动 AI 格式", "error");
-      return;
-    }
-    const startedAt = Date.now();
-    setAiFormatTriggerVersion(saved.version);
-    setAiChecking(true);
-    setAiCheckStartedAt(startedAt);
-    setAiFormatRemainingSeconds(AI_FORMAT_TIMEOUT_SECONDS);
-    try {
-      await triggerAiFormat(
-        saved.id,
-        selectedAiFormatPresetId === "" ? undefined : { preset_id: selectedAiFormatPresetId },
-      );
-      toast("AI 排版已启动，请稍候…", "success");
-    } catch (error) {
-      setAiChecking(false);
-      setAiCheckStartedAt(null);
-      setAiFormatTriggerVersion(null);
-      toast(error instanceof Error ? error.message : "AI 格式调整启动失败", "error");
-    }
-  }
-
   async function deleteCurrentArticle() {
     if (!draft.id) return;
     setLoading(true);
@@ -979,7 +825,6 @@ export function ContentWorkspace(
     setEditingGroupId(group.id);
     setGroupName(group.name);
     setSelectedArticleIds([]);
-    setMobileView("editor");
   }
 
   function toggleSelectedArticle(articleId: number) {
@@ -1045,6 +890,12 @@ export function ContentWorkspace(
     );
     setSelectedArticle((prev) => (prev && prev.id === updated.id ? { ...prev, review_status: updated.review_status, version: updated.version } : prev));
     setDraft((prev) => (prev.id === updated.id ? { ...prev, version: updated.version } : prev));
+  }
+
+  function selectReviewTab(tab: ReviewStatus) {
+    setReviewTab(tab);
+    setArticlePage(0);
+    setSelectedArticleIds([]);
   }
 
   async function approveOne(articleId: number) {
@@ -1122,7 +973,7 @@ export function ContentWorkspace(
       <header className="topbar">
         <div>
           <p className="eyebrow">内容管理</p>
-          <h1>{reviewTab === "approved" ? "已审核库" : "未审核库"}</h1>
+          <h1>图文工作台</h1>
         </div>
         <div className="topActions">
           <div className="statusHints">
@@ -1144,27 +995,27 @@ export function ContentWorkspace(
         </div>
       </header>
 
-      {isMobile && mobileView === "list" && (
-        <div className="mobileSegTabs">
-          <button
-            type="button"
-            className={`mobileSegTab${reviewTab === "pending" ? " active" : ""}`}
-            onClick={() => { setReviewTab("pending"); setArticlePage(0); setSelectedArticleIds([]); onReviewTabChange?.("pending"); }}
-          >
-            未审核库
-          </button>
-          <button
-            type="button"
-            className={`mobileSegTab${reviewTab === "approved" ? " active" : ""}`}
-            onClick={() => { setReviewTab("approved"); setArticlePage(0); setSelectedArticleIds([]); onReviewTabChange?.("approved"); }}
-          >
-            已审核库
-          </button>
-        </div>
-      )}
-
-      <section className={`contentGrid${isMobile ? ` mobile-${mobileView}` : ""}`}>
+      <section className="contentGrid">
         <aside className="listPane">
+          <div className="reviewTabs">
+            <button
+              type="button"
+              className={`reviewTabBtn ${reviewTab === "pending" ? "active" : ""}`}
+              onClick={() => selectReviewTab("pending")}
+            >
+              未审核
+              <span className="reviewTabCount">{reviewCounts.pending}</span>
+            </button>
+            <button
+              type="button"
+              className={`reviewTabBtn ${reviewTab === "approved" ? "active" : ""}`}
+              onClick={() => selectReviewTab("approved")}
+            >
+              已审核
+              <span className="reviewTabCount">{reviewCounts.approved}</span>
+            </button>
+          </div>
+
           {reviewTab === "approved" && selectedArticleIds.length > 0 ? (
             <div className="bulkBar">
               <div className="bulkBarLeft">
@@ -1231,9 +1082,14 @@ export function ContentWorkspace(
               }
               const { group } = item;
               const isExpanded = expandedGroupIds.has(group.id);
-              const groupArticles = groupArticleSummaries(group);
               const counts = groupReviewCounts(group);
               const fullyApproved = counts.total > 0 && counts.approved === counts.total;
+              // 只列当前标签状态的文章；另一侧成员数用于跨标签提示。
+              const groupArticles = groupArticleSummaries(group).filter(
+                (a) => a.review_status === reviewTab,
+              );
+              const otherCount =
+                reviewTab === "pending" ? counts.approved : counts.total - counts.approved;
               return (
                 <div className="groupRowItem" key={`g-${group.id}`}>
                   <div className={`groupRowHeader ${group.id === editingGroupId ? "selected" : ""}`}>
@@ -1259,7 +1115,7 @@ export function ContentWorkspace(
                           {fullyApproved ? "全部已审核" : `${counts.approved}/${counts.total} 已审核`}
                         </span>
                       ) : null}
-                      {fullyApproved ? (
+                      {reviewTab === "approved" && fullyApproved ? (
                         <button
                           type="button"
                           className="inlineMiniButton distributeMiniButton"
@@ -1268,7 +1124,7 @@ export function ContentWorkspace(
                           <Send size={13} />
                           自动分发
                         </button>
-                      ) : counts.total > 0 ? (
+                      ) : reviewTab === "pending" && counts.total - counts.approved > 0 ? (
                         <button
                           type="button"
                           className="inlineMiniButton approveMiniButton"
@@ -1285,6 +1141,12 @@ export function ContentWorkspace(
                   </div>
                   {isExpanded ? (
                     <div className="groupRowArticles">
+                      {otherCount > 0 ? (
+                        <p className="groupCrossTabHint">
+                          另有 {otherCount} 篇{reviewTab === "pending" ? "已审核" : "待审核"}，
+                          切到「{reviewTab === "pending" ? "已审核" : "未审核"}」标签查看
+                        </p>
+                      ) : null}
                       {groupArticles.map((article) => (
                         <article
                           className={`articleItem ${article.id === draft.id ? "selected" : ""}`}
@@ -1302,7 +1164,7 @@ export function ContentWorkspace(
                             <span>{article.author || "未填写作者"}</span>
                             <small>
                               {formatDateTime(article.updated_at)}
-                              {article.published_count > 0 ? <span style={{ color: "var(--green)", marginLeft: 6 }}>· 已发布 {article.published_count} 次</span> : null}
+                              {article.published_count > 0 ? <span style={{ color: "#16a34a", marginLeft: 6 }}>· 已发布 {article.published_count} 次</span> : null}
                             </small>
                           </button>
                           <div className="articleItemBadge">
@@ -1317,7 +1179,7 @@ export function ContentWorkspace(
                           </button>
                         </article>
                       ))}
-                      {groupArticles.length === 0 ? <p className="emptyText">分组暂无文章</p> : null}
+                      {groupArticles.length === 0 && otherCount === 0 ? <p className="emptyText">分组暂无文章</p> : null}
                     </div>
                   ) : null}
                 </div>
@@ -1359,11 +1221,6 @@ export function ContentWorkspace(
         </aside>
 
         <section className="editorPane">
-          {isMobile && (
-            <button type="button" className="mobileBackBtn" onClick={() => setMobileView("list")}>
-              ← 返回列表
-            </button>
-          )}
           <div className="formRow split">
             <label>
               标题
@@ -1379,46 +1236,6 @@ export function ContentWorkspace(
                 <option value="draft">草稿</option>
                 <option value="ready">待发布</option>
                 <option value="archived">归档</option>
-              </select>
-            </label>
-            {stockCategories.length > 0 && (
-              <div>
-                <span style={{ fontSize: 12, color: "#666", display: "block", marginBottom: 4 }}>配图栏目</span>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px" }}>
-                  {stockCategories.map((cat) => {
-                    const checked = draft.stock_category_ids.includes(cat.id);
-                    return (
-                      <label key={cat.id} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 13, cursor: "pointer", fontWeight: "normal" }}>
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={(e) => {
-                            const next = e.target.checked
-                              ? [...draft.stock_category_ids, cat.id]
-                              : draft.stock_category_ids.filter((id) => id !== cat.id);
-                            setDraft({ ...draft, stock_category_ids: next });
-                          }}
-                        />
-                        {cat.name}
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-            <label>
-              AI 格式预设
-              <select
-                value={selectedAiFormatPresetId}
-                onChange={(event) => void handleAiFormatPresetChange(event.target.value)}
-                disabled={aiChecking}
-              >
-                <option value="">内置默认</option>
-                {aiFormatPresets.map((preset) => (
-                  <option key={preset.id} value={preset.id}>
-                    {preset.name}
-                  </option>
-                ))}
               </select>
             </label>
           </div>
@@ -1479,12 +1296,14 @@ export function ContentWorkspace(
           <EditorToolbar
             editor={editor}
             onImageUpload={handleBodyImageUpload}
-            aiChecking={aiChecking}
-            aiFormatRemainingSeconds={aiFormatRemainingSeconds}
-            onAiFormat={handleAiFormat}
-            stockCategorySelected={draft.stock_category_ids.length > 0}
+            imageSelected={!!editor?.isActive("image")}
+            onSaveImage={() => {
+              const src = editor?.getAttributes("image").src as string | undefined;
+              if (src) setSaveImageSrc(src);
+              else toast("请先选中正文中的图片", "error");
+            }}
           />
-          <div className="editorWrap paper-scope">
+          <div className="editorWrap">
             <EditorContent editor={editor} />
           </div>
           <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, padding: "4px 8px", fontSize: 12, color: charCount < 300 ? "#e67e22" : "#888" }}>
@@ -1501,6 +1320,15 @@ export function ContentWorkspace(
           accounts={accounts}
           onClose={() => setDistributeTarget(null)}
           onDistributed={() => setSelectedArticleIds([])}
+        />
+      ) : null}
+
+      {saveImageSrc ? (
+        <ImageSaveDialog
+          imageSrc={saveImageSrc}
+          onClose={() => setSaveImageSrc(null)}
+          onSaved={(msg) => toast(msg, "success")}
+          onError={(msg) => toast(msg, "error")}
         />
       ) : null}
 

@@ -6,7 +6,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 # scope 取值收敛在此处；service 层另有 VALID_PROMPT_SCOPES 做运行时校验，两处需保持一致
-PromptScope = Literal["generation", "ai_format"]
+# image_search（百度搜图关键词）/ image_companion（陪衬游戏插图提示词）见 ai_format 配图链路
+PromptScope = Literal["generation", "ai_format", "image_search", "image_companion"]
 
 
 class PromptTemplateCreate(BaseModel):

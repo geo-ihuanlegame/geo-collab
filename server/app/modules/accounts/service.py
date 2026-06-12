@@ -9,19 +9,33 @@ from __future__ import annotations
 
 import hashlib
 import re
+import time
 import uuid
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from server.app.core.paths import get_data_dir
 from server.app.core.time import utcnow
 from server.app.modules.accounts.models import Account
+from server.app.modules.accounts.schemas import AccountUpdateRequest, ApiAccountCreate
 from server.app.modules.system.models import Platform
+from server.app.modules.tasks.drivers.wechat_client import (
+    TOKEN_REFRESH_SKEW_SECONDS,
+    WeChatApiError,
+    make_default_client,
+)
+from server.app.modules.tasks.drivers.wechat_client import (
+    fetch_access_token as wechat_fetch_access_token,
+)
 from server.app.modules.tasks.models import PublishRecord
-from server.app.shared.errors import ClientError
+from server.app.shared.errors import ClientError, ConflictError, ValidationError
+
+_API_PLATFORM_LABELS = {"wechat_mp": "微信公众号"}
+_API_PLATFORM_CODES = set(_API_PLATFORM_LABELS)
 
 
 def normalize_account_key(account_key: str | None) -> str:
@@ -127,13 +141,25 @@ def launch_options(channel: str, executable_path: str | None) -> dict[str, Any]:
     return options
 
 
-def list_accounts(db: Session) -> list[Account]:
+def list_accounts(db: Session, q: str | None = None) -> list[Account]:
+    """账号列表。``q`` 为可选泛搜索关键词：对 账号名称 / 备注 / 联系方式(手机号) 三字段做
+    不区分大小写的包含匹配（任一命中即返回）。空白 q 视为不过滤。"""
     stmt = (
         select(Account)
         .where(Account.is_deleted == False)  # noqa: E712
         .options(selectinload(Account.platform))
         .order_by(Account.updated_at.desc())
     )
+    keyword = (q or "").strip()
+    if keyword:
+        like = f"%{keyword}%"
+        stmt = stmt.where(
+            or_(
+                Account.display_name.ilike(like),
+                Account.note.ilike(like),
+                Account.contact.ilike(like),
+            )
+        )
     return list(db.execute(stmt).scalars().all())
 
 
@@ -146,6 +172,153 @@ def get_account(db: Session, account_id: int) -> Account | None:
     return db.execute(stmt).scalar_one_or_none()
 
 
+def is_api_platform_code(code: str) -> bool:
+    from server.app.modules.tasks.drivers import is_api_driver
+
+    return code in _API_PLATFORM_CODES or is_api_driver(code)
+
+
+def api_platform_options() -> list[dict[str, str]]:
+    return [
+        {"code": code, "name": name}
+        for code, name in sorted(_API_PLATFORM_LABELS.items(), key=lambda item: item[0])
+    ]
+
+
+def create_api_account(db: Session, user_id: int, payload: ApiAccountCreate) -> Account:
+    """创建 API 型平台账号：凭据直存，platform_user_id 取 AppID 防重复登记。"""
+    if not is_api_platform_code(payload.platform_code):
+        raise ValidationError(f"平台 {payload.platform_code} 为浏览器登录接入，请走扫码授权流程")
+
+    platform = db.execute(
+        select(Platform).where(Platform.code == payload.platform_code)
+    ).scalar_one_or_none()
+    if platform is None:
+        raise ValidationError(f"平台不存在: {payload.platform_code}")
+
+    app_id = payload.api_credentials.app_id
+    duplicate = db.execute(
+        select(Account.id).where(
+            Account.platform_id == platform.id,
+            Account.platform_user_id == app_id,
+            Account.is_deleted == False,  # noqa: E712
+        )
+    ).scalar_one_or_none()
+    if duplicate is not None:
+        raise ConflictError(f"该 AppID 已被登记（全平台唯一）: {app_id}")
+
+    account = Account(
+        user_id=user_id,
+        platform=platform,
+        display_name=payload.display_name.strip(),
+        platform_user_id=app_id,
+        status="unknown",
+        state_path=None,
+        api_credentials={
+            "app_id": app_id,
+            "app_secret": payload.api_credentials.app_secret,
+        },
+        contact=payload.contact,
+        note=payload.note,
+        avatar_asset_id=payload.avatar_asset_id,
+        distribution_enabled=payload.distribution_enabled,
+    )
+    db.add(account)
+    try:
+        db.flush()
+    except IntegrityError as exc:  # 并发抢注同一 app_id：DB 全局唯一约束兜底
+        db.rollback()
+        raise ConflictError(f"该 AppID 已被登记（全平台唯一）: {app_id}") from exc
+    return get_account(db, account.id) or account
+
+
+def _ensure_app_id_available(db: Session, account: Account, app_id: str) -> None:
+    duplicate = db.execute(
+        select(Account.id).where(
+            Account.platform_id == account.platform_id,
+            Account.platform_user_id == app_id,
+            Account.is_deleted == False,  # noqa: E712
+            Account.id != account.id,
+        )
+    ).scalar_one_or_none()
+    if duplicate is not None:
+        raise ConflictError(f"该 AppID 已被登记（全平台唯一）: {app_id}")
+
+
+def update_account_fields(db: Session, account: Account, payload: AccountUpdateRequest) -> Account:
+    """通用 PATCH：仅更新显式传入的非 None 字段；api_credentials 整体替换。"""
+    data = payload.model_dump(exclude_unset=True)
+    if data.get("display_name") is not None:
+        account.display_name = data["display_name"].strip()
+    if data.get("contact") is not None:
+        account.contact = data["contact"]
+    if data.get("note") is not None:
+        account.note = data["note"]
+    if data.get("avatar_asset_id") is not None:
+        account.avatar_asset_id = data["avatar_asset_id"]
+    if data.get("distribution_enabled") is not None:
+        account.distribution_enabled = data["distribution_enabled"]
+    if data.get("api_credentials") is not None:
+        if not is_api_platform_code(account.platform.code):
+            raise ValidationError("浏览器登录平台不支持 API 凭据")
+        assert payload.api_credentials is not None  # type guard for mypy
+        creds = payload.api_credentials
+        _ensure_app_id_available(db, account, creds.app_id)
+        account.api_credentials = {"app_id": creds.app_id, "app_secret": creds.app_secret}
+        account.platform_user_id = creds.app_id
+        account.api_token_cache = None
+        account.status = "unknown"
+        account.last_checked_at = None
+    account.updated_at = utcnow()
+    db.flush()
+    return get_account(db, account.id) or account
+
+
+def verify_api_credentials(db: Session, account: Account) -> Account:
+    """强制刷新 access_token 验证凭据；失败时置 expired 并透传微信错误。"""
+    if not is_api_platform_code(account.platform.code):
+        raise ValidationError("该平台为浏览器登录接入，无凭据可验证")
+    creds = account.api_credentials or {}
+    if not creds.get("app_id") or not creds.get("app_secret"):
+        raise ValidationError("账号未配置 AppID/AppSecret")
+
+    client = make_default_client()
+    try:
+        token, expires_in = wechat_fetch_access_token(
+            creds["app_id"], creds["app_secret"], client=client
+        )
+    except WeChatApiError as exc:
+        account.status = "expired"
+        account.api_token_cache = None
+        account.last_checked_at = utcnow()
+        account.updated_at = account.last_checked_at
+        db.flush()
+        raise ValidationError(str(exc)) from exc
+    finally:
+        client.close()
+
+    account.api_token_cache = {
+        "access_token": token,
+        "expires_at": int(time.time()) + int(expires_in),
+    }
+    account.status = "valid"
+    account.last_checked_at = utcnow()
+    account.updated_at = account.last_checked_at
+    db.flush()
+    return get_account(db, account.id) or account
+
+
+def get_cached_wechat_token(account: Account) -> str | None:
+    if account.status != "valid":
+        return None
+    cache = account.api_token_cache or {}
+    token = cache.get("access_token")
+    expires_at = int(cache.get("expires_at") or 0)
+    if not token or expires_at <= int(time.time()) + TOKEN_REFRESH_SKEW_SECONDS:
+        return None
+    return str(token)
+
+
 def rename_account(db: Session, account: Account, display_name: str) -> Account:
     account.display_name = display_name.strip()
     account.updated_at = utcnow()
@@ -154,7 +327,12 @@ def rename_account(db: Session, account: Account, display_name: str) -> Account:
 
 
 def delete_account(db: Session, account: Account) -> None:
-    """软删账号（置 is_deleted）。仍有未完成发布记录时抛 ClientError 拒绝删除。"""
+    """软删账号并释放身份槽位；仍有未完成发布记录时抛 ClientError 拒绝删除。
+
+    释放槽位＝置空 platform_user_id（全局唯一约束据此放行同一 app_id 重新登记）、
+    清 api_token_cache、抹除 api_credentials.app_secret（保留 app_id 供审计）。
+    发布历史（PublishRecord.account_id）不动。
+    """
     account_id = account.id
 
     active = (
@@ -174,6 +352,12 @@ def delete_account(db: Session, account: Account) -> None:
 
     account.is_deleted = True
     account.deleted_at = utcnow()
+    account.platform_user_id = None
+    account.api_token_cache = None
+    if account.api_credentials:
+        creds = dict(account.api_credentials)
+        creds.pop("app_secret", None)
+        account.api_credentials = creds or None
     account.updated_at = utcnow()
     db.flush()
 

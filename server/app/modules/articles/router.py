@@ -271,7 +271,7 @@ def delete_article_endpoint(
     article_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
 ) -> Response:
     article = _verify_article_ownership(get_article(db, article_id), current_user)
     _check_not_ai_locked(db, article)
@@ -545,7 +545,7 @@ def delete_group_endpoint(
     group_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
 ) -> Response:
     group = _verify_group_ownership(get_group(db, group_id), current_user)
     group_name = group.name

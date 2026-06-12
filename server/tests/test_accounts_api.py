@@ -2,9 +2,14 @@ import json
 import threading
 import zipfile
 from io import BytesIO
+from pathlib import Path
 
+from fastapi.testclient import TestClient
+
+from server.app.core.security import create_access_token
 from server.app.modules.accounts import RemoteBrowserSession
 from server.app.modules.accounts.models import Account
+from server.app.modules.system.models import User
 from server.tests.utils import build_test_app
 
 
@@ -37,18 +42,24 @@ def write_storage_state(data_dir, account_key: str = "demo") -> None:
     (state_dir / "storage_state.json").write_text('{"cookies":[],"origins":[]}', encoding="utf-8")
 
 
-def test_start_login_browser_runs_impl_in_plain_thread(monkeypatch):
-    from server.app.modules.accounts import auth as accounts_auth
+def test_start_login_browser_delegates_to_impl(monkeypatch):
+    """``_start_login_browser`` resolves the state path and delegates to the impl.
 
-    caller_thread = threading.get_ident()
-    seen: dict[str, int] = {}
+    Thread isolation is no longer this function's job — the async login broker owns
+    the event loop now (see test_login_broker.py). This just verifies delegation.
+    """
+    from server.app.modules.accounts import auth as accounts_auth
 
     class FakeSession:
         id = "thread-session"
         novnc_url = "http://127.0.0.1:6080/vnc.html"
 
-    def fake_impl(*_args):
-        seen["thread"] = threading.get_ident()
+    captured: dict[str, object] = {}
+
+    def fake_impl(platform_code, account_key, state_path, channel, executable_path, *_a):
+        captured["platform_code"] = platform_code
+        captured["account_key"] = account_key
+        captured["channel"] = channel
         return FakeSession()
 
     monkeypatch.setattr(accounts_auth, "_start_login_browser_impl", fake_impl)
@@ -56,49 +67,9 @@ def test_start_login_browser_runs_impl_in_plain_thread(monkeypatch):
     session = accounts_auth._start_login_browser("toutiao", "thread-test", "chromium", None)
 
     assert session.id == "thread-session"
-    assert seen["thread"] != caller_thread
-
-
-def test_login_page_loader_runs_in_background(monkeypatch):
-    test_app = build_test_app(monkeypatch)
-
-    started = threading.Event()
-    release = threading.Event()
-
-    class FakePage:
-        def goto(self, *_args, **_kwargs):
-            started.set()
-            release.wait(timeout=2)
-
-        def wait_for_load_state(self, *_args, **_kwargs):
-            return None
-
-    try:
-        from server.app.modules.accounts import auth as accounts
-        from server.app.modules.accounts import browser as browser_sessions
-
-        session = RemoteBrowserSession(
-            id="loader-session",
-            account_key="demo",
-            display_number=99,
-            display=":99",
-            vnc_port=5900,
-            novnc_port=6080,
-            novnc_url="http://127.0.0.1:6080/vnc.html",
-            log_dir=test_app.data_dir,
-            page=FakePage(),
-        )
-        with browser_sessions._sessions_lock:
-            browser_sessions._active_sessions[session.id] = session
-
-        accounts._start_login_page_loader(session.id, "toutiao", "demo", "https://mp.toutiao.com")
-
-        assert started.wait(timeout=1)
-        assert session.operation_lock.acquire(blocking=False) is False
-        release.set()
-    finally:
-        release.set()
-        test_app.cleanup()
+    assert captured["platform_code"] == "toutiao"
+    assert captured["account_key"] == "thread-test"
+    assert captured["channel"] == "chromium"
 
 
 def test_worker_start_login_session_uses_existing_thread(monkeypatch):
@@ -154,47 +125,15 @@ def test_worker_start_login_session_uses_existing_thread(monkeypatch):
         test_app.cleanup()
 
 
-def test_worker_finish_login_session_uses_existing_thread(monkeypatch):
+def test_worker_finish_login_session_reads_state_via_broker(monkeypatch):
+    """Worker finish reads the login state through the async broker and tears it down.
+
+    The Playwright handles live in the login broker now, not on the RemoteBrowserSession;
+    we stub the broker facade so the test stays free of a real browser/event loop.
+    """
     test_app = build_test_app(monkeypatch)
     client = test_app.client
     install_fake_driver(monkeypatch)
-    owner_thread = threading.get_ident()
-
-    class FakeLocator:
-        def inner_text(self, timeout=None):
-            assert threading.get_ident() == owner_thread
-            return "publisher dashboard"
-
-    class FakePage:
-        url = "https://mp.toutiao.com/profile_v4"
-
-        def wait_for_load_state(self, *_args, **_kwargs):
-            assert threading.get_ident() == owner_thread
-            return None
-
-        def title(self):
-            assert threading.get_ident() == owner_thread
-            return "Toutiao"
-
-        def locator(self, _selector):
-            assert threading.get_ident() == owner_thread
-            return FakeLocator()
-
-    class FakeContext:
-        def __init__(self, page):
-            self.pages = [page]
-
-        def storage_state(self, path):
-            assert threading.get_ident() == owner_thread
-            with open(path, "w", encoding="utf-8") as fh:
-                fh.write('{"cookies":[{"name":"session"}],"origins":[]}')
-
-        def close(self):
-            assert threading.get_ident() == owner_thread
-
-    class FakePlaywright:
-        def stop(self):
-            assert threading.get_ident() == owner_thread
 
     try:
         write_storage_state(test_app.data_dir, "demo")
@@ -209,7 +148,43 @@ def test_worker_finish_login_session_uses_existing_thread(monkeypatch):
 
         from server.app.modules.accounts import auth as accounts
         from server.app.modules.accounts import browser as browser_sessions
+        from server.app.modules.accounts.login_broker import LoginBrowserResult, login_broker
         from server.app.modules.accounts.models import AccountLoginSession
+
+        session = RemoteBrowserSession(
+            id="wk-session",
+            account_key="demo",
+            display_number=99,
+            display=":99",
+            vnc_port=5900,
+            novnc_port=6080,
+            novnc_url="http://127.0.0.1:6080/vnc.html",
+            log_dir=test_app.data_dir,
+        )
+        with browser_sessions._sessions_lock:
+            browser_sessions._active_sessions[session.id] = session
+            browser_sessions._session_keep_alive.add(session.id)
+
+        closed: dict[str, bool] = {}
+
+        def fake_read(session_id, *, detect, state_path):
+            assert session_id == "wk-session"
+            Path(state_path).parent.mkdir(parents=True, exist_ok=True)
+            Path(state_path).write_text(
+                '{"cookies":[{"name":"session"}],"origins":[]}', encoding="utf-8"
+            )
+            logged_in = detect(
+                "https://mp.toutiao.com/profile_v4", "Toutiao", "publisher dashboard"
+            )
+            return LoginBrowserResult(
+                logged_in=logged_in, url="https://mp.toutiao.com/profile_v4", title="Toutiao"
+            )
+
+        monkeypatch.setattr(login_broker, "owns", lambda sid: sid == "wk-session")
+        monkeypatch.setattr(login_broker, "read_login_state", fake_read)
+        monkeypatch.setattr(
+            login_broker, "close_if_owned", lambda sid: closed.__setitem__(sid, True)
+        )
 
         db = test_app.session_factory()
         try:
@@ -225,30 +200,13 @@ def test_worker_finish_login_session_uses_existing_thread(monkeypatch):
             db.add(request)
             db.commit()
 
-            page = FakePage()
-            session = RemoteBrowserSession(
-                id="wk-session",
-                account_key="demo",
-                display_number=99,
-                display=":99",
-                vnc_port=5900,
-                novnc_port=6080,
-                novnc_url="http://127.0.0.1:6080/vnc.html",
-                log_dir=test_app.data_dir,
-                playwright=FakePlaywright(),
-                browser_context=FakeContext(page),
-                page=page,
-            )
-            with browser_sessions._sessions_lock:
-                browser_sessions._active_sessions[session.id] = session
-                browser_sessions._session_keep_alive.add(session.id)
-
             accounts._worker_finish_login_session(db, request)
             db.refresh(request)
 
             assert request.status == accounts.LOGIN_STATUS_FINISHED
             assert request.logged_in is True
             assert browser_sessions.get_session("wk-session") is None
+            assert closed.get("wk-session") is True
         finally:
             db.close()
     finally:
@@ -327,6 +285,48 @@ def test_account_check_relogin_and_delete(monkeypatch):
         test_app.cleanup()
 
 
+def test_operator_cannot_delete_account_gets_clear_reason(monkeypatch):
+    """普通(operator)账号删除媒体矩阵账号：被 require_admin 拦截，返回 403「需要管理员权限」，
+
+    与删文章/删分组的边界一致；账号仍在；admin 仍可删。清晰说明由前端承担（点删除即提示、不发请求）。
+    """
+    test_app = build_test_app(monkeypatch)
+    admin_client = test_app.client
+    install_fake_driver(monkeypatch)
+
+    try:
+        write_storage_state(test_app.data_dir, "demo")
+        account = admin_client.post(
+            "/api/accounts/toutiao/login",
+            json={"display_name": "测试头条号", "account_key": "demo", "use_browser": False},
+        ).json()
+
+        # 造一个 operator，以其身份请求删除
+        with test_app.session_factory() as db:
+            op = User(
+                username="op_del", role="operator", is_active=True, must_change_password=False
+            )
+            op.set_password("pass1234")
+            db.add(op)
+            db.commit()
+            db.refresh(op)
+            token = create_access_token(op.id, op.role)
+        op_client = TestClient(test_app.client.app)
+        op_client.cookies["access_token"] = token
+
+        resp = op_client.delete(f"/api/accounts/{account['id']}")
+        assert resp.status_code == 403
+        assert resp.json()["detail"] == "需要管理员权限"
+
+        # 账号未被删除，admin 视角仍可见
+        assert len(admin_client.get("/api/accounts").json()) == 1
+
+        # admin 自己仍可正常删除
+        assert admin_client.delete(f"/api/accounts/{account['id']}").status_code == 204
+    finally:
+        test_app.cleanup()
+
+
 def test_toutiao_login_requires_storage_when_browser_disabled(monkeypatch):
     test_app = build_test_app(monkeypatch)
     client = test_app.client
@@ -376,45 +376,42 @@ def test_toutiao_remote_login_session_creates_unknown_account(monkeypatch):
         test_app.cleanup()
 
 
-def test_finish_remote_login_session_saves_state_and_stops_session(monkeypatch):
+def test_toutiao_remote_login_session_persists_profile_fields(monkeypatch):
+    """浏览器平台建号时，表单里的 contact / 分发开关应一并写入账号（A2：复用 /login-session 端点）。"""
     test_app = build_test_app(monkeypatch)
     client = test_app.client
     install_fake_driver(monkeypatch)
 
-    class FakeLocator:
-        def inner_text(self, timeout=None):
-            return "publisher dashboard"
+    monkeypatch.setattr(
+        "server.app.modules.accounts.auth._start_login_browser_via_worker",
+        lambda *_args, **_kwargs: "login-session-2",
+    )
 
-    class FakePage:
-        url = "https://mp.toutiao.com/profile_v4"
+    try:
+        response = client.post(
+            "/api/accounts/toutiao/login-session",
+            json={
+                "display_name": "profile-demo",
+                "account_key": "profile-demo",
+                "contact": "13800000000",
+                "distribution_enabled": False,
+                "note": "归属：运营A",
+            },
+        )
 
-        def wait_for_load_state(self, *_args, **_kwargs):
-            return None
+        assert response.status_code == 200
+        account = response.json()["account"]
+        assert account["contact"] == "13800000000"
+        assert account["distribution_enabled"] is False
+        assert account["note"] == "归属：运营A"
+    finally:
+        test_app.cleanup()
 
-        def title(self):
-            return "Toutiao"
 
-        def locator(self, _selector):
-            return FakeLocator()
-
-    class FakeContext:
-        def __init__(self, page):
-            self.pages = [page]
-            self.closed = False
-
-        def storage_state(self, path):
-            with open(path, "w", encoding="utf-8") as fh:
-                fh.write('{"cookies":[{"name":"session"}],"origins":[]}')
-
-        def close(self):
-            self.closed = True
-
-    class FakePlaywright:
-        def __init__(self):
-            self.stopped = False
-
-        def stop(self):
-            self.stopped = True
+def test_finish_remote_login_session_saves_state_and_stops_session(monkeypatch):
+    test_app = build_test_app(monkeypatch)
+    client = test_app.client
+    install_fake_driver(monkeypatch)
 
     try:
         write_storage_state(test_app.data_dir, "demo")
@@ -424,10 +421,8 @@ def test_finish_remote_login_session_saves_state_and_stops_session(monkeypatch):
         ).json()
 
         from server.app.modules.accounts import browser as browser_sessions
+        from server.app.modules.accounts.login_broker import LoginBrowserResult, login_broker
 
-        page = FakePage()
-        context = FakeContext(page)
-        playwright = FakePlaywright()
         session = RemoteBrowserSession(
             id="finish-session",
             account_key="demo",
@@ -437,13 +432,30 @@ def test_finish_remote_login_session_saves_state_and_stops_session(monkeypatch):
             novnc_port=6080,
             novnc_url="http://127.0.0.1:6080/vnc.html",
             log_dir=test_app.data_dir,
-            playwright=playwright,
-            browser_context=context,
-            page=page,
         )
         with browser_sessions._sessions_lock:
             browser_sessions._active_sessions[session.id] = session
             browser_sessions._session_keep_alive.add(session.id)
+
+        closed: dict[str, bool] = {}
+
+        def fake_read(session_id, *, detect, state_path):
+            Path(state_path).parent.mkdir(parents=True, exist_ok=True)
+            Path(state_path).write_text(
+                '{"cookies":[{"name":"session"}],"origins":[]}', encoding="utf-8"
+            )
+            logged_in = detect(
+                "https://mp.toutiao.com/profile_v4", "Toutiao", "publisher dashboard"
+            )
+            return LoginBrowserResult(
+                logged_in=logged_in, url="https://mp.toutiao.com/profile_v4", title="Toutiao"
+            )
+
+        monkeypatch.setattr(login_broker, "owns", lambda sid: sid == "finish-session")
+        monkeypatch.setattr(login_broker, "read_login_state", fake_read)
+        monkeypatch.setattr(
+            login_broker, "close_if_owned", lambda sid: closed.__setitem__(sid, True)
+        )
 
         response = client.post(f"/api/accounts/{account['id']}/login-session/finish-session/finish")
 
@@ -451,8 +463,7 @@ def test_finish_remote_login_session_saves_state_and_stops_session(monkeypatch):
         payload = response.json()
         assert payload["logged_in"] is True
         assert payload["account"]["status"] == "valid"
-        assert context.closed is True
-        assert playwright.stopped is True
+        assert closed.get("finish-session") is True
         assert browser_sessions.get_session("finish-session") is None
         state_file = (
             test_app.data_dir

@@ -89,25 +89,14 @@ def get_node_types() -> dict:
                 "config_schema": [
                     {"key": "prompt_template_id", "type": "prompt_template", "label": "提示词模板"},
                     {"key": "count", "type": "number", "label": "生成数量"},
-                    {"key": "model", "type": "text", "label": "模型(可空)"},
-                ],
-            },
-            {
-                "type": "article_group_source",
-                "label": "已审核分组源",
-                "config_schema": [
-                    {
-                        "key": "group_id",
-                        "type": "article_group",
-                        "label": "内容分组（留空＝自动选最早未分发分组）",
-                    },
+                    {"key": "model", "type": "ai_engine", "label": "模型"},
                 ],
             },
             {
                 "type": "distribute",
                 "label": "内容分发",
                 "config_schema": [
-                    {"key": "account_ids", "type": "accounts", "label": "分发账号"},
+                    {"key": "account_selection", "type": "account_selector", "label": "分发账号"},
                     {"key": "name", "type": "text", "label": "任务名(可空)"},
                 ],
             },
@@ -142,10 +131,67 @@ def get_node_types() -> dict:
                 ],
             },
             {
+                "type": "ai_illustrate",
+                "label": "AI配图",
+                "config_schema": [
+                    {
+                        "key": "main_category_id",
+                        "type": "stock_category_main",
+                        "label": "图片库 · 主推游戏",
+                    },
+                    # 配图风格：开=「积极配图」(每个明确出现的游戏都插，保留"不确定不插"准星)，
+                    # 关=保守(图少文多)。默认开。见 ai_format._builtin_prompt_template 的 aggressive 变体。
+                    {
+                        "key": "aggressive_images",
+                        "type": "toggle",
+                        "label": "激进配图（每个游戏都插）",
+                        "hint": "开=每个明确出现的游戏都配图；关=保守·图少文多",
+                        "default": True,
+                    },
+                    # 数量旋钮：与风格解耦，单独控制上限/间距。留空随风格取默认(激进12/1、保守3/5)，
+                    # 同时作为插图阶段硬上限。见 ai_format._maybe_insert_images。
+                    {
+                        "key": "max_images",
+                        "type": "number",
+                        "label": "最多配图数（默认激进12 / 保守3）",
+                    },
+                    {
+                        "key": "min_spacing",
+                        "type": "number",
+                        "label": "最小配图间距·节点数（默认激进1 / 保守5）",
+                    },
+                    # 联网兜底：开启后，模型可点名可用栏目外的陪衬游戏，执行器自动建栏目 +
+                    # 百度千帆搜图补图（需配 GEO_BAIDU_API_KEY）。见 ai_format._maybe_insert_images。
+                    {
+                        "key": "web_fallback",
+                        "type": "toggle",
+                        "label": "联网兜底",
+                        "hint": "陪衬游戏在库中无图时，联网搜图补充",
+                        "default": False,
+                    },
+                    # 顺带配封面：从主推游戏栏目随机取一张落成 Asset 设为封面，
+                    # 仅当文章还没封面时生效。见 image_library.cover.set_random_cover_from_category。
+                    {
+                        "key": "set_cover",
+                        "type": "toggle",
+                        "label": "顺带配封面",
+                        "hint": "从主推游戏图库随机取一张作封面（仅当文章还没封面）",
+                        "default": True,
+                    },
+                ],
+            },
+            {
                 "type": "to_review",
                 "label": "进入未审核库",
                 "config_schema": [
                     {"key": "group_name", "type": "text", "label": "分组名(可空)"},
+                    {
+                        "key": "daily_group",
+                        "type": "toggle",
+                        "label": "按天归组",
+                        "hint": "开启后，当天所有运行/流水线产出并入同一个「每日生成 · 日期」分组",
+                        "default": False,
+                    },
                 ],
             },
             {

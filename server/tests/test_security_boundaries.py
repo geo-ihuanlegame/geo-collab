@@ -215,18 +215,19 @@ class TestMustChangePasswordBlocking:
             test_app.cleanup()
 
 
-# ── P1：operator 不能删除文章 ──────────────────────────────────────
+# ── P1：operator 不能删除他人文章（删除权已下放至本人，见 test_content_delete_permission）──
 
 
-class TestOperatorCannotDeleteArticle:
-    def test_operator_delete_returns_403(self, monkeypatch):
+class TestOperatorCannotDeleteOthersArticle:
+    def test_operator_delete_others_returns_404(self, monkeypatch):
         test_app = build_test_app(monkeypatch)
         try:
+            # 文章归属 admin（默认 client）；operator 删他人内容走归属校验
             article_id = _create_article(test_app.client)
             op_client, _ = _make_operator_client(test_app)
             resp = op_client.delete(f"/api/articles/{article_id}")
-            assert resp.status_code == 403
-            assert resp.json()["detail"] == "需要管理员权限"
+            # 不泄露存在性：他人文章 → 404（非 403）
+            assert resp.status_code == 404
         finally:
             test_app.cleanup()
 
@@ -240,18 +241,19 @@ class TestOperatorCannotDeleteArticle:
             test_app.cleanup()
 
 
-# ── P2：operator 不能删除文章分组 ─────────────────────────────────
+# ── P2：operator 不能删除他人文章分组（删除权已下放至本人，见 test_content_delete_permission）──
 
 
-class TestOperatorCannotDeleteArticleGroup:
-    def test_operator_delete_returns_403(self, monkeypatch):
+class TestOperatorCannotDeleteOthersArticleGroup:
+    def test_operator_delete_others_returns_404(self, monkeypatch):
         test_app = build_test_app(monkeypatch)
         try:
+            # 分组归属 admin（默认 client）
             group_id = _create_group(test_app.client)
             op_client, _ = _make_operator_client(test_app)
             resp = op_client.delete(f"/api/article-groups/{group_id}")
-            assert resp.status_code == 403
-            assert resp.json()["detail"] == "需要管理员权限"
+            # 不泄露存在性：他人分组 → 404（非 403）
+            assert resp.status_code == 404
         finally:
             test_app.cleanup()
 

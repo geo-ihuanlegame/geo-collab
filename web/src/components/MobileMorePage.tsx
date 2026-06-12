@@ -1,5 +1,5 @@
 import {
-  ChevronRight, Images, LogOut, MessagesSquare, MonitorCog,
+  ChevronRight, Flame, Images, LogOut, MessagesSquare, MonitorCog,
   RadioTower, ScrollText, User, Users,
 } from "lucide-react";
 import type { NavKey } from "../types";
@@ -21,6 +21,7 @@ export function MobileMorePage({
   onLogout: () => void;
 }) {
   const groups: Group[] = [
+    { title: "资讯", rows: [{ key: "hot-lists", label: "热榜", icon: Flame }] },
     { title: "内容工具", rows: [{ key: "prompts", label: "提示词管理", icon: MessagesSquare }] },
     {
       title: "素材",

@@ -32,6 +32,23 @@ class PublishPayload:
 
 
 @dataclass(frozen=True)
+class ApiPublishPayload:
+    """API 型平台驱动的发布载荷：纯数据，含已就绪的 access_token，不含 secret。
+
+    与 PublishPayload 的区别：无 state_path/account_key（无浏览器态）；cover_path 可空
+    （驱动内回落正文首图）；token 由 runner_api 从 DB 缓存解析后注入。
+    """
+
+    title: str
+    body_segments: list[BodySegment]
+    cover_path: Path | None
+    display_name: str
+    platform_code: str
+    access_token: str
+    temp_files: tuple[Path, ...] = ()
+
+
+@dataclass(frozen=True)
 class PublishResult:
     url: str | None
     title: str

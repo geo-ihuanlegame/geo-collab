@@ -567,3 +567,101 @@ def mark_pending_and_group(
             "mark_pending_and_group failed (user=%s, n=%s)", user_id, len(article_ids)
         )
         return None
+
+
+def mark_pending_and_append_daily(
+    session_factory,
+    *,
+    article_ids: list[int],
+    user_id: int,
+    group_name: str,
+) -> int | None:
+    """把文章标 review_status='pending' 并追加进 (user_id, group_name) 分组：
+    有同名未软删组则复用，软删同名组则复活，都没有则新建；去重追加，sort_order 接 max+1。
+    并发两个 run 同时建组撞 (user_id, name) 唯一约束 → rollback、重标 pending、回查复用。
+    尽力而为：失败记日志、不抛；独立 session、本函数内 commit+close。返回 group_id 或 None。"""
+    if not article_ids:
+        return None
+    try:
+        from sqlalchemy.exc import IntegrityError
+
+        db = session_factory()
+        try:
+
+            def _mark_pending() -> None:
+                for aid in article_ids:
+                    art = db.get(Article, aid)
+                    if art is not None:
+                        art.review_status = "pending"
+
+            def _resolve_group() -> ArticleGroup:
+                existing = (
+                    db.query(ArticleGroup)
+                    .filter(ArticleGroup.user_id == user_id, ArticleGroup.name == group_name)
+                    .first()
+                )
+                if existing is not None:
+                    if existing.is_deleted:  # 软删同名 → 复活并清空旧成员
+                        existing.is_deleted = False
+                        existing.deleted_at = None
+                        existing.version += 1
+                        existing.updated_at = utcnow()
+                        existing.items.clear()
+                        db.flush()
+                    return existing
+                grp = ArticleGroup(user_id=user_id, name=group_name)
+                db.add(grp)
+                db.flush()  # 撞唯一约束在此抛 IntegrityError
+                return grp
+
+            _mark_pending()
+            try:
+                group = _resolve_group()
+            except IntegrityError:
+                db.rollback()
+                _mark_pending()
+                group = (
+                    db.query(ArticleGroup)
+                    .filter(
+                        ArticleGroup.user_id == user_id,
+                        ArticleGroup.name == group_name,
+                        ArticleGroup.is_deleted.is_(False),
+                    )
+                    .first()
+                )
+                if group is None:
+                    raise
+
+            existing_ids = {
+                row[0]
+                for row in db.query(ArticleGroupItem.article_id)
+                .filter(ArticleGroupItem.group_id == group.id)
+                .all()
+            }
+            max_order = (
+                db.query(func.max(ArticleGroupItem.sort_order))
+                .filter(ArticleGroupItem.group_id == group.id)
+                .scalar()
+            )
+            next_order = (max_order + 1) if max_order is not None else 0
+            for aid in article_ids:
+                if aid in existing_ids:
+                    continue
+                db.add(ArticleGroupItem(group_id=group.id, article_id=aid, sort_order=next_order))
+                existing_ids.add(aid)
+                next_order += 1
+
+            group.updated_at = utcnow()
+            gid = group.id
+            db.commit()
+            return gid
+        finally:
+            db.close()
+    except Exception:  # noqa: BLE001 — 尽力而为
+        _logger.exception(
+            "mark_pending_and_append_daily failed (user=%s, name=%s, n=%s)",
+            user_id,
+            group_name,
+            len(article_ids),
+        )
+        return None

@@ -370,7 +370,7 @@ def _start_runnable_records(
             article = _load_article_for_publish(db, next_record.article_id)
             account = db.get(Account, next_record.account_id)
             validation_error = _validate_record_inputs(article, account)
-            if account is not None and validation_error is None:
+            if account is not None and validation_error is None and account.state_path is not None:
                 profile_key = _profile_key_from_state_path(account.state_path)
                 reason = "账号正在执行发布或登录操作，发布记录已排队"
                 if not try_acquire_profile_lock(
@@ -559,6 +559,11 @@ def _detach_record_inputs(
     expunge 前已 selectinload 的关系才安全；检测到关键关系（cover_asset/body_assets/asset）
     仍 unloaded 就直接抛 RuntimeError——detached 对象再触发懒加载会因无 session 炸在发布线程里。
     """
+    # build_publish_runner_for_record 在发布线程读 record.platform.code 判 API/浏览器驱动；
+    # detach 后该关系无法再懒加载（DetachedInstanceError），趁仍绑定 session 先把它加载进实例（见 PR#70 回归）。
+    if record.platform is not None:
+        _ = record.platform.code
+
     objects: list[object] = [record, article, account]
     if article.cover_asset is not None:
         objects.append(article.cover_asset)
@@ -871,8 +876,40 @@ def _store_failure_screenshot(
 def build_publish_runner_for_record(record: PublishRecord):
     """构造该记录的发布闭包：预绑 record_id + 浏览器 channel/可执行路径，返回 (article, account) → PublishResult。
 
-    驱动选择在 runner.run_publish 内按账号 state_path 的 platform_code 决定。懒导入 runner 避免循环依赖。
+    API 型平台（驱动 mode='api'，如公众号）分叉到 runner_api（无浏览器）；
+    浏览器平台驱动选择仍在 runner.run_publish 内按账号 state_path 的 platform_code 决定。
+    懒导入 runner 避免循环依赖。
     """
+    from server.app.modules.tasks.drivers import (
+        is_api_driver,
+        is_driver_registered,
+        resolve_driver,
+    )
+
+    platform_code = record.platform.code if record.platform is not None else None
+    # 驱动未在本进程注册时（多为某进程漏 import，见 drivers/bootstrap.py）显式报错，
+    # 不要静默回退浏览器 run_publish——那会把根因伪装成误导性的「需要 storage_state」。
+    if platform_code and not is_driver_registered(platform_code):
+        from server.app.modules.tasks.drivers.base import PublishError
+
+        raise PublishError(
+            f"平台 {platform_code!r} 的发布驱动未在本进程注册；"
+            "请确认进程已 import server.app.modules.tasks.drivers.bootstrap"
+        )
+
+    if platform_code and is_api_driver(platform_code):
+        from server.app.modules.tasks.runner_api import run_publish_api
+
+        driver = resolve_driver(platform_code)
+
+        def _api_runner(article, account, *, stop_before_publish=False):
+            # platform_code（=record.platform.code）显式传入，避免发布线程懒加载 detached account.platform（#90）
+            return run_publish_api(
+                article=article, account=account, driver=driver, platform_code=platform_code
+            )
+
+        return _api_runner
+
     from server.app.modules.tasks.runner import run_publish
 
     settings = get_settings()

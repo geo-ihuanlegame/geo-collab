@@ -1,0 +1,155 @@
+# ============================================================
+# GitLab CI —— Geo 平台
+#
+# 现实约束:目前只有 1 个 runner、并发 = 1(所有 job 串行排队),
+# 所以墙钟 ≈ 各 job 时长之和。优化思路是「减少总工作量」,而不是堆并行:
+#   - 后端测试不再拆 4 片(单 runner 上拆片只会重复装依赖 + 互相排队,纯浪费)
+#   - 缓存 venv / pnpm store(按 lock 文件哈希做 key),装依赖从 ~45s 降到 ~5s
+#   - 纯文档改动不触发流水线(workflow:rules:changes)
+#   - 新 push 自动取消旧流水线(interruptible)、基础设施类瞬时失败自动重试(retry)
+#
+# 若将来把 runner 的 concurrent 调到 ≥4(或加 runner),可参照
+# .github/workflows/ci.yml 把 backend-test 重新拆成 parallel:matrix 并行,
+# 后端测试能从 ~8min 压到 ~2min。改 runner 才是追平 GitHub 速度的关键。
+# ============================================================
+
+# 触发流水线的「代码相关」路径(纯文档改动则不跑,省下唯一的 runner)
+.code-paths: &code-paths
+  - server/**/*
+  - web/**/*
+  - requirements*.txt
+  - pyproject.toml
+  - alembic.ini
+  - .gitlab-ci.yml
+  - Dockerfile*
+  - docker-compose*.yml
+
+workflow:
+  rules:
+    - if: '$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS'   # 有开着的 MR 时不重复跑分支流水线
+      when: never
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes: *code-paths
+    - if: '$CI_COMMIT_BRANCH'
+      changes: *code-paths
+
+stages:
+  - lint
+  - test
+  - frontend
+
+variables:
+  PIP_INDEX_URL: "https://pypi.tuna.tsinghua.edu.cn/simple"
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.pip-cache"
+  PNPM_STORE_DIR: "$CI_PROJECT_DIR/.pnpm-store"
+  FF_USE_FASTZIP: "true"          # 更快的缓存压缩
+  GEO_JWT_SECRET: "ci-test-secret-not-for-prod"
+  GEO_DATA_DIR: "$CI_PROJECT_DIR/geo-test-data"
+
+default:
+  interruptible: true             # 新 push 进来自动取消旧的在跑流水线,腾出 runner
+  retry:
+    max: 2
+    when:                         # 只对基础设施类瞬时失败重试(镜像拉取/网络/超时),不重试真实脚本失败
+      - runner_system_failure
+      - stuck_or_timeout_failure
+      - api_failure
+      - scheduler_failure
+
+# ---- 复用:Python 环境 + venv 缓存(按 requirements 哈希做 key,装依赖近乎秒级)----
+.python:
+  image: public.ecr.aws/docker/library/python:3.12-slim
+  tags: [docker]
+  cache:
+    - key:
+        prefix: venv
+        files:
+          - requirements.txt
+          - requirements-dev.txt
+      paths:
+        - .venv/
+        - .pip-cache/
+  before_script:
+    - test -d .venv || python -m venv .venv
+    - . .venv/bin/activate
+    - pip install --quiet -r requirements.txt -r requirements-dev.txt
+
+# ============================================================
+# 后端 Lint(放在最前:失败则后面的测试/前端整段跳过,快速反馈 + 省 runner)
+# ============================================================
+backend-lint:
+  extends: .python
+  stage: lint
+  script:
+    - ruff check server/
+    - ruff format --check server/
+    - mypy server/app
+
+# ============================================================
+# 后端测试(全套一次跑完,不分片)
+# ============================================================
+backend-test:
+  extends: .python
+  stage: test
+  services:
+    - name: public.ecr.aws/docker/library/mysql:8.0
+      alias: mysql
+      variables:
+        MYSQL_ROOT_PASSWORD: testpw
+        MYSQL_DATABASE: geo_test
+  variables:
+    FF_NETWORK_PER_BUILD: "1"
+    GEO_TEST_DATABASE_URL: "mysql+pymysql://root:testpw@mysql:3306/geo_test"
+  script:
+    - |
+      echo "等待 MySQL 就绪 ..."
+      for i in $(seq 1 60); do
+        if python -c "import pymysql; pymysql.connect(host='mysql', user='root', password='testpw', database='geo_test').close()" 2>/dev/null; then
+          echo "MySQL ready"; break
+        fi
+        if [ "$i" -eq 60 ]; then echo "MySQL 等待超时"; exit 1; fi
+        sleep 2
+      done
+    - pytest server/tests/ -q --timeout=120
+
+# ============================================================
+# 依赖安全扫描(后端 pip-audit)—— 非阻塞,仅告警
+# 修复:pip-audit 没有 -i 参数(那会把 URL 当成位置参数 project_path 报错);
+#       镜像源改走 PIP_INDEX_URL 环境变量。与 GitHub CI 用同一个 requirements-audit.txt。
+# ============================================================
+security-audit:
+  image: public.ecr.aws/docker/library/python:3.12-slim
+  tags: [docker]
+  stage: test
+  allow_failure: true
+  cache:
+    - key: pipaudit
+      paths:
+        - .pip-cache/
+  script:
+    - pip install --quiet pip-audit
+    - pip-audit -r requirements-audit.txt
+
+# ============================================================
+# 前端:类型检查 + 构建(末尾附带非阻塞 pnpm audit)
+# ============================================================
+frontend:
+  image: public.ecr.aws/docker/library/node:22-bookworm-slim
+  tags: [docker]
+  stage: frontend
+  cache:
+    - key:
+        prefix: pnpm
+        files:
+          - pnpm-lock.yaml
+      paths:
+        - .pnpm-store/
+  before_script:
+    - corepack enable
+    - corepack prepare pnpm@10.4.0 --activate
+    - pnpm config set store-dir "$PNPM_STORE_DIR"
+    - pnpm install --frozen-lockfile --registry https://registry.npmmirror.com
+  script:
+    - pnpm --filter @geo/web typecheck
+    - pnpm --filter @geo/web build
+    - pnpm audit --audit-level moderate || true   # 非阻塞,仅告警

@@ -1,27 +1,60 @@
-import { useRef, useState } from "react";
+import { lazy, Suspense, useRef, useState } from "react";
 import { navItems } from "./types";
-import type { NavKey, PromptScope, ReviewStatus } from "./types";
+import type { NavKey } from "./types";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ToastProvider } from "./components/Toast";
-import { AgentManagementWorkspace } from "./features/pipelines/AgentManagementWorkspace";
-import { AiGenerationWorkspace } from "./features/ai-generation/AiGenerationWorkspace";
-import { ImageLibraryWorkspace } from "./features/image-library/ImageLibraryWorkspace";
-import { ContentWorkspace } from "./features/content/ContentWorkspace";
-import { PromptsWorkspace } from "./features/prompt-templates/PromptsWorkspace";
-import { AccountsWorkspace } from "./features/accounts/AccountsWorkspace";
-import { TasksWorkspace } from "./features/tasks/TasksWorkspace";
-import { SystemWorkspace } from "./features/system/SystemWorkspace";
+import { GlobalErrorListener } from "./components/GlobalErrorListener";
 import { AuthProvider, useAuth } from "./features/auth/AuthContext";
 import { LoginPage } from "./features/auth/LoginPage";
 import { ChangePasswordPage } from "./features/auth/ChangePasswordPage";
-import { UsersWorkspace } from "./features/auth/UsersWorkspace";
-import { AuditLogsWorkspace } from "./features/system/AuditLogsWorkspace";
-import { ChevronDown, ChevronLeft, LogOut, ScrollText, Users } from "lucide-react";
+import { ChevronLeft, LogOut, ScrollText, Users } from "lucide-react";
 import { MobileNav } from "./components/MobileNav";
 import { MobileMorePage } from "./components/MobileMorePage";
 import { ScrollPanel } from "./components/ScrollPanel";
 import { useIsMobile } from "./hooks/useIsMobile";
 import "./styles.css";
+
+const AgentManagementWorkspace = lazy(() =>
+  import("./features/pipelines/AgentManagementWorkspace").then((m) => ({ default: m.AgentManagementWorkspace })),
+);
+const AiGenerationWorkspace = lazy(() =>
+  import("./features/ai-generation/AiGenerationWorkspace").then((m) => ({ default: m.AiGenerationWorkspace })),
+);
+const ImageLibraryWorkspace = lazy(() =>
+  import("./features/image-library/ImageLibraryWorkspace").then((m) => ({ default: m.ImageLibraryWorkspace })),
+);
+const ContentWorkspace = lazy(() =>
+  import("./features/content/ContentWorkspace").then((m) => ({ default: m.ContentWorkspace })),
+);
+const PromptsWorkspace = lazy(() =>
+  import("./features/prompt-templates/PromptsWorkspace").then((m) => ({ default: m.PromptsWorkspace })),
+);
+const AccountsWorkspace = lazy(() =>
+  import("./features/accounts/AccountsWorkspace").then((m) => ({ default: m.AccountsWorkspace })),
+);
+const TasksWorkspace = lazy(() =>
+  import("./features/tasks/TasksWorkspace").then((m) => ({ default: m.TasksWorkspace })),
+);
+const SystemWorkspace = lazy(() =>
+  import("./features/system/SystemWorkspace").then((m) => ({ default: m.SystemWorkspace })),
+);
+const HotListsWorkspace = lazy(() =>
+  import("./features/hot-lists/HotListsWorkspace").then((m) => ({ default: m.HotListsWorkspace })),
+);
+const UsersWorkspace = lazy(() =>
+  import("./features/auth/UsersWorkspace").then((m) => ({ default: m.UsersWorkspace })),
+);
+const AuditLogsWorkspace = lazy(() =>
+  import("./features/system/AuditLogsWorkspace").then((m) => ({ default: m.AuditLogsWorkspace })),
+);
+
+function TabFallback() {
+  return (
+    <p className="emptyText" style={{ padding: 24 }}>
+      页面加载中...
+    </p>
+  );
+}
 
 function AppShell() {
   const { user, loading, logout } = useAuth();
@@ -31,28 +64,7 @@ function AppShell() {
   // 当前页是否属于「更多」分区（即不在底栏 4 个高频入口中）
   const onMoreSection = !(["agents", "ai", "content", "tasks"] as NavKey[]).includes(activeNav);
   const [visitedTabs, setVisitedTabs] = useState<Set<NavKey>>(new Set(["agents"]));
-  const [openGroup, setOpenGroup] = useState<NavKey | null>(null);
-  const [contentReviewTab, setContentReviewTab] = useState<ReviewStatus>("pending");
-  const [promptsScope, setPromptsScope] = useState<PromptScope>("generation");
   const contentDirtyRef = useRef<() => boolean>(() => false);
-
-  // 手风琴：同一时间只展开一个含子页的父菜单
-  function toggleGroup(key: NavKey) {
-    setOpenGroup((prev) => (prev === key ? null : key));
-  }
-
-  function childValueFor(parentKey: NavKey): string {
-    if (parentKey === "content") return contentReviewTab;
-    if (parentKey === "prompts") return promptsScope;
-    return "";
-  }
-
-  function selectChild(parentKey: NavKey, value: string) {
-    if (parentKey === "content") setContentReviewTab(value as ReviewStatus);
-    else if (parentKey === "prompts") setPromptsScope(value as PromptScope);
-    setOpenGroup(parentKey);
-    handleNavClick(parentKey);
-  }
 
   function handleNavClick(key: NavKey) {
     if (activeNav === "content" && key !== "content" && contentDirtyRef.current()) {
@@ -60,9 +72,6 @@ function AppShell() {
     }
     setVisitedTabs((prev) => (prev.has(key) ? prev : new Set(prev).add(key)));
     setActiveNav(key);
-    // 选中非父级菜单时，收起所有含子页的父菜单
-    const hasChildren = navItems.some((i) => i.key === key && (i.children?.length ?? 0) > 0);
-    if (!hasChildren) setOpenGroup(null);
   }
 
   if (loading) {
@@ -85,6 +94,8 @@ function AppShell() {
 
   return (
     <ToastProvider>
+      {/* 必须挂在 ToastProvider 内（useToast 的 context 默认值是 no-op）；登录页无 toast 面板，自带内联报错 */}
+      <GlobalErrorListener />
       <main className={`shell${isMobile ? " shellMobile" : ""}`}>
         {isMobile && (
           <header className="mobileAppBar">
@@ -109,49 +120,6 @@ function AppShell() {
           <nav className="nav">
             {navItems.map((item) => {
               const Icon = item.icon;
-              if (item.children && item.children.length > 0) {
-                const isOpen = openGroup === item.key;
-                return (
-                  <div className="navGroup" key={item.key}>
-                    <button
-                      className={`navItem navParent ${activeNav === item.key ? "active" : ""}`}
-                      type="button"
-                      onClick={() => {
-                        if (activeNav === item.key) {
-                          toggleGroup(item.key);
-                        } else {
-                          handleNavClick(item.key);
-                          setOpenGroup(item.key);
-                        }
-                      }}
-                    >
-                      <Icon size={17} />
-                      <span>{item.label}</span>
-                      <ChevronDown size={15} className={`navChevron${isOpen ? " open" : ""}`} />
-                    </button>
-                    <div className={`navSub ${isOpen ? "open" : ""}`}>
-                      <div className="navChildren">
-                        <div className="navChildrenInner">
-                          {item.children.map((child) => {
-                            const childActive =
-                              activeNav === item.key && childValueFor(item.key) === child.value;
-                            return (
-                              <button
-                                className={`navChild ${childActive ? "active" : ""}`}
-                                key={child.key}
-                                type="button"
-                                onClick={() => selectChild(item.key, child.value)}
-                              >
-                                {child.label}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              }
               return (
                 <button
                   className={`navItem ${activeNav === item.key ? "active" : ""}`}
@@ -199,79 +167,98 @@ function AppShell() {
           <div className="workspaceInner">
             {visitedTabs.has("agents") && (
               <ScrollPanel id="agents" active={activeNav === "agents"}>
-                <ErrorBoundary fallback={<p role="alert">智能体管理出错，请刷新重试</p>}>
-                  <AgentManagementWorkspace />
+                <ErrorBoundary title="智能体管理">
+                  <Suspense fallback={<TabFallback />}>
+                    <AgentManagementWorkspace />
+                  </Suspense>
                 </ErrorBoundary>
               </ScrollPanel>
             )}
             {visitedTabs.has("ai") && (
               <ScrollPanel id="ai" active={activeNav === "ai"}>
-                <ErrorBoundary fallback={<p role="alert">AI 生文出错，请刷新重试</p>}>
-                  <AiGenerationWorkspace onNavigateToContent={() => handleNavClick("content")} />
+                <ErrorBoundary title="AI 生文">
+                  <Suspense fallback={<TabFallback />}>
+                    <AiGenerationWorkspace onNavigateToContent={() => handleNavClick("content")} />
+                  </Suspense>
                 </ErrorBoundary>
               </ScrollPanel>
             )}
             <ScrollPanel id="content" active={activeNav === "content"}>
-              <ErrorBoundary fallback={<p role="alert">内容管理出错，请刷新重试</p>}>
-                <ContentWorkspace
-                  dirtyCheckRef={contentDirtyRef}
-                  isActive={activeNav === "content"}
-                  reviewTab={contentReviewTab}
-                  isMobile={isMobile}
-                  onReviewTabChange={setContentReviewTab}
-                />
+              <ErrorBoundary title="内容管理">
+                <Suspense fallback={<TabFallback />}>
+                  <ContentWorkspace dirtyCheckRef={contentDirtyRef} isActive={activeNav === "content"} />
+                </Suspense>
               </ErrorBoundary>
             </ScrollPanel>
             {visitedTabs.has("prompts") && (
               <ScrollPanel id="prompts" active={activeNav === "prompts"}>
-                <ErrorBoundary fallback={<p role="alert">提示词管理出错，请刷新重试</p>}>
-                  <PromptsWorkspace
-                  scope={promptsScope}
-                  isMobile={isMobile}
-                  onScopeChange={setPromptsScope}
-                />
+                <ErrorBoundary title="提示词管理">
+                  <Suspense fallback={<TabFallback />}>
+                    <PromptsWorkspace />
+                  </Suspense>
                 </ErrorBoundary>
               </ScrollPanel>
             )}
             {visitedTabs.has("image-library") && (
               <ScrollPanel id="image-library" active={activeNav === "image-library"}>
-                <ErrorBoundary fallback={<p role="alert">图片库出错，请刷新重试</p>}>
-                  <ImageLibraryWorkspace />
+                <ErrorBoundary title="图片库">
+                  <Suspense fallback={<TabFallback />}>
+                    <ImageLibraryWorkspace />
+                  </Suspense>
                 </ErrorBoundary>
               </ScrollPanel>
             )}
             {visitedTabs.has("media") && (
               <ScrollPanel id="media" active={activeNav === "media"}>
-                <ErrorBoundary fallback={<p role="alert">媒体矩阵出错，请刷新重试</p>}>
-                  <AccountsWorkspace isActive={activeNav === "media"} />
+                <ErrorBoundary title="媒体矩阵">
+                  <Suspense fallback={<TabFallback />}>
+                    <AccountsWorkspace isActive={activeNav === "media"} />
+                  </Suspense>
                 </ErrorBoundary>
               </ScrollPanel>
             )}
             {visitedTabs.has("tasks") && (
               <ScrollPanel id="tasks" active={activeNav === "tasks"}>
-                <ErrorBoundary fallback={<p role="alert">分发引擎出错，请刷新重试</p>}>
-                  <TasksWorkspace isActive={activeNav === "tasks"} />
+                <ErrorBoundary title="分发引擎">
+                  <Suspense fallback={<TabFallback />}>
+                    <TasksWorkspace isActive={activeNav === "tasks"} />
+                  </Suspense>
                 </ErrorBoundary>
               </ScrollPanel>
             )}
             {visitedTabs.has("system") && (
               <ScrollPanel id="system" active={activeNav === "system"}>
-                <ErrorBoundary fallback={<p role="alert">系统状态出错，请刷新重试</p>}>
-                  <SystemWorkspace />
+                <ErrorBoundary title="系统状态">
+                  <Suspense fallback={<TabFallback />}>
+                    <SystemWorkspace />
+                  </Suspense>
+                </ErrorBoundary>
+              </ScrollPanel>
+            )}
+            {visitedTabs.has("hot-lists") && (
+              <ScrollPanel id="hot-lists" active={activeNav === "hot-lists"}>
+                <ErrorBoundary title="热榜">
+                  <Suspense fallback={<TabFallback />}>
+                    <HotListsWorkspace />
+                  </Suspense>
                 </ErrorBoundary>
               </ScrollPanel>
             )}
             {user.role === "admin" && visitedTabs.has("admin") && (
               <ScrollPanel id="admin" active={activeNav === "admin"}>
-                <ErrorBoundary fallback={<p role="alert">用户管理出错，请刷新重试</p>}>
-                  <UsersWorkspace />
+                <ErrorBoundary title="用户管理">
+                  <Suspense fallback={<TabFallback />}>
+                    <UsersWorkspace />
+                  </Suspense>
                 </ErrorBoundary>
               </ScrollPanel>
             )}
             {user.role === "admin" && visitedTabs.has("audit-logs") && (
               <ScrollPanel id="audit-logs" active={activeNav === "audit-logs"}>
-                <ErrorBoundary fallback={<p role="alert">审计日志出错，请刷新重试</p>}>
-                  <AuditLogsWorkspace />
+                <ErrorBoundary title="审计日志">
+                  <Suspense fallback={<TabFallback />}>
+                    <AuditLogsWorkspace />
+                  </Suspense>
                 </ErrorBoundary>
               </ScrollPanel>
             )}

@@ -603,3 +603,185 @@ def test_approved_content_source_dedup_excludes_live_keeps_failed_softdeleted(mo
         assert a_del in ids  # 软删记录 → 不排除
     finally:
         app.cleanup()
+
+
+@pytest.mark.mysql
+def test_resolve_distribution_accounts_rule_extra_excluded(monkeypatch):
+    """resolver：平台规则只含「已启用 + valid」账号；distribution_enabled=False / status!=valid 被滤；
+    excluded 单独排除；extra 单独追加；空选择 → []。"""
+    from server.app.modules.accounts.models import Account
+    from server.app.modules.articles.models import Article
+    from server.app.modules.pipelines.nodes.distribute_node import resolve_distribution_accounts
+
+    app = build_test_app(monkeypatch)
+    client = app.client
+    try:
+        a1 = _make_approved_article(client, "x")
+        acc1 = _make_account(app, client, "r1", "号1")
+        acc2 = _make_account(app, client, "r2", "号2")
+        acc_off = _make_account(app, client, "r3", "停用")
+        acc_bad = _make_account(app, client, "r4", "失效")
+        with app.session_factory() as db:
+            uid = db.get(Article, a1).user_id
+            db.get(Account, acc_off).distribution_enabled = False
+            db.get(Account, acc_bad).status = "expired"
+            db.commit()
+
+        def _resolve(selection):
+            with app.session_factory() as db:
+                return resolve_distribution_accounts(db, selection, user_id=uid, role="admin")
+
+        # 平台规则 → 只剩 acc1/acc2（停用、失效被滤）
+        assert _resolve({"platforms": ["toutiao"]}) == [("toutiao", sorted([acc1, acc2]))]
+        # excluded 单独排除 acc2
+        assert _resolve({"platforms": ["toutiao"], "excluded_account_ids": [acc2]}) == [
+            ("toutiao", [acc1])
+        ]
+        # 仅 extra（无平台规则）→ 只含追加账号
+        assert _resolve({"platforms": [], "extra_account_ids": [acc1]}) == [("toutiao", [acc1])]
+        # 空选择 → []
+        assert (
+            _resolve({"platforms": [], "extra_account_ids": [], "excluded_account_ids": []}) == []
+        )
+    finally:
+        app.cleanup()
+
+
+@pytest.mark.mysql
+def test_distribute_account_selection_builds_task(monkeypatch):
+    """新 account_selection（平台规则）→ 该平台全部启用账号建 article_round_robin 任务。"""
+    from server.app.modules.articles.models import Article
+    from server.app.modules.pipelines.nodes.base import NodeRunContext
+    from server.app.modules.pipelines.nodes.distribute_node import run_distribute
+    from server.app.modules.tasks.models import PublishRecord, PublishTask
+
+    app = build_test_app(monkeypatch)
+    client = app.client
+    try:
+        a1 = _make_approved_article(client, "s1")
+        a2 = _make_approved_article(client, "s2")
+        acc1 = _make_account(app, client, "sel1", "选1")
+        acc2 = _make_account(app, client, "sel2", "选2")
+        with app.session_factory() as db:
+            uid = db.get(Article, a1).user_id
+        ctx = NodeRunContext(
+            session_factory=app.session_factory,
+            user_id=uid,
+            config={"account_selection": {"platforms": ["toutiao"]}},
+            inputs={"article_ids": [a1, a2]},
+            upstream={},
+        )
+        res = run_distribute(ctx)
+        assert res.output.get("task_id")  # 单平台 → 回传 task_id
+        with app.session_factory() as db:
+            t = db.get(PublishTask, res.output["task_id"])
+            assert t.task_type == "article_round_robin"
+            recs = db.query(PublishRecord).filter(PublishRecord.task_id == t.id).all()
+            assert {r.account_id for r in recs} == {acc1, acc2}  # 平台全部启用账号都参与
+    finally:
+        app.cleanup()
+
+
+@pytest.mark.mysql
+def test_distribute_all_disabled_skips_and_unconfigured_raises(monkeypatch):
+    """配置了平台但当下无启用账号 → 安静跳过；完全没配平台/账号 → 报错。"""
+    from server.app.modules.accounts.models import Account
+    from server.app.modules.articles.models import Article
+    from server.app.modules.pipelines.nodes.base import NodeRunContext
+    from server.app.modules.pipelines.nodes.distribute_node import run_distribute
+    from server.app.modules.tasks.models import PublishTask
+    from server.app.shared.errors import ValidationError
+
+    app = build_test_app(monkeypatch)
+    client = app.client
+    try:
+        a1 = _make_approved_article(client, "d1")
+        acc1 = _make_account(app, client, "dis1", "停1")
+        with app.session_factory() as db:
+            uid = db.get(Article, a1).user_id
+            db.get(Account, acc1).distribution_enabled = False
+            db.commit()
+        skip_ctx = NodeRunContext(
+            session_factory=app.session_factory,
+            user_id=uid,
+            config={"account_selection": {"platforms": ["toutiao"]}},
+            inputs={"article_ids": [a1]},
+            upstream={},
+        )
+        assert run_distribute(skip_ctx).output.get("skipped")
+        with app.session_factory() as db:
+            assert db.query(PublishTask).count() == 0
+
+        bad_ctx = NodeRunContext(
+            session_factory=app.session_factory,
+            user_id=uid,
+            config={"account_selection": {"platforms": [], "extra_account_ids": []}},
+            inputs={"article_ids": [a1]},
+            upstream={},
+        )
+        with pytest.raises(ValidationError):
+            run_distribute(bad_ctx)
+    finally:
+        app.cleanup()
+
+
+@pytest.mark.mysql
+def test_distribute_multi_platform_one_task_each(monkeypatch):
+    """选多个平台（头条 + 公众号）→ 每平台各建一个任务（受『一个任务=单平台』约束）；
+    公众号(API)账号也能落任务（草稿箱路径）。"""
+    from server.app.modules.articles.models import Article
+    from server.app.modules.pipelines.nodes.base import NodeRunContext
+    from server.app.modules.pipelines.nodes.distribute_node import run_distribute
+    from server.app.modules.system.models import Platform
+    from server.app.modules.tasks.models import PublishTask
+
+    app = build_test_app(monkeypatch)
+    client = app.client
+    try:
+        a1 = _make_approved_article(client, "m1")
+        a2 = _make_approved_article(client, "m2")
+        _make_account(app, client, "mt", "头条号")  # 头条平台至少一个账号，供平台规则命中
+        with app.session_factory() as db:
+            uid = db.get(Article, a1).user_id
+            if db.query(Platform).filter(Platform.code == "wechat_mp").first() is None:
+                db.add(
+                    Platform(
+                        code="wechat_mp",
+                        name="微信公众号",
+                        base_url="https://mp.weixin.qq.com",
+                        enabled=True,
+                    )
+                )
+                db.commit()
+        wx = client.post(
+            "/api/accounts",
+            json={
+                "platform_code": "wechat_mp",
+                "display_name": "公众号A",
+                "api_credentials": {"app_id": "wxtest0001", "app_secret": "secret-xxxx"},
+            },
+        ).json()["id"]
+        monkeypatch.setattr(
+            "server.app.modules.accounts.service.wechat_fetch_access_token",
+            lambda app_id, app_secret, client=None: ("tok-1", 7200),
+        )
+        assert client.post(f"/api/accounts/{wx}/verify-credentials").status_code == 200
+
+        ctx = NodeRunContext(
+            session_factory=app.session_factory,
+            user_id=uid,
+            config={"account_selection": {"platforms": ["toutiao", "wechat_mp"]}},
+            inputs={"article_ids": [a1, a2]},
+            upstream={},
+        )
+        res = run_distribute(ctx)
+        assert len(res.output["task_ids"]) == 2  # 每平台各一任务
+        with app.session_factory() as db:
+            tasks = db.query(PublishTask).all()
+            codes = {db.get(Platform, t.platform_id).code for t in tasks}
+            assert codes == {"toutiao", "wechat_mp"}
+            # 公众号任务确实派到了 API 账号 wx
+            wx_task = next(t for t in tasks if db.get(Platform, t.platform_id).code == "wechat_mp")
+            assert {pa.account_id for pa in wx_task.accounts} == {wx}
+    finally:
+        app.cleanup()

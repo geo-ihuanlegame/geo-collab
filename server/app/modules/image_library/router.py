@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from server.app.core.security import get_current_user
 from server.app.db.session import get_db
 from server.app.modules.audit.service import add_audit_entry
+from server.app.modules.image_library import service as image_service
 from server.app.modules.image_library import store as minio_store
 from server.app.modules.image_library.models import StockCategory, StockImage
 from server.app.modules.system.models import User
@@ -29,7 +30,7 @@ files_router = APIRouter()  # /api/stock-images/*  — 公开（图片嵌入文�
 
 class CategoryCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
-    bucket_name: str = Field(min_length=1, max_length=63)
+    bucket_name: str | None = Field(default=None, max_length=63)
     kind: str = "companion"
     description: str | None = None
     official_url: str | None = None
@@ -179,18 +180,23 @@ def create_category(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Any:
-    existing = (
-        db.query(StockCategory).filter(StockCategory.bucket_name == payload.bucket_name).first()
-    )
-    if existing:
-        raise HTTPException(status_code=409, detail="bucket_name 已存在")
+    if payload.bucket_name:
+        bucket_name = payload.bucket_name
+        existing = db.query(StockCategory).filter(StockCategory.bucket_name == bucket_name).first()
+        if existing:
+            raise HTTPException(status_code=409, detail="bucket_name 已存在")
+    else:
+        # 不暴露 bucket：按文件夹名拼音自动派一个唯一桶名
+        bucket_name = image_service._unique_bucket_name(
+            db, image_service.slugify_bucket(payload.name)
+        )
     try:
-        minio_store.ensure_bucket(payload.bucket_name)
+        minio_store.ensure_bucket(bucket_name)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"MinIO bucket 创建失败: {exc}") from exc
     cat = StockCategory(
         name=payload.name,
-        bucket_name=payload.bucket_name,
+        bucket_name=bucket_name,
         kind=payload.kind,
         description=payload.description,
         official_url=payload.official_url,
@@ -257,6 +263,41 @@ def update_category(
         request=request,
     )
     return _to_category_read(cat)
+
+
+@router.delete("/categories/{category_id}", status_code=204)
+def delete_category(
+    category_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    cat = db.get(StockCategory, category_id)
+    if cat is None:
+        raise HTTPException(status_code=404, detail="栏目不存在")
+
+    image_count = db.query(StockImage).filter(StockImage.category_id == category_id).count()
+    if image_count > 0:
+        raise HTTPException(status_code=409, detail="该文件夹内还有图片，请先清空")
+
+    cat_name = cat.name
+    bucket_name = cat.bucket_name
+    try:
+        minio_store.remove_bucket(bucket_name)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"MinIO bucket 删除失败: {exc}") from exc
+
+    db.delete(cat)
+    db.commit()
+    add_audit_entry(
+        db,
+        user=current_user,
+        action="stock_category.delete",
+        target_type="stock_category",
+        target_id=category_id,
+        payload={"name": cat_name},
+        request=request,
+    )
 
 
 # ── 图片路由 ───────────────────────────────────────────────────────────────

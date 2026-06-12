@@ -320,3 +320,24 @@ class TestDeleteAccountGuard:
                 db.close()
         finally:
             test_app.cleanup()
+
+
+def test_account_delete_preserves_publish_history(monkeypatch):
+    test_app = build_test_app(monkeypatch)
+    client = test_app.client
+    try:
+        article_id = _create_article(client)
+        account_id = _create_account(test_app, "acc-history", "Acc")
+        record_id = _create_task_and_record(test_app, article_id, account_id, "succeeded")
+
+        # 无活跃记录 → 软删放行（默认 client 是 admin，删除端点要求 admin）
+        assert client.delete(f"/api/accounts/{account_id}").status_code == 204
+
+        with test_app.session_factory() as db:
+            acc = db.get(Account, account_id)
+            assert acc.is_deleted is True
+            rec = db.get(PublishRecord, record_id)
+            assert rec is not None
+            assert rec.account_id == account_id  # 历史仍指向账号行，未被破坏
+    finally:
+        test_app.cleanup()

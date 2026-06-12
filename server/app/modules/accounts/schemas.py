@@ -21,8 +21,13 @@ class AccountRead(BaseModel):
     status: str  # 状态：valid / expired / unknown
     last_checked_at: datetime | None
     last_login_at: datetime | None
-    state_path: str  # Playwright storage_state.json 路径
+    state_path: str | None  # Playwright storage_state.json 路径；API 型账号为 None
     note: str | None
+    contact: str | None = None  # 绑定联系方式
+    avatar_asset_id: str | None = None
+    distribution_enabled: bool = True
+    app_id: str | None = None  # API 型账号的 AppID（明文）
+    app_secret_tail: str | None = None  # AppSecret 尾 4 位掩码；原文永不回传
     created_at: datetime
     updated_at: datetime
 
@@ -63,6 +68,10 @@ class PlatformLoginRequest(BaseModel):
     wait_seconds: int = Field(default=180, ge=5, le=600)  # 等待登录完成的超时时间（秒）
     use_browser: bool = True  # 为 True 时打开浏览器交互登录；为 False 时复用已有状态
     note: str | None = None
+    # ── 通用账号字段（与 ApiAccountCreate 对齐）：浏览器平台建号时由「添加账号」弹窗一并填入 ──
+    contact: str | None = Field(default=None, max_length=200)  # 绑定联系方式
+    avatar_asset_id: str | None = Field(default=None, max_length=64)  # 账号头像
+    distribution_enabled: bool = True  # 分发开关
 
 
 class AccountCheckRequest(BaseModel):
@@ -71,8 +80,32 @@ class AccountCheckRequest(BaseModel):
     use_browser: bool = True
 
 
-class AccountRenameRequest(BaseModel):
+class ApiCredentialsIn(BaseModel):
+    app_id: str = Field(min_length=1, max_length=100)
+    app_secret: str = Field(min_length=1, max_length=200)
+
+
+class ApiAccountCreate(BaseModel):
+    """API 型平台（如微信公众号）账号创建：凭据直填，无浏览器登录。"""
+
+    platform_code: str = Field(min_length=1, max_length=50)
     display_name: str = Field(min_length=1, max_length=200)
+    api_credentials: ApiCredentialsIn
+    contact: str | None = Field(default=None, max_length=200)
+    note: str | None = None
+    avatar_asset_id: str | None = Field(default=None, max_length=64)
+    distribution_enabled: bool = True
+
+
+class AccountUpdateRequest(BaseModel):
+    """账号通用 PATCH：全部可选，未传字段不动；api_credentials 传则整体替换。"""
+
+    display_name: str | None = Field(default=None, min_length=1, max_length=200)
+    contact: str | None = Field(default=None, max_length=200)
+    note: str | None = None
+    avatar_asset_id: str | None = Field(default=None, max_length=64)
+    distribution_enabled: bool | None = None
+    api_credentials: ApiCredentialsIn | None = None
 
 
 class AccountExportRequest(BaseModel):
@@ -83,6 +116,8 @@ class AccountExportRequest(BaseModel):
 
 
 def to_account_read(account: "Account") -> AccountRead:
+    creds = account.api_credentials or {}
+    secret = creds.get("app_secret") or ""
     return AccountRead(
         id=account.id,
         platform_code=account.platform.code,
@@ -94,6 +129,11 @@ def to_account_read(account: "Account") -> AccountRead:
         last_login_at=account.last_login_at,
         state_path=account.state_path,
         note=account.note,
+        contact=account.contact,
+        avatar_asset_id=account.avatar_asset_id,
+        distribution_enabled=account.distribution_enabled,
+        app_id=creds.get("app_id"),
+        app_secret_tail=secret[-4:] if secret else None,
         created_at=account.created_at,
         updated_at=account.updated_at,
     )

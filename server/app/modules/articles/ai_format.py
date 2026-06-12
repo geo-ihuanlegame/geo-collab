@@ -171,6 +171,9 @@ def _node_label(node: dict) -> str:
 
 _PROMPT_DIR = Path(__file__).with_name("prompts")
 _AI_FORMAT_WITH_IMAGES_TEMPLATE = _PROMPT_DIR / "ai_format_with_images.j2"
+# 「积极配图」内置变体：每款明确出现的游戏都配图（保留"不确定不插"准星）。仅 AI配图 节点
+# 在 aggressive_images=True（默认）时选用；手动排版/方案配图仍走上面的保守模板。
+_AI_FORMAT_WITH_IMAGES_AGGRESSIVE_TEMPLATE = _PROMPT_DIR / "ai_format_with_images_aggressive.j2"
 
 
 def _template_env() -> SandboxedEnvironment:
@@ -253,6 +256,45 @@ def all_category_contexts(db: Any) -> list[dict[str, Any]]:
     return result
 
 
+def category_contexts_for(
+    db: Any,
+    *,
+    main_category_id: int,
+    include_companion: bool = True,
+) -> list[dict[str, Any]]:
+    """配图节点候选栏目：主推栏目 + (可选)全部 kind=companion 栏目。
+
+    返回 [{id,name,description}, ...]，主推排第一、去重。供 ai_illustrate 节点喂给
+    run_ai_format 的 candidate_categories。
+    """
+    from server.app.modules.image_library.models import StockCategory
+
+    result: list[dict[str, Any]] = []
+    seen: set[int] = set()
+
+    main = db.get(StockCategory, main_category_id)
+    if main is not None:
+        item = _category_context(main)
+        if item is not None:
+            result.append(item)
+            seen.add(item["id"])
+
+    if include_companion:
+        companions = (
+            db.query(StockCategory)
+            .filter(StockCategory.kind == "companion")
+            .order_by(StockCategory.id.asc())
+            .all()
+        )
+        for cat in companions:
+            item = _category_context(cat)
+            if item is not None and item["id"] not in seen:
+                result.append(item)
+                seen.add(item["id"])
+
+    return result
+
+
 def render_ai_format_prompt(
     template_source: str,
     *,
@@ -260,6 +302,7 @@ def render_ai_format_prompt(
     available_categories: list[dict[str, Any]],
     max_images: int | None = None,
     min_spacing: int | None = None,
+    web_fallback: bool = False,
 ) -> str:
     derived_max_images, derived_min_spacing = _image_prompt_params(text_nodes)
     template = _template_env().from_string(template_source)
@@ -268,11 +311,14 @@ def render_ai_format_prompt(
         available_categories=available_categories,
         max_images=max_images if max_images is not None else derived_max_images,
         min_spacing=min_spacing if min_spacing is not None else derived_min_spacing,
+        web_fallback=web_fallback,
     )
 
 
-def _builtin_prompt_template(include_images: bool) -> str:
+def _builtin_prompt_template(include_images: bool, variant: str = "conservative") -> str:
     if include_images:
+        if variant == "aggressive":
+            return _AI_FORMAT_WITH_IMAGES_AGGRESSIVE_TEMPLATE.read_text(encoding="utf-8")
         return _AI_FORMAT_WITH_IMAGES_TEMPLATE.read_text(encoding="utf-8")
     return _SYSTEM_PROMPT_HEADINGS_ONLY
 
@@ -281,11 +327,18 @@ def _fallback_prompt(
     include_images: bool,
     text_nodes: list[tuple[int, dict]] | None = None,
     available_categories: list[dict[str, Any]] | None = None,
+    web_fallback: bool = False,
+    max_images: int | None = None,
+    min_spacing: int | None = None,
+    variant: str = "conservative",
 ) -> str:
     return render_ai_format_prompt(
-        _builtin_prompt_template(include_images),
+        _builtin_prompt_template(include_images, variant),
         text_nodes=text_nodes or [],
         available_categories=available_categories or [],
+        max_images=max_images,
+        min_spacing=min_spacing,
+        web_fallback=web_fallback,
     )
 
 
@@ -297,23 +350,68 @@ def _load_ai_format_prompt(
     include_images: bool,
     text_nodes: list[tuple[int, dict]] | None = None,
     available_categories: list[dict[str, Any]] | None = None,
+    web_fallback: bool = False,
+    max_images: int | None = None,
+    min_spacing: int | None = None,
+    builtin_variant: str = "conservative",
 ) -> str:
+    """组装完整的 AI 排版/配图系统提示词。
+
+    max_images / min_spacing 非空时覆盖按文章结构推导的默认值（注入提示词的 {{ max_images }} /
+    {{ min_spacing }} 占位）；DB 模板与内置模板都吃这层覆盖。builtin_variant 仅在用内置模板
+    （preset_id 缺省/不可用）时决定走保守还是「积极配图」变体。
+
+    联网兜底（web_fallback=True 且 include_images）的 game 字段指引在这里统一拼到末尾，
+    使本函数返回的就是模型最终看到的完整提示词——调用方（run_ai_format）不再二次拼接。
+    """
     if preset_id is None or user_id is None:
-        return _fallback_prompt(include_images, text_nodes, available_categories)
+        base = _fallback_prompt(
+            include_images,
+            text_nodes,
+            available_categories,
+            web_fallback,
+            max_images=max_images,
+            min_spacing=min_spacing,
+            variant=builtin_variant,
+        )
+    else:
+        from server.app.modules.prompt_templates.service import get_visible_prompt_template
 
-    from server.app.modules.prompt_templates.service import get_visible_prompt_template
+        prompt = get_visible_prompt_template(db, preset_id, user_id=user_id, scope="ai_format")
+        if prompt is None or not prompt.is_enabled:
+            logger.info(
+                "ai_format preset %s unavailable; falling back to built-in prompt", preset_id
+            )
+            base = _fallback_prompt(
+                include_images,
+                text_nodes,
+                available_categories,
+                web_fallback,
+                max_images=max_images,
+                min_spacing=min_spacing,
+                variant=builtin_variant,
+            )
+        else:
+            logger.info("ai_format using DB prompt template %s", preset_id)
+            base = render_ai_format_prompt(
+                prompt.content,
+                text_nodes=text_nodes or [],
+                available_categories=available_categories or [],
+                max_images=max_images,
+                min_spacing=min_spacing,
+                web_fallback=web_fallback,
+            )
 
-    prompt = get_visible_prompt_template(db, preset_id, user_id=user_id, scope="ai_format")
-    if prompt is None or not prompt.is_enabled:
-        logger.info("ai_format preset %s unavailable; falling back to built-in prompt", preset_id)
-        return _fallback_prompt(include_images, text_nodes, available_categories)
+    if include_images and web_fallback:
+        from server.app.modules.prompt_templates.service import get_active_template_content
 
-    logger.info("ai_format using DB prompt template %s", preset_id)
-    return render_ai_format_prompt(
-        prompt.content,
-        text_nodes=text_nodes or [],
-        available_categories=available_categories or [],
-    )
+        base += get_active_template_content(
+            db,
+            scope="image_companion",
+            user_id=user_id,
+            default=_WEB_FALLBACK_PROMPT_SUFFIX,
+        )
+    return base
 
 
 def _to_heading(node: dict, level: int = 1) -> dict:
@@ -446,6 +544,88 @@ def _call_litellm_completion(
     )
 
 
+# 联网兜底提示：仅 web_fallback 开时由 _load_ai_format_prompt 拼到系统提示词末尾。
+# 关键：明确告诉模型「列表外的游戏不要放弃配图，改用 game 点名」，并给一个具体示例——
+# 否则正文里反复强调的「只能用列表内 category_id」会压过这条，模型对陪衬游戏一律返回空。
+_WEB_FALLBACK_PROMPT_SUFFIX = (
+    "\n\n【联网兜底（已启用，重要）】\n"
+    "本文已开启联网兜底。段落明确属于某款游戏、但该游戏【不在】上方可用栏目列表里时，"
+    "不要因为它不在列表就放弃配图，而要在 image_positions 里用游戏名点名"
+    "（系统会自动建栏目并联网补图）：\n"
+    '  {"index": 段落索引, "game": "游戏中文名"}\n'
+    "- 列表内的游戏仍用 category_id；仅当游戏【不在】列表里、且你确有把握时才用 game\n"
+    "- game 用规范中文游戏名（如「蛋仔派对」），不带书名号/版本号/多余修饰\n"
+    "- 不确定段落属于哪款游戏就不插（宁缺勿错）\n"
+    "示例：第 3 段在讲一款叫「蛋仔派对」的游戏，而可用栏目里只有主推游戏、没有它 →\n"
+    '  image_positions 里加一项 {"index": 3, "game": "蛋仔派对"}\n'
+)
+
+
+def _parse_image_positions(raw: Any) -> list[tuple[int, int | None, str | None]]:
+    """解析 image_positions：每项 (index, category_id|None, game_name|None)。"""
+    out: list[tuple[int, int | None, str | None]] = []
+    if not isinstance(raw, list):
+        return out
+    for item in raw:
+        if isinstance(item, dict):
+            idx = item.get("index")
+            if not isinstance(idx, int):
+                continue
+            cat = item.get("category_id")
+            game = item.get("game")
+            out.append(
+                (
+                    idx,
+                    cat if isinstance(cat, int) else None,
+                    game.strip() if isinstance(game, str) and game.strip() else None,
+                )
+            )
+        elif isinstance(item, int):
+            out.append((item, None, None))
+    return out
+
+
+def _web_fallback_fill_category(
+    db: Any, category: Any, image_search_query: str | None = None
+) -> int | None:
+    """为某栏目联网搜一张横版图入库，返回新图 id；失败/无图返回 None（best-effort，不抛）。
+
+    image_search_query 来自数据库可编辑的搜图关键词模板（image_search scope），None 时 baidu 用默认模板。
+    """
+    from server.app.modules.image_library.service import store_image_bytes
+    from server.app.shared import baidu
+
+    try:
+        name = str(getattr(category, "name", "") or "")
+        # image_search_query 为 None 时不带该 kwarg，让 baidu 用自身默认模板
+        candidates = (
+            baidu.search_landscape_images(name)
+            if image_search_query is None
+            else baidu.search_landscape_images(name, query_template=image_search_query)
+        )
+        for cand in candidates:
+            downloaded = baidu.download_image(cand.url)
+            if downloaded is None:
+                continue
+            data, mime = downloaded
+            img = store_image_bytes(
+                db,
+                category,
+                data,
+                mime,
+                source_url=cand.source_url,
+                width=cand.width,
+                height=cand.height,
+            )
+            if img is not None:
+                return img.id
+    except Exception:
+        logger.exception(
+            "web_fallback fetch failed for category %s", getattr(category, "name", "?")
+        )
+    return None
+
+
 def _maybe_insert_images(
     content_json: dict,
     parsed: dict,
@@ -453,61 +633,72 @@ def _maybe_insert_images(
     db: Any,
     *,
     available_categories: list[dict[str, Any]] | None = None,
+    web_fallback: bool = False,
+    image_search_query: str | None = None,
+    max_images: int | None = None,
 ) -> tuple[dict, int]:
-    """按模型给的 image_positions 在指定位置插入配图，返回 (新文档, 实插图数)。
+    """按模型给的 image_positions 插图，返回 (新文档, 实插图数)。
 
-    正文已含图则不动；每个位置按 requested_category_id 从该栏目选一张未用过的图（excluded_ids 去重），
-    选不到的位置静默跳过。返回的插图数可能小于请求数。
+    正文已含图则不动。每个位置优先用候选列表里的 category_id；web_fallback 开时，模型也可用
+    game 游戏名点名库里没有的游戏 → get-or-create 陪衬栏目；选中的栏目没图时（含新建的）联网
+    搜图补一张。选不到的位置静默跳过。web_fallback 关时行为与改造前一致（game 字段被忽略）。
+
+    max_images 非空时是【硬上限】：取靠前的至多 N 个位置，达到即停止扫描（不再为后续位置
+    联网搜图，省调用）。这层兜底独立于提示词文案——即便模型/自定义模板没遵守上限也不会超。
+    max_images=None（手动排版/方案配图）保持原行为：不硬截断，全凭模型返回的位置数。
     """
     if has_images_in_content(content_json):
         return content_json, 0
+
+    from server.app.modules.image_library.models import StockCategory
+    from server.app.modules.image_library.service import get_or_create_companion_category
 
     cats = (
         available_categories
         if available_categories is not None
         else _available_categories_for_article(article, db)
     )
-    category_ids: list[int] = [cat["id"] for cat in cats]
-    if not category_ids:
+    valid_category_ids = {cat["id"] for cat in cats}
+    if not valid_category_ids and not web_fallback:
         return content_json, 0
 
-    image_positions_raw = parsed.get("image_positions", [])
-    if not isinstance(image_positions_raw, list) or not image_positions_raw:
-        return content_json, 0
-
-    positions: list[int] = []
-    requested_category_ids: list[int | None] = []
-    for item in image_positions_raw:
-        if isinstance(item, dict):
-            idx = item.get("index")
-            category_id = item.get("category_id")
-            if isinstance(idx, int):
-                positions.append(idx)
-                requested_category_ids.append(category_id if isinstance(category_id, int) else None)
-        elif isinstance(item, int):
-            positions.append(item)
-            requested_category_ids.append(None)
-
+    positions = _parse_image_positions(parsed.get("image_positions", []))
     if not positions:
         return content_json, 0
 
-    valid_category_ids = set(category_ids)
-    matched_refs = []
-    matched_positions = []
+    matched_refs: list[Any] = []
+    matched_positions: list[int] = []
     used_ids: list[int] = []
-    for pos, requested_category_id in zip(positions, requested_category_ids, strict=False):
-        if requested_category_id is None or requested_category_id not in valid_category_ids:
+    for idx, req_cat_id, game in positions:
+        if max_images is not None and len(matched_refs) >= max_images:
+            break  # 已达硬上限：停止扫描，后续位置不再取图/联网搜图
+        category = None  # ORM 对象，仅 web_fallback 取图/新建游戏分支才需要
+        target_cat_id: int | None = None
+        if req_cat_id is not None and req_cat_id in valid_category_ids:
+            target_cat_id = req_cat_id  # 现有栏目：直接用 id，保持改造前行为（不碰 db）
+        elif web_fallback and game:
+            category = get_or_create_companion_category(db, game)
+            target_cat_id = category.id if category is not None else None
+        if target_cat_id is None:
             continue
+
         image_id = pick_image_id(
-            ImageQuery(category_ids=[requested_category_id], excluded_ids=used_ids), db
+            ImageQuery(category_ids=[target_cat_id], excluded_ids=used_ids), db
         )
+        if image_id is None and web_fallback:
+            # 栏目里没图（含刚新建的）：联网搜一张补进来再选
+            if category is None:
+                category = db.get(StockCategory, target_cat_id)
+            if category is not None:
+                image_id = _web_fallback_fill_category(db, category, image_search_query)
         if image_id is None:
             continue
+
         ref = fetch_image_by_id(image_id, db)
         if ref is not None:
             used_ids.append(image_id)
             matched_refs.append(ref)
-            matched_positions.append(pos)
+            matched_positions.append(idx)
 
     if not matched_refs:
         return content_json, 0
@@ -546,12 +737,27 @@ def run_ai_format(
     preset_id: int | None = None,
     user_id: int | None = None,
     candidate_categories: list[dict[str, Any]] | None = None,
-) -> None:
-    """识别正文小标题，并把更新后的 Tiptap 文档写回文章。
+    web_fallback: bool = False,
+    max_images: int | None = None,
+    min_spacing: int | None = None,
+    builtin_variant: str = "conservative",
+) -> int:
+    """识别正文小标题，并把更新后的 Tiptap 文档写回文章。返回实际插入并落库的图片数。
 
     candidate_categories 非 None 时用它当配图候选栏目（方案自动配图用全部 bucket）；
     None 时回退到文章已分配的类别（手动 AI 排版按钮的现状行为）。
+
+    web_fallback=True（仅 AI配图 节点开关）时：允许模型点名库里没有的陪衬游戏，
+    缺图则联网搜图补充（见 _maybe_insert_images）。默认 False，其它调用方行为不变。
+
+    max_images / min_spacing（仅 AI配图 节点传）覆盖按文章结构推导的默认配图数量/间距，并作为
+    插图阶段的硬上限；缺省 None 时维持原行为（按结构推导、不硬截断）。builtin_variant 仅在用内置
+    模板时区分保守 / 「积极配图」变体，默认 conservative——手动排版、方案配图均不变。
+
+    返回值仅供调用方观测（如 ai_illustrate 节点回传 images_inserted）；任何跳过/失败均返回 0，
+    失败详情照旧落到 article.ai_format_error。多数调用方忽略返回值，行为不变。
     """
+    images_inserted = 0
     db = None
     error_message: str | None = None
     try:
@@ -562,11 +768,11 @@ def run_ai_format(
 
         article = get_article(db, article_id)
         if article is None or article.is_deleted:
-            return
+            return images_inserted
         # 第一道锁检查：模型调用前。锁已被接管/超时清掉就别白跑一次昂贵的模型请求
         if not _article_lock_matches(article, lock_started_at):
             logger.info("ai_format skipped stale lock before model call for article %s", article_id)
-            return
+            return images_inserted
 
         content_json = loads_content_json(article.content_json)
         text_nodes = _non_empty_text_nodes(content_json)
@@ -574,7 +780,7 @@ def run_ai_format(
             logger.info(
                 "ai_format skipped article %s: no non-empty paragraph/heading nodes", article_id
             )
-            return
+            return images_inserted
 
         # 清 lru_cache 再取：拿运行时最新的 AI Key/模型配置（Key 启动时不校验，运维可能中途改）
         get_settings.cache_clear()
@@ -598,7 +804,24 @@ def run_ai_format(
             include_images=include_images,
             text_nodes=text_nodes,
             available_categories=available_categories,
+            web_fallback=web_fallback,
+            max_images=max_images,
+            min_spacing=min_spacing,
+            builtin_variant=builtin_variant,
         )
+        # 搜图关键词：优先用数据库可编辑模板（image_search scope），缺省回退内置默认。
+        # 陪衬游戏提示词（image_companion）已在 _load_ai_format_prompt 内按可编辑模板拼接。
+        image_search_query: str | None = None
+        if include_images and web_fallback:
+            from server.app.modules.prompt_templates.service import get_active_template_content
+            from server.app.shared.baidu import DEFAULT_IMAGE_SEARCH_QUERY
+
+            image_search_query = get_active_template_content(
+                db,
+                scope="image_search",
+                user_id=user_id,
+                default=DEFAULT_IMAGE_SEARCH_QUERY,
+            )
         response = _call_litellm_completion(
             model=settings.ai_format_model,
             api_key=api_key,
@@ -620,7 +843,14 @@ def run_ai_format(
         image_count = 0
         if include_images:
             new_content_json, image_count = _maybe_insert_images(
-                new_content_json, parsed, article, db, available_categories=available_categories
+                new_content_json,
+                parsed,
+                article,
+                db,
+                available_categories=available_categories,
+                web_fallback=web_fallback,
+                image_search_query=image_search_query,
+                max_images=max_images,
             )
 
         # 第二道锁检查：写回前 refresh 再比一次指纹。模型耗时长，期间可能有新一轮排版抢锁，
@@ -628,7 +858,7 @@ def run_ai_format(
         db.refresh(article)
         if not _article_lock_matches(article, lock_started_at):
             logger.info("ai_format skipped stale lock before write for article %s", article_id)
-            return
+            return images_inserted
 
         new_html, new_text = _derive_html_and_text(new_content_json)
         article.content_json = dumps_content_json(new_content_json)
@@ -637,6 +867,7 @@ def run_ai_format(
         article.version += 1
         article.updated_at = datetime.now(UTC).replace(tzinfo=None)
         db.commit()
+        images_inserted = image_count
         logger.info(
             "ai_format applied %d headings%s to article %s",
             len(heading_indices),
@@ -662,3 +893,4 @@ def run_ai_format(
                 db.rollback()
                 logger.exception("ai_format unlock failed for article %s", article_id)
             db.close()
+    return images_inserted

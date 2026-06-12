@@ -13,7 +13,6 @@ from __future__ import annotations
 import io
 import json
 import logging
-import os
 import shutil
 import sys
 import tempfile
@@ -23,18 +22,19 @@ import uuid
 import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from sqlalchemy import and_, or_, select
+from sqlalchemy import delete as sa_delete
 from sqlalchemy import update as sa_update
 from sqlalchemy.orm import Session
 
 from server.app.core.config import get_settings
 from server.app.core.paths import ensure_data_dirs, get_data_dir
 from server.app.core.time import utcnow
-from server.app.modules.accounts.models import Account, AccountLoginSession
+from server.app.modules.accounts.models import Account, AccountLoginSession, BrowserProfileLock
 from server.app.modules.accounts.schemas import (
     AccountCheckRequest,
     AccountExportRequest,
@@ -239,6 +239,9 @@ def start_login_session(
             status="unknown",
             state_path=relative_state_path,
             note=payload.note,
+            contact=payload.contact,
+            avatar_asset_id=payload.avatar_asset_id,
+            distribution_enabled=payload.distribution_enabled,
             last_checked_at=now,
         )
         db.add(account)
@@ -246,6 +249,9 @@ def start_login_session(
         previous_status = account.status
         account.display_name = payload.display_name
         account.note = payload.note
+        account.contact = payload.contact
+        account.avatar_asset_id = payload.avatar_asset_id
+        account.distribution_enabled = payload.distribution_enabled
         account.status = "unknown"
         account.state_path = relative_state_path
         account.is_deleted = False
@@ -298,6 +304,8 @@ def start_account_login_session(
     db: Session, account: Account, payload: AccountCheckRequest
 ) -> AccountBrowserSessionResult:
     """对已有账号重新登录（如登录态失效）：置 unknown 并下 worker 登录命令，立即返回 pending。"""
+    if account.state_path is None:
+        raise ClientError("API 接入账号无法进行浏览器登录")
     platform_code, account_key = account_key_from_state_path(account.state_path)
     previous_status = account.status
     account.status = "unknown"
@@ -336,6 +344,8 @@ def finish_account_login_session(
     if request is not None:
         return _finish_login_browser_via_worker(db, account, request)
 
+    if account.state_path is None:
+        raise ClientError("API 接入账号无法进行浏览器登录")
     platform_code, account_key = account_key_from_state_path(account.state_path)
     result = _finish_login_browser_local(platform_code, account_key, account.state_path, session_id)
     _apply_login_result(account, result)
@@ -349,7 +359,8 @@ def stop_account_login_session(db: Session, account: Account, session_id: str) -
     if request is not None:
         _cancel_login_browser_via_worker(db, request)
         return
-
+    if account.state_path is None:
+        raise ClientError("API 接入账号无法进行浏览器登录")
     _, account_key = account_key_from_state_path(account.state_path)
     _stop_login_browser_local(account_key, session_id)
 
@@ -593,6 +604,13 @@ def _try_acquire_login_profile_lock(db: Session, request: AccountLoginSession) -
         _touch_login_request(request)
         db.commit()
         return False
+    if account.state_path is None:
+        request.status = LOGIN_STATUS_FAILED
+        request.error_message = "API 接入账号无法进行浏览器登录"
+        request.queue_reason = None
+        _touch_login_request(request)
+        db.commit()
+        return False
 
     profile_key = profile_key_from_state_path(account.state_path)
     reason = "账号正在执行发布或登录操作，登录请求已排队"
@@ -618,6 +636,8 @@ def _worker_start_login_session(db: Session, request: AccountLoginSession) -> No
         account = db.get(Account, request.account_id)
         if account is None:
             raise ClientError("Account not found")
+        if account.state_path is None:
+            raise ClientError("API 接入账号无法进行浏览器登录")
         platform_code = request.platform_code
         account_key = request.account_key
         session = _start_login_browser_impl(
@@ -635,9 +655,10 @@ def _worker_start_login_session(db: Session, request: AccountLoginSession) -> No
         request.queue_reason = None
         _touch_login_request(request)
         db.commit()
-        _load_login_page_for_session(
-            session, platform_code, account_key, _get_driver(platform_code).home_url
-        )
+        # active 已落库（前端尽快看到可接管），再 best-effort 把登录页 goto 过去
+        from server.app.modules.accounts.login_broker import login_broker
+
+        login_broker.load_login_page(session.id, _get_driver(platform_code).home_url)
         return
     except Exception as exc:
         request.status = LOGIN_STATUS_FAILED
@@ -655,6 +676,12 @@ def _worker_finish_login_session(db: Session, request: AccountLoginSession) -> N
     if account is None:
         request.status = LOGIN_STATUS_FAILED
         request.error_message = "Account not found"
+        _touch_login_request(request)
+        db.commit()
+        return
+    if account.state_path is None:
+        request.status = LOGIN_STATUS_FAILED
+        request.error_message = "API 接入账号无法进行浏览器登录"
         _touch_login_request(request)
         db.commit()
         return
@@ -714,7 +741,7 @@ def _release_login_profile_lock(db: Session, request: AccountLoginSession) -> No
     from server.app.modules.accounts.browser import release_profile_lock
 
     account = db.get(Account, request.account_id)
-    if account is None:
+    if account is None or account.state_path is None:
         return
     try:
         release_profile_lock(
@@ -724,6 +751,82 @@ def _release_login_profile_lock(db: Session, request: AccountLoginSession) -> No
         _logger.warning(
             "Failed to release login profile lock for request %s", request.id, exc_info=True
         )
+
+
+def recover_stuck_login_sessions(db: Session) -> None:
+    """Worker 启动复位残留登录会话：所有非终态登录会话置 cancelled，并清掉全部 login profile 锁。
+
+    交互式登录浏览器只活在 worker 进程内，worker 一重启全死——任何存活的非终态会话都是僵死的，
+    其持有的 profile 锁若不清会永久把账号挡在登录之外（生产死锁事故的根因）。发布侧
+    recover_stuck_records 靠租约只复位过期记录；登录无租约保护（浏览器随 worker 进程消亡），
+    故全量复位。只清 owner_kind='login' 的锁，不碰 publish。自带 commit。
+    """
+    sessions = list(
+        db.execute(
+            select(AccountLoginSession).where(
+                AccountLoginSession.status.not_in(tuple(LOGIN_TERMINAL_STATUSES))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for session in sessions:
+        session.status = LOGIN_STATUS_CANCELLED
+        session.queue_reason = None
+        session.worker_id = None
+        # 登录前账号被置 unknown，复位时回滚到登录前状态
+        if session.previous_status is not None:
+            account = db.get(Account, session.account_id)
+            if account is not None and account.status == "unknown":
+                account.status = session.previous_status
+                account.updated_at = utcnow()
+        _touch_login_request(session)
+
+    lock_result = db.execute(
+        sa_delete(BrowserProfileLock).where(BrowserProfileLock.owner_kind == "login")
+    )
+    cleared = lock_result.rowcount  # type: ignore[attr-defined]  # DML 执行返回 CursorResult
+    if sessions or cleared:
+        _logger.warning(
+            "Recovered %d stuck login sessions, cleared %d login profile locks",
+            len(sessions),
+            cleared,
+        )
+        db.commit()
+
+
+def expire_stale_login_sessions(db: Session, *, worker_id: str, max_active_seconds: int) -> int:
+    """worker 运行期周期兜底：把本 worker 名下卡在 active 过久的登录会话当作被遗弃的收尾。
+
+    active 登录会话的 profile 锁被 _heartbeat_active_profile_locks 每 30s 无限续租，租约
+    永不过期。用户关浏览器标签 / 刷新 / 崩溃而没走 finish/cancel 时，前端关弹窗的 DELETE
+    兜底不会触发，这把锁就把账号永久挡在登录之外（#85 死锁的残留路径——启动复位只在重启时
+    跑，进程不重启就一直卡）。这里给 active 会话设最大存活时长上限：超时即走正常取消流程
+    （_worker_cancel_login_session：停浏览器 + 释放锁 + 账号状态从 unknown 回滚），让账号
+    能重新登录。阈值远大于真人扫码登录耗时，不会误杀进行中的真实登录。只动本 worker 自己
+    启的会话（浏览器在本进程内、能干净关掉）。返回收尾的会话数。
+    """
+    cutoff = utcnow() - timedelta(seconds=max_active_seconds)
+    sessions = list(
+        db.execute(
+            select(AccountLoginSession).where(
+                AccountLoginSession.status == LOGIN_STATUS_ACTIVE,
+                AccountLoginSession.worker_id == worker_id,
+                AccountLoginSession.updated_at < cutoff,
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for session in sessions:
+        _logger.warning(
+            "Expiring stale active login session %s (account %s, active since %s)",
+            session.id,
+            session.account_id,
+            session.updated_at,
+        )
+        _worker_cancel_login_session(db, session)  # 内部 finally 释放锁并 commit
+    return len(sessions)
 
 
 def _apply_login_result(account: Account, result: BrowserCheckResult) -> None:
@@ -741,36 +844,39 @@ def _finish_login_browser_local(
     state_path: str,
     session_id: str,
 ) -> BrowserCheckResult:
-    return _run_in_plain_thread(
-        lambda: _finish_login_browser_impl(platform_code, account_key, state_path, session_id)
-    )
+    return _finish_login_browser_impl(platform_code, account_key, state_path, session_id)
 
 
 def _finish_login_browser_impl(
     platform_code: str, account_key: str, state_path: str, session_id: str
 ) -> BrowserCheckResult:
     from server.app.modules.accounts.browser import get_session, stop_remote_browser_session
+    from server.app.modules.accounts.login_broker import login_broker
 
     session = get_session(session_id)
     if session is None:
         raise ClientError(f"Remote browser session not found: {session_id}")
     if session.account_key != account_key:
         raise ClientError("Remote browser session does not belong to this account")
-    if session.browser_context is None:
+    if not login_broker.owns(session_id):
         raise ClientError("Remote browser session has no browser context")
 
+    driver = _get_driver(platform_code)
     try:
-        return _read_and_save_login_state_from_remote_session(
-            session,
-            platform_code,
-            get_data_dir() / state_path,
+        result = login_broker.read_login_state(
+            session_id,
+            detect=lambda url, title, body: driver.detect_logged_in(
+                url=url, title=title, body=body
+            ),
+            state_path=get_data_dir() / state_path,
         )
+        return BrowserCheckResult(logged_in=result.logged_in, url=result.url, title=result.title)
     finally:
         stop_remote_browser_session(session_id)
 
 
 def _stop_login_browser_local(account_key: str, session_id: str) -> None:
-    _run_in_plain_thread(lambda: _stop_login_browser_impl(account_key, session_id))
+    _stop_login_browser_impl(account_key, session_id)
 
 
 def _stop_login_browser_impl(account_key: str, session_id: str) -> None:
@@ -788,10 +894,8 @@ def _start_login_browser(
     platform_code: str, account_key: str, channel: str, executable_path: str | None
 ):
     state_path = relative_to_data_dir(state_path_for_key(platform_code, account_key))
-    return _run_in_plain_thread(
-        lambda: _start_login_browser_impl(
-            platform_code, account_key, state_path, channel, executable_path
-        )
+    return _start_login_browser_impl(
+        platform_code, account_key, state_path, channel, executable_path
     )
 
 
@@ -803,19 +907,17 @@ def _start_login_browser_impl(
     executable_path: str | None,
     load_login_page: bool = True,
 ):
-    """实际开浏览器：起远程会话、launch_persistent_context、把句柄挂到会话并保活。
-
-    必须在 plain thread 里跑（Playwright sync API）。keep_session_alive 让会话不被空闲清理，
-    一直开着等用户在 noVNC 里扫码登录，直到 finish/cancel。失败时关闭句柄并停掉会话。
+    """起远程会话（Xvfb→x11vnc→websockify），再交给 login_broker 用 async Playwright 打开持久化
+    context。浏览器句柄由 broker 在它自己的事件循环上持有并保活，一直开着等用户在 noVNC 里扫码，
+    直到 finish/cancel。多个账号并发登录互不干扰（同步 Playwright 单线程那套并发限制不再适用）。
+    失败时让 broker 拆掉浏览器并停掉远程会话。
     """
-    from playwright.sync_api import sync_playwright
-
     from server.app.modules.accounts.browser import (
-        attach_browser_handles,
         keep_session_alive,
         start_remote_browser_session,
         stop_remote_browser_session,
     )
+    from server.app.modules.accounts.login_broker import login_broker
 
     driver = _get_driver(platform_code)
     ensure_data_dirs()
@@ -827,171 +929,20 @@ def _start_login_browser_impl(
         platform_code=platform_code,
         profile_key=profile_key_from_state_path(state_path),
     )
-    pw = None
-    context = None
     try:
-        pw = sync_playwright().start()
         options = launch_options(channel, executable_path)
-        options["env"] = {**os.environ, "DISPLAY": session.display}
-
         clear_profile_locks(profile_dir)
-        context = pw.chromium.launch_persistent_context(
-            user_data_dir=str(profile_dir),
-            **options,
-        )
-        context.set_default_navigation_timeout(30000)
-        page = _primary_page_for_context(context)
-        attach_browser_handles(
-            session.id, pw, context, page, context_thread_id=threading.get_ident()
+        login_broker.launch_login_browser(
+            session.id, profile_dir=profile_dir, options=options, display=session.display
         )
         keep_session_alive(session.id)
         if load_login_page:
-            _load_login_page_for_session(
-                session, platform_code, account_key, driver.home_url, raise_on_error=True
-            )
+            login_broker.load_login_page(session.id, driver.home_url)
         return session
     except Exception:
-        try:
-            if context is not None:
-                context.close()
-        finally:
-            if pw is not None:
-                pw.stop()
+        login_broker.close_if_owned(session.id)
         stop_remote_browser_session(session.id)
         raise
-
-
-def _primary_page_for_context(context):
-    pages = list(getattr(context, "pages", []) or [])
-    if pages:
-        page = pages[0]
-        for extra_page in pages[1:]:
-            try:
-                extra_page.close()
-            except Exception:
-                pass
-        return page
-    return context.new_page()
-
-
-def _load_login_page(page, platform_code: str, account_key: str, home_url: str) -> None:
-    try:
-        page.goto(home_url, wait_until="domcontentloaded", timeout=60000)
-        try:
-            page.wait_for_load_state("networkidle", timeout=10000)
-        except Exception:
-            _logger.warning(
-                "Remote login page did not reach networkidle for %s account %s",
-                platform_code,
-                account_key,
-                exc_info=True,
-            )
-    except Exception as exc:
-        _logger.warning(
-            "Remote login page load failed for %s account %s",
-            platform_code,
-            account_key,
-            exc_info=True,
-        )
-        raise ClientError(f"Remote login page load failed: {home_url}") from exc
-
-
-def _load_login_page_for_session(
-    session,
-    platform_code: str,
-    account_key: str,
-    home_url: str,
-    raise_on_error: bool = False,
-) -> None:
-    operation_lock = getattr(session, "operation_lock", None)
-    if operation_lock is None or getattr(session, "page", None) is None:
-        return
-    with operation_lock:
-        page = getattr(session, "page", None)
-        if page is None:
-            return
-        try:
-            _load_login_page(page, platform_code, account_key, home_url)
-        except Exception:
-            _logger.warning(
-                "Login page load failed for %s/%s", platform_code, account_key, exc_info=True
-            )
-            if raise_on_error:
-                raise
-
-
-def _start_login_page_loader(
-    session_id: str, platform_code: str, account_key: str, home_url: str
-) -> None:
-    """后台线程异步把登录页 goto 到 home_url（在 operation_lock 内操作 page），失败仅记日志。"""
-
-    def _load() -> None:
-        from server.app.modules.accounts.browser import get_session
-
-        session = get_session(session_id)
-        if session is None or session.page is None:
-            return
-        with session.operation_lock:
-            page = session.page
-            if page is None:
-                return
-            try:
-                _load_login_page(page, platform_code, account_key, home_url)
-            except Exception:
-                _logger.warning(
-                    "Async login page load failed for %s/%s",
-                    platform_code,
-                    account_key,
-                    exc_info=True,
-                )
-
-    worker = threading.Thread(
-        target=_load,
-        daemon=True,
-        name=f"geo-login-page-loader-{platform_code}-{account_key}",
-    )
-    worker.start()
-
-
-def _read_and_save_login_state_from_remote_session(
-    session, platform_code: str, state_path: Path
-) -> BrowserCheckResult:
-    """在 operation_lock 内判定登录态并把 storage_state.json 写盘（与会话其它操作串行）。"""
-    with session.operation_lock:
-        result = _read_login_state_from_remote_session(session, platform_code)
-        session.browser_context.storage_state(path=str(state_path))
-        return result
-
-
-def _read_login_state_from_remote_session(session, platform_code: str) -> BrowserCheckResult:
-    driver = _get_driver(platform_code)
-    context = session.browser_context
-    page = session.page
-    if context is not None:
-        pages = list(getattr(context, "pages", []) or [])
-        if pages:
-            page = pages[-1]
-    if page is None:
-        raise ClientError("Remote browser session has no page")
-
-    try:
-        page.wait_for_load_state("networkidle", timeout=10000)
-    except Exception:
-        pass
-    url = page.url
-    title = ""
-    body = ""
-    try:
-        title = page.title()
-        body = page.locator("body").inner_text(timeout=5000)
-    except Exception:
-        _logger.warning("Remote login state read failed", exc_info=True)
-
-    return BrowserCheckResult(
-        logged_in=driver.detect_logged_in(url=url, title=title, body=body),
-        url=url,
-        title=title,
-    )
 
 
 def check_account(db: Session, account: Account, payload: AccountCheckRequest) -> Account:
@@ -1000,6 +951,8 @@ def check_account(db: Session, account: Account, payload: AccountCheckRequest) -
     use_browser 时无头开浏览器载入登录态、由 driver.detect_logged_in 判定，并抢同一把 profile 锁
     （和发布 / 登录互斥，抢不到直接 ClientError，不排队）；否则仅按 storage_state 文件是否存在粗判。
     """
+    if account.state_path is None:
+        raise ClientError("API 接入账号无法检查浏览器登录态")
     platform_code, _ = account_key_from_state_path(account.state_path)
     driver = _get_driver(platform_code)
     abs_state_path = get_data_dir() / account.state_path
@@ -1067,6 +1020,8 @@ def _check_account_in_browser(driver, abs_state_path: Path, payload: AccountChec
 
 def relogin_account(db: Session, account: Account, payload: AccountCheckRequest) -> Account:
     """从磁盘已有登录态重新登记账号（use_browser=False），不开浏览器、复用现有 state 文件。"""
+    if account.state_path is None:
+        raise ClientError("API 接入账号无法重新登记")
     platform_code, account_key = account_key_from_state_path(account.state_path)
     request = PlatformLoginRequest(
         display_name=account.display_name,
@@ -1111,14 +1066,20 @@ def export_accounts_auth_package(db: Session, payload: AccountExportRequest) -> 
             )
             exported_files.append(f"{account_dir}/account.json")
 
-            try:
-                state_file = _resolve_data_file(account.state_path)
-                state_archive_path = f"{account_dir}/storage_state.json"
-                archive.write(state_file, state_archive_path)
-                exported_files.append(state_archive_path)
-            except ClientError:
+            if account.state_path:
+                try:
+                    state_file = _resolve_data_file(account.state_path)
+                    state_archive_path = f"{account_dir}/storage_state.json"
+                    archive.write(state_file, state_archive_path)
+                    exported_files.append(state_archive_path)
+                except ClientError:
+                    _logger.warning(
+                        "Skipping storage_state.json for account %s - file not found",
+                        account.display_name,
+                    )
+            else:
                 _logger.warning(
-                    "Skipping storage_state.json for account %s - file not found",
+                    "Skipping storage_state.json for account %s - no browser state path",
                     account.display_name,
                 )
 
@@ -1280,7 +1241,11 @@ def _new_export_path(now) -> Path:
 def _accounts_for_export(db: Session, account_ids: list[int] | None) -> list[Account]:
     from sqlalchemy.orm import selectinload
 
-    stmt = select(Account).options(selectinload(Account.platform))
+    stmt = (
+        select(Account)
+        .where(Account.is_deleted == False)  # noqa: E712
+        .options(selectinload(Account.platform))
+    )
     if account_ids:
         unique_ids = sorted(set(account_ids))
         stmt = stmt.where(Account.id.in_(unique_ids))
