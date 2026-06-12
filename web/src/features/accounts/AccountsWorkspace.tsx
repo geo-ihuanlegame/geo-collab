@@ -144,7 +144,7 @@ export function AccountsWorkspace({ isActive }: { isActive?: boolean } = {}) {
   return (
     <>
       <header className="mediaMatrixHeader">
-        <span className="mediaMatrixBreadcrumb">——  媒体矩阵</span>
+        <span className="mediaMatrixBreadcrumb">媒体矩阵</span>
         <div className="mediaMatrixTitleRow">
           <h1 className="mediaMatrixTitle">平台账号授权</h1>
           <button
