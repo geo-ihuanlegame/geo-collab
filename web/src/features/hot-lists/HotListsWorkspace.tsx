@@ -227,17 +227,32 @@ export function HotListsWorkspace() {
     return ["all", ...CATEGORY_ORDER.filter((c) => present.has(c))];
   }, [sources]);
 
+  // 一个源是否「已加载完成但拿不到任何可展示条目」——上游不再维护（报错）或返回空榜单。
+  // 这类源直接不渲染卡片。加载中（含尚未发起）不算 resolved，保留骨架占位等结果。
+  const isEmptyResolved = useCallback((name: string) => {
+    const board = boards[name];
+    if (!board || board.status === "loading") return false;
+    return (board.data?.data?.length ?? 0) === 0;
+  }, [boards]);
+
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     return sources.filter((s) => {
       if (category !== "all" && metaFor(s.name).cat !== category) return false;
+      if (isEmptyResolved(s.name)) return false;
       if (!q) return true;
       const board = boards[s.name];
       const title = (board?.data?.title || s.name).toLowerCase();
       if (title.includes(q)) return true;
       return (board?.data?.data || []).some((it) => (it.title || "").toLowerCase().includes(q));
     });
-  }, [sources, boards, query, category]);
+  }, [sources, boards, query, category, isEmptyResolved]);
+
+  // 顶部计数只数「实际能正常显示」的榜单（有条目的），不含报错/空榜单。
+  const liveCount = useMemo(
+    () => sources.filter((s) => (boards[s.name]?.data?.data?.length ?? 0) > 0).length,
+    [sources, boards],
+  );
 
   return (
     <div className="hotDash">
@@ -246,7 +261,7 @@ export function HotListsWorkspace() {
           <div>
             <div className="hotEyebrow">实时热点</div>
             <div className="hotTitle">热榜聚合</div>
-            <p className="hotSub">实时聚合 {sources.length || "多"} 个平台热门榜单 · 点击条目跳转原文</p>
+            <p className="hotSub">实时聚合 {liveCount || "多"} 个平台热门榜单 · 点击条目跳转原文</p>
           </div>
           <div className="hotControls">
             <label className="hotSearch">

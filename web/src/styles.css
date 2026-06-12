@@ -3882,8 +3882,18 @@ option, optgroup {
   letter-spacing: 2.8px;
   text-transform: uppercase;
   font-weight: 500;
-  display: inline-block;
+  display: flex;
+  align-items: center;
+  gap: 12px;
   margin-bottom: 14px;
+}
+
+.mediaMatrixBreadcrumb::before {
+  content: "";
+  width: 22px;
+  height: 1px;
+  background: var(--fg-3);
+  flex-shrink: 0;
 }
 
 .mediaMatrixTitleRow {
@@ -3908,16 +3918,20 @@ option, optgroup {
   gap: 8px;
   padding: 11px 17px;
   border-radius: 9px;
-  background: #2D2A24;
+  background: var(--grad);
   color: #fff;
   font-size: 13.5px;
   font-weight: 600;
   border: none;
   cursor: pointer;
-  transition: opacity .14s;
+  box-shadow: 0 6px 20px rgba(124,107,246,0.40);
+  transition: box-shadow .14s, filter .14s;
   font-family: inherit;
 }
-.mediaMatrixAddBtn:hover { opacity: .85; }
+.mediaMatrixAddBtn:hover {
+  box-shadow: 0 8px 26px rgba(124,107,246,0.55);
+  filter: brightness(1.06);
+}
 
 /* Section */
 .mediaMatrixSection {
