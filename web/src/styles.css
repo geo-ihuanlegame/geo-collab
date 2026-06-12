@@ -3594,11 +3594,13 @@ option, optgroup {
 .hotHeaderTop { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
 .hotEyebrow {
   font-size: 11px; letter-spacing: 2.8px; text-transform: uppercase;
-  color: var(--fg-3); font-weight: 500; margin-bottom: 12px;
+  color: var(--fg-3); font-weight: 500; margin-bottom: 14px;
+  display: flex; align-items: center; gap: 12px;
 }
+.hotEyebrow::before { content: ""; width: 22px; height: 1px; background: var(--fg-3); flex-shrink: 0; }
 .hotTitle {
-  font-family: var(--serif); font-size: 30px; font-weight: 600;
-  letter-spacing: -0.6px; line-height: 1.05; color: var(--fg);
+  font-family: var(--display); font-size: 42px; font-weight: 680;
+  letter-spacing: -1.4px; line-height: 1.06; color: var(--fg);
 }
 .hotSub { font-size: 13px; color: var(--fg-3); margin-top: 8px; }
 .hotControls { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
@@ -3875,9 +3877,13 @@ option, optgroup {
 }
 
 .mediaMatrixBreadcrumb {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--fg-3);
-  letter-spacing: 1px;
+  letter-spacing: 2.8px;
+  text-transform: uppercase;
+  font-weight: 500;
+  display: inline-block;
+  margin-bottom: 14px;
 }
 
 .mediaMatrixTitleRow {
@@ -3887,9 +3893,11 @@ option, optgroup {
 }
 
 .mediaMatrixTitle {
-  font-family: var(--serif);
-  font-size: 30px;
-  font-weight: 600;
+  font-family: var(--display);
+  font-size: 42px;
+  font-weight: 680;
+  letter-spacing: -1.4px;
+  line-height: 1.06;
   color: var(--fg);
   margin: 0;
 }
