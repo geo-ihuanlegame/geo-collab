@@ -227,13 +227,13 @@ export function ImageLibraryWorkspace() {
           <p className="eyebrow">素材</p>
           <h1>图片库</h1>
         </div>
-        <div className="topbarActions">
-          <button type="button" className="btn btn-secondary" onClick={() => setShowNewCat(true)}>
+        <div className="topActions">
+          <button type="button" className="secondaryButton" onClick={() => setShowNewCat(true)}>
             <Plus size={15} /> 新建栏目
           </button>
           <button
             type="button"
-            className="btn btn-secondary"
+            className="secondaryButton"
             disabled={!selectedCategory}
             onClick={() => { if (selectedCategory) openCategoryEdit(selectedCategory); }}
           >
@@ -241,7 +241,7 @@ export function ImageLibraryWorkspace() {
           </button>
           <button
             type="button"
-            className="btn btn-primary"
+            className="primaryButton"
             disabled={categories.length === 0}
             onClick={() => {
               setUploadCategoryId(selectedCategoryId ?? categories[0]?.id ?? null);
@@ -367,8 +367,8 @@ export function ImageLibraryWorkspace() {
               <input type="url" value={catUrl} onChange={(e) => setCatUrl(e.target.value)} placeholder="https://example.com" />
             </label>
             <div className="modalActions">
-              <button type="button" className="btn btn-secondary" onClick={() => setShowNewCat(false)}>取消</button>
-              <button type="button" className="btn btn-primary" disabled={catSaving || !catName.trim() || !catBucket.trim()} onClick={handleCreateCategory}>
+              <button type="button" className="secondaryButton" onClick={() => setShowNewCat(false)}>取消</button>
+              <button type="button" className="primaryButton" disabled={catSaving || !catName.trim() || !catBucket.trim()} onClick={handleCreateCategory}>
                 {catSaving ? "创建中..." : "确认创建"}
               </button>
             </div>
@@ -404,8 +404,8 @@ export function ImageLibraryWorkspace() {
               <input type="url" value={editCatUrl} onChange={(e) => setEditCatUrl(e.target.value)} placeholder="https://example.com" />
             </label>
             <div className="modalActions">
-              <button type="button" className="btn btn-secondary" onClick={() => setEditingCategory(null)}>取消</button>
-              <button type="button" className="btn btn-primary" disabled={editCatSaving || !editCatName.trim()} onClick={handleSaveCategoryEdit}>
+              <button type="button" className="secondaryButton" onClick={() => setEditingCategory(null)}>取消</button>
+              <button type="button" className="primaryButton" disabled={editCatSaving || !editCatName.trim()} onClick={handleSaveCategoryEdit}>
                 {editCatSaving ? "保存中..." : "保存"}
               </button>
             </div>
@@ -450,10 +450,10 @@ export function ImageLibraryWorkspace() {
               <input value={batchDesc} onChange={(e) => setBatchDesc(e.target.value)} placeholder="图片内容描述，供 AI 配图参考" />
             </label>
             <div className="modalActions">
-              <button type="button" className="btn btn-secondary" onClick={() => setShowUpload(false)} disabled={uploading}>取消</button>
+              <button type="button" className="secondaryButton" onClick={() => setShowUpload(false)} disabled={uploading}>取消</button>
               <button
                 type="button"
-                className="btn btn-primary"
+                className="primaryButton"
                 disabled={uploading || uploadFiles.length === 0 || uploadCategoryId === null}
                 onClick={handleUpload}
               >
@@ -478,8 +478,8 @@ export function ImageLibraryWorkspace() {
               <input value={editDesc} onChange={(e) => setEditDesc(e.target.value)} placeholder="图片内容描述" />
             </label>
             <div className="modalActions">
-              <button type="button" className="btn btn-secondary" onClick={() => setEditingImage(null)}>取消</button>
-              <button type="button" className="btn btn-primary" disabled={editSaving} onClick={handleSaveEdit}>
+              <button type="button" className="secondaryButton" onClick={() => setEditingImage(null)}>取消</button>
+              <button type="button" className="primaryButton" disabled={editSaving} onClick={handleSaveEdit}>
                 {editSaving ? "保存中..." : "保存"}
               </button>
             </div>

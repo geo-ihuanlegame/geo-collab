@@ -486,11 +486,36 @@ export function statusLabel(status: string): string {
   return labels[status] ?? status;
 }
 
-export const navItems: { key: NavKey; label: string; icon: ComponentType<{ size?: number }> }[] = [
+export type NavChild = { key: string; label: string; value: string };
+
+export const navItems: {
+  key: NavKey;
+  label: string;
+  icon: ComponentType<{ size?: number }>;
+  children?: NavChild[];
+}[] = [
   { key: "agents", label: "智能体管理", icon: Bot },
   { key: "ai", label: "AI 生文", icon: Sparkles },
-  { key: "content", label: "内容管理", icon: FileText },
-  { key: "prompts", label: "提示词管理", icon: MessagesSquare },
+  {
+    key: "content",
+    label: "内容管理",
+    icon: FileText,
+    children: [
+      { key: "content:pending", label: "未审核库", value: "pending" },
+      { key: "content:approved", label: "已审核库", value: "approved" },
+    ],
+  },
+  {
+    key: "prompts",
+    label: "提示词管理",
+    icon: MessagesSquare,
+    children: [
+      { key: "prompts:generation", label: "AI生文提示词", value: "generation" },
+      { key: "prompts:ai_format", label: "AI格式提示词", value: "ai_format" },
+      { key: "prompts:image_search", label: "搜图关键词", value: "image_search" },
+      { key: "prompts:image_companion", label: "陪衬配图提示词", value: "image_companion" },
+    ],
+  },
   { key: "image-library", label: "图片库", icon: Images },
   { key: "media", label: "媒体矩阵", icon: RadioTower },
   { key: "tasks", label: "分发引擎", icon: Send },
@@ -540,6 +565,7 @@ export interface Pipeline {
   name: string;
   description: string | null;
   has_draft: boolean;
+  is_running: boolean;
   created_at: string;
   updated_at: string;
   type: string;

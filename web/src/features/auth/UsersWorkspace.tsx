@@ -69,6 +69,7 @@ export function UsersWorkspace() {
         ) : users.length === 0 ? (
           <p style={{ padding: 24, color: "#64748b" }}>暂无用户</p>
         ) : (
+          <div className="usersTableWrap">
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr style={{ borderBottom: "1px solid var(--border)", background: "var(--bg-alt)" }}>
@@ -132,6 +133,7 @@ export function UsersWorkspace() {
               })}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 
