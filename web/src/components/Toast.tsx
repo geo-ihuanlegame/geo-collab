@@ -31,11 +31,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  function getStyle(type: ToastType): { bg: string; color: string } {
+  function getStyle(type: ToastType): { bg: string; color: string; border: string } {
     switch (type) {
-      case "success": return { bg: "#e8f5e9", color: "#2e7d32" };
-      case "error": return { bg: "var(--red-soft)", color: "var(--red)" };
-      default: return { bg: "#e3f2fd", color: "#1565c0" };
+      case "success": return { bg: "var(--surface-2)", color: "var(--green)", border: "rgba(52,211,153,0.35)" };
+      case "error": return { bg: "var(--surface-2)", color: "var(--red)", border: "rgba(248,113,113,0.35)" };
+      default: return { bg: "var(--surface-2)", color: "var(--cyan)", border: "rgba(56,189,248,0.35)" };
     }
   }
 
@@ -51,13 +51,14 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               style={{
                 background: style.bg,
                 color: style.color,
+                border: `1px solid ${style.border}`,
                 padding: "10px 16px",
                 borderRadius: "var(--r)",
                 fontSize: 13,
                 display: "flex",
                 alignItems: "center",
                 gap: 10,
-                boxShadow: "0 2px 8px rgba(0,0,0,0.12)",
+                boxShadow: "0 12px 32px rgba(0,0,0,0.5)",
                 animation: "slideInRight .3s ease",
               }}
             >

@@ -50,6 +50,7 @@ class PipelineRead(BaseModel):
     name: str
     description: str | None
     has_draft: bool
+    is_running: bool = False
     type: str = "general"
     tags: list[str] = []
     ignore_exception: bool = False

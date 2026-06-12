@@ -266,14 +266,14 @@ export function AuditLogsWorkspace() {
 
       <div className="panel" style={{ padding: 0, overflow: "hidden" }}>
         {loading && items.length === 0 ? (
-          <p style={{ padding: 24, color: "#64748b" }}>加载中…</p>
+          <p style={{ padding: 24, color: "var(--fg-3)" }}>加载中…</p>
         ) : items.length === 0 ? (
-          <p style={{ padding: 24, color: "#64748b" }}>暂无审计日志</p>
+          <p style={{ padding: 24, color: "var(--fg-3)" }}>暂无审计日志</p>
         ) : (
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
-                <tr style={{ borderBottom: "1px solid var(--border)", background: "var(--bg-alt)" }}>
+                <tr style={{ borderBottom: "1px solid var(--hair)", background: "var(--glass)" }}>
                   <th style={thStyle}>时间</th>
                   <th style={thStyle}>用户</th>
                   <th style={thStyle}>动作</th>
@@ -290,7 +290,7 @@ export function AuditLogsWorkspace() {
                       ? null
                       : JSON.stringify(it.payload_json, null, 2);
                   return (
-                    <tr key={it.id} style={{ borderBottom: "1px solid var(--border)", verticalAlign: "top" }}>
+                    <tr key={it.id} style={{ borderBottom: "1px solid var(--hair)", verticalAlign: "top" }}>
                       <td style={tdStyle}>
                         <span style={{ whiteSpace: "nowrap" }}>{formatDateTime(it.created_at)}</span>
                       </td>
@@ -299,13 +299,13 @@ export function AuditLogsWorkspace() {
                           <>
                             <span style={{ fontWeight: 500 }}>{it.username}</span>
                             {it.user_id !== null && (
-                              <span style={{ marginLeft: 4, color: "#94a3b8", fontSize: 12 }}>
+                              <span style={{ marginLeft: 4, color: "var(--fg-3)", fontSize: 12 }}>
                                 ({it.user_id})
                               </span>
                             )}
                           </>
                         ) : (
-                          <span style={{ color: "#94a3b8" }}>—</span>
+                          <span style={{ color: "var(--fg-3)" }}>—</span>
                         )}
                       </td>
                       <td style={tdStyle}>
@@ -322,7 +322,7 @@ export function AuditLogsWorkspace() {
                           style={{
                             fontFamily: "var(--mono, monospace)",
                             fontSize: 12,
-                            color: it.ip_address ? undefined : "#94a3b8",
+                            color: it.ip_address ? undefined : "var(--fg-3)",
                           }}
                         >
                           {truncate(it.ip_address, 24)}
@@ -338,8 +338,8 @@ export function AuditLogsWorkspace() {
                               style={{
                                 margin: "6px 0 0 0",
                                 padding: 10,
-                                background: "var(--bg-alt, #f8fafc)",
-                                border: "1px solid var(--border, #e2e8f0)",
+                                background: "var(--glass)",
+                                border: "1px solid var(--hair)",
                                 borderRadius: 6,
                                 fontSize: 12,
                                 whiteSpace: "pre-wrap",
@@ -353,7 +353,7 @@ export function AuditLogsWorkspace() {
                             </pre>
                           </details>
                         ) : (
-                          <span style={{ color: "#94a3b8" }}>—</span>
+                          <span style={{ color: "var(--fg-3)" }}>—</span>
                         )}
                       </td>
                     </tr>
@@ -368,11 +368,11 @@ export function AuditLogsWorkspace() {
             display: "flex",
             justifyContent: "center",
             padding: 16,
-            borderTop: items.length > 0 ? "1px solid var(--border)" : undefined,
+            borderTop: items.length > 0 ? "1px solid var(--hair)" : undefined,
           }}
         >
           {nextCursor === null ? (
-            <span style={{ color: "#94a3b8", fontSize: 13 }}>
+            <span style={{ color: "var(--fg-3)", fontSize: 13 }}>
               {items.length === 0 ? "" : "无更多"}
             </span>
           ) : (
@@ -395,7 +395,7 @@ const thStyle: React.CSSProperties = {
   padding: "10px 16px",
   textAlign: "left",
   fontWeight: 600,
-  color: "#64748b",
+  color: "var(--fg-3)",
   fontSize: 12,
   textTransform: "uppercase",
   letterSpacing: "0.04em",
@@ -415,15 +415,17 @@ const filterLabelStyle: React.CSSProperties = {
 };
 
 const filterLabelTextStyle: React.CSSProperties = {
-  color: "#64748b",
+  color: "var(--fg-3)",
   fontWeight: 500,
 };
 
 const inputStyle: React.CSSProperties = {
   padding: "6px 10px",
-  border: "1px solid var(--border, #e2e8f0)",
+  border: "1px solid var(--hair)",
   borderRadius: 6,
   fontSize: 13,
-  background: "white",
+  background: "var(--glass)",
+  color: "var(--fg)",
+  colorScheme: "dark",
   minWidth: 160,
 };

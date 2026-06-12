@@ -315,9 +315,18 @@ type UnifiedListItem =
 interface Props {
   dirtyCheckRef?: MutableRefObject<() => boolean>;
   isActive?: boolean;
+  reviewTab?: ReviewStatus;
+  onReviewTabChange?: (t: ReviewStatus) => void;
+  isMobile?: boolean;
 }
 
-export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
+export function ContentWorkspace({
+  dirtyCheckRef,
+  isActive,
+  reviewTab: reviewTabProp,
+  onReviewTabChange,
+  isMobile,
+}: Props = {}) {
   const { toast } = useToast();
   const [articles, setArticles] = useState<ArticleSummary[]>([]);
   const [groups, setGroups] = useState<ArticleGroup[]>([]);
@@ -340,6 +349,10 @@ export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
   const [confirmUnsavedNew, setConfirmUnsavedNew] = useState(false);
   const [reviewTab, setReviewTab] = useState<ReviewStatus>("pending");
   const [reviewBusyId, setReviewBusyId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (reviewTabProp) setReviewTab(reviewTabProp);
+  }, [reviewTabProp]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [distributeTarget, setDistributeTarget] = useState<DistributeTarget | null>(null);
 
@@ -894,6 +907,7 @@ export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
 
   function selectReviewTab(tab: ReviewStatus) {
     setReviewTab(tab);
+    onReviewTabChange?.(tab);
     setArticlePage(0);
     setSelectedArticleIds([]);
   }
@@ -997,24 +1011,26 @@ export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
 
       <section className="contentGrid">
         <aside className="listPane">
-          <div className="reviewTabs">
-            <button
-              type="button"
-              className={`reviewTabBtn ${reviewTab === "pending" ? "active" : ""}`}
-              onClick={() => selectReviewTab("pending")}
-            >
-              未审核
-              <span className="reviewTabCount">{reviewCounts.pending}</span>
-            </button>
-            <button
-              type="button"
-              className={`reviewTabBtn ${reviewTab === "approved" ? "active" : ""}`}
-              onClick={() => selectReviewTab("approved")}
-            >
-              已审核
-              <span className="reviewTabCount">{reviewCounts.approved}</span>
-            </button>
-          </div>
+          {isMobile && (
+            <div className="reviewTabs">
+              <button
+                type="button"
+                className={`reviewTabBtn ${reviewTab === "pending" ? "active" : ""}`}
+                onClick={() => selectReviewTab("pending")}
+              >
+                未审核
+                <span className="reviewTabCount">{reviewCounts.pending}</span>
+              </button>
+              <button
+                type="button"
+                className={`reviewTabBtn ${reviewTab === "approved" ? "active" : ""}`}
+                onClick={() => selectReviewTab("approved")}
+              >
+                已审核
+                <span className="reviewTabCount">{reviewCounts.approved}</span>
+              </button>
+            </div>
+          )}
 
           {reviewTab === "approved" && selectedArticleIds.length > 0 ? (
             <div className="bulkBar">
@@ -1303,7 +1319,7 @@ export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
               else toast("请先选中正文中的图片", "error");
             }}
           />
-          <div className="editorWrap">
+          <div className="editorWrap paper-scope">
             <EditorContent editor={editor} />
           </div>
           <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, padding: "4px 8px", fontSize: 12, color: charCount < 300 ? "#e67e22" : "#888" }}>
