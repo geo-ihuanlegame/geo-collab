@@ -1303,7 +1303,7 @@ export function ContentWorkspace({ dirtyCheckRef, isActive }: Props = {}) {
               else toast("请先选中正文中的图片", "error");
             }}
           />
-          <div className="editorWrap">
+          <div className="editorWrap paper-scope">
             <EditorContent editor={editor} />
           </div>
           <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, padding: "4px 8px", fontSize: 12, color: charCount < 300 ? "#e67e22" : "#888" }}>
