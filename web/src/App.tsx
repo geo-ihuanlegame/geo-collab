@@ -1,13 +1,13 @@
 import { lazy, Suspense, useRef, useState } from "react";
 import { navItems } from "./types";
-import type { NavKey } from "./types";
+import type { NavKey, PromptScope, ReviewStatus } from "./types";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ToastProvider } from "./components/Toast";
 import { GlobalErrorListener } from "./components/GlobalErrorListener";
 import { AuthProvider, useAuth } from "./features/auth/AuthContext";
 import { LoginPage } from "./features/auth/LoginPage";
 import { ChangePasswordPage } from "./features/auth/ChangePasswordPage";
-import { ChevronLeft, LogOut, ScrollText, Users } from "lucide-react";
+import { ChevronDown, ChevronLeft, LogOut, ScrollText, Users } from "lucide-react";
 import { MobileNav } from "./components/MobileNav";
 import { MobileMorePage } from "./components/MobileMorePage";
 import { ScrollPanel } from "./components/ScrollPanel";
@@ -65,6 +65,9 @@ function AppShell() {
   const onMoreSection = !(["agents", "ai", "content", "tasks"] as NavKey[]).includes(activeNav);
   const [visitedTabs, setVisitedTabs] = useState<Set<NavKey>>(new Set(["agents"]));
   const contentDirtyRef = useRef<() => boolean>(() => false);
+  const [openGroup, setOpenGroup] = useState<NavKey | null>(null);
+  const [contentReviewTab, setContentReviewTab] = useState<ReviewStatus>("pending");
+  const [promptsScope, setPromptsScope] = useState<PromptScope>("generation");
 
   function handleNavClick(key: NavKey) {
     if (activeNav === "content" && key !== "content" && contentDirtyRef.current()) {
@@ -72,6 +75,23 @@ function AppShell() {
     }
     setVisitedTabs((prev) => (prev.has(key) ? prev : new Set(prev).add(key)));
     setActiveNav(key);
+    const hasChildren = navItems.some((i) => i.key === key && (i.children?.length ?? 0) > 0);
+    if (!hasChildren) setOpenGroup(null);
+  }
+
+  function toggleGroup(key: NavKey) {
+    setOpenGroup((prev) => (prev === key ? null : key));
+  }
+  function childValueFor(parentKey: NavKey): string {
+    if (parentKey === "content") return contentReviewTab;
+    if (parentKey === "prompts") return promptsScope;
+    return "";
+  }
+  function selectChild(parentKey: NavKey, value: string) {
+    if (parentKey === "content") setContentReviewTab(value as ReviewStatus);
+    else if (parentKey === "prompts") setPromptsScope(value as PromptScope);
+    setOpenGroup(parentKey);
+    handleNavClick(parentKey);
   }
 
   if (loading) {
@@ -120,6 +140,49 @@ function AppShell() {
           <nav className="nav">
             {navItems.map((item) => {
               const Icon = item.icon;
+              if (item.children && item.children.length > 0) {
+                const isOpen = openGroup === item.key;
+                return (
+                  <div className="navGroup" key={item.key}>
+                    <button
+                      className={`navItem navParent ${activeNav === item.key ? "active" : ""}`}
+                      type="button"
+                      onClick={() => {
+                        if (activeNav === item.key) {
+                          toggleGroup(item.key);
+                        } else {
+                          handleNavClick(item.key);
+                          setOpenGroup(item.key);
+                        }
+                      }}
+                    >
+                      <Icon size={17} />
+                      <span>{item.label}</span>
+                      <ChevronDown size={15} className={`navChevron${isOpen ? " open" : ""}`} />
+                    </button>
+                    <div className={`navSub ${isOpen ? "open" : ""}`}>
+                      <div className="navChildren">
+                        <div className="navChildrenInner">
+                          {item.children.map((child) => {
+                            const childActive =
+                              activeNav === item.key && childValueFor(item.key) === child.value;
+                            return (
+                              <button
+                                className={`navChild ${childActive ? "active" : ""}`}
+                                key={child.key}
+                                type="button"
+                                onClick={() => selectChild(item.key, child.value)}
+                              >
+                                {child.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
               return (
                 <button
                   className={`navItem ${activeNav === item.key ? "active" : ""}`}
@@ -186,7 +249,13 @@ function AppShell() {
             <ScrollPanel id="content" active={activeNav === "content"}>
               <ErrorBoundary title="内容管理">
                 <Suspense fallback={<TabFallback />}>
-                  <ContentWorkspace dirtyCheckRef={contentDirtyRef} isActive={activeNav === "content"} />
+                  <ContentWorkspace
+                    dirtyCheckRef={contentDirtyRef}
+                    isActive={activeNav === "content"}
+                    reviewTab={contentReviewTab}
+                    isMobile={isMobile}
+                    onReviewTabChange={setContentReviewTab}
+                  />
                 </Suspense>
               </ErrorBoundary>
             </ScrollPanel>
@@ -194,7 +263,11 @@ function AppShell() {
               <ScrollPanel id="prompts" active={activeNav === "prompts"}>
                 <ErrorBoundary title="提示词管理">
                   <Suspense fallback={<TabFallback />}>
-                    <PromptsWorkspace />
+                    <PromptsWorkspace
+                    scope={promptsScope}
+                    isMobile={isMobile}
+                    onScopeChange={setPromptsScope}
+                  />
                   </Suspense>
                 </ErrorBoundary>
               </ScrollPanel>

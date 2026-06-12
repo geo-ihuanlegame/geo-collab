@@ -145,10 +145,17 @@ function PromptModal({
   );
 }
 
-export function PromptsWorkspace() {
+export function PromptsWorkspace(
+  { scope: propScope, isMobile, onScopeChange }:
+  { scope?: PromptScope; isMobile?: boolean; onScopeChange?: (s: PromptScope) => void } = {},
+) {
   const { user } = useAuth();
   const { toast } = useToast();
   const [scope, setScope] = useState<PromptScope>("generation");
+
+  useEffect(() => {
+    if (propScope) setScope(propScope);
+  }, [propScope]);
   const [prompts, setPrompts] = useState<PromptTemplate[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
@@ -239,18 +246,23 @@ export function PromptsWorkspace() {
         </div>
       </header>
 
-      <div className="aiTabs">
-        {scopeTabs.map((tab) => (
-          <button
-            key={tab.scope}
-            className={`aiTabBtn${scope === tab.scope ? " active" : ""}`}
-            type="button"
-            onClick={() => setScope(tab.scope)}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      {isMobile && (
+        <div className="aiTabs">
+          {scopeTabs.map((tab) => (
+            <button
+              key={tab.scope}
+              className={`aiTabBtn${scope === tab.scope ? " active" : ""}`}
+              type="button"
+              onClick={() => {
+                setScope(tab.scope);
+                onScopeChange?.(tab.scope);
+              }}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="promptsToolbar">
         <Search size={15} />
