@@ -1,0 +1,76 @@
+stages:
+  - lint
+  - test
+  - frontend
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.pip-cache"
+  PNPM_STORE_DIR: "$CI_PROJECT_DIR/.pnpm-store"
+  GEO_JWT_SECRET: "ci-test-secret-not-for-prod"
+  GEO_DATA_DIR: "$CI_PROJECT_DIR/geo-test-data"
+
+cache:
+  key: "$CI_JOB_NAME-$CI_COMMIT_REF_SLUG"
+  paths:
+    - .pip-cache/
+    - .pnpm-store/
+    - .mypy_cache/
+    - .ruff_cache/
+  policy: pull-push
+
+# ============================================================
+# 后端 Lint
+# ============================================================
+backend-lint:
+  stage: lint
+  tags: [geo]
+  script:
+    - python -m pip install --upgrade pip
+    - pip install -r requirements.txt -r requirements-dev.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+    - ruff check server/
+    - ruff format --check server/
+    - mypy server/app
+
+# ============================================================
+# 后端测试（4 片并行）
+# ============================================================
+backend-test:
+  stage: test
+  tags: [geo]
+  parallel:
+    matrix:
+      - SHARD: ["1", "2", "3", "4"]
+  variables:
+    GEO_TEST_DATABASE_URL: "mysql+pymysql://root:testpw@127.0.0.1:3306/geo_test"
+  script:
+    - python -m pip install --upgrade pip
+    - pip install -r requirements.txt -r requirements-dev.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+    - pytest server/tests/ -q --timeout=120 --splits 4 --group $SHARD
+
+# ============================================================
+# 前端：类型检查 + 构建
+# ============================================================
+frontend:
+  stage: frontend
+  tags: [geo]
+  script:
+    - corepack enable
+    - corepack prepare pnpm@10.4.0 --activate
+    - pnpm install --frozen-lockfile --registry https://registry.npmmirror.com
+    - pnpm --filter @geo/web typecheck
+    - pnpm --filter @geo/web build
+
+# ============================================================
+# 依赖安全扫描（非阻塞，仅告警）
+# ============================================================
+security-audit:
+  stage: test
+  tags: [geo]
+  allow_failure: true
+  script:
+    - python -m pip install --upgrade pip pip-audit
+    - pip-audit -r requirements.txt -r requirements-dev.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+    - corepack enable
+    - corepack prepare pnpm@10.4.0 --activate
+    - pnpm install --frozen-lockfile --registry https://registry.npmmirror.com
+    - pnpm audit --audit-level moderate
