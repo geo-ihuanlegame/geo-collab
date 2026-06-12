@@ -42,14 +42,19 @@ backend-test:
   services:
     - name: public.ecr.aws/docker/library/mysql:8.0
       alias: mysql
+      variables:
+        MYSQL_ROOT_PASSWORD: testpw
+        MYSQL_DATABASE: geo_test
   parallel:
     matrix:
       - SHARD: ["1", "2", "3", "4"]
   variables:
+    FF_NETWORK_PER_BUILD: 1
     GEO_TEST_DATABASE_URL: "mysql+pymysql://root:testpw@mysql:3306/geo_test"
   script:
     - python -m pip install --upgrade pip
     - pip install -r requirements.txt -r requirements-dev.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+    - i=30; while [ $i -gt 0 ]; do python -c "import pymysql; pymysql.connect(host='mysql', user='root', password='testpw', database='geo_test').close()" 2>/dev/null && echo "MySQL ready" && break; sleep 2; i=$((i-1)); done
     - pytest server/tests/ -q --timeout=120 --splits 4 --group $SHARD
 
 # ============================================================
