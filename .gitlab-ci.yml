@@ -23,7 +23,8 @@ cache:
 # ============================================================
 backend-lint:
   stage: lint
-  tags: [geo]
+  tags: [docker]
+  image: public.ecr.aws/docker/library/python:3.12-slim
   script:
     - python -m pip install --upgrade pip
     - pip install -r requirements.txt -r requirements-dev.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
@@ -36,12 +37,16 @@ backend-lint:
 # ============================================================
 backend-test:
   stage: test
-  tags: [geo]
+  tags: [docker]
+  image: public.ecr.aws/docker/library/python:3.12-slim
+  services:
+    - name: public.ecr.aws/docker/library/mysql:8.0
+      alias: mysql
   parallel:
     matrix:
       - SHARD: ["1", "2", "3", "4"]
   variables:
-    GEO_TEST_DATABASE_URL: "mysql+pymysql://root:testpw@127.0.0.1:3306/geo_test"
+    GEO_TEST_DATABASE_URL: "mysql+pymysql://root:testpw@mysql:3306/geo_test"
   script:
     - python -m pip install --upgrade pip
     - pip install -r requirements.txt -r requirements-dev.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
@@ -52,7 +57,8 @@ backend-test:
 # ============================================================
 frontend:
   stage: frontend
-  tags: [geo]
+  tags: [docker]
+  image: public.ecr.aws/docker/library/node:22-bookworm-slim
   script:
     - corepack enable
     - corepack prepare pnpm@10.4.0 --activate
@@ -65,7 +71,8 @@ frontend:
 # ============================================================
 security-audit:
   stage: test
-  tags: [geo]
+  tags: [docker]
+  image: public.ecr.aws/docker/library/python:3.12-slim
   allow_failure: true
   script:
     - python -m pip install --upgrade pip pip-audit
