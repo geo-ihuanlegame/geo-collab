@@ -278,6 +278,12 @@ export function TasksWorkspace({ isActive }: { isActive?: boolean } = {}) {
       setFormError("请选择分组");
       return;
     }
+    const taskPlatforms = new Set(formAccountIds.map((id) => accountMap[id]?.platform_code));
+    if (taskPlatforms.size > 1) {
+      setFormError("所选账号跨平台，一个任务只能发同一个平台");
+      return;
+    }
+    const platformCode = accountMap[formAccountIds[0]]?.platform_code;
     setLoading(true);
     try {
       const payload: TaskCreatePayload = {
@@ -288,6 +294,7 @@ export function TasksWorkspace({ isActive }: { isActive?: boolean } = {}) {
         group_id: formType === "group_round_robin" ? formGroupId : null,
         accounts: formAccountIds.map((id, index) => ({ account_id: id, sort_order: index })),
         stop_before_publish: false,
+        platform_code: platformCode,
       };
       const task = await singleFlight("task-create", () =>
         createTaskRequest(payload),
