@@ -20,6 +20,17 @@ def run_to_review(ctx: NodeRunContext) -> NodeResult:
     if not article_ids:
         return NodeResult(output={"skipped": "无文章"}, article_ids=[])
 
+    # 守卫：上游已带 group_id（ai_generate 已流式成组）→ 透传，不再建新组。
+    # 同查 inputs 与 upstream（防下游 inputMapping 把 group_id 字段筛掉）。
+    already_gid = ctx.inputs.get("group_id") or (ctx.upstream or {}).get("group_id")
+    if already_gid:
+        # article_ids 透传在 output 里供下游 distribute 消费；NodeResult.article_ids=[] 与
+        # daily/default 分支一致——执行器无需在此累计成组（上游流式已成组）。
+        return NodeResult(
+            output={"group_id": already_gid, "article_ids": list(article_ids)},
+            article_ids=[],
+        )
+
     if cfg.get("daily_group"):
         today = dt.datetime.now(ZoneInfo(get_settings().scheduler_tz)).date()
         gid = mark_pending_and_append_daily(

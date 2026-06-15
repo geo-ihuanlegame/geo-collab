@@ -90,6 +90,14 @@ def get_node_types() -> dict:
                     {"key": "prompt_template_id", "type": "prompt_template", "label": "提示词模板"},
                     {"key": "count", "type": "number", "label": "生成数量"},
                     {"key": "model", "type": "ai_engine", "label": "模型"},
+                    {
+                        "key": "daily_group",
+                        "type": "toggle",
+                        "label": "边生成边进每日分组",
+                        "hint": "开启后：生成前先建好「每日生成 · 日期」分组，每生成一篇立即进组并标待审；"
+                        "运行中可实时看到逐篇进组，中途失败也不丢已生成的文章。同一天多次运行并入同一组。",
+                        "default": False,
+                    },
                 ],
             },
             {

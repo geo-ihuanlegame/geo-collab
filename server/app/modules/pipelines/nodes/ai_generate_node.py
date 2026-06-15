@@ -6,8 +6,12 @@
   总量受 ai_generate_max_count 约束；单篇/单元失败收进 errors，交由运行聚合为 partial_failed。
 - 扁平（无 generation_units）：按本节点单模板 + 数量并发生成（原行为）。"""
 
+import datetime as dt
+import itertools
 import logging
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from zoneinfo import ZoneInfo
 
 from server.app.modules.ai_generation.article_writer import generate_article_from_prompt
 from server.app.modules.pipelines.nodes.base import NodeResult, NodeRunContext, register
@@ -70,6 +74,7 @@ def _run_units(ctx: NodeRunContext, cfg: dict, units, model, max_count) -> NodeR
     if total > max_count:
         raise ValidationError(f"生成数量超过上限 {max_count}")
 
+    group_id, stream = _make_group_streamer(ctx, cfg)
     article_ids: list[int] = []
     errors: list[str] = []
 
@@ -82,13 +87,15 @@ def _run_units(ctx: NodeRunContext, cfg: dict, units, model, max_count) -> NodeR
             template_content = tpl.content
         finally:
             db.close()
-        return generate_article_from_prompt(
+        aid = generate_article_from_prompt(
             session_factory=ctx.session_factory,
             user_id=ctx.user_id,
             template_content=template_content,
             question_text=qtext,
             model=model,
         )
+        stream(aid)
+        return aid
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = [
@@ -103,8 +110,50 @@ def _run_units(ctx: NodeRunContext, cfg: dict, units, model, max_count) -> NodeR
                 errors.append(str(exc))
 
     return NodeResult(
-        output={"article_ids": article_ids, "errors": errors}, article_ids=article_ids
+        output={"article_ids": article_ids, "errors": errors, "group_id": group_id},
+        article_ids=article_ids,
     )
+
+
+def _make_group_streamer(ctx: NodeRunContext, cfg: dict):
+    """daily_group 开启时先建好当天分组，返回 (group_id, stream_fn)；
+    关闭或建组失败 → 返回 (None, no-op)（退回非流式老路径，不丢文章）。
+
+    stream_fn(aid)：把该篇标 pending + 追加进当天组。sort_order 用进程内计数器
+    （threading.Lock 只护内存自增；DB 追加在锁外并发、各自不同行，无 DB 锁竞争——见 spec 第 7 节）。"""
+    if not cfg.get("daily_group"):
+        return None, (lambda _aid: None)
+
+    from server.app.core.config import get_settings
+    from server.app.modules.articles.service import (
+        append_article_to_group_pending,
+        resolve_or_create_daily_group,
+    )
+
+    today = dt.datetime.now(ZoneInfo(get_settings().scheduler_tz)).date()
+    group_name = f"每日生成 · {today:%Y-%m-%d}"
+    resolved = resolve_or_create_daily_group(
+        ctx.session_factory, user_id=ctx.user_id, group_name=group_name
+    )
+    if resolved is None:
+        logger.warning("ai_generate daily_group 建组失败，退回非流式：%s", group_name)
+        return None, (lambda _aid: None)
+
+    group_id, next_start = resolved
+    counter = itertools.count(next_start)
+    lock = threading.Lock()
+
+    def _stream(aid: int) -> None:
+        with lock:
+            so = next(counter)
+        ok = append_article_to_group_pending(
+            ctx.session_factory, group_id=group_id, article_id=aid, sort_order=so
+        )
+        if not ok:
+            # best-effort：文章已生成、不会从 article_ids 丢失，但没进组——记一条警告便于排查
+            logger.warning("ai_generate daily_group 追加失败（article=%s group=%s）", aid, group_id)
+
+    return group_id, _stream
 
 
 def run_ai_generate(ctx: NodeRunContext) -> NodeResult:
@@ -155,17 +204,20 @@ def run_ai_generate(ctx: NodeRunContext) -> NodeResult:
     finally:
         db.close()
 
+    group_id, stream = _make_group_streamer(ctx, cfg)
     article_ids: list[int] = []
     errors: list[str] = []
 
     def _one() -> int:
-        return generate_article_from_prompt(
+        aid = generate_article_from_prompt(
             session_factory=ctx.session_factory,
             user_id=ctx.user_id,
             template_content=template_content,
             question_text=question_text,
             model=model,
         )
+        stream(aid)
+        return aid
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = [pool.submit(_one) for _ in range(count)]
@@ -176,7 +228,8 @@ def run_ai_generate(ctx: NodeRunContext) -> NodeResult:
                 errors.append(str(exc))
 
     return NodeResult(
-        output={"article_ids": article_ids, "errors": errors}, article_ids=article_ids
+        output={"article_ids": article_ids, "errors": errors, "group_id": group_id},
+        article_ids=article_ids,
     )
 
 
