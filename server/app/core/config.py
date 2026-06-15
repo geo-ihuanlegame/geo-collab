@@ -117,6 +117,16 @@ class Settings(BaseSettings):
         "https://qianfan.baidubce.com/v2/ai_search/web_search"  # GEO_BAIDU_AI_SEARCH_URL
     )
     baidu_ai_search_timeout_seconds: int = 30  # GEO_BAIDU_AI_SEARCH_TIMEOUT_SECONDS
+    # 限流韧性：配图并发 + 同名重复会把千帆 QPS 打爆（实测整批 429）。下面三个旋钮收口在 baidu.py。
+    baidu_min_interval_seconds: float = (
+        1.0  # GEO_BAIDU_MIN_INTERVAL_SECONDS 全局限速(串行间隔)，压在 QPS 内
+    )
+    baidu_max_retries: int = (
+        3  # GEO_BAIDU_MAX_RETRIES 遇 429 的重试次数（认 Retry-After，否则指数退避）
+    )
+    baidu_neg_cache_seconds: int = (
+        120  # GEO_BAIDU_NEG_CACHE_SECONDS 同名搜图失败的负缓存 TTL，省得本批反复打
+    )
 
     model_config = SettingsConfigDict(env_prefix="GEO_", env_file=".env", extra="ignore")
 

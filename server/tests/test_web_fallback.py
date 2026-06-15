@@ -6,6 +6,7 @@
 
 import re
 
+import httpx
 import pytest
 
 from server.app.shared import baidu
@@ -129,6 +130,142 @@ def test_web_fallback_fill_category_omits_query_template_when_none(monkeypatch):
 
     _web_fallback_fill_category(None, SimpleNamespace(name="原神"))
     assert captured["kw"] == {}
+
+
+# ── 限流韧性：限速 + 429 重试退避 + 同名去重负缓存（无需 DB）─────────────────────
+
+
+def _mk_response(status, json_body=None, retry_after=None):
+    headers = {}
+    if retry_after is not None:
+        headers["Retry-After"] = str(retry_after)
+    req = httpx.Request("POST", "https://qianfan.baidubce.com/v2/ai_search/web_search")
+    return httpx.Response(status, headers=headers, json=json_body or {}, request=req)
+
+
+_OK_BODY = {
+    "references": [
+        {
+            "url": "http://news/p",
+            "image": {"url": "http://img/x.jpg", "width": "1920", "height": "1080"},
+        }
+    ]
+}
+
+
+def _set_baidu_env(monkeypatch, *, max_retries=3, min_interval=0.0):
+    """配好 key + 限速/重试旋钮，并隔离负缓存、置空退避 sleep（避免真睡眠、跨用例污染）。"""
+    from server.app.core import config
+
+    monkeypatch.setenv("GEO_BAIDU_API_KEY", "test-key")
+    monkeypatch.setenv("GEO_BAIDU_MAX_RETRIES", str(max_retries))
+    monkeypatch.setenv("GEO_BAIDU_MIN_INTERVAL_SECONDS", str(min_interval))
+    config.get_settings.cache_clear()
+    monkeypatch.setattr(baidu, "sleep", lambda _s: None)
+    monkeypatch.setattr(baidu, "_neg_cache", {})
+
+
+def test_throttle_sleeps_to_enforce_min_interval(monkeypatch):
+    # 距上次调用仅 0.4s，min_interval=1.0 → 还需补睡 0.6s
+    slept = []
+    monkeypatch.setattr(baidu, "monotonic", lambda: 100.0)
+    monkeypatch.setattr(baidu, "sleep", lambda s: slept.append(s))
+    monkeypatch.setattr(baidu, "_last_call_monotonic", 99.6)
+    baidu._throttle(1.0)
+    assert slept and slept[0] == pytest.approx(0.6, abs=1e-6)
+
+
+def test_throttle_no_sleep_when_interval_elapsed(monkeypatch):
+    # 距上次调用已很久 → 不睡
+    slept = []
+    monkeypatch.setattr(baidu, "monotonic", lambda: 200.0)
+    monkeypatch.setattr(baidu, "sleep", lambda s: slept.append(s))
+    monkeypatch.setattr(baidu, "_last_call_monotonic", 100.0)
+    baidu._throttle(1.0)
+    assert slept == []
+
+
+def test_throttle_disabled_when_interval_non_positive(monkeypatch):
+    slept = []
+    monkeypatch.setattr(baidu, "sleep", lambda s: slept.append(s))
+    baidu._throttle(0)
+    assert slept == []
+
+
+def test_search_retries_on_429_then_succeeds(monkeypatch):
+    # 连续两次 429 → 第三次 200，最终拿到图，且确实重试了 3 发
+    _set_baidu_env(monkeypatch, max_retries=3)
+    seq = [
+        _mk_response(429, retry_after=0),
+        _mk_response(429, retry_after=0),
+        _mk_response(200, _OK_BODY),
+    ]
+    calls = {"n": 0}
+
+    def fake_post(*a, **k):
+        r = seq[calls["n"]]
+        calls["n"] += 1
+        return r
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    out = baidu.search_landscape_images("原神")
+    assert calls["n"] == 3
+    assert [im.url for im in out] == ["http://img/x.jpg"]
+
+
+def test_search_gives_up_after_max_retries_on_429(monkeypatch):
+    # 全程 429 → 返回 []，且只重试到上限（1 首发 + 2 重试）
+    _set_baidu_env(monkeypatch, max_retries=2)
+    calls = {"n": 0}
+
+    def fake_post(*a, **k):
+        calls["n"] += 1
+        return _mk_response(429, retry_after=0)
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    out = baidu.search_landscape_images("原神")
+    assert out == []
+    assert calls["n"] == 3
+
+
+def test_search_neg_caches_failed_query_to_skip_repeat(monkeypatch):
+    # 同名搜图失败后进负缓存，TTL 内再搜直接短路、不再打网络
+    _set_baidu_env(monkeypatch, max_retries=0)
+    monkeypatch.setattr(baidu, "monotonic", lambda: 1000.0)
+    calls = {"n": 0}
+
+    def fake_post(*a, **k):
+        calls["n"] += 1
+        return _mk_response(429, retry_after=0)
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    assert baidu.search_landscape_images("月兔漫游") == []
+    assert calls["n"] == 1
+    assert baidu.search_landscape_images("月兔漫游") == []
+    assert calls["n"] == 1
+
+
+def test_search_neg_cache_expires_after_ttl(monkeypatch):
+    # 负缓存过 TTL 后失效 → 重新搜
+    _set_baidu_env(monkeypatch, max_retries=0)
+    monkeypatch.setenv("GEO_BAIDU_NEG_CACHE_SECONDS", "120")
+    from server.app.core import config
+
+    config.get_settings.cache_clear()
+    clock = [1000.0]
+    monkeypatch.setattr(baidu, "monotonic", lambda: clock[0])
+    calls = {"n": 0}
+
+    def fake_post(*a, **k):
+        calls["n"] += 1
+        return _mk_response(429, retry_after=0)
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    assert baidu.search_landscape_images("小森灵") == []
+    assert calls["n"] == 1
+    clock[0] = 1000.0 + 121
+    assert baidu.search_landscape_images("小森灵") == []
+    assert calls["n"] == 2
 
 
 # ── 集成：mock MinIO + 百度，仅需 MySQL ──────────────────────────────────────
