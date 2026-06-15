@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from server.app.modules.tasks.drivers.base import PublishPayload, PublishResult
+from server.app.modules.tasks.drivers.base import PublishError, PublishPayload, PublishResult
 from server.app.modules.tasks.drivers.toutiao import (
     PublishFillResult,
     ToutiaoUserInputRequired,
@@ -371,7 +371,7 @@ def test_build_payload_resolves_stock_image_segments(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(
         "server.app.modules.tasks.runner._resolve_stock_image_path",
-        lambda stock_image_id: stock_path,
+        lambda stock_image_id, *, missing_ok=False: stock_path,
     )
 
     payload = publish_runner._build_payload(
@@ -385,3 +385,85 @@ def test_build_payload_resolves_stock_image_segments(monkeypatch, tmp_path):
     assert payload.body_segments[0].stock_image_id == 42
     assert payload.body_segments[0].image_path == stock_path
     assert payload.temp_files == (stock_path,)
+
+
+def test_build_payload_skips_missing_stock_image(monkeypatch, tmp_path):
+    """图库图片已被删除时，浏览器驱动 payload 应跳过该图、照常构建，不抛 PublishError（#36）。"""
+    from server.app.modules.tasks import runner as publish_runner
+
+    cover_path = tmp_path / "cover.jpg"
+    cover_path.write_bytes(b"cover")
+
+    article = types.SimpleNamespace(
+        title="Article with dead stock image",
+        cover_asset=object(),
+        content_json='{"type":"doc","content":[{"type":"image","attrs":{"stockImageId":36,"src":"/api/stock-images/36/file"}},{"type":"paragraph","content":[{"type":"text","text":"正文"}]}]}',
+        plain_text="",
+        content_html="",
+        body_assets=[],
+    )
+    account = _make_stub_account()
+
+    monkeypatch.setattr(
+        "server.app.modules.tasks.runner.resolve_asset_path", lambda asset: cover_path
+    )
+    # 模拟图库图片已删除：_resolve_stock_image_path 在 missing_ok 下返回 None
+    monkeypatch.setattr(
+        "server.app.modules.tasks.runner._resolve_stock_image_path",
+        lambda stock_image_id, *, missing_ok=False: None,
+    )
+
+    payload = publish_runner._build_payload(
+        article,
+        account,
+        "k1",
+        "testplat",
+        tmp_path / "browser_states/testplat/k1/storage_state.json",
+    )
+
+    assert all(seg.kind != "image" for seg in payload.body_segments)
+    assert payload.temp_files == ()
+
+
+def test_build_api_payload_skips_missing_stock_image(monkeypatch, tmp_path):
+    """微信公众号（API 驱动）payload 应跳过已删除的图库正文图，不抛 PublishError（#36）。"""
+    from server.app.modules.tasks import runner_api
+
+    article = types.SimpleNamespace(
+        title="WeChat article with dead stock image",
+        cover_asset=None,
+        content_json='{"type":"doc","content":[{"type":"image","attrs":{"stockImageId":36,"src":"/api/stock-images/36/file"}},{"type":"paragraph","content":[{"type":"text","text":"正文"}]}]}',
+        plain_text="",
+        content_html="",
+        body_assets=[],
+    )
+    account = types.SimpleNamespace(display_name="测试公众号")
+
+    monkeypatch.setattr(
+        "server.app.modules.tasks.runner._resolve_stock_image_path",
+        lambda stock_image_id, *, missing_ok=False: None,
+    )
+
+    payload = runner_api._build_api_payload(article, account, "tok", "wechat_mp")
+
+    assert all(seg.kind != "image" for seg in payload.body_segments)
+    assert payload.temp_files == ()
+
+
+def test_resolve_stock_image_path_missing_ok_returns_none(monkeypatch):
+    """图库记录缺失时：missing_ok=True 返回 None；默认仍抛 PublishError（保持原契约）。"""
+    from server.app.modules.tasks import runner as publish_runner
+
+    class _FakeSession:
+        def get(self, model, pk):  # noqa: ARG002
+            return None
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr("server.app.db.session.SessionLocal", lambda: _FakeSession())
+
+    assert publish_runner._resolve_stock_image_path(36, missing_ok=True) is None
+
+    with pytest.raises(PublishError, match="图片库图片不存在"):
+        publish_runner._resolve_stock_image_path(36)

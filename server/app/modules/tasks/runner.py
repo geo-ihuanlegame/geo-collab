@@ -108,10 +108,14 @@ def _stock_image_suffix(filename: str, minio_key: str) -> str:
     return suffix if suffix else ".jpg"
 
 
-def _resolve_stock_image_path(stock_image_id: int) -> Path:
+def _resolve_stock_image_path(stock_image_id: int, *, missing_ok: bool = False) -> Path | None:
     """把图片库（MinIO）里的图拉到本地临时文件，返回路径（调用方负责后续清理 temp_files）。
 
     自开独立 SessionLocal 查 StockImage/StockCategory（本函数可能在发布线程里调，不复用主 session）。
+
+    missing_ok=True 时，图库记录（图片或其栏目）已被删除则记一条发布诊断并返回 None，让调用方
+    跳过这张图照常发布——正文配图（陪衬图）全链路本就是 best-effort，单张被删不应阻断整篇发布（#36）。
+    MinIO 读取失败等基础设施异常仍照常抛出（可能是瞬时故障，不应静默吞掉）。
     """
     from server.app.db.session import SessionLocal
     from server.app.modules.image_library import store as minio_store
@@ -121,9 +125,22 @@ def _resolve_stock_image_path(stock_image_id: int) -> Path:
     try:
         img = db.get(StockImage, stock_image_id)
         if img is None:
+            if missing_ok:
+                record_publish_diagnostic(
+                    f"正文配图已不存在，跳过该图继续发布: stock_image_id={stock_image_id}",
+                    level="warn",
+                )
+                return None
             raise PublishError(f"图片库图片不存在: {stock_image_id}")
         cat = db.get(StockCategory, img.category_id)
         if cat is None:
+            if missing_ok:
+                record_publish_diagnostic(
+                    f"正文配图所属栏目已不存在，跳过该图继续发布: "
+                    f"stock_image_id={stock_image_id} category_id={img.category_id}",
+                    level="warn",
+                )
+                return None
             raise PublishError(f"图片库栏目不存在: {img.category_id}")
         data = minio_store.get_object_bytes(cat.bucket_name, img.minio_key)
         suffix = _stock_image_suffix(img.filename, img.minio_key)
@@ -234,7 +251,9 @@ def _build_payload_with_stock_images(
                     )
                 )
             elif seg.kind == "image" and seg.stock_image_id is not None:
-                image_path = _resolve_stock_image_path(seg.stock_image_id)
+                image_path = _resolve_stock_image_path(seg.stock_image_id, missing_ok=True)
+                if image_path is None:
+                    continue  # 图库图已删除：跳过该图，照常发布（#36）
                 temp_files.append(image_path)
                 resolved.append(
                     BodySegment(

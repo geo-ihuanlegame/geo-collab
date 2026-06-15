@@ -95,7 +95,9 @@ def _build_api_payload(
                     )
                 )
             elif seg.kind == "image" and seg.stock_image_id is not None:
-                image_path = _resolve_stock_image_path(seg.stock_image_id)
+                image_path = _resolve_stock_image_path(seg.stock_image_id, missing_ok=True)
+                if image_path is None:
+                    continue  # 图库图已删除：跳过该图，照常发布（#36）
                 temp_files.append(image_path)
                 resolved.append(
                     BodySegment(
