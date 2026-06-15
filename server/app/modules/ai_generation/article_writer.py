@@ -15,7 +15,9 @@ _QUESTION_PLACEHOLDER = "{{问题}}"
 
 _GENERIC_SYSTEM_PROMPT = (
     "你是一位专业的内容写作者。根据下方的写作要求，撰写一篇高质量的文章。"
-    "使用 Markdown 格式输出正文，包含标题（# 一级标题）。"
+    "使用 Markdown 格式输出正文。"
+    "输出的第一行必须是文章标题，格式为 `# 标题`（井号后留一个空格、再写标题），"
+    "标题之前不要有任何前言、说明或代码块标记。"
 )
 
 
@@ -38,6 +40,87 @@ def render_question_prompt(template_content: str, question_text: str) -> str:
         f"基于以下 {n} 个问题，结合参考这些问题生成 1 篇文章：\n\n"
         f"{question_text}\n\n{template_content}"
     )
+
+
+_HEADING_RE = re.compile(r"^#{1,6}\s*(.*)$")
+_BOLD_TITLE_RE = re.compile(r"^\*\*(.+?)\*\*$")
+_FALLBACK_TITLE_MAX = 60
+_TITLE_MAX = 300  # 与 Article.title String(300) / ArticleCreate max_length 对齐
+
+
+def _truncate_title(text: str, limit: int) -> str:
+    text = text.strip()
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rstrip() + "…"
+
+
+def _first_nonblank_index(lines: list[str], start: int = 0) -> int:
+    i = start
+    while i < len(lines) and not lines[i].strip():
+        i += 1
+    return i
+
+
+def _strip_code_fence(lines: list[str]) -> list[str]:
+    """模型常把整篇输出包进 ``` 代码围栏。剥掉开头围栏行及其末尾配对围栏行。"""
+    start = _first_nonblank_index(lines)
+    if start >= len(lines) or not lines[start].lstrip().startswith("```"):
+        return lines
+    trimmed = lines[:start] + lines[start + 1 :]
+    end = len(trimmed) - 1
+    while end >= 0 and not trimmed[end].strip():
+        end -= 1
+    if end >= 0 and trimmed[end].strip() == "```":
+        trimmed = trimmed[:end] + trimmed[end + 1 :]
+    return trimmed
+
+
+def extract_title_and_body(md_content: str) -> tuple[str, str]:
+    """从模型 Markdown 输出里稳健抽取 (标题, 正文)。
+
+    原逻辑只认第一行精确 "# "，模型一旦吐 ##/无空格/加粗/代码围栏/空标题，标题就退化
+    成「无题」。这里按容错优先级抽取：
+    1. 剥掉整篇外层 ``` 代码围栏；
+    2. 首个非空行是任意级 heading（`#`~`######`，允许井号后无空格）→ 取其文本为标题、
+       从正文剔除该行；空标题标记（如 "# "）则跳过、继续往下找；
+    3. 首个非空行是整行加粗 `**标题**` → 取内层为标题、剔除该行；
+    4. 兜底：用首个非空行文本当标题（截断），但**正文完整保留该行**，绝不丢内容；
+    5. 通篇为空 → 才回落「无题」。
+
+    标题非空且 ≤300（schema 上限）；兜底标题再额外截到 60 以免整段长句当标题。
+    """
+    text = (md_content or "").strip()
+    if not text:
+        return "无题", ""
+
+    lines = _strip_code_fence(text.splitlines())
+    i = _first_nonblank_index(lines)
+    if i >= len(lines):
+        return "无题", ""
+
+    first = lines[i].strip()
+    heading = _HEADING_RE.match(first)
+    if heading is not None:
+        inner = heading.group(1).strip()
+        if inner:
+            body = "\n".join(lines[i + 1 :]).strip()
+            return _truncate_title(inner, _TITLE_MAX), body
+        # 空标题标记（"# " / "#"）：丢弃该行，从下一非空行重新判定
+        lines = lines[i + 1 :]
+        i = _first_nonblank_index(lines)
+        if i >= len(lines):
+            return "无题", ""
+        first = lines[i].strip()
+
+    bold = _BOLD_TITLE_RE.match(first)
+    if bold is not None and bold.group(1).strip():
+        body = "\n".join(lines[i + 1 :]).strip()
+        return _truncate_title(bold.group(1), _TITLE_MAX), body
+
+    # 兜底：首个非空行当标题，正文保留全文（含该行）——只取标题不剜内容
+    body = "\n".join(lines[i:]).strip()
+    return _truncate_title(first, _FALLBACK_TITLE_MAX), body
 
 
 def generate_article_from_prompt(
@@ -64,7 +147,8 @@ def generate_article_from_prompt(
 
     user_prompt = (
         render_question_prompt(template_content, question_text)
-        + "\n\n请开始写作（只输出 Markdown 正文，含 # 一级标题，不要解释）："
+        + "\n\n请开始写作。第一行必须是 `# 标题`（井号后留一个空格），"
+        "不要输出任何前言、解释或 ``` 代码块标记，只输出 Markdown 正文："
     )
     response = litellm.completion(
         model=model_str,
@@ -79,13 +163,7 @@ def generate_article_from_prompt(
     )
     md_content = response.choices[0].message.content or ""
 
-    lines = md_content.strip().splitlines()
-    title = "无题"
-    body_lines = lines
-    if lines and lines[0].startswith("# "):
-        title = lines[0][2:].strip() or "无题"
-        body_lines = lines[1:]
-    body_md = "\n".join(body_lines).strip()
+    title, body_md = extract_title_and_body(md_content)
 
     article_payload = ArticleCreate(
         title=title,
