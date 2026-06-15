@@ -231,3 +231,159 @@ def test_resolve_reuses_after_concurrent_create(monkeypatch):
         assert gid == state["concurrent_gid"] and start == 0  # 回查复用了并发建的组
     finally:
         app.cleanup()
+
+
+# ---- Task 2: ai_generate 流式进组 ----
+def _patch_generate(monkeypatch):
+    monkeypatch.setattr(
+        "server.app.modules.pipelines.nodes.ai_generate_node.generate_article_from_prompt",
+        _fake_generate,
+    )
+
+
+@pytest.mark.mysql
+def test_flat_streams_each_article_into_today_group(monkeypatch):
+    from server.app.modules.articles.models import Article, ArticleGroup, ArticleGroupItem
+
+    _patch_generate(monkeypatch)
+    app = build_test_app(monkeypatch)
+    try:
+        from server.app.modules.pipelines.nodes.ai_generate_node import run_ai_generate
+
+        uid = _uid(app)
+        t = _make_tpl(app, uid)
+        ctx = _ctx(
+            app,
+            uid,
+            {"prompt_template_id": t, "count": 3, "model": None, "daily_group": True},
+            {"question_text": "q"},
+        )
+        res = run_ai_generate(ctx)
+        ids = res.output["article_ids"]
+        assert len(ids) == 3 and res.output["errors"] == []
+        gid = res.output["group_id"]
+        assert gid is not None
+        with app.session_factory() as db:
+            g = db.get(ArticleGroup, gid)
+            assert g.user_id == uid and g.name.startswith("每日生成 · ")
+            items = db.query(ArticleGroupItem).filter(ArticleGroupItem.group_id == gid).all()
+            assert {it.article_id for it in items} == set(ids)  # 三篇都进组
+            for aid in ids:
+                assert db.get(Article, aid).review_status == "pending"  # 都标待审
+    finally:
+        app.cleanup()
+
+
+@pytest.mark.mysql
+def test_flat_off_emits_no_group_id_and_creates_no_group(monkeypatch):
+    from server.app.modules.articles.models import ArticleGroup
+
+    _patch_generate(monkeypatch)
+    app = build_test_app(monkeypatch)
+    try:
+        from server.app.modules.pipelines.nodes.ai_generate_node import run_ai_generate
+
+        uid = _uid(app)
+        t = _make_tpl(app, uid)
+        ctx = _ctx(
+            app,
+            uid,
+            {"prompt_template_id": t, "count": 2, "model": None},  # 无 daily_group
+            {"question_text": "q"},
+        )
+        res = run_ai_generate(ctx)
+        assert len(res.output["article_ids"]) == 2
+        assert res.output.get("group_id") is None  # 关闭 → 不输出 group_id
+        with app.session_factory() as db:
+            cnt = (
+                db.query(ArticleGroup)
+                .filter(
+                    ArticleGroup.user_id == uid,
+                    ArticleGroup.is_deleted == False,  # noqa: E712
+                )
+                .count()
+            )
+            assert cnt == 0  # 旧行为：本节点不建组（留给 to_review/执行器）
+    finally:
+        app.cleanup()
+
+
+@pytest.mark.mysql
+def test_units_partial_failure_keeps_succeeded_in_group(monkeypatch):
+    from server.app.modules.articles.models import ArticleGroupItem
+
+    _patch_generate(monkeypatch)
+    app = build_test_app(monkeypatch)
+    try:
+        from server.app.modules.pipelines.nodes.ai_generate_node import run_ai_generate
+
+        uid = _uid(app)
+        t_ok = _make_tpl(app, uid)
+        units = [
+            {
+                "question_type": "A",
+                "question_text": "1. qa",
+                "allowed_prompt_template_ids": [t_ok],
+                "article_count": 1,
+            },  # 成功
+            {
+                "question_type": "B",
+                "question_text": "1. qb",
+                "allowed_prompt_template_ids": [],
+                "article_count": 1,
+            },  # 无模板 → 失败
+        ]
+        ctx = _ctx(
+            app,
+            uid,
+            {"prompt_template_id": None, "count": 1, "model": None, "daily_group": True},
+            {"generation_units": units},
+        )
+        res = run_ai_generate(ctx)
+        assert len(res.output["article_ids"]) == 1  # 只有 A 成功
+        assert len(res.output["errors"]) == 1  # B 记错、不抛
+        gid = res.output["group_id"]
+        with app.session_factory() as db:
+            items = db.query(ArticleGroupItem).filter(ArticleGroupItem.group_id == gid).all()
+            assert {it.article_id for it in items} == set(res.output["article_ids"])  # 仅成功篇进组
+    finally:
+        app.cleanup()
+
+
+@pytest.mark.mysql
+def test_degrades_to_non_streaming_when_resolve_fails(monkeypatch):
+    from server.app.modules.articles.models import ArticleGroup
+
+    _patch_generate(monkeypatch)
+    # 建组失败 → 退回非流式：仍生成、不输出 group_id、不建组
+    monkeypatch.setattr(
+        "server.app.modules.articles.service.resolve_or_create_daily_group",
+        lambda *a, **k: None,
+    )
+    app = build_test_app(monkeypatch)
+    try:
+        from server.app.modules.pipelines.nodes.ai_generate_node import run_ai_generate
+
+        uid = _uid(app)
+        t = _make_tpl(app, uid)
+        ctx = _ctx(
+            app,
+            uid,
+            {"prompt_template_id": t, "count": 2, "model": None, "daily_group": True},
+            {"question_text": "q"},
+        )
+        res = run_ai_generate(ctx)
+        assert len(res.output["article_ids"]) == 2  # 不丢文章
+        assert res.output.get("group_id") is None  # 降级 → 无 group_id
+        with app.session_factory() as db:
+            cnt = (
+                db.query(ArticleGroup)
+                .filter(
+                    ArticleGroup.user_id == uid,
+                    ArticleGroup.is_deleted == False,  # noqa: E712
+                )
+                .count()
+            )
+            assert cnt == 0
+    finally:
+        app.cleanup()
