@@ -665,3 +665,118 @@ def mark_pending_and_append_daily(
             len(article_ids),
         )
         return None
+
+
+def resolve_or_create_daily_group(
+    session_factory,
+    *,
+    user_id: int,
+    group_name: str,
+) -> tuple[int, int] | None:
+    """查找-或-新建 (user_id, group_name) 分组，返回 (group_id, next_sort_order_start)。
+
+    - 未软删同名组 → 复用；软删同名 → 复活清空成员；都没有 → 新建。
+    - next_sort_order_start = 现有 max(sort_order)+1（空组/新建/复活 → 0）。
+    - 并发首建撞 (user_id, name) 唯一约束 → rollback 回查复用（catch IntegrityError 与
+      OperationalError：InnoDB 并发唯一 INSERT 偶发死锁 1213）；回查仍无 → 抛到外层返回 None。
+    - 只解析/建组，不标 pending、不插 item。独立 session、本函数内 commit+close。失败记日志返回 None。
+    详见 docs/superpowers/specs/2026-06-15-streaming-daily-group-design.md。"""
+    try:
+        from sqlalchemy.exc import IntegrityError, OperationalError
+
+        db = session_factory()
+        try:
+
+            def _resolve() -> ArticleGroup:
+                existing = (
+                    db.query(ArticleGroup)
+                    .filter(ArticleGroup.user_id == user_id, ArticleGroup.name == group_name)
+                    .first()
+                )
+                if existing is not None:
+                    if existing.is_deleted:  # 软删同名 → 复活并清空旧成员
+                        existing.is_deleted = False
+                        existing.deleted_at = None
+                        existing.version += 1
+                        existing.updated_at = utcnow()
+                        existing.items.clear()
+                        db.flush()
+                    return existing
+                grp = ArticleGroup(user_id=user_id, name=group_name)
+                db.add(grp)
+                db.flush()  # 撞唯一约束在此抛 IntegrityError（并发偶发 OperationalError/死锁）
+                return grp
+
+            try:
+                group = _resolve()
+            except (IntegrityError, OperationalError):
+                db.rollback()
+                group = (
+                    db.query(ArticleGroup)
+                    .filter(
+                        ArticleGroup.user_id == user_id,
+                        ArticleGroup.name == group_name,
+                        ArticleGroup.is_deleted.is_(False),
+                    )
+                    .first()
+                )
+                if group is None:
+                    raise
+
+            max_order = (
+                db.query(func.max(ArticleGroupItem.sort_order))
+                .filter(ArticleGroupItem.group_id == group.id)
+                .scalar()
+            )
+            next_start = (max_order + 1) if max_order is not None else 0
+            gid = group.id
+            db.commit()
+            return gid, next_start
+        finally:
+            db.close()
+    except Exception:  # noqa: BLE001 — 尽力而为
+        _logger.exception(
+            "resolve_or_create_daily_group failed (user=%s, name=%s)", user_id, group_name
+        )
+        return None
+
+
+def append_article_to_group_pending(
+    session_factory,
+    *,
+    group_id: int,
+    article_id: int,
+    sort_order: int,
+) -> bool:
+    """把单篇标 review_status='pending' 并追加进已存在的 group_id（只插 item、不动组行）。
+
+    - 绝不 UPDATE 组行（不 bump version/updated_at）——避免并发 worker 抢父行排他锁（见 spec 第 7 节）。
+    - 撞 (group_id, article_id) 唯一约束（理论上不会，文章是本次新建的）→ 当作已在组、忽略。
+    - 独立 session、commit+close。失败记日志返回 False。"""
+    try:
+        from sqlalchemy.exc import IntegrityError
+
+        db = session_factory()
+        try:
+            art = db.get(Article, article_id)
+            if art is not None:
+                art.review_status = "pending"
+            db.add(
+                ArticleGroupItem(group_id=group_id, article_id=article_id, sort_order=sort_order)
+            )
+            try:
+                db.commit()
+            except IntegrityError:
+                db.rollback()  # item 已存在 → 仅补标 pending
+                art2 = db.get(Article, article_id)
+                if art2 is not None and art2.review_status != "pending":
+                    art2.review_status = "pending"
+                    db.commit()
+            return True
+        finally:
+            db.close()
+    except Exception:  # noqa: BLE001
+        _logger.exception(
+            "append_article_to_group_pending failed (group=%s, article=%s)", group_id, article_id
+        )
+        return False
