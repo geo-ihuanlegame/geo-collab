@@ -156,6 +156,9 @@ def build_test_app(monkeypatch) -> TestApp:
     monkeypatch.setenv("GEO_DATA_DIR", str(data_dir))
     monkeypatch.setenv("GEO_DATABASE_URL", test_database_url)
     monkeypatch.setenv("GEO_JWT_SECRET", "test-secret")
+    # 关闭发布前随机延迟（错峰防封）：否则执行真实发布的集成测试会被 10-120s 睡眠拖到超时。
+    # 延迟逻辑本身由 test_publish_pre_delay.py 用注入的 sleep 单测覆盖，无需在集成测试里真等。
+    monkeypatch.setenv("GEO_PUBLISH_PRE_DELAY_ENABLED", "false")
     get_settings.cache_clear()
 
     from server.app.modules.tasks import executor as _tasks_mod
