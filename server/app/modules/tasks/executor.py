@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import random
 import threading
 import time
 import traceback
@@ -603,6 +604,29 @@ def _record_execution_budget() -> float:
     return s.publish_record_timeout_seconds + extra
 
 
+def _maybe_pre_publish_delay(
+    record: PublishRecord,
+    stop_before_publish: bool,
+    *,
+    sleep=time.sleep,
+    rng=random.uniform,
+) -> None:
+    """发布前随机延迟（错峰防封）。stop_before_publish 的人工确认流程跳过。
+    sleep / rng 作为可注入参数，便于测试零等待。"""
+    if stop_before_publish:
+        return
+    s = get_settings()
+    if not s.publish_pre_delay_enabled:
+        return
+    lo = max(0.0, s.publish_pre_delay_min_seconds)
+    hi = max(lo, s.publish_pre_delay_max_seconds)
+    if hi <= 0:
+        return
+    delay = rng(lo, hi)
+    _logger.info("Pre-publish delay %.1fs for record %d", delay, record.id)
+    sleep(delay)
+
+
 def _publish_record(
     record: PublishRecord, article: Article, account: Account, stop_before_publish: bool
 ):
@@ -618,6 +642,7 @@ def _publish_record(
     diagnostics: list[PublishDiagnosticEvent] = []
     try:
         with capture_publish_diagnostics(diagnostics):
+            _maybe_pre_publish_delay(record, stop_before_publish)
             runner = build_publish_runner_for_record(record)
             result = runner(article, account, stop_before_publish=stop_before_publish)
             return RecordPublishOutcome(result=result, diagnostics=list(diagnostics))

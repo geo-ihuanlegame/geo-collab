@@ -50,3 +50,51 @@ def test_budget_base_when_disabled(monkeypatch):
         executor, "get_settings", lambda: _fake_settings(publish_pre_delay_enabled=False)
     )
     assert executor._record_execution_budget() == 300
+
+
+def test_delay_called_within_range(monkeypatch):
+    monkeypatch.setattr(executor, "get_settings", lambda: _fake_settings())
+    calls = []
+    executor._maybe_pre_publish_delay(
+        SimpleNamespace(id=7),
+        False,
+        sleep=lambda d: calls.append(d),
+        rng=lambda lo, hi: (lo + hi) / 2,
+    )
+    assert calls == [65.0]
+
+
+def test_delay_skipped_when_disabled(monkeypatch):
+    monkeypatch.setattr(
+        executor, "get_settings", lambda: _fake_settings(publish_pre_delay_enabled=False)
+    )
+    calls = []
+    executor._maybe_pre_publish_delay(SimpleNamespace(id=1), False, sleep=lambda d: calls.append(d))
+    assert calls == []
+
+
+def test_delay_skipped_when_stop_before_publish(monkeypatch):
+    monkeypatch.setattr(executor, "get_settings", lambda: _fake_settings())
+    calls = []
+    executor._maybe_pre_publish_delay(SimpleNamespace(id=1), True, sleep=lambda d: calls.append(d))
+    assert calls == []
+
+
+def test_delay_clamps_when_min_gt_max(monkeypatch):
+    monkeypatch.setattr(
+        executor,
+        "get_settings",
+        lambda: _fake_settings(
+            publish_pre_delay_min_seconds=200.0, publish_pre_delay_max_seconds=120.0
+        ),
+    )
+    seen = {}
+
+    def fake_rng(lo, hi):
+        seen["lo"], seen["hi"] = lo, hi
+        return lo
+
+    executor._maybe_pre_publish_delay(
+        SimpleNamespace(id=1), False, sleep=lambda d: None, rng=fake_rng
+    )
+    assert seen == {"lo": 200.0, "hi": 200.0}
