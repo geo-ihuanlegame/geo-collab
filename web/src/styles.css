@@ -3940,6 +3940,13 @@ option, optgroup {
   gap: 12px;
 }
 
+/* 待处理区与下方平台/状态筛选之间留出呼吸间距；
+   只作用于紧跟在另一个 section 后面的 section（即有待处理区时的账号列表区），
+   不影响 section 内部 filterBar→账号表的 12px 间距，也不影响无待处理区时的布局 */
+.mediaMatrixSection + .mediaMatrixSection {
+  margin-top: 24px;
+}
+
 .mediaMatrixSectionTitle {
   display: flex;
   align-items: center;
