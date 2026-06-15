@@ -189,6 +189,7 @@ def test_compose_units_partial_failure_keeps_succeeded_in_group(monkeypatch):
         assert len(res.output["article_ids"]) == 1
         assert len(res.output["errors"]) == 1
         gid = res.output["group_id"]
+        assert gid is not None
         with app.session_factory() as db:
             items = db.query(ArticleGroupItem).filter(ArticleGroupItem.group_id == gid).all()
             assert {it.article_id for it in items} == set(res.output["article_ids"])
