@@ -8,6 +8,7 @@
 本地开发关键配置：
   GEO_DATA_DIR                    数据目录（必填）
   GEO_PUBLISH_MAX_CONCURRENT_RECORDS  并发发布记录数（上限 5）
+  GEO_PUBLISH_PRE_DELAY_ENABLED       发布前随机延迟开关（默认 true，范围 GEO_PUBLISH_PRE_DELAY_MIN/MAX_SECONDS，默认 10/120）
 
 云端远程浏览器配置：
   GEO_PUBLISH_XVFB_PATH               Xvfb 可执行路径
@@ -51,6 +52,11 @@ class Settings(BaseSettings):
     jwt_secret: str = ""
     publish_max_concurrent_records: int = 5
     publish_record_timeout_seconds: int = 300
+    # 发布前随机延迟（错峰防封）。enabled 默认开启；每条发布在调用驱动发文前
+    # sleep random.uniform(min, max) 秒。stop_before_publish 的人工确认流程不延迟。
+    publish_pre_delay_enabled: bool = True  # GEO_PUBLISH_PRE_DELAY_ENABLED
+    publish_pre_delay_min_seconds: float = 10.0  # GEO_PUBLISH_PRE_DELAY_MIN_SECONDS
+    publish_pre_delay_max_seconds: float = 120.0  # GEO_PUBLISH_PRE_DELAY_MAX_SECONDS
     login_max_concurrent_browsers: int = 8  # GEO_LOGIN_MAX_CONCURRENT_BROWSERS
     publish_browser_channel: str = "chromium"
     publish_browser_executable_path: str | None = None

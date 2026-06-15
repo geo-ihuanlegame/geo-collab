@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import random
 import threading
 import time
 import traceback
@@ -175,7 +176,7 @@ def _heartbeat_task_worker(db: Session, task_id: int) -> None:
 
 def _heartbeat_running_records(db: Session, task_id: int) -> None:
     now = utcnow()
-    new_lease = now + timedelta(seconds=get_settings().publish_record_timeout_seconds + 60)
+    new_lease = now + timedelta(seconds=_record_execution_budget() + 60)
     db.execute(
         sa_update(PublishRecord)
         .where(
@@ -228,7 +229,7 @@ def _run_pending_records(db: Session, task: PublishTask) -> None:
     """核心执行循环：每轮续心跳→检查取消/暂停→拉起可跑记录→等 future 完成并写回结果。
 
     退出条件：取消且无在跑、暂停（waiting_user_input / stop_before_publish 停在 manual）且无在跑、
-    或无 pending 且无在跑（此时聚合 task 终态）。超过 publish_record_timeout_seconds 的 future
+    或无 pending 且无在跑（此时聚合 task 终态）。超过 _record_execution_budget() 的 future
     判超时：标失败 + 停会话（关 Chromium → Playwright 线程收到 TargetClosedError 自行结束）。
     finally 兜底释放所有账号锁并 shutdown 线程池。
     """
@@ -285,8 +286,7 @@ def _run_pending_records(db: Session, task: PublishTask) -> None:
             timed_out = [
                 future
                 for future, running_record in running.items()
-                if time.monotonic() - running_record.started_monotonic
-                > get_settings().publish_record_timeout_seconds
+                if time.monotonic() - running_record.started_monotonic > _record_execution_budget()
             ]
             for future in set(done) | set(timed_out):
                 running_record = running.pop(future)
@@ -295,7 +295,7 @@ def _run_pending_records(db: Session, task: PublishTask) -> None:
                         db,
                         task.id,
                         running_record.record_id,
-                        "Timeout: record execution exceeded 300s",
+                        f"Timeout: record execution exceeded {int(_record_execution_budget())}s",
                     )
                     # 停止会话会关闭 Chromium context，让 Playwright 线程收到
                     # TargetClosedError 后终止。
@@ -378,7 +378,7 @@ def _start_runnable_records(
                     owner_kind="publish",
                     owner_id=next_record.id,
                     queue_reason=reason,
-                    lease_seconds=get_settings().publish_record_timeout_seconds + 120,
+                    lease_seconds=int(_record_execution_budget()) + 120,
                 ):
                     _defer_record_for_profile_lock(db, task.id, next_record, reason)
                     blocked_accounts.add(next_record.account_id)
@@ -486,7 +486,7 @@ def _claim_record(db: Session, task_id: int, record: PublishRecord) -> bool:
     遇可重试的 DB 行锁/死锁错误（1205/1213/1684）回滚返回 False，让上层下轮再试。
     """
     now = utcnow()
-    lease_until = now + timedelta(seconds=get_settings().publish_record_timeout_seconds + 60)
+    lease_until = now + timedelta(seconds=_record_execution_budget() + 60)
     stmt = (
         sa_update(PublishRecord)
         .where(
@@ -596,6 +596,37 @@ def _detach_record_inputs(
                 )
 
 
+def _record_execution_budget() -> float:
+    """每条记录的执行预算（秒）。开启发布前延迟时按最大延迟加宽，
+    避免延迟把执行时间撞上 publish_record_timeout_seconds 硬墙。"""
+    s = get_settings()
+    extra = s.publish_pre_delay_max_seconds if s.publish_pre_delay_enabled else 0.0
+    return s.publish_record_timeout_seconds + extra
+
+
+def _maybe_pre_publish_delay(
+    record: PublishRecord,
+    stop_before_publish: bool,
+    *,
+    sleep=time.sleep,
+    rng=random.uniform,
+) -> None:
+    """发布前随机延迟（错峰防封）。stop_before_publish 的人工确认流程跳过。
+    sleep / rng 作为可注入参数，便于测试零等待。"""
+    if stop_before_publish:
+        return
+    s = get_settings()
+    if not s.publish_pre_delay_enabled:
+        return
+    lo = max(0.0, s.publish_pre_delay_min_seconds)
+    hi = max(lo, s.publish_pre_delay_max_seconds)
+    if hi <= 0:
+        return
+    delay = rng(lo, hi)
+    _logger.info("Pre-publish delay %.1fs for record %d", delay, record.id)
+    sleep(delay)
+
+
 def _publish_record(
     record: PublishRecord, article: Article, account: Account, stop_before_publish: bool
 ):
@@ -611,6 +642,7 @@ def _publish_record(
     diagnostics: list[PublishDiagnosticEvent] = []
     try:
         with capture_publish_diagnostics(diagnostics):
+            _maybe_pre_publish_delay(record, stop_before_publish)
             runner = build_publish_runner_for_record(record)
             result = runner(article, account, stop_before_publish=stop_before_publish)
             return RecordPublishOutcome(result=result, diagnostics=list(diagnostics))
@@ -636,7 +668,12 @@ def _finish_record_future(db: Session, task: PublishTask, record_id: int, future
         else:
             result = outcome
     except FutureTimeoutError:
-        _mark_record_failed(db, task.id, record_id, "Timeout: record execution exceeded 300s")
+        _mark_record_failed(
+            db,
+            task.id,
+            record_id,
+            f"Timeout: record execution exceeded {int(_record_execution_budget())}s",
+        )
         _stop_record_session(record_id)
         _logger.warning("Record %d timed out", record_id)
     except UserInputRequired as exc:
