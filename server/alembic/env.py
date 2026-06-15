@@ -19,7 +19,11 @@ config = context.config
 config.set_main_option("sqlalchemy.url", get_database_url())
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers 默认为 True，会把已存在的 logger（含应用各模块 logger）
+    # 的 .disabled 置 True。当迁移在进程内运行（测试里 command.upgrade、或将来 app 内
+    # 触发迁移）时，这会永久禁掉应用 logger，导致后续 caplog/日志断言全部失效。
+    # 这里只想加载 alembic 自己的日志格式，绝不影响既有 logger。
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 
