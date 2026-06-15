@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from server.app.modules.ai_generation.article_writer import generate_article_from_prompt
 from server.app.modules.ai_generation.scheme_executor import _pick_valid_template
 from server.app.modules.pipelines.nodes.base import NodeResult, NodeRunContext, register
+from server.app.modules.pipelines.nodes.daily_group_stream import make_group_streamer
 from server.app.shared.errors import ValidationError
 
 logger = logging.getLogger(__name__)
@@ -62,7 +63,9 @@ def _resolve_units(units, fallback_template_ids, fallback_count) -> list[tuple]:
     return resolved
 
 
-def _run_units(ctx, units, fallback_template_ids, fallback_count, model, max_count) -> NodeResult:
+def _run_units(
+    ctx, cfg, units, fallback_template_ids, fallback_count, model, max_count
+) -> NodeResult:
     resolved = _resolve_units(units, fallback_template_ids, fallback_count)
     total = sum(c for (_, _, c) in resolved)
     if total <= 0:
@@ -72,6 +75,7 @@ def _run_units(ctx, units, fallback_template_ids, fallback_count, model, max_cou
     if total > max_count:
         raise ValidationError(f"生成数量超过上限 {max_count}")
 
+    group_id, stream = make_group_streamer(ctx, cfg)
     article_ids: list[int] = []
     errors: list[str] = []
 
@@ -85,13 +89,15 @@ def _run_units(ctx, units, fallback_template_ids, fallback_count, model, max_cou
             template_content = tpl.content
         finally:
             db.close()
-        return generate_article_from_prompt(
+        aid = generate_article_from_prompt(
             session_factory=ctx.session_factory,
             user_id=ctx.user_id,
             template_content=template_content,
             question_text=qtext,
             model=model,
         )
+        stream(aid)
+        return aid
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = [
@@ -106,7 +112,8 @@ def _run_units(ctx, units, fallback_template_ids, fallback_count, model, max_cou
                 errors.append(str(exc))
 
     return NodeResult(
-        output={"article_ids": article_ids, "errors": errors}, article_ids=article_ids
+        output={"article_ids": article_ids, "errors": errors, "group_id": group_id},
+        article_ids=article_ids,
     )
 
 
@@ -127,12 +134,12 @@ def run_ai_compose(ctx: NodeRunContext) -> NodeResult:
         logger.info(
             "ai_compose mode=units (%d generation_units, per-type counts present)", len(units)
         )
-        return _run_units(ctx, units, template_ids, count, model, max_count)
+        return _run_units(ctx, cfg, units, template_ids, count, model, max_count)
 
     # 扁平模式（原行为，未改语义）
     question_text = ctx.inputs.get("question_text") or cfg.get("question_text") or ""
     if not question_text.strip():
-        # 上游无问题（如池暂空）→ 安静跳过，不报错
+        # 上游无问题（如池暂空）→ 安静跳过，不报错（daily_group 不在此路径建组）
         return NodeResult(
             output={"article_ids": [], "errors": [], "skipped": "无问题可生成"}, article_ids=[]
         )
@@ -144,6 +151,7 @@ def run_ai_compose(ctx: NodeRunContext) -> NodeResult:
     if count <= 0:
         raise ValidationError("生成数量需 > 0")
 
+    group_id, stream = make_group_streamer(ctx, cfg)
     article_ids: list[int] = []
     errors: list[str] = []
 
@@ -157,13 +165,15 @@ def run_ai_compose(ctx: NodeRunContext) -> NodeResult:
             template_content = tpl.content
         finally:
             db.close()
-        return generate_article_from_prompt(
+        aid = generate_article_from_prompt(
             session_factory=ctx.session_factory,
             user_id=ctx.user_id,
             template_content=template_content,
             question_text=question_text,
             model=model,
         )
+        stream(aid)
+        return aid
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = [pool.submit(_one) for _ in range(count)]
@@ -174,7 +184,8 @@ def run_ai_compose(ctx: NodeRunContext) -> NodeResult:
                 errors.append(str(exc))
 
     return NodeResult(
-        output={"article_ids": article_ids, "errors": errors}, article_ids=article_ids
+        output={"article_ids": article_ids, "errors": errors, "group_id": group_id},
+        article_ids=article_ids,
     )
 
 
