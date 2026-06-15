@@ -146,9 +146,12 @@ def _make_group_streamer(ctx: NodeRunContext, cfg: dict):
     def _stream(aid: int) -> None:
         with lock:
             so = next(counter)
-        append_article_to_group_pending(
+        ok = append_article_to_group_pending(
             ctx.session_factory, group_id=group_id, article_id=aid, sort_order=so
         )
+        if not ok:
+            # best-effort：文章已生成、不会从 article_ids 丢失，但没进组——记一条警告便于排查
+            logger.warning("ai_generate daily_group 追加失败（article=%s group=%s）", aid, group_id)
 
     return group_id, _stream
 
