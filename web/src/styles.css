@@ -4173,15 +4173,25 @@ option, optgroup {
 
 /* ═══════════════════════════════ ADD AUTHORIZATION DIALOG ═══════════════════════════════ */
 
+/* 玻璃弹窗规格（仅作用于「添加账号」弹窗，配合 .addAuthBackdrop 作用域）。
+   原则 = 玻璃只用于容器外壳；输入框 / 正文 / 主按钮做实做亮。 */
+.modalBackdrop.addAuthBackdrop {
+  background: rgba(5, 8, 15, 0.7);             /* 背景遮罩 Scrim #05080F · 70% */
+  backdrop-filter: blur(28px);                 /* 背景模糊 28 */
+  -webkit-backdrop-filter: blur(28px);
+}
+
 .addAuthDialog {
   width: min(520px, 100%);
   max-height: min(700px, calc(100vh - 48px));
   display: flex;
   flex-direction: column;
-  background: var(--paper);
-  border: 1px solid var(--hair);
-  border-radius: 16px;
-  box-shadow: 0 20px 48px rgba(26, 26, 26, .16);
+  background: rgba(23, 28, 39, 0.9);           /* 面板填充 Panel #171C27 · 90% */
+  border: 1px solid rgba(255, 255, 255, 0.1);  /* 面板描边 玻璃边 #FFFFFF 10% */
+  border-radius: 18px;                          /* 面板圆角 18 */
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);   /* 面板投影 0·24·60 / 黑 50% */
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
   overflow: hidden;
 }
 
@@ -4195,7 +4205,7 @@ option, optgroup {
 .addAuthTitle {
   font-size: 18px;
   font-weight: 600;
-  color: var(--fg);
+  color: #F3F5FA;                  /* 标签/数值 */
 }
 
 .addAuthClose {
@@ -4214,7 +4224,7 @@ option, optgroup {
 
 .addAuthStep {
   font-size: 13px;
-  color: var(--fg-2);
+  color: #8C94A6;
   padding: 4px 28px 0;
 }
 
@@ -4236,7 +4246,7 @@ option, optgroup {
 .addAuthLabel {
   font-size: 12.5px;
   font-weight: 600;
-  color: var(--fg);
+  color: #F3F5FA;                  /* 标签/数值 */
 }
 
 .addAuthField {
@@ -4249,21 +4259,21 @@ option, optgroup {
   width: 100%;
   height: 38px;
   padding: 9px 13px;
-  border: 1px solid var(--hair-2);
-  border-radius: 8px;
+  border: 1px solid #3A4150;        /* 输入框描边 #3A4150 */
+  border-radius: 9px;               /* 输入框圆角 9 */
   font-size: 13px;
-  color: var(--fg);
-  background: var(--paper);
+  color: #F3F5FA;                   /* 输入值 */
+  background: #1E2532;              /* 输入框填充 实色 #1E2532 */
   outline: none;
   transition: border-color .15s, box-shadow .15s;
   font-family: inherit;
   box-sizing: border-box;
 }
 .addAuthInput:focus {
-  border-color: #4C6EF5;
-  box-shadow: 0 0 0 3px rgba(76, 110, 245, .08);
+  border-color: #8B6FF0;
+  box-shadow: 0 0 0 3px rgba(139, 111, 240, .18);
 }
-.addAuthInput::placeholder { color: var(--fg-3); }
+.addAuthInput::placeholder { color: #8C94A6; }   /* 占位文字 */
 
 /* Platform Select */
 .addAuthSelect {
@@ -4272,42 +4282,43 @@ option, optgroup {
   justify-content: space-between;
   gap: 10px;
   padding: 10px 12px;
-  border: 1px solid var(--hair-2);
-  border-radius: 8px;
-  background: var(--paper);
+  border: 1px solid #3A4150;        /* 输入框描边 #3A4150 */
+  border-radius: 9px;               /* 输入框圆角 9 */
+  background: #1E2532;              /* 输入框填充 实色 #1E2532 */
   cursor: pointer;
   transition: border-color .14s;
 }
-.addAuthSelect:hover { border-color: var(--fg-3); }
-.addAuthSelect.active { border-color: #4C6EF5; }
+.addAuthSelect:hover { border-color: #4A5465; }
+.addAuthSelect.active { border-color: #8B6FF0; }
 
 .addAuthSelectLeft {
   display: flex;
   align-items: center;
   gap: 10px;
   font-size: 14px;
-  color: var(--fg);
+  color: #F3F5FA;
 }
 
 .addAuthSelectAvatar {
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background: #EAE6DD;
+  background: #2B3242;             /* 头像底 #2B3242 */
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 11px;
   font-weight: 600;
-  color: var(--fg-2);
+  color: #C7CEDB;
   flex-shrink: 0;
 }
 
 .addAuthDropdown {
-  border: 1px solid var(--hair);
-  border-radius: 10px;
+  border: 1px solid #3A4150;
+  border-radius: 9px;
+  background: #1E2532;             /* 下拉做实，避免半透明露底 */
   overflow: hidden;
-  box-shadow: 0 12px 32px rgba(26, 26, 26, .12);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .4);
 }
 
 .addAuthDropdownSearch {
@@ -4315,18 +4326,18 @@ option, optgroup {
   align-items: center;
   gap: 8px;
   padding: 11px 13px;
-  border-bottom: 1px solid var(--hair);
+  border-bottom: 1px solid #3A4150;
 }
 .addAuthDropdownSearch input {
   width: 100%;
   border: none;
   background: none;
   font-size: 13px;
-  color: var(--fg);
+  color: #F3F5FA;
   outline: none;
   font-family: inherit;
 }
-.addAuthDropdownSearch input::placeholder { color: var(--fg-3); }
+.addAuthDropdownSearch input::placeholder { color: #8C94A6; }
 
 .addAuthDropdownItem {
   display: flex;
@@ -4337,15 +4348,15 @@ option, optgroup {
   cursor: pointer;
   transition: background .12s;
 }
-.addAuthDropdownItem:hover { background: var(--cream); }
-.addAuthDropdownItem.active { background: #4C6EF50D; }
+.addAuthDropdownItem:hover { background: rgba(255, 255, 255, .04); }
+.addAuthDropdownItem.active { background: rgba(139, 111, 240, .14); }
 
 .addAuthDropdownLeft {
   display: flex;
   align-items: center;
   gap: 10px;
   font-size: 14px;
-  color: var(--fg);
+  color: #F3F5FA;
 }
 
 /* 账号名称行：头像（固定不压缩）在左，名称输入填满右侧 */
@@ -4366,20 +4377,20 @@ option, optgroup {
   height: 54px;
   flex-shrink: 0;
   border-radius: 50%;
-  border: 1px dashed var(--hair-2);
-  background: #FAF8F3;
+  border: 1px dashed #3A4150;
+  background: #2B3242;            /* 头像底 #2B3242 */
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 2px;
-  color: var(--fg-2);
+  color: #8C94A6;
   cursor: pointer;
   font-size: 9px;
   transition: border-color .14s;
   overflow: hidden;
 }
-.addAuthAvatarUpload:hover { border-color: var(--fg-3); }
+.addAuthAvatarUpload:hover { border-color: #4A5465; }
 .addAuthAvatarPreview {
   width: 100%;
   height: 100%;
@@ -4393,7 +4404,10 @@ option, optgroup {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 4px 0;
+  padding: 12px 14px;
+  background: #1E2532;
+  border: 1px solid #3A4150;
+  border-radius: 9px;
 }
 
 .addAuthToggleLeft {
@@ -4404,7 +4418,7 @@ option, optgroup {
 
 .addAuthToggleHint {
   font-size: 11.5px;
-  color: var(--fg-3);
+  color: #8C94A6;
 }
 
 /* Toggle Switch */
@@ -4412,7 +4426,7 @@ option, optgroup {
   width: 42px;
   height: 24px;
   border-radius: 12px;
-  background: var(--hair-2);
+  background: #3A4150;
   position: relative;
   cursor: pointer;
   transition: background .15s;
@@ -4420,7 +4434,7 @@ option, optgroup {
   padding: 0;
   flex-shrink: 0;
 }
-.addAuthToggle.on { background: var(--green); }
+.addAuthToggle.on { background: #6A4FE6; }   /* 主色 紫 */
 
 .addAuthToggleKnob {
   position: absolute;
@@ -4441,9 +4455,9 @@ option, optgroup {
   flex-direction: column;
   gap: 12px;
   padding: 14px;
-  border: 1px solid rgba(76, 110, 245, .2);
-  border-radius: 10px;
-  background: rgba(76, 110, 245, .03);
+  border: 1px solid rgba(139, 111, 240, .25);
+  border-radius: 9px;
+  background: rgba(139, 111, 240, .05);
 }
 
 .addAuthWeChatHeader {
@@ -4470,6 +4484,17 @@ option, optgroup {
   font-family: inherit;
 }
 
+/* 「取消」在深色玻璃面板上做实，与输入框同语言 */
+.addAuthFooter .secondaryButton {
+  background: #1E2532;
+  color: #C7CEDB;
+  border-color: #3A4150;
+}
+.addAuthFooter .secondaryButton:hover:not(:disabled) {
+  background: #232C3A;
+  border-color: #4A5465;
+}
+
 /* Step 2: Scan */
 .addAuthCenter {
   display: flex;
@@ -4484,11 +4509,11 @@ option, optgroup {
   width: 72px;
   height: 72px;
   border-radius: 50%;
-  background: rgba(76, 110, 245, .08);
+  background: rgba(139, 111, 240, .1);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #4C6EF5;
+  color: #8B6FF0;
 }
 
 .addAuthScanTitle {
@@ -4519,7 +4544,7 @@ option, optgroup {
   gap: 4px;
   font-size: 12.5px;
   font-weight: 500;
-  color: #4C6EF5;
+  color: #8B6FF0;
   background: none;
   border: none;
   cursor: pointer;

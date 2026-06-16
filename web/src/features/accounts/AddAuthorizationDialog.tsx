@@ -282,7 +282,7 @@ export function AddAuthorizationDialog({
   }
 
   return (
-    <div className="modalBackdrop" role="presentation" onClick={handleClose}>
+    <div className="modalBackdrop addAuthBackdrop" role="presentation" onClick={handleClose}>
       <div
         className="addAuthDialog"
         role="dialog"
@@ -312,7 +312,7 @@ export function AddAuthorizationDialog({
                         <span>{selectedPlatform.name}</span>
                       </>
                     ) : (
-                      <span style={{ color: "var(--fg-3)" }}>请选择平台</span>
+                      <span style={{ color: "#8C94A6" }}>请选择平台</span>
                     )}
                   </div>
                   {platformOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
@@ -458,7 +458,7 @@ export function AddAuthorizationDialog({
                   (isApiPlatform && (!appId.trim() || !appSecret.trim()))
                 }
                 style={{
-                  background: "#4C6EF5",
+                  background: "linear-gradient(90deg, #8B6FF0 0%, #6A4FE6 100%)",
                   fontSize: 13.5,
                   fontWeight: 600,
                   gap: 6,
@@ -540,7 +540,7 @@ export function AddAuthorizationDialog({
                 className="primaryButton"
                 disabled={verifying}
                 style={{
-                  background: "#4C6EF5",
+                  background: "linear-gradient(90deg, #8B6FF0 0%, #6A4FE6 100%)",
                   fontSize: 13.5,
                   fontWeight: 600,
                   borderRadius: 9,
@@ -621,7 +621,7 @@ export function AddAuthorizationDialog({
                     setResultMessage("");
                   }}
                   style={{
-                    background: "#4C6EF5",
+                    background: "linear-gradient(90deg, #8B6FF0 0%, #6A4FE6 100%)",
                     fontSize: 13.5,
                     fontWeight: 600,
                     borderRadius: 9,
