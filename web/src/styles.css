@@ -2375,6 +2375,30 @@ option, optgroup {
 
 .topbarActions button { display: inline-flex; align-items: center; gap: 5px; }
 
+/* 图片库：「主推/陪衬」标签行右侧的搜索 / 筛选 / 栏目操作按钮（与标签同一行）*/
+.imageLibraryTabActions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.imageLibrarySearch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  width: 220px;
+  padding: 0 12px;
+  border: 1px solid var(--hair-2);
+  border-radius: var(--r);
+  background: var(--glass);
+  color: var(--fg-3);
+  transition: border-color .14s;
+}
+.imageLibrarySearch:focus-within { border-color: var(--fg-3); }
+.imageLibrarySearch input { flex: 1; min-width: 0; font-size: 13px; color: var(--fg); }
+.imageLibrarySearch input::placeholder { color: var(--fg-3); }
+
 .imageLibraryCard { position: relative; border: 1px solid var(--hair); border-radius: 8px; overflow: hidden; background: var(--glass); }
 
 .imageLibraryCardActions { position: absolute; top: 6px; right: 6px; z-index: 10; }

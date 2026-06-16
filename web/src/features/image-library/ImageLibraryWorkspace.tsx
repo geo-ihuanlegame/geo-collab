@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { MoreHorizontal, Plus, Trash2, Upload, Pencil, ChevronLeft, ChevronRight, X, Images } from "lucide-react";
+import { MoreHorizontal, Plus, Trash2, Upload, Pencil, ChevronLeft, ChevronRight, X, Images, Search, SlidersHorizontal } from "lucide-react";
 import { createCategory, deleteImage, listCategories, listImages, updateCategory, updateImage, uploadImage } from "../../api/image-library";
 import type { StockCategory, StockImage } from "../../types";
 import { useToast } from "../../components/Toast";
@@ -44,6 +44,9 @@ export function ImageLibraryWorkspace() {
   const [editSaving, setEditSaving] = useState(false);
 
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+
+  // 搜索框 / 筛选：本次仅前端占位（可输入但不过滤），过滤逻辑待后端做全库搜索时再接。
+  const [searchInput, setSearchInput] = useState("");
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -227,7 +230,38 @@ export function ImageLibraryWorkspace() {
           <p className="eyebrow">素材</p>
           <h1>图片库</h1>
         </div>
-        <div className="topActions">
+      </div>
+
+      <div className="reviewTabs">
+        <button
+          type="button"
+          className={`reviewTabBtn${kindTab === "main" ? " active" : ""}`}
+          onClick={() => setKindTab("main")}
+        >
+          主推游戏
+        </button>
+        <button
+          type="button"
+          className={`reviewTabBtn${kindTab === "companion" ? " active" : ""}`}
+          onClick={() => setKindTab("companion")}
+        >
+          陪衬游戏
+        </button>
+
+        <div className="imageLibraryTabActions">
+          <label className="imageLibrarySearch">
+            <Search size={15} aria-hidden />
+            <input
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="在图片库中搜索"
+              aria-label="在图片库中搜索"
+            />
+          </label>
+          {/* 筛选：本次仅占位，菜单 / 过滤维度待后端确定后再接 */}
+          <button type="button" className="secondaryButton">
+            <SlidersHorizontal size={15} /> 筛选
+          </button>
           <button type="button" className="secondaryButton" onClick={() => setShowNewCat(true)}>
             <Plus size={15} /> 新建栏目
           </button>
@@ -251,23 +285,6 @@ export function ImageLibraryWorkspace() {
             <Upload size={15} /> 上传图片
           </button>
         </div>
-      </div>
-
-      <div className="reviewTabs">
-        <button
-          type="button"
-          className={`reviewTabBtn${kindTab === "main" ? " active" : ""}`}
-          onClick={() => setKindTab("main")}
-        >
-          主推游戏
-        </button>
-        <button
-          type="button"
-          className={`reviewTabBtn${kindTab === "companion" ? " active" : ""}`}
-          onClick={() => setKindTab("companion")}
-        >
-          陪衬游戏
-        </button>
       </div>
 
       <div className="imageLibraryLayout">
