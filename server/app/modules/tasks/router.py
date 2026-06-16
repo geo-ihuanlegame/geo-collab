@@ -381,52 +381,62 @@ def stream_task_events(
         prev_records = ""
         prev_task = ""
 
-        sess = _SL2()
         try:
             while True:
-                sess.expire_all()
+                # 每个轮询周期开一条独立 session、查完即关：连接只在查询的几毫秒被借走，
+                # time.sleep(1) 期间归还连接池。避免 SSE 长连接钉死池连接、多人观看时打满
+                # 连接池拖垮全站（连接池耗尽事故主因）。事件先序列化成字符串，close 后再 yield，
+                # 不会在连接归还后触发 ORM 懒加载。
+                events: list[str] = []
+                done = False
+                sess = _SL2()
                 try:
                     task = get_task(sess, task_id)
                     if task is None:
-                        yield "event: done\ndata: {}\n\n"
-                        break
+                        events.append("event: done\ndata: {}\n\n")
+                        done = True
+                    else:
+                        task_json = to_task_read(task).model_dump_json()
+                        if task_json != prev_task:
+                            events.append(f"event: task\ndata: {task_json}\n\n")
+                            prev_task = task_json
 
-                    task_json = to_task_read(task).model_dump_json()
-                    if task_json != prev_task:
-                        yield f"event: task\ndata: {task_json}\n\n"
-                        prev_task = task_json
+                        new_logs = list_task_logs(sess, task_id, after_id=last_id, limit=100)
+                        for log in new_logs:
+                            events.append(
+                                f"event: log\ndata: {to_log_read(log).model_dump_json()}\n\n"
+                            )
+                        if new_logs:
+                            last_id = max(log.id for log in new_logs)
 
-                    new_logs = list_task_logs(sess, task_id, after_id=last_id, limit=100)
-                    for log in new_logs:
-                        yield f"event: log\ndata: {to_log_read(log).model_dump_json()}\n\n"
-                    if new_logs:
-                        last_id = max(log.id for log in new_logs)
+                        records = list_task_records(sess, task_id)
+                        records_json = (
+                            "["
+                            + ",".join(to_record_read(r).model_dump_json() for r in records)
+                            + "]"
+                        )
+                        if records_json != prev_records:
+                            events.append(f"event: records\ndata: {records_json}\n\n")
+                            prev_records = records_json
 
-                    records = list_task_records(sess, task_id)
-                    records_json = (
-                        "[" + ",".join(to_record_read(r).model_dump_json() for r in records) + "]"
-                    )
-                    if records_json != prev_records:
-                        yield f"event: records\ndata: {records_json}\n\n"
-                        prev_records = records_json
+                        if task.status in TERMINAL_TASK_STATUSES:
+                            events.append("event: done\ndata: {}\n\n")
+                            done = True
+                finally:
+                    sess.close()  # 关键：yield / sleep 之前就把连接还给池
 
-                    if task.status in TERMINAL_TASK_STATUSES:
-                        yield "event: done\ndata: {}\n\n"
-                        break
-
-                except GeneratorExit:
+                yield from events
+                if done:
                     break
-                except Exception:
-                    logging.getLogger(__name__).exception("SSE error for task %s", task_id)
-                    try:
-                        yield "retry: 15000\nevent: error\ndata: {}\n\n"
-                    except Exception:
-                        pass
-                    break
-
                 time.sleep(1)
-        finally:
-            sess.close()
+        except GeneratorExit:
+            return
+        except Exception:
+            logging.getLogger(__name__).exception("SSE error for task %s", task_id)
+            try:
+                yield "retry: 15000\nevent: error\ndata: {}\n\n"
+            except Exception:
+                pass
 
     return StreamingResponse(
         _generate(),

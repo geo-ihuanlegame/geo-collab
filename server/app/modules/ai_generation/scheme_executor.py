@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import random
+import threading as _threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
@@ -32,6 +33,11 @@ from server.app.modules.prompt_templates.service import get_visible_prompt_templ
 logger = logging.getLogger(__name__)
 
 SessionFactory = Callable[[], Any]
+
+# 全局并发闸：限制单进程同时执行的方案运行数（与 pipeline executor 的 _RUN_SEMAPHORE 对称）。
+# 缺它时每次 POST /schemes/{id}/runs 都裸 fork 出 1+4 个线程争抢 DB 连接，连点即耗尽连接池
+# （连接池耗尽事故根因之一）。多于 cap 的运行线程阻塞在信号量上、不持 DB 连接，安全排队。
+_RUN_SEMAPHORE = _threading.Semaphore(max(1, get_settings().scheme_max_concurrent_runs))
 
 
 def _render_questions(questions: list[Any]) -> str:
@@ -178,7 +184,17 @@ def _execute_task(
 
 
 def run_scheme(run_id: int, session_factory: SessionFactory) -> None:
-    """方案运行入口（由后台线程调用）：并发执行所有任务，汇总运行状态。"""
+    """方案运行入口（由后台线程调用）：占全局并发信号量后执行运行。
+
+    信号量在执行体外层 acquire：多于 cap 的运行线程在此阻塞等待（不持 DB 连接），
+    避免「连点运行 = 无界线程 ×4 worker 争抢连接池」。与 pipeline run_pipeline 对称。
+    """
+    with _RUN_SEMAPHORE:
+        _run_scheme_inner(run_id, session_factory)
+
+
+def _run_scheme_inner(run_id: int, session_factory: SessionFactory) -> None:
+    """方案运行执行体：并发执行所有任务，汇总运行状态。"""
     db = session_factory()
     try:
         run = db.get(GenerationSchemeRun, run_id)
