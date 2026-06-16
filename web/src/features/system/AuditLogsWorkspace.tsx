@@ -270,10 +270,10 @@ export function AuditLogsWorkspace() {
         ) : items.length === 0 ? (
           <p style={{ padding: 24, color: "var(--fg-3)" }}>暂无审计日志</p>
         ) : (
-          <div style={{ overflowX: "auto" }}>
+          <div style={{ overflow: "auto", maxHeight: "62vh" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
-                <tr style={{ borderBottom: "1px solid var(--hair)", background: "var(--glass)" }}>
+                <tr>
                   <th style={thStyle}>时间</th>
                   <th style={thStyle}>用户</th>
                   <th style={thStyle}>动作</th>
@@ -400,6 +400,14 @@ const thStyle: React.CSSProperties = {
   textTransform: "uppercase",
   letterSpacing: "0.04em",
   whiteSpace: "nowrap",
+  // 表头吸顶：滚动时固定在表格滚动区顶部。背景必须用不透明的 --surface-2，
+  // 否则 --glass 半透明会透出下方滚动的行；底部细线用 box-shadow 画
+  // （borderCollapse:collapse 下边框不会跟随 sticky）。
+  position: "sticky",
+  top: 0,
+  zIndex: 1,
+  background: "var(--surface-2)",
+  boxShadow: "inset 0 -1px 0 var(--hair)",
 };
 
 const tdStyle: React.CSSProperties = {
