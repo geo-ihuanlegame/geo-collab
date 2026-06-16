@@ -1256,58 +1256,60 @@ export function ContentWorkspace({
             </label>
           </div>
 
-          {selectedArticle ? (
-            <div className={`reviewStrip ${currentReviewStatus === "approved" ? "approved" : "pending"}`}>
-              <div className="reviewStripLeft">
-                <ShieldCheck size={18} />
-                <div className="reviewStripText">
-                  <strong>{currentReviewStatus === "approved" ? "审核状态：已通过" : "审核状态"}</strong>
-                  <span>{currentReviewStatus === "approved" ? "该文章已可进入发布" : "通过审核后该文章方可进入发布"}</span>
-                </div>
+          <div className="metaRow">
+            <section className="coverRow">
+              <div className="coverPreview">
+                {(pendingCoverUrl ?? assetSrc(draft.cover_asset_id)) ? <img alt="封面" src={pendingCoverUrl ?? assetThumbSrc(draft.cover_asset_id) ?? assetSrc(draft.cover_asset_id)!} /> : <span>封面</span>}
               </div>
-              <div className="reviewStripActions">
-                <ReviewBadge status={currentReviewStatus} />
-                {currentReviewStatus === "approved" ? (
-                  <>
+              <label className="fileButton">
+                <Upload size={16} />
+                上传封面
+                <input accept="image/*" type="file" onChange={(event) => { void handleCoverUpload(event.target.files?.[0] ?? null); event.currentTarget.value = ""; }} />
+              </label>
+              {selectedArticle ? <span className="metaText">正文图片 {selectedArticle.body_assets.length} 张</span> : null}
+            </section>
+
+            {selectedArticle ? (
+              <div className={`reviewStrip ${currentReviewStatus === "approved" ? "approved" : "pending"}`}>
+                <div className="reviewStripLeft">
+                  <ShieldCheck size={18} />
+                  <div className="reviewStripText">
+                    <strong>{currentReviewStatus === "approved" ? "审核状态：已通过" : "审核状态"}</strong>
+                    <span>{currentReviewStatus === "approved" ? "该文章已可进入发布" : "通过审核后该文章方可进入发布"}</span>
+                  </div>
+                </div>
+                <div className="reviewStripActions">
+                  <ReviewBadge status={currentReviewStatus} />
+                  {currentReviewStatus === "approved" ? (
+                    <>
+                      <button
+                        type="button"
+                        className="secondaryButton reviewStripBtn"
+                        disabled={reviewBusyId === selectedArticle.id}
+                        onClick={() => void revokeOne(selectedArticle.id)}
+                      >
+                        撤销审核
+                      </button>
+                      <button type="button" className="reviewStripDistribute" onClick={openDistributeForCurrent}>
+                        <Send size={15} />
+                        自动分发
+                      </button>
+                    </>
+                  ) : (
                     <button
                       type="button"
-                      className="secondaryButton reviewStripBtn"
+                      className="reviewStripApprove"
                       disabled={reviewBusyId === selectedArticle.id}
-                      onClick={() => void revokeOne(selectedArticle.id)}
+                      onClick={() => void approveOne(selectedArticle.id)}
                     >
-                      撤销审核
+                      <Check size={15} />
+                      通过审核
                     </button>
-                    <button type="button" className="reviewStripDistribute" onClick={openDistributeForCurrent}>
-                      <Send size={15} />
-                      自动分发
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    type="button"
-                    className="reviewStripApprove"
-                    disabled={reviewBusyId === selectedArticle.id}
-                    onClick={() => void approveOne(selectedArticle.id)}
-                  >
-                    <Check size={15} />
-                    通过审核
-                  </button>
-                )}
+                  )}
+                </div>
               </div>
-            </div>
-          ) : null}
-
-          <section className="coverRow">
-            <div className="coverPreview">
-              {(pendingCoverUrl ?? assetSrc(draft.cover_asset_id)) ? <img alt="封面" src={pendingCoverUrl ?? assetThumbSrc(draft.cover_asset_id) ?? assetSrc(draft.cover_asset_id)!} /> : <span>封面</span>}
-            </div>
-            <label className="fileButton">
-              <Upload size={16} />
-              上传封面
-              <input accept="image/*" type="file" onChange={(event) => { void handleCoverUpload(event.target.files?.[0] ?? null); event.currentTarget.value = ""; }} />
-            </label>
-            {selectedArticle ? <span className="metaText">正文图片 {selectedArticle.body_assets.length} 张</span> : null}
-          </section>
+            ) : null}
+          </div>
 
           <EditorToolbar
             editor={editor}
