@@ -1064,7 +1064,8 @@ option, optgroup {
 }
 
 /* Cover */
-.coverRow {
+/* 封面 + 审核状态 合并为一行：封面定宽在左，审核状态条自适应填满右侧 */
+.metaRow {
   display: flex;
   align-items: center;
   gap: 16px;
@@ -1072,6 +1073,13 @@ option, optgroup {
   border-bottom: 1px solid var(--hair);
   margin-bottom: 18px;
   padding: 14px 0;
+}
+
+.coverRow {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-shrink: 0;
 }
 
 .coverPreview {
@@ -2762,6 +2770,8 @@ option, optgroup {
   gap: 12px;
   padding: 14px 16px;
   border-radius: var(--r);
+  flex: 1 1 0;
+  min-width: 0;
 }
 .reviewStrip.pending { background: var(--cream-2); border-left: 3px solid var(--accent); }
 .reviewStrip.approved { background: var(--green-soft); border-left: 3px solid var(--green); }
@@ -3437,6 +3447,9 @@ option, optgroup {
   .contentGrid.mobile-editor { display: block; overflow: visible; }
   .contentGrid.mobile-editor .editorPane { overflow: visible; height: auto; }
   .contentGrid.mobile-editor .editorWrap { flex: none; min-height: 52vh; overflow: visible; }
+  /* 窄屏：封面 + 审核状态从一行回退为上下堆叠 */
+  .metaRow { flex-direction: column; align-items: stretch; }
+  .coverRow { flex-shrink: 1; }
 
   /* 顶栏堆叠 */
   .topbar { flex-direction: column; align-items: stretch; gap: 12px; }
