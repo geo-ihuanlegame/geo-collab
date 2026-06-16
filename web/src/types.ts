@@ -476,7 +476,7 @@ export function statusLabel(status: string): string {
   const labels: Record<string, string> = {
     pending: "待执行",
     running: "执行中",
-    succeeded: "成功",
+    succeeded: "已发布",
     partial_failed: "部分失败",
     failed: "失败",
     cancelled: "已取消",
