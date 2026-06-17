@@ -65,6 +65,7 @@ def _model_modules() -> None:
     """import 所有 ORM 模块，确保 Base.metadata 完整（建表 / TRUNCATE 都依赖它）。"""
     import server.app.modules.accounts.models  # noqa: F401
     import server.app.modules.ai_generation.models  # noqa: F401
+    import server.app.modules.ai_models.models  # noqa: F401
     import server.app.modules.articles.models  # noqa: F401
     import server.app.modules.audit.models  # noqa: F401
     import server.app.modules.image_library.models  # noqa: F401
