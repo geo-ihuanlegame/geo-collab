@@ -136,6 +136,83 @@ def collect_resource_metrics(db: Any | None = None) -> dict[str, Any]:
     return metrics
 
 
+# ── 启动期连接预算断言（Task 5，封堵 #4）────────────────────────────────────────
+# Starlette/FastAPI 的同步端点经 AnyIO 默认线程池执行（默认 40 令牌），每个线程经 get_db 至多持
+# 1 连接——故 anyio 大小是「同步端点」并发持连接数的上界。注意：pipeline / scheme 后台 run 走各自
+# 的 ThreadPoolExecutor + 自建 session（**不占 anyio**），是 anyio 之外的额外借用方，但被各自闸
+# 封顶（pipeline_max + scheme_max，默认 3 + 2）；scheme 侧 ×4 fan-out 实测为瞬时借还，pipeline 节点
+# checkout 时长尚未做满负载实测（见计划 Task 5 Step 1）。这些零散/瞬时借用由 safety_margin 吸收、
+# 不单列进式子——故本断言是保守护栏而非精确建模。我们刻意不缩 anyio：缩它会饿死 SSE / 同步端点
+# （见 docs/plans/2026-06-16-resource-hardening.md Task 5、评审第 13 条）。
+STARLETTE_DEFAULT_THREAD_POOL_SIZE = 40
+
+
+def compute_connection_budget(
+    *,
+    anyio_pool_size: int,
+    publish_max: int,
+    safety_margin: int,
+    pool_capacity: int,
+) -> dict[str, Any]:
+    """连接预算保守上界：`anyio + publish_max + safety_margin ≤ pool_capacity`。
+
+    纯函数、可单测。返回算式明细 + `within_budget` 布尔（needed == capacity 算 within，边界不误报）。
+    """
+    needed = anyio_pool_size + publish_max + safety_margin
+    return {
+        "anyio_pool_size": anyio_pool_size,
+        "publish_max": publish_max,
+        "safety_margin": safety_margin,
+        "needed": needed,
+        "pool_capacity": pool_capacity,
+        "within_budget": needed <= pool_capacity,
+    }
+
+
+def check_connection_budget() -> dict[str, Any]:
+    """启动期连接预算检查：算式明细打日志；越界经 emit_resource_alert 统一告警（不只孤立 WARNING）。
+
+    杠杆是扩池 / 降 publish_max，**绝不缩 anyio**。绝不抛错——预算检查失败不应阻塞 create_app。
+    池容量不可用（max≤0，如 import 失败）时只记日志、不告警（容量未知 ≠ 越界，避免误报）。
+    返回算式明细 dict（供测试与诊断）。
+    """
+    try:
+        from server.app.core.config import get_settings
+
+        settings = get_settings()
+        pool = _collect_pool()
+        raw_cap = pool.get("max", -1)
+        pool_capacity = raw_cap if isinstance(raw_cap, int) else -1
+        budget = compute_connection_budget(
+            anyio_pool_size=STARLETTE_DEFAULT_THREAD_POOL_SIZE,
+            publish_max=settings.publish_max_concurrent_records,
+            safety_margin=settings.connection_budget_safety_margin,
+            pool_capacity=pool_capacity,
+        )
+        logger.info(
+            "connection budget: anyio=%d + publish_max=%d + margin=%d = need %d vs capacity %d (within=%s)",
+            budget["anyio_pool_size"],
+            budget["publish_max"],
+            budget["safety_margin"],
+            budget["needed"],
+            budget["pool_capacity"],
+            budget["within_budget"],
+        )
+        if pool_capacity > 0 and not budget["within_budget"]:
+            emit_resource_alert(
+                f"connection budget exceeded: need {budget['needed']} "
+                f"(anyio {budget['anyio_pool_size']} + publish {budget['publish_max']} "
+                f"+ margin {budget['safety_margin']}) > pool capacity {pool_capacity}. "
+                "Raise GEO_DB_POOL_SIZE / GEO_DB_MAX_OVERFLOW or lower "
+                "GEO_PUBLISH_MAX_CONCURRENT_RECORDS — do NOT shrink the anyio thread pool.",
+                {"budget": budget},
+            )
+        return budget
+    except Exception:
+        logger.exception("check_connection_budget failed")
+        return {}
+
+
 def pool_occupancy_ratio(pool_metrics: dict[str, Any]) -> float | None:
     """checked_out / max 占用率；max 不可用（<=0）时返回 None。"""
     max_conn = pool_metrics.get("max")

@@ -196,6 +196,8 @@ def build_test_app(monkeypatch) -> TestApp:
     from server.app.main import create_app
 
     monkeypatch.setattr("server.app.modules.tasks.router.bg_session_factory", TestingSessionLocal)
+    # 显式开内联执行开关：测试要在本进程后台线程跑发布（生产 web 进程默认关，只入队，#6）。
+    monkeypatch.setattr("server.app.modules.tasks.router.inline_execute_enabled", True)
     monkeypatch.setattr("server.app.db.session.SessionLocal", TestingSessionLocal)
 
     app = create_app()

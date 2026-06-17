@@ -317,6 +317,18 @@ def create_app() -> FastAPI:
 
         _logging.getLogger(__name__).exception("start_resource_sampler failed")
 
+    # 连接预算断言（Task 5，封堵 #4）：启动期一次性核对 anyio 线程池 + 发布并发封顶 + 安全余量
+    # 是否 ≤ 连接池容量；越界经 resource_metrics 统一告警 hook 提示扩池/降发布并发（绝不缩 anyio）。
+    # check_connection_budget 内部已吞异常、绝不抛——这里的 try/except 仅为双保险。
+    try:
+        from server.app.shared.resource_metrics import check_connection_budget
+
+        check_connection_budget()
+    except Exception:
+        import logging as _logging
+
+        _logging.getLogger(__name__).exception("check_connection_budget failed")
+
     # AI 模型注册表首次播种：表为空时从 GEO_AI_ENGINES + 格式默认模型建初始行（幂等）。
     # 密钥不入库；启动失败只记日志、不阻塞 create_app。
     try:

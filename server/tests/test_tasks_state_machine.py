@@ -15,7 +15,7 @@ from server.tests.utils import build_test_app
 def _execute_and_wait(client, task_id: int, max_wait: float = 5.0) -> dict:
     resp = client.post(f"/api/tasks/{task_id}/execute")
     assert resp.status_code == 202
-    assert resp.json() == {"queued": True}
+    assert resp.json()["queued"] is True
     deadline = _time.time() + max_wait
     while _time.time() < deadline:
         task = client.get(f"/api/tasks/{task_id}").json()
@@ -122,7 +122,7 @@ def test_stop_before_publish_enters_waiting_state(monkeypatch):
 
         resp = client.post(f"/api/tasks/{task['id']}/execute")
         assert resp.status_code == 202
-        assert resp.json() == {"queued": True}
+        assert resp.json()["queued"] is True
 
         deadline = _time.time() + 5.0
         while _time.time() < deadline:

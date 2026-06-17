@@ -3,12 +3,13 @@
 import logging
 import threading
 import time
+from datetime import timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy import update as _upd
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -16,7 +17,7 @@ from sqlalchemy.orm import Session
 from server.app.core.security import get_current_user
 from server.app.db.session import get_db
 from server.app.modules.audit.service import add_audit_entry
-from server.app.modules.system.models import User
+from server.app.modules.system.models import User, WorkerHeartbeat
 from server.app.modules.tasks import (
     TERMINAL_TASK_STATUSES,
     cancel_task,
@@ -54,6 +55,38 @@ publish_records_router = APIRouter()
 
 # 后台任务使用的 Session 工厂（测试时可替换为 TestingSessionLocal）
 bg_session_factory: Any = None
+
+# 是否允许本进程内联执行发布（封堵 #6）。默认 False：生产 web 进程绝不在自己进程里起浏览器发布，
+# 只入队 pending、由单实例 worker 抢占（否则 web + worker 双进程各自 ×N，_global_publish_gate 失效）。
+# 仅测试 / 单机 dev 通过显式置 True（见 build_test_app）才内联执行。
+inline_execute_enabled: bool = False
+
+# worker 新鲜度窗口（秒）：与 system_router 的 worker_online 判定一致。超此窗口无心跳即视为无活跃 worker。
+WORKER_FRESH_WINDOW_SECONDS = 30
+
+
+def _inline_execute_active() -> bool:
+    """是否在本进程内联执行发布：仅显式开关开启且已注入 bg_session_factory 时为真。
+
+    生产 web 进程两者皆否 → 只入队、交由单实例 worker 抢占（封堵 #6 的双进程各 ×N）。
+    """
+    return inline_execute_enabled and bg_session_factory is not None
+
+
+def _has_fresh_worker(db: Session) -> bool:
+    """是否存在新鲜（WORKER_FRESH_WINDOW_SECONDS 内有心跳）的发布 worker。"""
+    from server.app.core.time import utcnow as _utcnow
+
+    return bool(
+        db.scalar(
+            select(func.count())
+            .select_from(WorkerHeartbeat)
+            .where(
+                WorkerHeartbeat.heartbeat_at
+                >= _utcnow() - timedelta(seconds=WORKER_FRESH_WINDOW_SECONDS)
+            )
+        )
+    )
 
 
 # ── 任务辅助函数 ────────────────────────────────────────────────────────────
@@ -240,6 +273,8 @@ def preview_task_assignment_endpoint(
 
 class _ExecuteResponse(BaseModel):
     queued: bool
+    # 生产入队路径：是否有新鲜 worker（无则任务会卡 pending，前端可据此提示）；None=内联执行无需 worker。
+    worker_online: bool | None = None
 
 
 @tasks_router.post("/{task_id}/execute", status_code=202, response_model=_ExecuteResponse)
@@ -251,8 +286,11 @@ def start_task_execution(
 ) -> _ExecuteResponse:
     """触发任务执行，立即返回 202。
 
-    两条路径：bg_session_factory 已注入（测试/单机 dev）→ 直接起后台线程跑 execute_task；
-    否则（生产）→ 只清掉过期/空的 worker 认领，让独立 worker 轮询时捡走（不在 web 进程里发布）。
+    两条路径（封堵 #6）：
+    - 显式开关开启（_inline_execute_active：测试/单机 dev）→ 直接起后台线程跑 execute_task。
+    - 否则（生产 web）→ **不在 web 进程发布**，只释放陈旧 worker 认领、留 pending，交由单实例
+      worker 抢占；并查 worker 新鲜度，无活跃 worker 时告警 + 回包 worker_online=False，
+      避免任务静默卡 pending。
     """
     from server.app.core.time import utcnow as _utcnow
 
@@ -260,8 +298,9 @@ def start_task_execution(
     if task.status in TERMINAL_TASK_STATUSES:
         raise HTTPException(status_code=409, detail=f"Task is already terminal: {task.status}")
 
-    if bg_session_factory is not None:
-        # 测试 / 开发模式：立即在后台线程执行
+    worker_online: bool | None = None
+    if _inline_execute_active():
+        # 测试 / 单机 dev（显式开关）：立即在后台线程执行
         def _run() -> None:
             bg_db = bg_session_factory()
             try:
@@ -277,7 +316,7 @@ def start_task_execution(
 
         threading.Thread(target=_run, daemon=True).start()
     else:
-        # 生产模式：释放陈旧的 worker 认领；worker 会自行捡走
+        # 生产模式：web 进程不发布。释放陈旧 worker 认领后留 pending，由独立 worker 轮询捡走。
         db.execute(
             select(PublishTask).where(PublishTask.id == task_id)  # 重新加锁用于更新
         )
@@ -290,6 +329,17 @@ def start_task_execution(
             .values(worker_id=None, worker_lease_until=None, worker_heartbeat_at=None)
         )
         db.commit()
+        # 无新鲜 worker → 任务会静默卡 pending：走统一告警 hook + 回包提示。
+        worker_online = _has_fresh_worker(db)
+        if not worker_online:
+            from server.app.shared.resource_metrics import emit_resource_alert
+
+            emit_resource_alert(
+                f"task {task_id} enqueued but no fresh publish worker "
+                f"(no WorkerHeartbeat within {WORKER_FRESH_WINDOW_SECONDS}s); "
+                "it will sit pending until a worker comes online",
+                {"task_id": task_id},
+            )
 
     add_audit_entry(
         db,
@@ -300,7 +350,7 @@ def start_task_execution(
         payload={"stop_before_publish": task.stop_before_publish},
         request=request,
     )
-    return _ExecuteResponse(queued=True)
+    return _ExecuteResponse(queued=True, worker_online=worker_online)
 
 
 @tasks_router.post("/{task_id}/cancel", response_model=TaskRead)
@@ -464,10 +514,10 @@ def _verify_record_ownership(
 def _start_background_execute(task_id: int) -> None:
     """用户操作（手动确认/重试/解决人工输入/自动分发）后在后台线程续跑任务。
 
-    仅在 bg_session_factory 注入时生效（测试/单机 dev）；生产模式 no-op，交给独立 worker 轮询。
+    仅在显式开关开启时生效（测试/单机 dev）；生产模式 no-op，交给独立 worker 轮询（封堵 #6）。
     后台线程自建并自管 session（与请求线程的 db 隔离，session 非线程安全）。
     """
-    if bg_session_factory is None:
+    if not _inline_execute_active():
         # 生产模式：worker 发现 pending 记录时自行捡起任务。
         return
 

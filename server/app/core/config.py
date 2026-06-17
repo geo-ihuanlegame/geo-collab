@@ -93,6 +93,11 @@ class Settings(BaseSettings):
     resource_metrics_warn_ratio: float = (
         0.8  # GEO_RESOURCE_METRICS_WARN_RATIO；checked_out/max 超此比例升 WARNING
     )
+    # 连接预算安全余量（Task 5，封堵 #4）：anyio 线程池 + 发布并发封顶 + 本余量 ≤ 连接池容量。
+    # 余量吸收 anyio 之外的零散 checkout：pipeline/scheme 后台 run 的瞬时借连接（各自闸封顶 3+2）、
+    # SSE 短借、启动期 recovery、定时任务。仅此一个旋钮——越界时杠杆是扩池
+    # （GEO_DB_POOL_SIZE/GEO_DB_MAX_OVERFLOW）或降发布并发，绝不缩 anyio。
+    connection_budget_safety_margin: int = 10  # GEO_CONNECTION_BUDGET_SAFETY_MARGIN
     ai_generate_max_count: int = 20  # GEO_AI_GENERATE_MAX_COUNT
     pipeline_max_concurrent_runs: int = 3  # GEO_PIPELINE_MAX_CONCURRENT_RUNS
     scheme_max_concurrent_runs: int = 2  # GEO_SCHEME_MAX_CONCURRENT_RUNS（方案运行全局并发闸）

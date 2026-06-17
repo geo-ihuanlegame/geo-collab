@@ -226,11 +226,11 @@
 - Modify: `server/app/core/config.py`（仅暴露"池下限/余量"配置，**不**暴露缩 anyio 的旋钮）
 - Test: `server/tests/test_concurrency_budget_assertion.py`（纯逻辑）
 
-- [ ] **Step 1:** 跑 Task 3/ACC，记录 Task 1 后稳态 checkedout 来源（含 pipeline 节点 checkout 时长实测）。
-- [ ] **Step 2（失败测试）**：越界配置（如把 pool 调到 < anyio+publish+余量）触发告警 hook。
-- [ ] **Step 3:** 实现保守上界断言（记算式明细到日志），失败建议扩池/降 publish。
-- [ ] **Step 4:** 接 Task 3 告警通道。
-- [ ] **Step 5:** 跑测试绿。
+- [~] **Step 1（部分）**：未做满负载实测；预算建模基于既有事实——anyio 默认 40（每线程经 get_db 至多持 1 连接）、池容量 20+40=60（session.py，#110 调大后）、publish_max=5；pipeline/scheme 后台 run 走自建 ThreadPoolExecutor+自建 session（不占 anyio）、各自闸封顶 3+2、scheme ×4 实测瞬时借还、**pipeline 节点 checkout 时长仍未满负载实测**——这些零散/瞬时借用归入 safety_margin（默认 10）吸收，断言定位为保守护栏而非精确建模（代码注释已如实标注，未 parrot「anyio=唯一上界」）。真要精确化需后续做满负载实测，留待需要时。
+- [x] **Step 2（失败测试，已完成）**：`test_concurrency_budget_assertion.py` —— 越界（把 `_collect_pool` 压到极小容量）触发告警 hook（断言 emit 一次 + 文案含 budget）；另含纯函数 within/over/边界、容量不可用不误报、_collect_pool 抛错不崩。
+- [x] **Step 3（已完成）**：纯函数 `compute_connection_budget`（算式明细 + within_budget）+ `check_connection_budget`（算式明细打 INFO 日志，越界文案建议扩池 GEO_DB_POOL_SIZE/MAX_OVERFLOW 或降 publish，明确「绝不缩 anyio」），均落在 `resource_metrics.py`（与 emit_resource_alert 同处；非 main.py，便于纯逻辑单测）。新增配置 `connection_budget_safety_margin`（GEO_CONNECTION_BUDGET_SAFETY_MARGIN，默认 10），**未暴露缩 anyio 的旋钮**。
+- [x] **Step 4（已完成）**：越界走 `emit_resource_alert`（Task 3 同一告警通道），`create_app()` 启动期 try/except 调 `check_connection_budget()`（内部已吞异常，外层双保险）。
+- [x] **Step 5（已完成）**：7 passed（纯逻辑，无 DB）；`test_resource_metrics_api.py`（经 build_test_app→create_app）2 passed 确认启动期检查不破坏建 app；ruff check / format / mypy（132 files）通过。
 
 ---
 
@@ -245,10 +245,11 @@
 - Modify: `scheme_router.py:284`（裸 Thread → 有界线程池/队列）
 - Test: `server/tests/test_scheme_run_idempotency.py`（新建）
 
-- [ ] **Step 1（失败测试）**：同 scheme 连续两次 POST，第二次 409。
-- [ ] **Step 2:** 活跃检查抛 ConflictError。
-- [ ] **Step 3:** 线程改有界。
-- [ ] **Step 4:** 跑测试绿 + 回归正常路径。
+- [x] **Step 1（失败测试，已完成）**：`test_scheme_run_idempotency.py` —— create_run 二次抛 ConflictError、端到端连点第二次 409+只留 1 条 run、`_DISPATCH_POOL` 有界、`submit_scheme_run` 经池执行；另含「历史 done run 不挡新 run」守卫。RED 4 失败 + 1 守卫通过。
+- [x] **Step 2（已完成）:** 活跃去重落在 `scheme_executor.create_run`（镜像 pipeline）——`with_for_update()` 锁 scheme 行 + 查 `status ∈ ACTIVE_RUN_STATUSES{pending,running}`，有则抛 `ConflictError`（全局处理器 → 409）。新增模块常量 `ACTIVE_RUN_STATUSES`，`recover_stuck_scheme_runs` 同源复用。
+- [x] **Step 3（已完成）:** 裸 `threading.Thread` → 有界 `_DISPATCH_POOL = ThreadPoolExecutor(max_workers=scheme_max_concurrent_runs*2, prefix="scheme-dispatch")` + `submit_scheme_run()`；router 改调它（去掉 `import threading`）。活跃去重挡同 scheme 重复、有界池挡跨 scheme 无限 spawn，双层。
+- [x] **Step 4（已完成）:** 新测试 5 passed；回归 `test_scheme_runs`/`test_scheme_run_concurrency`/`test_generation_schemes`/`test_scheme_recovery`/`test_scheme_autoformat` + 本文件共 26 passed（正常路径未受去重影响）；ruff/format/mypy 通过。
+  > 注：pipeline 的派发线程（[pipelines/router.py:401](../../server/app/modules/pipelines/router.py#L401)）同为裸 `threading.Thread`，但有 `_RUN_GATE`(cap 3) 封顶执行 + create_run 活跃去重挡同 pipeline 重复；本任务范围限 scheme（#5），未一并改 pipeline 派发。
 
 ## Task 7: 发布并发跨进程封顶 + 无 worker 告警（封堵 #6）
 
@@ -260,10 +261,11 @@
 - Modify: `server/app/modules/tasks/router.py`（execute 在 web 不起浏览器，仅置 pending；查 WorkerHeartbeat 新鲜度，陈旧则告警）
 - Test: `server/tests/test_publish_web_no_browser.py`（新建）
 
-- [ ] **Step 1:** grep `bg_session_factory` 在 tasks 路由用法，确认无依赖 web 同步发布的调用方（测试除外）。
-- [ ] **Step 2（失败测试）**：web execute 后任务 pending、未起浏览器；无新鲜 WorkerHeartbeat 时返回/记录告警。
-- [ ] **Step 3:** 改 execute + 加 worker 新鲜度检测。
-- [ ] **Step 4:** 跑测试绿；确认测试可经显式开关跑后台发布。
+- [x] **Step 1（已完成）:** 核实 `create_app()` 只给 scheme_router / pipelines_router 注入 `bg_session_factory`，**未注入 tasks.router**——即生产 web 进程本就不内联发布。唯一依赖 web 内联发布的调用方是测试（`utils.py:198`）。本任务把"生产不内联"从隐式（靠 bg_session_factory 恰好为 None）变显式（独立开关），防未来误注入。
+- [x] **Step 2（失败测试，已完成）**：`test_publish_web_no_browser.py` —— 关内联开关后 execute 只入队（`execute_task` 调用计数=0）、记录留 pending；无新鲜 WorkerHeartbeat → 告警 hook 触发 + 回包 `worker_online=False`；有新鲜 worker → 不告警 + `True`；陈旧心跳(>30s)仍告警；显式开关开 → 仍内联执行。RED 4 失败（开关缺失）+ 1 守卫。
+- [x] **Step 3（已完成）:** 新增显式开关 `inline_execute_enabled`（默认 False）+ `_inline_execute_active()`（= 开关 ∧ bg_session_factory），execute 与 `_start_background_execute` 同走它；生产路径只入队 + 释放陈旧认领，并查 `_has_fresh_worker`（复用 system_router 的 30s 心跳判定），无 worker 走 `emit_resource_alert` + 回包 `worker_online`（`_ExecuteResponse` 新增字段）。
+- [x] **Step 4（已完成）:** 显式开关：`build_test_app` 置 `inline_execute_enabled=True`，存量发布测试照旧内联跑（5 处 `== {"queued": True}` 因新增 `worker_online` 字段放宽为 `["queued"] is True`）。验证：新测试 5 passed；clean DB 下 `test_tasks_state_machine` 13 / `test_publish_validation` 5 / `test_publish_web_no_browser` 5 全绿；ruff/format/mypy 通过。
+  > 注：本会话本地反复跑后 MySQL 出现 schema 复用 + 后台线程并发 DDL 竞态（`Duplicate testadmin` / `concurrent DDL` / `ai_models doesn't exist`），与 Task 7 逻辑无关——全部失败均为该基础设施竞态、**零**断言失败，且 clean 分支同样偶发（见 [[run-tests-env]]）；CI（全新 mysql 服务、单进程）为准。
 
 ---
 
