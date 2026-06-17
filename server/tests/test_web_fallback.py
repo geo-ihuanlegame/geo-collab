@@ -65,10 +65,13 @@ def test_slugify_bucket():
 
 
 def test_search_returns_empty_without_key(monkeypatch):
-    # 没配 key → best-effort 返回 []，不抛
+    # 没配 key → best-effort 返回 []，不抛。
+    # 用 setenv 而非 setattr(Settings, ...)：config 走 env_file=".env"，本机/部署 .env 里可能真有
+    # GEO_BAIDU_API_KEY。os.environ 优先级高于 .env 文件，setenv("") 才能真正模拟"没配 key"；
+    # 改类属性压不住 env_file 来源的值，会误跑真实联网搜图（曾导致本用例只在带 .env 的机器上失败）。
     from server.app.core import config
 
-    monkeypatch.setattr(config.Settings, "baidu_api_key", "", raising=False)
+    monkeypatch.setenv("GEO_BAIDU_API_KEY", "")
     config.get_settings.cache_clear()
     assert baidu.search_landscape_images("蛋仔派对") == []
 
