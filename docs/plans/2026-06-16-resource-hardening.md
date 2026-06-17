@@ -245,10 +245,11 @@
 - Modify: `scheme_router.py:284`（裸 Thread → 有界线程池/队列）
 - Test: `server/tests/test_scheme_run_idempotency.py`（新建）
 
-- [ ] **Step 1（失败测试）**：同 scheme 连续两次 POST，第二次 409。
-- [ ] **Step 2:** 活跃检查抛 ConflictError。
-- [ ] **Step 3:** 线程改有界。
-- [ ] **Step 4:** 跑测试绿 + 回归正常路径。
+- [x] **Step 1（失败测试，已完成）**：`test_scheme_run_idempotency.py` —— create_run 二次抛 ConflictError、端到端连点第二次 409+只留 1 条 run、`_DISPATCH_POOL` 有界、`submit_scheme_run` 经池执行；另含「历史 done run 不挡新 run」守卫。RED 4 失败 + 1 守卫通过。
+- [x] **Step 2（已完成）:** 活跃去重落在 `scheme_executor.create_run`（镜像 pipeline）——`with_for_update()` 锁 scheme 行 + 查 `status ∈ ACTIVE_RUN_STATUSES{pending,running}`，有则抛 `ConflictError`（全局处理器 → 409）。新增模块常量 `ACTIVE_RUN_STATUSES`，`recover_stuck_scheme_runs` 同源复用。
+- [x] **Step 3（已完成）:** 裸 `threading.Thread` → 有界 `_DISPATCH_POOL = ThreadPoolExecutor(max_workers=scheme_max_concurrent_runs*2, prefix="scheme-dispatch")` + `submit_scheme_run()`；router 改调它（去掉 `import threading`）。活跃去重挡同 scheme 重复、有界池挡跨 scheme 无限 spawn，双层。
+- [x] **Step 4（已完成）:** 新测试 5 passed；回归 `test_scheme_runs`/`test_scheme_run_concurrency`/`test_generation_schemes`/`test_scheme_recovery`/`test_scheme_autoformat` + 本文件共 26 passed（正常路径未受去重影响）；ruff/format/mypy 通过。
+  > 注：pipeline 的派发线程（[pipelines/router.py:401](../../server/app/modules/pipelines/router.py#L401)）同为裸 `threading.Thread`，但有 `_RUN_GATE`(cap 3) 封顶执行 + create_run 活跃去重挡同 pipeline 重复；本任务范围限 scheme（#5），未一并改 pipeline 派发。
 
 ## Task 7: 发布并发跨进程封顶 + 无 worker 告警（封堵 #6）
 

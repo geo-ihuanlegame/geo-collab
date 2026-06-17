@@ -29,16 +29,28 @@ from server.app.modules.ai_generation.scheme_service import get_line_questions, 
 from server.app.modules.articles.ai_format import all_category_contexts, run_ai_format
 from server.app.modules.prompt_templates.service import get_visible_prompt_template
 from server.app.shared.concurrency import ObservableGate, register_gate
+from server.app.shared.errors import ConflictError
 
 logger = logging.getLogger(__name__)
 
 SessionFactory = Callable[[], Any]
+
+# 活跃运行状态（在途）：建 run 前据此去重、启动期据此复位僵死残留——两处共用同一判定。
+ACTIVE_RUN_STATUSES = ("pending", "running")
 
 # 全局并发闸：限制单进程同时执行的方案运行数（与 pipeline executor 的 _RUN_SEMAPHORE 对称）。
 # 缺它时每次 POST /schemes/{id}/runs 都裸 fork 出 1+4 个线程争抢 DB 连接，连点即耗尽连接池
 # （连接池耗尽事故根因之一）。多于 cap 的运行线程阻塞在信号量上、不持 DB 连接，安全排队。
 _RUN_GATE = register_gate(
     ObservableGate(max(1, get_settings().scheme_max_concurrent_runs), name="scheme")
+)
+
+# 有界派发线程池（封堵 #5）：方案运行后台线程不再裸 threading.Thread 无界 spawn。活跃去重已挡住
+# 同一 scheme 的重复运行；本池再为「跨 scheme 的并发 POST」兜底——总派发线程数有界，超出的安静
+# 排队（排队项不持 DB 连接）。容量给 gate cap 的 ~2x，让等 _RUN_GATE 的 run 仍能命中 acquire 超时。
+_DISPATCH_POOL = ThreadPoolExecutor(
+    max_workers=max(2, get_settings().scheme_max_concurrent_runs * 2),
+    thread_name_prefix="scheme-dispatch",
 )
 
 
@@ -57,7 +69,24 @@ def _render_questions(questions: list[Any]) -> str:
 
 
 def create_run(db: Any, *, scheme: GenerationScheme, user_id: int) -> GenerationSchemeRun:
-    """按方案行展开运行任务（每行 article_count 条）。使用方案快照，不读问题池最新文本。"""
+    """按方案行展开运行任务（每行 article_count 条）。使用方案快照，不读问题池最新文本。
+
+    建 run 前先做**活跃去重**（镜像 pipeline create_run）：锁住 scheme 行后查同 scheme 是否已有
+    pending/running 运行，有则抛 ConflictError（→ 409），封堵「连点运行 = 重复 run」。行锁让并发
+    POST 串行化、第二个看到第一个已落库的在途 run。不提交事务，由调用方提交。
+    """
+    db.query(GenerationScheme).filter(GenerationScheme.id == scheme.id).with_for_update().first()
+    active = (
+        db.query(GenerationSchemeRun.id)
+        .filter(
+            GenerationSchemeRun.scheme_id == scheme.id,
+            GenerationSchemeRun.status.in_(ACTIVE_RUN_STATUSES),
+        )
+        .first()
+    )
+    if active is not None:
+        raise ConflictError("该方案已有正在运行的任务，请等待其完成后再运行")
+
     run = GenerationSchemeRun(
         scheme_id=scheme.id,
         user_id=user_id,
@@ -206,6 +235,21 @@ def run_scheme(run_id: int, session_factory: SessionFactory) -> None:
         _RUN_GATE.release()
 
 
+def submit_scheme_run(run_id: int, session_factory: SessionFactory) -> None:
+    """把方案运行派发到有界线程池执行（替代路由里的裸 threading.Thread，封堵 #5 无界 spawn）。
+
+    池满时提交安静排队（不起新线程、不持 DB 连接）。run_scheme 内部自带 _RUN_GATE 等槽超时兜底。
+    """
+
+    def _run() -> None:
+        try:
+            run_scheme(run_id, session_factory)
+        except Exception:
+            logger.exception("scheme run background thread failed for run %d", run_id)
+
+    _DISPATCH_POOL.submit(_run)
+
+
 def _mark_run_failed(run_id: int, session_factory: SessionFactory, message: str) -> None:
     """开短 session 把 pending/running 的方案 run 置 failed（等槽超时用）。"""
     db = session_factory()
@@ -268,9 +312,7 @@ def recover_stuck_scheme_runs(db: Any) -> None:
 
     runs = list(
         db.execute(
-            select(GenerationSchemeRun).where(
-                GenerationSchemeRun.status.in_(("running", "pending"))
-            )
+            select(GenerationSchemeRun).where(GenerationSchemeRun.status.in_(ACTIVE_RUN_STATUSES))
         )
         .scalars()
         .all()

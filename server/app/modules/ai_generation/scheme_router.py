@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import logging
-import threading
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -258,12 +257,13 @@ def create_scheme_run(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> JSONResponse:
-    from server.app.modules.ai_generation.scheme_executor import create_run, run_scheme
+    from server.app.modules.ai_generation.scheme_executor import create_run, submit_scheme_run
 
     scheme = _get_owned_scheme(db, scheme_id, current_user)
     if not scheme.is_enabled:
         raise HTTPException(status_code=400, detail="方案已停用，无法运行")
 
+    # create_run 内含活跃去重：同 scheme 已有 pending/running 运行时抛 ConflictError（→ 409）。
     run = create_run(db, scheme=scheme, user_id=current_user.id)
     db.commit()
     run_id = run.id
@@ -291,15 +291,8 @@ def create_scheme_run(
             db.commit()
         return JSONResponse(status_code=503, content={"run_id": run_id, "status": "failed"})
 
-    factory = bg_session_factory
-
-    def _run() -> None:
-        try:
-            run_scheme(run_id, factory)
-        except Exception:
-            logger.exception("scheme run background thread failed for run %d", run_id)
-
-    threading.Thread(target=_run, daemon=True).start()
+    # 有界派发线程池（封堵 #5）：不再裸 threading.Thread 无界 spawn。
+    submit_scheme_run(run_id, bg_session_factory)
 
     return JSONResponse(content={"run_id": run_id, "status": "pending"}, status_code=202)
 
