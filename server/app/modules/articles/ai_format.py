@@ -626,6 +626,32 @@ def _web_fallback_fill_category(
     return None
 
 
+def _store_prefetched_image(
+    db: Any, category: Any, queue: list[tuple[bytes, str, Any]]
+) -> int | None:
+    """从该栏目的内存下载队列取一张落库（store_image_bytes），返回新图 id；队列空 / 落库失败返回 None。
+
+    供 web_fallback 路径用：联网搜图 / 下载已在无连接段先做完（队列里是内存字节），这里只在短 session
+    内做 MinIO 上传 + 建 StockImage 记录——本函数绝不触联网搜图 / 下载。
+    """
+    from server.app.modules.image_library.service import store_image_bytes
+
+    while queue:
+        data, mime, cand = queue.pop(0)
+        img = store_image_bytes(
+            db,
+            category,
+            data,
+            mime,
+            source_url=cand.source_url,
+            width=cand.width,
+            height=cand.height,
+        )
+        if img is not None:
+            return img.id
+    return None
+
+
 def _maybe_insert_images(
     content_json: dict,
     parsed: dict,
@@ -636,6 +662,7 @@ def _maybe_insert_images(
     web_fallback: bool = False,
     image_search_query: str | None = None,
     max_images: int | None = None,
+    prefetched_downloads: dict[int, list[tuple[bytes, str, Any]]] | None = None,
 ) -> tuple[dict, int]:
     """按模型给的 image_positions 插图，返回 (新文档, 实插图数)。
 
@@ -646,6 +673,11 @@ def _maybe_insert_images(
     max_images 非空时是【硬上限】：取靠前的至多 N 个位置，达到即停止扫描（不再为后续位置
     联网搜图，省调用）。这层兜底独立于提示词文案——即便模型/自定义模板没遵守上限也不会超。
     max_images=None（手动排版/方案配图）保持原行为：不硬截断，全凭模型返回的位置数。
+
+    prefetched_downloads（仅 web_fallback 多段式路径传，按 category_id 分桶的内存下载队列）非空时：
+    某栏目无图需补图时，不在此处联网搜图 / 下载（那是慢 IO，已在无连接段做完），而是从队列取一张
+    内存字节走 store_image_bytes 落库——保证本函数（在短 session 内）不持连接做联网下载（Task 1b）。
+    None（手动排版 / 方案配图等同步路径）保持原行为：缺图时就地 _web_fallback_fill_category 联网补。
     """
     if has_images_in_content(content_json):
         return content_json, 0
@@ -686,11 +718,18 @@ def _maybe_insert_images(
             ImageQuery(category_ids=[target_cat_id], excluded_ids=used_ids), db
         )
         if image_id is None and web_fallback:
-            # 栏目里没图（含刚新建的）：联网搜一张补进来再选
+            # 栏目里没图（含刚新建的）：补一张。
             if category is None:
                 category = db.get(StockCategory, target_cat_id)
             if category is not None:
-                image_id = _web_fallback_fill_category(db, category, image_search_query)
+                if prefetched_downloads is not None:
+                    # 多段式：联网下载已在无连接段做完，这里只从内存队列落库（不触网）
+                    image_id = _store_prefetched_image(
+                        db, category, prefetched_downloads.get(target_cat_id, [])
+                    )
+                else:
+                    # 同步路径：就地联网搜图 + 下载 + 落库（旧行为，仅非多段式调用方走到）
+                    image_id = _web_fallback_fill_category(db, category, image_search_query)
         if image_id is None:
             continue
 
@@ -758,16 +797,15 @@ def run_ai_format(
     失败详情照旧落到 article.ai_format_error。多数调用方忽略返回值，行为不变。
     """
     # web_fallback=False（scheme 配图 / 手动排版）：三段式，慢 IO（LLM）期间不持 DB 连接（Task 1a）。
-    # web_fallback=True（AI配图 节点）：配图下载与 DB 读写在循环里交织，剥离待 Task 1b——暂走旧单 session。
+    # web_fallback=True（AI配图 节点）：多段式——慢 IO（LLM + 联网搜图下载）期间均不持连接（Task 1b）。
     if web_fallback:
-        return _run_ai_format_single_session(
+        return _run_ai_format_web_fallback(
             article_id,
             include_images=include_images,
             lock_started_at=lock_started_at,
             preset_id=preset_id,
             user_id=user_id,
             candidate_categories=candidate_categories,
-            web_fallback=web_fallback,
             max_images=max_images,
             min_spacing=min_spacing,
             builtin_variant=builtin_variant,
@@ -831,7 +869,10 @@ def run_ai_format(
 
 
 class _AiFormatPrep:
-    """段1 产物：模型调用所需的纯数据（不含 ORM/session），可安全跨段、跨「无连接」窗口传递。"""
+    """段1 产物：模型调用所需的纯数据（不含 ORM/session），可安全跨段、跨「无连接」窗口传递。
+
+    image_search_query 仅 web_fallback 路径用（联网搜图关键词，来自可编辑模板）；其它路径为 None。
+    """
 
     __slots__ = (
         "content_json",
@@ -841,6 +882,7 @@ class _AiFormatPrep:
         "model",
         "api_key",
         "timeout_seconds",
+        "image_search_query",
     )
 
     def __init__(
@@ -853,6 +895,7 @@ class _AiFormatPrep:
         model: str,
         api_key: str,
         timeout_seconds: int,
+        image_search_query: str | None = None,
     ) -> None:
         self.content_json = content_json
         self.valid_indices = valid_indices
@@ -861,6 +904,7 @@ class _AiFormatPrep:
         self.model = model
         self.api_key = api_key
         self.timeout_seconds = timeout_seconds
+        self.image_search_query = image_search_query
 
 
 def _ai_format_prepare(
@@ -874,11 +918,15 @@ def _ai_format_prepare(
     max_images: int | None,
     min_spacing: int | None,
     builtin_variant: str,
+    web_fallback: bool = False,
 ) -> _AiFormatPrep | None:
     """段1（短借连接）：读文章 + 第一道锁检查 + 拼提示词，return 前归还连接。
 
     返回 None = 本次应安静跳过（无文章 / 锁失配 / 无文本节点；无文本节点时已清本次锁，与旧行为一致）。
     缺 API Key 抛 AIFormatConfigurationError，由调用方走 _ai_format_finalize_error 落错 + 解锁。
+
+    web_fallback=True 时一并解析联网搜图关键词模板（image_search scope）随 prep 带出，
+    使后续下载段无需再开连接读模板。
     """
     from server.app.db.session import SessionLocal
     from server.app.modules.articles.service import get_article
@@ -924,11 +972,24 @@ def _ai_format_prepare(
             include_images=include_images,
             text_nodes=text_nodes,
             available_categories=available_categories,
-            web_fallback=False,
+            web_fallback=web_fallback,
             max_images=max_images,
             min_spacing=min_spacing,
             builtin_variant=builtin_variant,
         )
+        # 搜图关键词：优先用数据库可编辑模板（image_search scope），缺省回退内置默认。
+        # 陪衬游戏提示词（image_companion）已在 _load_ai_format_prompt 内按可编辑模板拼接。
+        image_search_query: str | None = None
+        if include_images and web_fallback:
+            from server.app.modules.prompt_templates.service import get_active_template_content
+            from server.app.shared.baidu import DEFAULT_IMAGE_SEARCH_QUERY
+
+            image_search_query = get_active_template_content(
+                db,
+                scope="image_search",
+                user_id=user_id,
+                default=DEFAULT_IMAGE_SEARCH_QUERY,
+            )
         return _AiFormatPrep(
             content_json=content_json,
             valid_indices={i for i, _ in text_nodes},
@@ -937,6 +998,7 @@ def _ai_format_prepare(
             model=settings.ai_format_model,
             api_key=api_key,
             timeout_seconds=settings.ai_format_timeout_seconds,
+            image_search_query=image_search_query,
         )
     finally:
         db.close()
@@ -1020,158 +1082,300 @@ def _ai_format_finalize_error(
         db.close()
 
 
-def _run_ai_format_single_session(
+def _run_ai_format_web_fallback(
     article_id: int,
     *,
-    include_images: bool = False,
-    lock_started_at: datetime | None = None,
-    preset_id: int | None = None,
-    user_id: int | None = None,
-    candidate_categories: list[dict[str, Any]] | None = None,
-    web_fallback: bool = False,
-    max_images: int | None = None,
-    min_spacing: int | None = None,
-    builtin_variant: str = "conservative",
+    include_images: bool,
+    lock_started_at: datetime | None,
+    preset_id: int | None,
+    user_id: int | None,
+    candidate_categories: list[dict[str, Any]] | None,
+    max_images: int | None,
+    min_spacing: int | None,
+    builtin_variant: str,
 ) -> int:
-    """旧单 session 实现（web_fallback=True 暂用，行为与改造前逐字一致）。
+    """web_fallback=True（AI配图 节点）多段式：慢 IO（LLM + 联网搜图下载）期间都不持 DB 连接（Task 1b）。
 
-    ⚠️ 全程持一条连接、含联网搜图下载——正是 Task 1a 要消除的「慢 IO 期间持连接」反模式；
-    web_fallback=True 的下载剥离见 Task 1b，届时本函数应被删除。
+    段1（短借）：读 + 第一道锁检查 + 拼提示词（含 image_search 模板）→ close。
+    段2（无连接）：调 LLM + 解析 + 应用小标题。
+    段3=决策（短借）：按 image_positions 决策每个位置「用现有图 id / 联网补图（带栏目）」，get-or-create
+                      陪衬栏目的写也收在这段；max_images 硬上限、used_ids 去重语义与旧 _maybe_insert_images 一致 → close。
+    段4=下载（无连接）：把需要联网补图的位置逐个搜图 + 下载到【内存】。
+    段5=落库写回（短借）：store_image_bytes 落库 + fetch_image_by_id + 第二道锁检查 + 插图 + 写回三份正文 + 清锁。
     """
-    images_inserted = 0
-    db = None
-    error_message: str | None = None
+    # 段1（短借连接）：读 + 第一道锁检查 + 拼提示词（含联网搜图模板），随即归还连接
     try:
-        from server.app.db.session import SessionLocal
-
-        db = SessionLocal()
-        from server.app.modules.articles.service import get_article
-
-        article = get_article(db, article_id)
-        if article is None or article.is_deleted:
-            return images_inserted
-        # 第一道锁检查：模型调用前。锁已被接管/超时清掉就别白跑一次昂贵的模型请求
-        if not _article_lock_matches(article, lock_started_at):
-            logger.info("ai_format skipped stale lock before model call for article %s", article_id)
-            return images_inserted
-
-        content_json = loads_content_json(article.content_json)
-        text_nodes = _non_empty_text_nodes(content_json)
-        if not text_nodes:
-            logger.info(
-                "ai_format skipped article %s: no non-empty paragraph/heading nodes", article_id
-            )
-            return images_inserted
-
-        # 清 lru_cache 再取：拿运行时最新的 AI Key/模型配置（Key 启动时不校验，运维可能中途改）
-        get_settings.cache_clear()
-        settings = get_settings()
-        api_key = settings.ai_format_api_key or settings.ai_api_key or None
-        if not api_key:
-            raise AIFormatConfigurationError(
-                "AI 排版失败：未配置 API Key，请设置 GEO_AI_FORMAT_API_KEY。"
-            )
-
-        if not include_images:
-            available_categories = []
-        elif candidate_categories is not None:
-            available_categories = candidate_categories
-        else:
-            available_categories = _available_categories_for_article(article, db)
-        system_prompt = _load_ai_format_prompt(
-            db,
+        prep = _ai_format_prepare(
+            article_id,
+            lock_started_at=lock_started_at,
+            include_images=include_images,
             preset_id=preset_id,
             user_id=user_id,
-            include_images=include_images,
-            text_nodes=text_nodes,
-            available_categories=available_categories,
-            web_fallback=web_fallback,
+            candidate_categories=candidate_categories,
             max_images=max_images,
             min_spacing=min_spacing,
             builtin_variant=builtin_variant,
+            web_fallback=True,
         )
-        # 搜图关键词：优先用数据库可编辑模板（image_search scope），缺省回退内置默认。
-        # 陪衬游戏提示词（image_companion）已在 _load_ai_format_prompt 内按可编辑模板拼接。
-        image_search_query: str | None = None
-        if include_images and web_fallback:
-            from server.app.modules.prompt_templates.service import get_active_template_content
-            from server.app.shared.baidu import DEFAULT_IMAGE_SEARCH_QUERY
+    except Exception as exc:
+        _ai_format_finalize_error(article_id, lock_started_at, exc)
+        return 0
+    if prep is None:
+        return 0
 
-            image_search_query = get_active_template_content(
-                db,
-                scope="image_search",
-                user_id=user_id,
-                default=DEFAULT_IMAGE_SEARCH_QUERY,
-            )
+    # 段2（无连接）：调 LLM + 解析 + 应用小标题。此处不得持有任何 DB 连接。
+    try:
         response = _call_litellm_completion(
-            model=settings.ai_format_model,
-            api_key=api_key,
+            model=prep.model,
+            api_key=prep.api_key,
             messages=[
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": prep.system_prompt},
                 {"role": "user", "content": "请按上述要求完成分析，仅返回 JSON。"},
             ],
-            timeout_seconds=settings.ai_format_timeout_seconds,
+            timeout_seconds=prep.timeout_seconds,
         )
-
         raw = (response.choices[0].message.content or "").strip()
         parsed = json.loads(_extract_json(raw))
-        valid_indices = {i for i, _ in text_nodes}
         heading_indices = _normalize_heading_indices(
-            parsed.get("heading_indices", []), valid_indices
+            parsed.get("heading_indices", []), prep.valid_indices
         )
+        new_content_json = _apply_headings(prep.content_json, heading_indices)
+    except Exception as exc:
+        _ai_format_finalize_error(article_id, lock_started_at, exc)
+        return 0
 
-        new_content_json = _apply_headings(content_json, heading_indices)
-        image_count = 0
-        if include_images:
-            new_content_json, image_count = _maybe_insert_images(
-                new_content_json,
-                parsed,
-                article,
-                db,
-                available_categories=available_categories,
-                web_fallback=web_fallback,
-                image_search_query=image_search_query,
+    if not include_images:
+        # 无配图：等价于 web_fallback=False 的写回（无任何下载）
+        try:
+            return _ai_format_write_back(
+                article_id,
+                lock_started_at=lock_started_at,
+                new_content_json=new_content_json,
+                parsed=parsed,
+                available_categories=prep.available_categories,
+                include_images=False,
+                heading_indices=heading_indices,
                 max_images=max_images,
             )
+        except Exception as exc:
+            _ai_format_finalize_error(article_id, lock_started_at, exc)
+            return 0
 
-        # 第二道锁检查：写回前 refresh 再比一次指纹。模型耗时长，期间可能有新一轮排版抢锁，
-        # 此时丢弃本次结果，避免覆盖更新的内容
-        db.refresh(article)
-        if not _article_lock_matches(article, lock_started_at):
+    # 段3=决策（短借连接）+ 段4=下载（无连接）+ 段5=落库写回（短借连接）
+    try:
+        return _web_fallback_collect_and_write_back(
+            article_id,
+            lock_started_at=lock_started_at,
+            new_content_json=new_content_json,
+            parsed=parsed,
+            available_categories=prep.available_categories,
+            heading_indices=heading_indices,
+            image_search_query=prep.image_search_query,
+            max_images=max_images,
+        )
+    except Exception as exc:
+        _ai_format_finalize_error(article_id, lock_started_at, exc)
+        return 0
+
+
+class _WebFallbackPlan:
+    """段3 决策产物（纯数据，不含 ORM/session）：插图所需的全部决策，供下载段 + 落库段消费。
+
+    - existing：已选定的现有图 [(node_index, image_id), ...]，落库段直接 fetch 插入。
+    - fetches：需联网补图的位置 [(node_index, category_id), ...]，下载段逐个搜图下载到内存。
+      category_id 指向决策段已 get-or-create 好（且 committed）的栏目，落库段据它 store。
+    """
+
+    __slots__ = ("existing", "fetches")
+
+    def __init__(
+        self,
+        *,
+        existing: list[tuple[int, int]],
+        fetches: list[tuple[int, int]],
+    ) -> None:
+        self.existing = existing
+        self.fetches = fetches
+
+
+def _web_fallback_decide(
+    db: Any,
+    *,
+    content_json: dict,
+    parsed: dict,
+    available_categories: list[dict[str, Any]],
+    max_images: int | None,
+) -> _WebFallbackPlan:
+    """段3=决策（短借连接）：逐位置决定「用现有图 id / 联网补图（带栏目 id）」。
+
+    与旧 _maybe_insert_images(web_fallback=True) 同语义：现有栏目优先按 id 直接用、其它走 get-or-create
+    陪衬栏目；选不到现有图（含刚建的空栏目）则记一笔联网补图请求。max_images 硬上限、used_ids 去重一致。
+    决策段会建陪衬栏目（DB 写），但绝不触网；联网搜图 / 下载留到无连接的段4。
+    """
+    from server.app.modules.image_library.service import get_or_create_companion_category
+
+    valid_category_ids = {cat["id"] for cat in available_categories}
+    positions = _parse_image_positions(parsed.get("image_positions", []))
+
+    existing: list[tuple[int, int]] = []
+    fetches: list[tuple[int, int]] = []
+    used_ids: list[int] = []
+    for idx, req_cat_id, game in positions:
+        if max_images is not None and (len(existing) + len(fetches)) >= max_images:
+            break  # 已达硬上限：停止扫描，后续位置不再取图/联网搜图
+        target_cat_id: int | None = None
+        if req_cat_id is not None and req_cat_id in valid_category_ids:
+            target_cat_id = req_cat_id  # 现有栏目：直接用 id
+        elif game:
+            category = get_or_create_companion_category(db, game)
+            target_cat_id = category.id if category is not None else None
+        if target_cat_id is None:
+            continue
+
+        image_id = pick_image_id(
+            ImageQuery(category_ids=[target_cat_id], excluded_ids=used_ids), db
+        )
+        if image_id is not None:
+            used_ids.append(image_id)
+            existing.append((idx, image_id))
+        else:
+            # 栏目里没图（含刚新建的）：记一笔联网补图请求，下载留到无连接的段4
+            fetches.append((idx, target_cat_id))
+
+    return _WebFallbackPlan(existing=existing, fetches=fetches)
+
+
+def _web_fallback_download(
+    fetch_targets: list[tuple[int, int]],
+    *,
+    category_names: dict[int, str],
+    image_search_query: str | None,
+) -> dict[int, list[tuple[bytes, str, Any]]]:
+    """段4=下载（无连接）：按 category_id 分桶联网搜图 + 下载到【内存】，每个待补图位置补一张。
+
+    入参 fetch_targets=[(node_index, category_id), ...]；category_names 给搜图用的栏目名（决策段已读出）。
+    返回 {category_id: [(data, mime, cand), ...]}——FIFO 队列，落库段（_maybe_insert_images）按需 pop。
+    搜不到/下载失败的位置静默丢弃（best-effort，与旧行为一致），整段绝不持有 DB 连接。
+    """
+    from server.app.shared import baidu
+
+    downloaded: dict[int, list[tuple[bytes, str, Any]]] = {}
+    for _node_index, category_id in fetch_targets:
+        name = category_names.get(category_id, "")
+        try:
+            candidates = (
+                baidu.search_landscape_images(name)
+                if image_search_query is None
+                else baidu.search_landscape_images(name, query_template=image_search_query)
+            )
+            for cand in candidates:
+                result = baidu.download_image(cand.url)
+                if result is None:
+                    continue
+                data, mime = result
+                downloaded.setdefault(category_id, []).append((data, mime, cand))
+                break
+        except Exception:
+            logger.exception("web_fallback fetch failed for category %s", name or category_id)
+    return downloaded
+
+
+def _web_fallback_collect_and_write_back(
+    article_id: int,
+    *,
+    lock_started_at: datetime | None,
+    new_content_json: dict,
+    parsed: dict,
+    available_categories: list[dict[str, Any]],
+    heading_indices: set[int],
+    image_search_query: str | None,
+    max_images: int | None,
+) -> int:
+    """串起段3（决策，短借）→ 段4（下载，无连接）→ 段5（落库写回，短借）。
+
+    正文已含图则不动（与旧 _maybe_insert_images 一致）。返回实际插入并落库的图片数（images_inserted 语义不变）。
+
+    段5 复用 _maybe_insert_images（插图的唯一权威），但喂入段4 下载好的内存图队列（prefetched_downloads），
+    使其落库段只做 MinIO 上传 + 选图 + 插入、绝不联网下载——慢 IO 已全在无连接段消化。
+    """
+    from server.app.db.session import SessionLocal
+    from server.app.modules.articles.service import get_article
+    from server.app.modules.image_library.models import StockCategory
+
+    if has_images_in_content(new_content_json):
+        # 正文已含图：不配图，等价于无图写回（保持 _maybe_insert_images 的「已含图则不动」语义）
+        return _ai_format_write_back(
+            article_id,
+            lock_started_at=lock_started_at,
+            new_content_json=new_content_json,
+            parsed=parsed,
+            available_categories=available_categories,
+            include_images=False,
+            heading_indices=heading_indices,
+            max_images=max_images,
+        )
+
+    # 段3=决策（短借连接）：决定每个位置用现有图还是联网补图；建陪衬栏目；读补图栏目名后归还连接
+    db = SessionLocal()
+    try:
+        plan = _web_fallback_decide(
+            db,
+            content_json=new_content_json,
+            parsed=parsed,
+            available_categories=available_categories,
+            max_images=max_images,
+        )
+        category_names: dict[int, str] = {}
+        for _idx, cat_id in plan.fetches:
+            if cat_id not in category_names:
+                cat = db.get(StockCategory, cat_id)
+                category_names[cat_id] = str(getattr(cat, "name", "") or "") if cat else ""
+    finally:
+        db.close()
+
+    # 段4=下载（无连接）：把待补图位置逐个搜图 + 下载到内存队列。此处不得持有任何 DB 连接。
+    prefetched = _web_fallback_download(
+        plan.fetches,
+        category_names=category_names,
+        image_search_query=image_search_query,
+    )
+
+    # 段5=落库写回（短借连接）：第二道锁检查 + _maybe_insert_images（落库内存图 + 选图 + 插入）+ 写回 + 清锁
+    db = SessionLocal()
+    try:
+        article = get_article(db, article_id)
+        if article is None or not _article_lock_matches(article, lock_started_at):
             logger.info("ai_format skipped stale lock before write for article %s", article_id)
-            return images_inserted
+            return 0
 
-        new_html, new_text = _derive_html_and_text(new_content_json)
-        article.content_json = dumps_content_json(new_content_json)
+        new_content_json_final, image_count = _maybe_insert_images(
+            new_content_json,
+            parsed,
+            article,
+            db,
+            available_categories=available_categories,
+            web_fallback=True,
+            image_search_query=image_search_query,
+            max_images=max_images,
+            prefetched_downloads=prefetched,
+        )
+
+        new_html, new_text = _derive_html_and_text(new_content_json_final)
+        article.content_json = dumps_content_json(new_content_json_final)
         article.content_html = new_html
         article.plain_text = new_text
         article.version += 1
         article.updated_at = datetime.now(UTC).replace(tzinfo=None)
+        # 写回成功的同时清锁（指纹刚校验过仍属本次），单次提交
+        article.ai_checking = False
+        article.ai_checking_started_at = None
         db.commit()
-        images_inserted = image_count
         logger.info(
             "ai_format applied %d headings%s to article %s",
             len(heading_indices),
             f" + {image_count} images" if image_count else "",
             article_id,
         )
-
-    except Exception as exc:
-        if db is not None:
-            db.rollback()
-        error_message = _describe_ai_format_error(exc)
-        logger.exception("ai_format failed for article %s", article_id)
+        return image_count
     finally:
-        if db is not None:
-            try:
-                _unlock_ai_format(
-                    db,
-                    article_id,
-                    lock_started_at,
-                    error_message=error_message,
-                )
-            except Exception:
-                db.rollback()
-                logger.exception("ai_format unlock failed for article %s", article_id)
-            db.close()
-    return images_inserted
+        db.close()
