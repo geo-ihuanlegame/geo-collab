@@ -208,7 +208,7 @@ def search_landscape_images(
     """
     from server.app.core.config import get_settings
 
-    get_settings.cache_clear()
+    # 运维中途改 Key 后调 POST /api/system/refresh-settings 刷新缓存（Task 1c：不再每调用 cache_clear）
     settings = get_settings()
     api_key = settings.baidu_api_key
     if not api_key:

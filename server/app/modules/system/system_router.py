@@ -151,3 +151,26 @@ def read_db_pool_metrics(
 ) -> dict:
     """返回 DB 连接池状态 + 闸占用占位 + 活跃发布记录 / 过期租约计数。"""
     return collect_resource_metrics(db)
+
+
+# 手动刷新配置缓存（仅 admin）。Task 1c：原先 ai_format / baidu 每次调用都 get_settings.cache_clear()
+# 以即时拾取改 Key——破坏 lru_cache 契约且每调用重建 Settings。改为显式端点：运维改环境变量 / .env
+# 后调一次即生效。前提：web 单进程（现状 uvicorn 无 --workers）——多进程下只刷到接到请求的那个进程。
+@router.post("/refresh-settings")
+def refresh_settings(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+) -> dict:
+    """清空 get_settings 的 lru_cache，使下次读取重建 Settings（拾取最新环境变量 / .env）。"""
+    from server.app.core.config import get_settings
+
+    get_settings.cache_clear()
+    add_audit_entry(
+        db,
+        user=current_user,
+        action="system.refresh_settings",
+        target_type="settings",
+        request=request,
+    )
+    return {"status": "refreshed"}

@@ -950,8 +950,8 @@ def _ai_format_prepare(
             _unlock_ai_format(db, article_id, lock_started_at)
             return None
 
-        # 清 lru_cache 再取：拿运行时最新的 AI Key/模型配置（Key 启动时不校验，运维可能中途改）
-        get_settings.cache_clear()
+        # 读运行时配置；运维中途改 Key 后调 POST /api/system/refresh-settings 刷新缓存即可
+        # （Task 1c：原先每次调用都 cache_clear 破坏 lru_cache 契约 + 每调用重建 Settings）
         settings = get_settings()
         api_key = settings.ai_format_api_key or settings.ai_api_key or None
         if not api_key:
