@@ -292,10 +292,10 @@
 - Test: `server/tests/test_browser_port_reaper.py`（**台账记账纯逻辑单测**，可本地跑）
 - Add: 容器冒烟脚本（CI 内可跑的 Xvfb 泄漏场景）
 
-- [ ] **Step 1（失败测试，纯逻辑）**：mock kill 后仍存活，断言号段不被永久占用、对账最终回收（不依赖真实进程）。
-- [ ] **Step 2:** 实现回收对账（持久泄漏表 + 重试 reap + 号段归还）。
-- [ ] **Step 3（常驻回归）**：容器冒烟脚本进 CI，覆盖真实 Xvfb/x11vnc 泄漏路径，防后续改动悄悄破坏。
-- [ ] **Step 4:** 跑测试绿。
+- [x] **Step 1（失败测试，纯逻辑）**：`server/tests/test_browser_port_reaper.py` 用假进程（poll/terminate/kill/wait 可控）覆盖「SIGTERM 死 / SIGKILL 死 / 怎么都不死」三态，断言泄漏号段被 `_reserve_numbers` 视为占用、对账（注入 is_alive）确认死透才回收、仍存活则重试强杀留账。无 DB、无真子进程。RED 已观测（`AttributeError: _register_leaked_session` 缺失）。
+- [x] **Step 2:** 实现回收对账。新增 `LeakedSession` 台账 `_leaked_sessions` + `_register_leaked_session`（杀不死即记号段 + `emit_resource_alert`）；`_stop_session_processes` 改为返回 survivors，两个调用点（启动失败 / 正常 stop）据此入账；`_reserve_numbers` 把台账号段并入「占用」绝不复用；`reconcile_leaked_sessions(is_alive=)` 重试强杀、全死则出账 + 关句柄 + 清 X11 socket 回收号段，接进 idle cleanup 30s 周期；`_reset_globals` 清台账。
+- [ ] **Step 3（常驻回归）**：容器冒烟脚本进 CI（真实 Xvfb/x11vnc 泄漏路径）—— **待补**。纯逻辑台账单测已作 CI 护栏；容器冒烟需 Linux 镜像，留待容器侧补。
+- [x] **Step 4:** 跑测试绿（新 5 例 + 回归：browser_sessions / login_session_cancel / recover_login_sessions 全绿；ruff/format/mypy 通过；隐藏 .env 全量 773 用例 0 收集错误）。
 
 ---
 

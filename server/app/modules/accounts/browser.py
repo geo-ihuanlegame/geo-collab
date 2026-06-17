@@ -19,7 +19,7 @@ import subprocess
 import threading
 import time
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -33,6 +33,7 @@ from sqlalchemy import update as sa_update
 from server.app.core.config import get_settings
 from server.app.core.paths import get_data_dir
 from server.app.core.time import utcnow
+from server.app.shared.resource_metrics import emit_resource_alert
 
 _logger = logging.getLogger(__name__)
 PROFILE_LOCK_LEASE_SECONDS = 900
@@ -66,11 +67,28 @@ class RemoteBrowserSession:
     started_at: float = field(default_factory=time.monotonic)
 
 
+@dataclass
+class LeakedSession:
+    """SIGKILL 后仍不退的会话台账：进程没死透，其 display/vnc/novnc 号段不能复用，
+
+    交后台 `reconcile_leaked_sessions` 对账——进程确认死透才回收号段（#3）。
+    """
+
+    session_id: str
+    display_number: int
+    vnc_port: int
+    novnc_port: int
+    processes: list[ManagedProcess]
+    log_dir: Path
+
+
 _sessions_lock = threading.Lock()
 _active_sessions: dict[str, RemoteBrowserSession] = {}
 _reserved_displays: set[int] = set()
 _reserved_vnc_ports: set[int] = set()
 _reserved_novnc_ports: set[int] = set()
+# 泄漏会话台账（被杀失败、号段待回收）。其号段在 _reserve_numbers 里算「占用」，绝不复用。
+_leaked_sessions: dict[str, LeakedSession] = {}
 
 _record_to_session: dict[int, str] = {}
 _session_keep_alive: set[str] = set()
@@ -693,7 +711,9 @@ def start_remote_browser_session(
         _start_idle_cleanup()
         return session
     except Exception:
-        _stop_session_processes(session)
+        survivors = _stop_session_processes(session)
+        if survivors:
+            _register_leaked_session(session, survivors)
         _release_reserved_numbers(display_number, vnc_port, novnc_port)
         raise
 
@@ -721,7 +741,9 @@ def stop_remote_browser_session(session_id: str) -> None:
 
         login_broker.close_if_owned(session_id)
         _close_browser_handles(local_session)
-        _stop_session_processes(local_session)
+        survivors = _stop_session_processes(local_session)
+        if survivors:
+            _register_leaked_session(local_session, survivors)
         _delete_session_from_db(session_id)
     else:
         _set_stop_requested_db(session_id)
@@ -738,9 +760,22 @@ def _reserve_numbers() -> tuple[int, int, int]:
     """
     settings = get_settings()
     with _sessions_lock:
-        used_displays = {s.display_number for s in _active_sessions.values()} | _reserved_displays
-        used_vnc_ports = {s.vnc_port for s in _active_sessions.values()} | _reserved_vnc_ports
-        used_novnc_ports = {s.novnc_port for s in _active_sessions.values()} | _reserved_novnc_ports
+        # 泄漏台账里的号段也算占用：zombie 进程可能仍占着真实 socket/端口，绝不复用（#3）
+        used_displays = (
+            {s.display_number for s in _active_sessions.values()}
+            | _reserved_displays
+            | {leak.display_number for leak in _leaked_sessions.values()}
+        )
+        used_vnc_ports = (
+            {s.vnc_port for s in _active_sessions.values()}
+            | _reserved_vnc_ports
+            | {leak.vnc_port for leak in _leaked_sessions.values()}
+        )
+        used_novnc_ports = (
+            {s.novnc_port for s in _active_sessions.values()}
+            | _reserved_novnc_ports
+            | {leak.novnc_port for leak in _leaked_sessions.values()}
+        )
 
         display_number = _find_display_number(
             settings.publish_remote_browser_display_base, used_displays
@@ -809,9 +844,15 @@ def _spawn(name: str, command: list[str], log_dir: Path) -> ManagedProcess:
     return ManagedProcess(name=name, process=process, log_handle=log_handle)
 
 
-def _stop_session_processes(session: RemoteBrowserSession) -> None:
+def _stop_session_processes(session: RemoteBrowserSession) -> list[ManagedProcess]:
+    """优雅→强杀会话全部进程。返回**未能杀死**的进程（survivors），交泄漏台账回收（#3）。
+
+    可杀的进程关掉其日志句柄；卡死的进程保留句柄（可能仍在写），等对账确认死透再关。
+    """
+    survivors: list[ManagedProcess] = []
     for managed in reversed(session.processes):
         process = managed.process
+        dead = True
         try:
             if process.poll() is None:
                 process.terminate()
@@ -823,17 +864,103 @@ def _stop_session_processes(session: RemoteBrowserSession) -> None:
                 try:
                     process.wait(timeout=3)
                 except subprocess.TimeoutExpired:
+                    dead = False
                     _logger.error(
                         "Process %s (PID %d) failed to terminate after SIGKILL — "
-                        "display/port may be leaked",
+                        "display/port leaked, queued for reaping",
                         managed.name,
                         process.pid,
                     )
         finally:
+            if dead:
+                try:
+                    managed.log_handle.close()
+                except Exception:
+                    pass
+        if not dead:
+            survivors.append(managed)
+    return survivors
+
+
+def _register_leaked_session(
+    session: RemoteBrowserSession, survivors: list[ManagedProcess]
+) -> None:
+    """把杀不死的会话连同其号段记入泄漏台账 + 告警；号段在回收前一直算「占用」。"""
+    with _sessions_lock:
+        _leaked_sessions[session.id] = LeakedSession(
+            session_id=session.id,
+            display_number=session.display_number,
+            vnc_port=session.vnc_port,
+            novnc_port=session.novnc_port,
+            processes=list(survivors),
+            log_dir=session.log_dir,
+        )
+    emit_resource_alert(
+        f"browser session {session.id} leaked display :{session.display_number} "
+        f"vnc {session.vnc_port} novnc {session.novnc_port} "
+        f"({len(survivors)} process(es) survived SIGKILL); queued for reaping",
+        {
+            "session_id": session.id,
+            "display_number": session.display_number,
+            "vnc_port": session.vnc_port,
+            "novnc_port": session.novnc_port,
+        },
+    )
+
+
+def reconcile_leaked_sessions(*, is_alive: Callable[[ManagedProcess], bool] | None = None) -> int:
+    """对账泄漏台账：重试强杀仍存活的进程；某会话进程全部死透则回收其号段。返回回收的会话数。
+
+    `is_alive` 可注入（默认 `process.poll() is None`），便于单测。号段回收＝出账 + 关日志句柄 +
+    清残留 X11 socket；仍存活则留账，下轮再试。
+    """
+    if is_alive is None:
+
+        def is_alive(managed: ManagedProcess) -> bool:
+            return managed.process.poll() is None
+
+    with _sessions_lock:
+        entries = list(_leaked_sessions.values())
+
+    reclaimed = 0
+    for entry in entries:
+        survivors: list[ManagedProcess] = []
+        for managed in entry.processes:
+            if is_alive(managed):
+                try:
+                    managed.process.kill()
+                except Exception:
+                    pass
+                if is_alive(managed):
+                    survivors.append(managed)
+                    continue
             try:
                 managed.log_handle.close()
             except Exception:
                 pass
+        if survivors:
+            entry.processes = survivors
+            continue
+        _cleanup_x11_socket(entry.display_number)
+        with _sessions_lock:
+            _leaked_sessions.pop(entry.session_id, None)
+        reclaimed += 1
+        _logger.info(
+            "Reclaimed leaked session %s display :%d vnc %d novnc %d",
+            entry.session_id,
+            entry.display_number,
+            entry.vnc_port,
+            entry.novnc_port,
+        )
+    return reclaimed
+
+
+def _cleanup_x11_socket(display_number: int) -> None:
+    """best-effort 清掉 zombie 死后残留的 X11 socket 文件（/tmp/.X11-unix/X{n}）。"""
+    try:
+        Path(f"/tmp/.X11-unix/X{display_number}").unlink(missing_ok=True)
+    except Exception:
+        pass
 
 
 def _close_browser_handles(session: RemoteBrowserSession) -> None:
@@ -931,6 +1058,10 @@ def _start_idle_cleanup() -> None:
                     _cleanup_zombie_sessions()
                 except Exception:
                     _logger.warning("zombie session cleanup failed", exc_info=True)
+                try:
+                    reconcile_leaked_sessions()
+                except Exception:
+                    _logger.warning("leaked session reconcile failed", exc_info=True)
 
     _idle_cleanup_thread = threading.Thread(
         target=_cleanup_loop, daemon=True, name="session-idle-cleanup"
@@ -1013,6 +1144,7 @@ def _reset_globals() -> None:
     """重置全部模块级状态（测试清理用）。"""
     global _active_sessions, _record_to_session, _session_keep_alive
     global _reserved_displays, _reserved_vnc_ports, _reserved_novnc_ports
+    global _leaked_sessions
     with _sessions_lock:
         _active_sessions.clear()
         _record_to_session.clear()
@@ -1021,3 +1153,4 @@ def _reset_globals() -> None:
         _reserved_vnc_ports.clear()
         _reserved_novnc_ports.clear()
         _account_sessions.clear()
+        _leaked_sessions.clear()
