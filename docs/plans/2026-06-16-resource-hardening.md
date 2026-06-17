@@ -93,8 +93,8 @@
 
 - [x] **Step 1（已完成）:** `checkout`/`checkin` 事件监听器统计**峰值并发持连接**（事件驱动，非 sleep 采样）。落在 `server/tests/load/test_pool_under_concurrency.py`；`load` 标记 + `GEO_RUN_LOAD_TESTS=1` opt-in（conftest 已注册，默认不跑）。
 - [x] **Step 2（已完成，含一处刻意偏离）:** 起 M=12 路并发 `run_ai_format`（mock LLM 可控耗时 0.5s、`threading.Barrier` 对齐保证重叠）。**N 路 SSE 循环刻意略去**——SSE 已在 #110 修成每轮短借（占 anyio 线程、~0 持连接，见评审第 13 条），加进来不改变 peak-checkout 指标、只添噪音；run_ai_format-only 更干净地隔离 Task 1a 的效果。
-- [x] **Step 3（改造前基线已采）:** **峰值并发持连接 = 12 = M**（`max_in_llm=12` 证实 12 路在 LLM 窗口内重叠），即当前实现下每个在飞行的生成各钉 1 条连接整段 LLM。指标改为「峰值并发持连接」而非「≪60」——测试 engine 用默认池(15)非生产(60)，看持连接行为差比看绝对容量更准。改造后目标 **peak ≤ 3** 已写成脚本末尾 TODO 断言，待 Task 1a 落地启用。
-- [ ] **Step 4（待 Task 1a）:** 附改前(=12)/改后两组数字到 Task 1a 的 PR。
+- [x] **Step 3（改造前/后均已实测）:** 脚本重设计为 **before/after 同跑**——`web_fallback=True` 路由到保留的 `_run_ai_format_single_session`（=改造前行为），`web_fallback=False` 走三段式；用 LLM 内 `Barrier(action=...)` 在「M 路全部停在 LLM 内」那一刻无竞态采样 `checkedout()`。指标为「LLM 期间被占用的连接数」（与池绝对容量无关）。结果：**before=12（=M）→ after=0**。
+- [x] **Step 4（已完成）:** 改前/改后数字（before=12 / after=0）见上，附 Task 1a PR。
 
 ## Task 1a: `web_fallback=False` 路径连接持有纪律（**热修，最先合**，封堵 #1 主体）
 
@@ -112,11 +112,11 @@
 - Modify: `server/app/modules/articles/ai_format.py`（`run_ai_format` 拆段；仅走 `web_fallback=False` 分支，`web_fallback=True` 暂保持旧行为并在代码里标 TODO 指向 Task 1b）
 - Test: `server/tests/test_ai_format_connection_lifecycle.py`（新建）
 
-- [ ] **Step 1（确定性失败测试）**：instrument `SessionLocal`（包一层计数开/关），patch `_call_litellm_completion` 在入口断言「run_ai_format 名下当前无开启 session」（布尔，无 sleep）。再加一例：段2 抛异常后断言 `ai_format_error` 已写且锁已释放。
-- [ ] **Step 2:** 拆段重构 `web_fallback=False` 路径，保留两道锁检查与 `images_inserted` 语义。
-- [ ] **Step 3:** detached 改 re-get；异常路径短 session helper。
-- [ ] **Step 4:** 跑 `test_ai_format_connection_lifecycle.py` 绿 + 回归 `test_scheme*`。
-- [ ] **Step 5:** 跑 Task ACC 脚本，附改前/改后峰值数字到 PR。
+- [x] **Step 1（确定性失败测试，已完成）**：`test_ai_format_connection_lifecycle.py`——patch `_call_litellm_completion`，在入口抓 `engine.pool.checkedout()` 断言 == 0（比"数开启 session"更直接的布尔判定，无 sleep）。已确认在旧代码上 **RED 为正确原因**（`held 1 connection during LLM, assert 1 == 0`）。第二例：LLM 抛错后断言 `ai_format_error` 已写 + 已解锁。
+- [x] **Step 2（已完成）:** 三段式重构 `web_fallback=False`（`_ai_format_prepare` / 段2 LLM / `_ai_format_write_back`），保留两道锁检查与 `images_inserted` 语义；`web_fallback=True` 原样保留在 `_run_ai_format_single_session`（Task 1b 再处理）。
+- [x] **Step 3（已完成）:** 段3 改 `get_article` re-get（不 refresh detached）；异常路径走 `_ai_format_finalize_error` 短 session 落错+解锁。
+- [x] **Step 4（已完成）:** `test_ai_format_connection_lifecycle.py` 绿 + 回归 `test_ai_format` / `test_scheme_autoformat` / `test_ai_illustrate_node` / `test_scheme_runs` / `test_image_search_prompts` / `test_ai_writer_credentials` 全绿；ruff/format/mypy 均通过。
+- [x] **Step 5（已完成）:** ACC 实测 **before(单 session)=12 → after(三段式)=0** 连接 held during LLM。
 
 ## Task 1b: `web_fallback=True` 路径下载剥离（封堵 #1 余下，ai_illustrate）
 

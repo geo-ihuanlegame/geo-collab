@@ -757,6 +757,287 @@ def run_ai_format(
     返回值仅供调用方观测（如 ai_illustrate 节点回传 images_inserted）；任何跳过/失败均返回 0，
     失败详情照旧落到 article.ai_format_error。多数调用方忽略返回值，行为不变。
     """
+    # web_fallback=False（scheme 配图 / 手动排版）：三段式，慢 IO（LLM）期间不持 DB 连接（Task 1a）。
+    # web_fallback=True（AI配图 节点）：配图下载与 DB 读写在循环里交织，剥离待 Task 1b——暂走旧单 session。
+    if web_fallback:
+        return _run_ai_format_single_session(
+            article_id,
+            include_images=include_images,
+            lock_started_at=lock_started_at,
+            preset_id=preset_id,
+            user_id=user_id,
+            candidate_categories=candidate_categories,
+            web_fallback=web_fallback,
+            max_images=max_images,
+            min_spacing=min_spacing,
+            builtin_variant=builtin_variant,
+        )
+
+    # 段1（短借连接）：读 + 第一道锁检查 + 拼提示词，随即归还连接
+    try:
+        prep = _ai_format_prepare(
+            article_id,
+            lock_started_at=lock_started_at,
+            include_images=include_images,
+            preset_id=preset_id,
+            user_id=user_id,
+            candidate_categories=candidate_categories,
+            max_images=max_images,
+            min_spacing=min_spacing,
+            builtin_variant=builtin_variant,
+        )
+    except Exception as exc:
+        _ai_format_finalize_error(article_id, lock_started_at, exc)
+        return 0
+    if prep is None:
+        return 0
+
+    # 段2（无连接）：调 LLM + 解析 + 应用小标题。此处不得持有任何 DB 连接。
+    try:
+        response = _call_litellm_completion(
+            model=prep.model,
+            api_key=prep.api_key,
+            messages=[
+                {"role": "system", "content": prep.system_prompt},
+                {"role": "user", "content": "请按上述要求完成分析，仅返回 JSON。"},
+            ],
+            timeout_seconds=prep.timeout_seconds,
+        )
+        raw = (response.choices[0].message.content or "").strip()
+        parsed = json.loads(_extract_json(raw))
+        heading_indices = _normalize_heading_indices(
+            parsed.get("heading_indices", []), prep.valid_indices
+        )
+        new_content_json = _apply_headings(prep.content_json, heading_indices)
+    except Exception as exc:
+        _ai_format_finalize_error(article_id, lock_started_at, exc)
+        return 0
+
+    # 段3（短借连接）：配图（快 DB）+ 第二道锁检查 + 写回
+    try:
+        return _ai_format_write_back(
+            article_id,
+            lock_started_at=lock_started_at,
+            new_content_json=new_content_json,
+            parsed=parsed,
+            available_categories=prep.available_categories,
+            include_images=include_images,
+            heading_indices=heading_indices,
+            max_images=max_images,
+        )
+    except Exception as exc:
+        _ai_format_finalize_error(article_id, lock_started_at, exc)
+        return 0
+
+
+class _AiFormatPrep:
+    """段1 产物：模型调用所需的纯数据（不含 ORM/session），可安全跨段、跨「无连接」窗口传递。"""
+
+    __slots__ = (
+        "content_json",
+        "valid_indices",
+        "system_prompt",
+        "available_categories",
+        "model",
+        "api_key",
+        "timeout_seconds",
+    )
+
+    def __init__(
+        self,
+        *,
+        content_json: dict,
+        valid_indices: set[int],
+        system_prompt: str,
+        available_categories: list[dict[str, Any]],
+        model: str,
+        api_key: str,
+        timeout_seconds: int,
+    ) -> None:
+        self.content_json = content_json
+        self.valid_indices = valid_indices
+        self.system_prompt = system_prompt
+        self.available_categories = available_categories
+        self.model = model
+        self.api_key = api_key
+        self.timeout_seconds = timeout_seconds
+
+
+def _ai_format_prepare(
+    article_id: int,
+    *,
+    lock_started_at: datetime | None,
+    include_images: bool,
+    preset_id: int | None,
+    user_id: int | None,
+    candidate_categories: list[dict[str, Any]] | None,
+    max_images: int | None,
+    min_spacing: int | None,
+    builtin_variant: str,
+) -> _AiFormatPrep | None:
+    """段1（短借连接）：读文章 + 第一道锁检查 + 拼提示词，return 前归还连接。
+
+    返回 None = 本次应安静跳过（无文章 / 锁失配 / 无文本节点；无文本节点时已清本次锁，与旧行为一致）。
+    缺 API Key 抛 AIFormatConfigurationError，由调用方走 _ai_format_finalize_error 落错 + 解锁。
+    """
+    from server.app.db.session import SessionLocal
+    from server.app.modules.articles.service import get_article
+
+    db = SessionLocal()
+    try:
+        article = get_article(db, article_id)
+        if article is None or article.is_deleted:
+            return None
+        # 第一道锁检查：模型调用前。锁已被接管/超时清掉就别白跑一次昂贵的模型请求
+        if not _article_lock_matches(article, lock_started_at):
+            logger.info("ai_format skipped stale lock before model call for article %s", article_id)
+            return None
+
+        content_json = loads_content_json(article.content_json)
+        text_nodes = _non_empty_text_nodes(content_json)
+        if not text_nodes:
+            logger.info(
+                "ai_format skipped article %s: no non-empty paragraph/heading nodes", article_id
+            )
+            _unlock_ai_format(db, article_id, lock_started_at)
+            return None
+
+        # 清 lru_cache 再取：拿运行时最新的 AI Key/模型配置（Key 启动时不校验，运维可能中途改）
+        get_settings.cache_clear()
+        settings = get_settings()
+        api_key = settings.ai_format_api_key or settings.ai_api_key or None
+        if not api_key:
+            raise AIFormatConfigurationError(
+                "AI 排版失败：未配置 API Key，请设置 GEO_AI_FORMAT_API_KEY。"
+            )
+
+        if not include_images:
+            available_categories: list[dict[str, Any]] = []
+        elif candidate_categories is not None:
+            available_categories = candidate_categories
+        else:
+            available_categories = _available_categories_for_article(article, db)
+        system_prompt = _load_ai_format_prompt(
+            db,
+            preset_id=preset_id,
+            user_id=user_id,
+            include_images=include_images,
+            text_nodes=text_nodes,
+            available_categories=available_categories,
+            web_fallback=False,
+            max_images=max_images,
+            min_spacing=min_spacing,
+            builtin_variant=builtin_variant,
+        )
+        return _AiFormatPrep(
+            content_json=content_json,
+            valid_indices={i for i, _ in text_nodes},
+            system_prompt=system_prompt,
+            available_categories=available_categories,
+            model=settings.ai_format_model,
+            api_key=api_key,
+            timeout_seconds=settings.ai_format_timeout_seconds,
+        )
+    finally:
+        db.close()
+
+
+def _ai_format_write_back(
+    article_id: int,
+    *,
+    lock_started_at: datetime | None,
+    new_content_json: dict,
+    parsed: dict,
+    available_categories: list[dict[str, Any]],
+    include_images: bool,
+    heading_indices: set[int],
+    max_images: int | None,
+) -> int:
+    """段3（短借连接）：第二道锁检查 + 配图（仅快 DB）+ 写回三份正文 + 清锁，单 session。
+
+    重开 session 后用 get_article 重新取（不能 refresh 段1 的 detached 对象）。第二道锁检查
+    失配 = 模型耗时期间被新一轮排版/超时接管，放弃写回、不动锁（非本次所有，与旧行为一致）。
+    """
+    from server.app.db.session import SessionLocal
+    from server.app.modules.articles.service import get_article
+
+    db = SessionLocal()
+    try:
+        article = get_article(db, article_id)
+        if article is None or not _article_lock_matches(article, lock_started_at):
+            logger.info("ai_format skipped stale lock before write for article %s", article_id)
+            return 0
+
+        image_count = 0
+        if include_images:
+            new_content_json, image_count = _maybe_insert_images(
+                new_content_json,
+                parsed,
+                article,
+                db,
+                available_categories=available_categories,
+                web_fallback=False,
+                image_search_query=None,
+                max_images=max_images,
+            )
+
+        new_html, new_text = _derive_html_and_text(new_content_json)
+        article.content_json = dumps_content_json(new_content_json)
+        article.content_html = new_html
+        article.plain_text = new_text
+        article.version += 1
+        article.updated_at = datetime.now(UTC).replace(tzinfo=None)
+        # 写回成功的同时清锁（指纹刚校验过仍属本次），单次提交
+        article.ai_checking = False
+        article.ai_checking_started_at = None
+        db.commit()
+        logger.info(
+            "ai_format applied %d headings%s to article %s",
+            len(heading_indices),
+            f" + {image_count} images" if image_count else "",
+            article_id,
+        )
+        return image_count
+    finally:
+        db.close()
+
+
+def _ai_format_finalize_error(
+    article_id: int, lock_started_at: datetime | None, exc: BaseException
+) -> None:
+    """任一段异常的收尾（短借连接）：落 ai_format_error + 解锁（仅当锁指纹仍属本次）。"""
+    from server.app.db.session import SessionLocal
+
+    error_message = _describe_ai_format_error(exc)
+    logger.exception("ai_format failed for article %s", article_id)
+    db = SessionLocal()
+    try:
+        _unlock_ai_format(db, article_id, lock_started_at, error_message=error_message)
+    except Exception:
+        db.rollback()
+        logger.exception("ai_format unlock failed for article %s", article_id)
+    finally:
+        db.close()
+
+
+def _run_ai_format_single_session(
+    article_id: int,
+    *,
+    include_images: bool = False,
+    lock_started_at: datetime | None = None,
+    preset_id: int | None = None,
+    user_id: int | None = None,
+    candidate_categories: list[dict[str, Any]] | None = None,
+    web_fallback: bool = False,
+    max_images: int | None = None,
+    min_spacing: int | None = None,
+    builtin_variant: str = "conservative",
+) -> int:
+    """旧单 session 实现（web_fallback=True 暂用，行为与改造前逐字一致）。
+
+    ⚠️ 全程持一条连接、含联网搜图下载——正是 Task 1a 要消除的「慢 IO 期间持连接」反模式；
+    web_fallback=True 的下载剥离见 Task 1b，届时本函数应被删除。
+    """
     images_inserted = 0
     db = None
     error_message: str | None = None
