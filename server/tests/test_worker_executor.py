@@ -58,7 +58,7 @@ def test_production_execute_leaves_task_for_worker_claim(monkeypatch):
 
         response = test_app.client.post(f"/api/tasks/{task_id}/execute")
         assert response.status_code == 202
-        assert response.json() == {"queued": True}
+        assert response.json()["queued"] is True
 
         with test_app.session_factory() as db:
             claimed = executor._claim_next_task(db)

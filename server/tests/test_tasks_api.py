@@ -16,7 +16,7 @@ def _execute_and_wait(client, task_id: int, max_wait: float = 5.0) -> dict:
     """后台执行任务并轮询直到完成（含 started_at 确认）。"""
     resp = client.post(f"/api/tasks/{task_id}/execute")
     assert resp.status_code == 202
-    assert resp.json() == {"queued": True}
+    assert resp.json()["queued"] is True
     import time as _time
 
     deadline = _time.time() + max_wait

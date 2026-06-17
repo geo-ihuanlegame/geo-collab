@@ -261,10 +261,11 @@
 - Modify: `server/app/modules/tasks/router.py`（execute 在 web 不起浏览器，仅置 pending；查 WorkerHeartbeat 新鲜度，陈旧则告警）
 - Test: `server/tests/test_publish_web_no_browser.py`（新建）
 
-- [ ] **Step 1:** grep `bg_session_factory` 在 tasks 路由用法，确认无依赖 web 同步发布的调用方（测试除外）。
-- [ ] **Step 2（失败测试）**：web execute 后任务 pending、未起浏览器；无新鲜 WorkerHeartbeat 时返回/记录告警。
-- [ ] **Step 3:** 改 execute + 加 worker 新鲜度检测。
-- [ ] **Step 4:** 跑测试绿；确认测试可经显式开关跑后台发布。
+- [x] **Step 1（已完成）:** 核实 `create_app()` 只给 scheme_router / pipelines_router 注入 `bg_session_factory`，**未注入 tasks.router**——即生产 web 进程本就不内联发布。唯一依赖 web 内联发布的调用方是测试（`utils.py:198`）。本任务把"生产不内联"从隐式（靠 bg_session_factory 恰好为 None）变显式（独立开关），防未来误注入。
+- [x] **Step 2（失败测试，已完成）**：`test_publish_web_no_browser.py` —— 关内联开关后 execute 只入队（`execute_task` 调用计数=0）、记录留 pending；无新鲜 WorkerHeartbeat → 告警 hook 触发 + 回包 `worker_online=False`；有新鲜 worker → 不告警 + `True`；陈旧心跳(>30s)仍告警；显式开关开 → 仍内联执行。RED 4 失败（开关缺失）+ 1 守卫。
+- [x] **Step 3（已完成）:** 新增显式开关 `inline_execute_enabled`（默认 False）+ `_inline_execute_active()`（= 开关 ∧ bg_session_factory），execute 与 `_start_background_execute` 同走它；生产路径只入队 + 释放陈旧认领，并查 `_has_fresh_worker`（复用 system_router 的 30s 心跳判定），无 worker 走 `emit_resource_alert` + 回包 `worker_online`（`_ExecuteResponse` 新增字段）。
+- [x] **Step 4（已完成）:** 显式开关：`build_test_app` 置 `inline_execute_enabled=True`，存量发布测试照旧内联跑（5 处 `== {"queued": True}` 因新增 `worker_online` 字段放宽为 `["queued"] is True`）。验证：新测试 5 passed；clean DB 下 `test_tasks_state_machine` 13 / `test_publish_validation` 5 / `test_publish_web_no_browser` 5 全绿；ruff/format/mypy 通过。
+  > 注：本会话本地反复跑后 MySQL 出现 schema 复用 + 后台线程并发 DDL 竞态（`Duplicate testadmin` / `concurrent DDL` / `ai_models doesn't exist`），与 Task 7 逻辑无关——全部失败均为该基础设施竞态、**零**断言失败，且 clean 分支同样偶发（见 [[run-tests-env]]）；CI（全新 mysql 服务、单进程）为准。
 
 ---
 
