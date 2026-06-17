@@ -90,12 +90,30 @@ def _scheme_to_read(db: Session, scheme: GenerationScheme) -> SchemeRead:
 
 @scheme_router.get("/ai-engines", response_model=list[AiEngineRead])
 def list_ai_engines(
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Any:
-    """方案可选的 AI 引擎列表（来自 settings.ai_engines，给方案编辑器下拉用）。"""
+    """写作模型下拉（方案编辑器 / Pipeline 用）：DB 注册表 scope=generation 的启用行；
+    DB 为空时回落 settings.ai_engines，保证下拉永不空。密钥不下发。"""
     from server.app.core.config import get_settings
+    from server.app.modules.ai_models.service import list_models
 
+    rows = list_models(db, scope="generation", enabled_only=True)
+    if rows:
+        return [AiEngineRead(label=r.label, model=r.model) for r in rows]
     return [AiEngineRead(label=e.label, model=e.model) for e in get_settings().ai_engines]
+
+
+@scheme_router.get("/format-engines", response_model=list[AiEngineRead])
+def list_format_engines(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Any:
+    """格式·配图模型下拉：DB 注册表 scope=ai_format 的启用行（密钥不下发）。"""
+    from server.app.modules.ai_models.service import list_models
+
+    rows = list_models(db, scope="ai_format", enabled_only=True)
+    return [AiEngineRead(label=r.label, model=r.model) for r in rows]
 
 
 @scheme_router.get("/schemes", response_model=list[SchemeRead])

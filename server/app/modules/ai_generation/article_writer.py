@@ -138,12 +138,17 @@ def generate_article_from_prompt(
     """
     import litellm
 
-    from server.app.core.config import resolve_engine
     from server.app.modules.ai_generation.converter import markdown_to_html, markdown_to_tiptap
+    from server.app.modules.ai_models.service import resolve_writing_engine
     from server.app.modules.articles.schemas import ArticleCreate
     from server.app.modules.articles.service import create_article
 
-    model_str, api_key, base_url = resolve_engine(model)
+    # 模型解析用短生命周期 session（DB 行实时读），绝不跨后面的 litellm 调用持有连接
+    _resolve_db = session_factory()
+    try:
+        model_str, api_key, base_url = resolve_writing_engine(_resolve_db, model)
+    finally:
+        _resolve_db.close()
 
     user_prompt = (
         render_question_prompt(template_content, question_text)

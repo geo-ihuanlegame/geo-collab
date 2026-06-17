@@ -1,7 +1,7 @@
 import { Bot, FileText, Flame, Images, MessagesSquare, MonitorCog, RadioTower, Send, Sparkles } from "lucide-react";
 import type { ComponentType } from "react";
 
-export type NavKey = "agents" | "ai" | "content" | "prompts" | "image-library" | "media" | "tasks" | "system" | "hot-lists" | "admin" | "audit-logs";
+export type NavKey = "agents" | "ai" | "content" | "prompts" | "image-library" | "media" | "tasks" | "system" | "hot-lists" | "admin" | "audit-logs" | "ai-models";
 
 export type PromptScope = "generation" | "ai_format" | "image_search" | "image_companion";
 
@@ -58,6 +58,34 @@ export type QuestionSyncResult = {
 // ── 方案池 / 方案运行（scheme flow）──────────────────────────────────────────
 
 export type AiEngine = { label: string; model: string };
+
+// ── AI 模型注册表（admin 管理；密钥只存 env，行只引用 api_key_env 变量名）────────
+export type AiModelScope = "generation" | "ai_format";
+
+export type AiModel = {
+  id: number;
+  label: string;
+  model: string;
+  scope: AiModelScope;
+  base_url: string | null;
+  api_key_env: string | null;
+  is_enabled: boolean;
+  is_default: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AiModelPayload = {
+  label: string;
+  model: string;
+  scope: AiModelScope;
+  base_url: string | null;
+  api_key_env: string | null;
+  is_enabled: boolean;
+  is_default: boolean;
+  sort_order: number;
+};
 
 export type QuestionBrief = {
   id: number;

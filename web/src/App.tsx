@@ -7,7 +7,7 @@ import { GlobalErrorListener } from "./components/GlobalErrorListener";
 import { AuthProvider, useAuth } from "./features/auth/AuthContext";
 import { LoginPage } from "./features/auth/LoginPage";
 import { ChangePasswordPage } from "./features/auth/ChangePasswordPage";
-import { ChevronDown, ChevronLeft, LogOut, ScrollText, Users } from "lucide-react";
+import { ChevronDown, ChevronLeft, Cpu, LogOut, ScrollText, Users } from "lucide-react";
 import { MobileNav } from "./components/MobileNav";
 import { MobileMorePage } from "./components/MobileMorePage";
 import { ScrollPanel } from "./components/ScrollPanel";
@@ -46,6 +46,9 @@ const UsersWorkspace = lazy(() =>
 );
 const AuditLogsWorkspace = lazy(() =>
   import("./features/system/AuditLogsWorkspace").then((m) => ({ default: m.AuditLogsWorkspace })),
+);
+const AiModelsWorkspace = lazy(() =>
+  import("./features/system/AiModelsWorkspace").then((m) => ({ default: m.AiModelsWorkspace })),
 );
 
 function TabFallback() {
@@ -218,6 +221,17 @@ function AppShell() {
                 <span className="navDot" />
               </button>
             )}
+            {user.role === "admin" && (
+              <button
+                className={`navItem ${activeNav === "ai-models" ? "active" : ""}`}
+                type="button"
+                onClick={() => handleNavClick("ai-models")}
+              >
+                <Cpu size={17} />
+                <span>AI 模型</span>
+                <span className="navDot" />
+              </button>
+            )}
           </nav>
           <div className="sidebarUser">
             <span className="sidebarUsername">{user.username}</span>
@@ -331,6 +345,15 @@ function AppShell() {
                 <ErrorBoundary title="审计日志">
                   <Suspense fallback={<TabFallback />}>
                     <AuditLogsWorkspace />
+                  </Suspense>
+                </ErrorBoundary>
+              </ScrollPanel>
+            )}
+            {user.role === "admin" && visitedTabs.has("ai-models") && (
+              <ScrollPanel id="ai-models" active={activeNav === "ai-models"}>
+                <ErrorBoundary title="AI 模型管理">
+                  <Suspense fallback={<TabFallback />}>
+                    <AiModelsWorkspace />
                   </Suspense>
                 </ErrorBoundary>
               </ScrollPanel>

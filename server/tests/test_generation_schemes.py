@@ -386,6 +386,25 @@ def test_update_scheme_with_prior_run_tasks_succeeds(monkeypatch):
 def test_ai_engines_endpoint_returns_configured_list(monkeypatch):
     app = build_test_app(monkeypatch)
     try:
+        from server.app.modules.ai_models.models import AiModel
+
+        # DB 优先：建一个 generation 行 → 端点反映它（只下发 label/model）
+        app.client.post(
+            "/api/ai-models",
+            json={
+                "label": "我的写作模型",
+                "model": "anthropic/claude-opus-4-8",
+                "scope": "generation",
+            },
+        )
+        data = app.client.get("/api/generation/ai-engines").json()
+        assert any(e["model"] == "anthropic/claude-opus-4-8" for e in data)
+        assert all(set(e.keys()) <= {"label", "model"} for e in data)
+
+        # DB 无 generation 行 → 回落 settings.ai_engines（带内联密钥），仍永不泄漏 key/base_url
+        with app.session_factory() as db:
+            db.query(AiModel).filter(AiModel.scope == "generation").delete()
+            db.commit()
         monkeypatch.setenv(
             "GEO_AI_ENGINES",
             json.dumps(

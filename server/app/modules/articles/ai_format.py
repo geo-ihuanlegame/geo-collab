@@ -532,6 +532,7 @@ def _call_litellm_completion(
     api_key: str | None,
     messages: list[dict[str, str]],
     timeout_seconds: int,
+    api_base: str | None = None,
 ) -> Any:
     from litellm import completion
 
@@ -541,6 +542,7 @@ def _call_litellm_completion(
         messages=messages,
         temperature=0,
         timeout=timeout_seconds,
+        api_base=api_base or None,
     )
 
 
@@ -840,6 +842,7 @@ def run_ai_format(
                 {"role": "user", "content": "请按上述要求完成分析，仅返回 JSON。"},
             ],
             timeout_seconds=prep.timeout_seconds,
+            api_base=prep.base_url,
         )
         raw = (response.choices[0].message.content or "").strip()
         parsed = json.loads(_extract_json(raw))
@@ -881,6 +884,7 @@ class _AiFormatPrep:
         "available_categories",
         "model",
         "api_key",
+        "base_url",
         "timeout_seconds",
         "image_search_query",
     )
@@ -895,6 +899,7 @@ class _AiFormatPrep:
         model: str,
         api_key: str,
         timeout_seconds: int,
+        base_url: str | None = None,
         image_search_query: str | None = None,
     ) -> None:
         self.content_json = content_json
@@ -903,6 +908,7 @@ class _AiFormatPrep:
         self.available_categories = available_categories
         self.model = model
         self.api_key = api_key
+        self.base_url = base_url
         self.timeout_seconds = timeout_seconds
         self.image_search_query = image_search_query
 
@@ -950,10 +956,13 @@ def _ai_format_prepare(
             _unlock_ai_format(db, article_id, lock_started_at)
             return None
 
-        # 清 lru_cache 再取：拿运行时最新的 AI Key/模型配置（Key 启动时不校验，运维可能中途改）
+        # 清 lru_cache 再取：拿运行时最新配置（Key 启动时不校验，运维可能中途改 env）
         get_settings.cache_clear()
-        settings = get_settings()
-        api_key = settings.ai_format_api_key or settings.ai_api_key or None
+        # 格式·配图模型走 DB 注册表（scope=ai_format 默认行）；无行回落 settings.ai_format_*
+        from server.app.modules.ai_models.service import resolve_format_engine
+
+        format_model, format_key, format_base_url, format_timeout = resolve_format_engine(db, None)
+        api_key = format_key or None
         if not api_key:
             raise AIFormatConfigurationError(
                 "AI 排版失败：未配置 API Key，请设置 GEO_AI_FORMAT_API_KEY。"
@@ -995,9 +1004,10 @@ def _ai_format_prepare(
             valid_indices={i for i, _ in text_nodes},
             system_prompt=system_prompt,
             available_categories=available_categories,
-            model=settings.ai_format_model,
+            model=format_model,
             api_key=api_key,
-            timeout_seconds=settings.ai_format_timeout_seconds,
+            base_url=format_base_url,
+            timeout_seconds=format_timeout,
             image_search_query=image_search_query,
         )
     finally:
@@ -1133,6 +1143,7 @@ def _run_ai_format_web_fallback(
                 {"role": "user", "content": "请按上述要求完成分析，仅返回 JSON。"},
             ],
             timeout_seconds=prep.timeout_seconds,
+            api_base=prep.base_url,
         )
         raw = (response.choices[0].message.content or "").strip()
         parsed = json.loads(_extract_json(raw))

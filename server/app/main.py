@@ -45,6 +45,7 @@ from server.app.core.security import get_current_user
 from server.app.modules.accounts.router import router as accounts_router
 from server.app.modules.ai_generation.router import router as generation_router
 from server.app.modules.ai_generation.scheme_router import scheme_router
+from server.app.modules.ai_models.router import router as ai_models_router
 from server.app.modules.articles.router import (
     article_groups_router,
     articles_router,
@@ -265,6 +266,12 @@ def create_app() -> FastAPI:
         tags=["hot-lists"],
         dependencies=[Depends(get_current_user)],
     )
+    app.include_router(
+        ai_models_router,
+        prefix="/api/ai-models",
+        tags=["ai-models"],
+        dependencies=[Depends(get_current_user)],
+    )
 
     # 为方案运行后台线程提供 SessionLocal（generation 没有独立工作进程，靠路由内后台线程执行）
     import server.app.modules.ai_generation.scheme_router as _scheme_routes
@@ -309,6 +316,18 @@ def create_app() -> FastAPI:
         import logging as _logging
 
         _logging.getLogger(__name__).exception("start_resource_sampler failed")
+
+    # AI 模型注册表首次播种：表为空时从 GEO_AI_ENGINES + 格式默认模型建初始行（幂等）。
+    # 密钥不入库；启动失败只记日志、不阻塞 create_app。
+    try:
+        from server.app.modules.ai_models.service import seed_ai_models_if_empty
+
+        with SessionLocal() as _seed_db:
+            seed_ai_models_if_empty(_seed_db)
+    except Exception:
+        import logging as _logging
+
+        _logging.getLogger(__name__).warning("ai_models seed skipped", exc_info=True)
 
     try:
         # 挂载前端静态文件（Vite 构建产物）
