@@ -184,9 +184,9 @@
 - Modify: `server/app/db/session.py`（注册监听）
 - Test: `server/tests/test_connection_watchdog.py`（新建，纯逻辑/事件 mock）
 
-- [ ] **Step 1（失败测试）**：模拟一条连接持有超阈值，断言触发 WARN 且含线索；未超阈值不触发。
-- [ ] **Step 2:** 实现监听 + 注册。
-- [ ] **Step 3:** 跑测试绿；确认对正常短借无误报、无显著开销。
+- [x] **Step 1（已完成）:** `test_connection_watchdog.py`（纯逻辑/事件 mock，无 DB）——假 connection_record + 注入 clock/alert：持有 31s>30s 触发告警且含时长/阈值/线程线索；短借 5s 不触发；未配对 checkin 安全。RED 为正确原因（模块未实现 → ModuleNotFoundError）。
+- [x] **Step 2（已完成）:** `shared/connection_watchdog.py:ConnectionWatchdog`（checkout 记借出时刻+线程名于 `connection_record.info`，checkin 算持有时长超阈值经 `emit_resource_alert` 告警）+ `register_connection_watchdog(engine)`（幂等、env 开关）；`session.py` import 后注册到全局 engine。开关/阈值走 `GEO_CONNECTION_WATCHDOG_ENABLED`/`..._THRESHOLD_SECONDS`（默认开、30s），与池参数同走 os.environ（不进 Settings，符合该文件既有约定）。
+- [x] **Step 3（已完成）:** 3 passed；create_app 冒烟（resource_metrics/system_status）通过——session.py 新 import 无循环、不破坏启动；正常短借不误报（checkin 时仅一次 dict pop+减法，无显著开销）；ruff/format/mypy 通过。
 
 ---
 

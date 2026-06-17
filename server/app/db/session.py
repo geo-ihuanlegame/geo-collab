@@ -41,6 +41,12 @@ engine = create_engine(
     connect_args={"init_command": "SET SESSION time_zone='+00:00'"},
 )
 
+# Task G：运行期长持连接护栏（checkout 超阈值才归还即告警，防 #1/#110 同源反模式悄悄复发）。
+# 开关 / 阈值走环境变量（GEO_CONNECTION_WATCHDOG_*），与上面池参数同一处理方式；默认开、可关。
+from server.app.shared.connection_watchdog import register_connection_watchdog  # noqa: E402
+
+register_connection_watchdog(engine)
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
