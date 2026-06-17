@@ -24,7 +24,7 @@ def build_image_node(ref: StockImageRef) -> dict:
             "src": ref.url,
             "alt": ref.filename,
             "title": "",
-            "width": "100%",
+            "width": "30%",
             "stockImageId": ref.id,
         },
     }
