@@ -60,9 +60,14 @@ from server.app.modules.tasks.service import (
 from server.app.shared.concurrency import ObservableGate, register_gate
 from server.app.shared.diagnostics import PublishDiagnosticEvent, capture_publish_diagnostics
 from server.app.shared.errors import ConflictError
+from server.app.shared.resource_metrics import emit_resource_alert
 
 MAX_CONCURRENT_RECORDS = 5
 WORKER_LEASE_EXTENSION_SECONDS = 600
+# 超时记录关 context 后，等发布线程确认终止的上限；超时仍存活＝卡死，保留账号/profile 锁（#2）
+_THREAD_TERMINATION_TIMEOUT = 10.0
+# 僵尸记录标记（回填到 failed 行的 queue_reason，不改 status、无需迁移）
+_ZOMBIE_QUEUE_REASON = "僵尸待清：发布线程超时未终止，账号/profile 锁保留待下轮恢复回收"
 
 _task_locks: dict[int, threading.Lock] = {}
 _account_locks: dict[int, threading.Lock] = {}
@@ -297,28 +302,8 @@ def _run_pending_records(db: Session, task: PublishTask) -> None:
             for future in set(done) | set(timed_out):
                 running_record = running.pop(future)
                 if future in timed_out and not future.done():
-                    _mark_record_failed(
-                        db,
-                        task.id,
-                        running_record.record_id,
-                        f"Timeout: record execution exceeded {int(_record_execution_budget())}s",
-                    )
-                    # 停止会话会关闭 Chromium context，让 Playwright 线程收到
-                    # TargetClosedError 后终止。
-                    try:
-                        _stop_record_session(running_record.record_id)
-                    except Exception:
-                        _logger.warning(
-                            "Failed to stop session for timed-out record %d",
-                            running_record.record_id,
-                            exc_info=True,
-                        )
-                    future.cancel()
-                    try:
-                        future.result(timeout=10)
-                    except Exception:
-                        pass
-                    _retire_running_slot(running_record)
+                    # #2：超时分支只有在确认发布线程已终止后才放账号/profile 锁，见 helper。
+                    _handle_timed_out_record(db, task.id, running_record, future)
                     db.commit()
                     continue
                 try:
@@ -501,7 +486,12 @@ def _defer_record_for_profile_lock(
         add_log(db, task_id, record.id, "info", reason)
 
 
-def _stop_record_session(record_id: int) -> None:
+def _close_record_browser(record_id: int) -> None:
+    """关该记录的远程浏览器会话 + 清会话映射（信号发布线程退出）。**不释放 profile 锁**——
+
+    超时分支要等发布线程确认终止后才放锁，避免下一条同账号记录对同一 persistent profile 并发
+    再开 Chromium 损坏目录（#2）。常规收尾走 `_stop_record_session`（关会话后立即放锁）。
+    """
     try:
         session = get_session_for_record(record_id)
         if session is not None:
@@ -514,12 +504,94 @@ def _stop_record_session(record_id: int) -> None:
         _logger.warning(
             "Failed to clear browser session mapping for record %d", record_id, exc_info=True
         )
+
+
+def _release_record_profile_lock(record_id: int) -> None:
     try:
         release_profile_lock_by_owner(owner_kind="publish", owner_id=record_id)
     except Exception:
         _logger.warning(
             "Failed to release browser profile lock for record %d", record_id, exc_info=True
         )
+
+
+def _stop_record_session(record_id: int) -> None:
+    """常规收尾：关会话 + 清映射 + 释放 profile 锁（线程已确认退场的路径）。"""
+    _close_record_browser(record_id)
+    _release_record_profile_lock(record_id)
+
+
+def _mark_record_zombie(db: Session, task_id: int, record_id: int) -> None:
+    """标超时记录为「僵尸待清」：发布线程未在超时内确认终止，账号/profile 锁有意保留。
+
+    记录已被 `_mark_record_failed` 置 failed；这里仅在该行回填 queue_reason 作标记（不改 status、
+    无需迁移）+ 写一条 warning 日志，供运维 / 下轮恢复识别。
+    """
+    db.execute(
+        sa_update(PublishRecord)
+        .where(
+            PublishRecord.id == record_id,
+            PublishRecord.is_deleted == False,  # noqa: E712
+        )
+        .values(queue_reason=_ZOMBIE_QUEUE_REASON)
+    )
+    add_log(db, task_id, record_id, "warning", _ZOMBIE_QUEUE_REASON)
+
+
+def _handle_timed_out_record(
+    db: Session,
+    task_id: int,
+    running_record: RunningRecord,
+    future: Future,
+    *,
+    result_timeout: float = _THREAD_TERMINATION_TIMEOUT,
+) -> bool:
+    """处置执行超时的记录：标 failed → 关 Chromium context 信号线程退出 → 等线程终止。
+
+    - 线程在 result_timeout 内确认终止：释放 profile 锁 + 退场（归还闸槽 + 账号锁）。
+    - 线程仍存活（卡 IO 未响应 context 关闭，`result` 抛 FutureTimeoutError）：账号锁 + profile 锁 +
+      闸槽**一律不释放**——避免下一条同账号记录对同一 persistent profile 并发开 Chromium 损坏目录
+      （#2）；记录标「僵尸待清」+ 告警，交下轮恢复回收。
+
+    返回线程是否已确认终止。
+    """
+    _mark_record_failed(
+        db,
+        task_id,
+        running_record.record_id,
+        f"Timeout: record execution exceeded {int(_record_execution_budget())}s",
+    )
+    # 关 Chromium context（让 Playwright 线程收到 TargetClosedError 终止）+ 清会话映射；
+    # profile 锁先不放，等下方确认线程终止。
+    try:
+        _close_record_browser(running_record.record_id)
+    except Exception:
+        _logger.warning(
+            "Failed to stop session for timed-out record %d",
+            running_record.record_id,
+            exc_info=True,
+        )
+    future.cancel()
+    try:
+        future.result(timeout=result_timeout)
+        terminated = True
+    except FutureTimeoutError:
+        terminated = False
+    except Exception:
+        # 线程已终止（抛业务异常 / 被 cancel）——视为已退场
+        terminated = True
+
+    if terminated:
+        _release_record_profile_lock(running_record.record_id)
+        _retire_running_slot(running_record)
+    else:
+        _mark_record_zombie(db, task_id, running_record.record_id)
+        emit_resource_alert(
+            f"record {running_record.record_id} publish thread still alive after "
+            f"{result_timeout:g}s; account/profile locks held, leaving for recovery",
+            {"record_id": running_record.record_id, "account_id": running_record.account_id},
+        )
+    return terminated
 
 
 def _claim_record(db: Session, task_id: int, record: PublishRecord) -> bool:

@@ -279,9 +279,9 @@
 - Modify: `server/app/modules/tasks/executor.py`（超时分支：线程未确认终止则不释放账号/profile 锁，标"僵尸待清"+ 告警，交下轮恢复）
 - Test: `server/tests/test_publish_timeout_lock_safety.py`（mock 卡死 future，纯逻辑）
 
-- [ ] **Step 1（失败测试 = 常驻 CI 回归，评审第 17 条）**：mock `future.result` 恒 TimeoutExpired，断言线程存活时账号锁 + profile 锁**均未**释放、记录被标"僵尸待清"。此纯逻辑测试进 CI，作为锁所有权不变式的**持续护栏**（与 Task 9 容器冒烟对齐回归级别）。
-- [ ] **Step 2:** 改超时分支。
-- [ ] **Step 3:** 跑测试绿；容器内实测一次真实卡死（不可重复路径，仅补充）。
+- [x] **Step 1（失败测试 = 常驻 CI 回归，评审第 17 条）**：`server/tests/test_publish_timeout_lock_safety.py` 用真实 RUNNING `Future`（`set_running_or_notify_cancel`）模拟卡死/已终止两态，断言线程存活时账号锁 + profile 锁 + 全局闸槽**均未**释放、记录标"僵尸待清"、走告警；线程终止时全部归还。纯逻辑无 DB，进 CI 作锁所有权不变式护栏。RED 已观测（`AttributeError: _handle_timed_out_record` 缺失）。
+- [x] **Step 2:** 改超时分支。`_stop_record_session` 拆成 `_close_record_browser`（关会话+清映射、**不放 profile 锁**）+ `_release_record_profile_lock`，常规收尾＝两者合并（11 个旧调用点行为不变）。新增 `_handle_timed_out_record`（标 failed→关 context→等线程终止：终止才放 profile 锁 + 退场归还闸槽/账号锁；仍存活则一律不放 + `_mark_record_zombie` 回填 queue_reason + `emit_resource_alert`，交下轮恢复）。执行循环超时分支改为单调 helper。
+- [x] **Step 3:** 跑测试绿（新 2 例 + 回归：state_machine 13、publish/worker 集群 26 全绿；ruff/format/mypy 通过；隐藏 .env 全量 768 用例 0 收集错误）。**容器内真实卡死实测＝不可重复路径，仅作补充、留待容器冒烟（与 Task 9 对齐），未在本地复现。**
 
 ## Task 9: display/port 回收对账（封堵 #3）+ 常驻回归
 
