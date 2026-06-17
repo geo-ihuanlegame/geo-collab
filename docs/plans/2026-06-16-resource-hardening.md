@@ -202,8 +202,8 @@
 - Modify: `server/app/shared/resource_metrics.py`（接 `ObservableGate.in_use/waiting`）
 - Test: `server/tests/test_observable_gate.py`（纯逻辑）+ publish 退避路径测试
 
-- [ ] **Step 1（失败测试）**：`ObservableGate` 超时返回 False、`waiting` 准确、`in_use` 准确、release 后可再取。
-- [ ] **Step 2:** 实现 `ObservableGate`（`BoundedSemaphore` + 计数 + 锁）。
+- [x] **Step 1（已完成）:** `test_observable_gate.py`（纯逻辑、无 DB）——容量限制、`try_acquire` 非阻塞、`acquire(timeout)` 超时返回 False 且不增计数、`waiting` 反映阻塞线程数、release 后可再取、over-release 抛 ValueError 且不污染计数。RED 为正确原因（模块未实现）。
+- [x] **Step 2（已完成）:** `shared/concurrency.py:ObservableGate`（`BoundedSemaphore` + 受锁计数 `in_use`/`waiting` + `snapshot()`）。5 passed，ruff/format/mypy 通过。
 - [ ] **Step 3（pipeline #9）**：[executor.py:244](../../server/app/modules/pipelines/executor.py#L244) `acquire(timeout)` 失败 → run 置 failed + 写「等待槽位超时」日志，不无限阻塞。
 - [ ] **Step 4（scheme）**：[scheme_executor.py:192](../../server/app/modules/ai_generation/scheme_executor.py#L192) 同上。
 - [ ] **Step 5（publish #8，关键重构 —— 闸/锁释放须无漏口，评审第 14 条）**：把 `_global_publish_sem` 改 `ObservableGate`，获取移到主线程 [_start_runnable_records](../../server/app/modules/tasks/executor.py#L329)。**顺序：`try_acquire(gate)` 放在 `_try_acquire_account_lock`（[365](../../server/app/modules/tasks/executor.py#L365)）之前**——失败直接 `return`（未拿任何锁、无需释放；全局槽满本轮不再填）。拿到槽后用 **`gate_transferred=False` 标志 + try/finally** 包住「拿账号锁→拿 profile 锁→claim→detach→submit」：**仅 submit 成功并登记 RunningRecord 后置 `gate_transferred=True`**（所有权移交 running 生命周期，由 [315/321/325](../../server/app/modules/tasks/executor.py#L315) 释放）；任何 submit 前的 continue/异常分支由 `finally: if not gate_transferred: gate.release()` 兜底。**worker 线程 `_publish_record` 不再 acquire/release**。排队时间不进 watchdog 预算（#8 根除）、跨任务封顶仍在、槽位无泄漏。
