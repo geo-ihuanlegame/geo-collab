@@ -128,10 +128,10 @@
 - Modify: `server/app/modules/articles/ai_format.py`（`_maybe_insert_images` + `_web_fallback_fill_category` 改造：下载与落库分离）
 - Test: 扩 `test_ai_format_connection_lifecycle.py`，对 `web_fallback=True` 同样断言下载期间无开启 session
 
-- [ ] **Step 1:** 失败测试覆盖 `web_fallback=True`（mock baidu 搜图/下载为可控耗时，断言下载期 0 session）。
-- [ ] **Step 2:** 重构为「决策 → 内存下载 → 短 session 落库/选图/插入」。
-- [ ] **Step 3:** 保持 `web_fallback=False` 行为不变（Task 1a 已测）。
-- [ ] **Step 4:** 跑测试 + 回归 ai_illustrate 节点相关测试。
+- [x] **Step 1（已完成）:** `test_ai_format_connection_lifecycle.py` 扩 `web_fallback=True` 用例，探针抓下载期 `checkedout()`；旧单 session 路径上 RED 为正确原因（`held 1 connection during download, assert 1 == 0`）。
+- [x] **Step 2（已完成）:** 五段式重构——SEG1 prepare（短 session，解析 image_search 模板）→ SEG2 LLM（无连接）→ SEG3 `_web_fallback_decide`（短 session，定每位置「现有图 id / 需联网补图栏目」+ `get_or_create_companion_category` 写）→ SEG4 `_web_fallback_download`（无连接，下载入内存 FIFO 队列）→ SEG5 写回（短 session，`_maybe_insert_images(prefetched_downloads=...)` 从内存 `store_image_bytes`）。`_run_ai_format_single_session` 删除。
+- [x] **Step 3（已完成）:** `web_fallback=False` 仍走 Task 1a 三段式、行为不变（回归 75 passed）。`_maybe_insert_images` 仅加可选 `prefetched_downloads` kwarg，`False` 路径传 `None` 保持同步 `_web_fallback_fill_category`。
+- [x] **Step 4（已完成）:** 连接生命周期 4 + ai_illustrate/scheme/image_search 等回归全绿；ruff/format/mypy 通过。**附带**：Task ACC 负载脚本 `test_pool_under_concurrency.py` 因旧单 session 路径删除，转为「两路 fallback LLM 期间均 0 连接」稳态护栏（集成时一并改，opt-in 实测通过）。
 
 ## Task 1c（决策项，非编码）: `get_settings.cache_clear()` 去留
 
@@ -152,10 +152,10 @@
 - Modify: `CLAUDE.md`（修正「Task Execution」节）
 - Test: `server/tests/test_worker_periodic_recovery.py`（新建）
 
-- [ ] **Step 1（失败测试）**：造 `status=running, lease_until=过去` 的记录 + `worker_lease_until=过去` 的 task，跑一轮周期，断言拨回 pending / 清 worker_id。
-- [ ] **Step 2:** 周期分支加两个 recover。
-- [ ] **Step 3:** 改 CLAUDE.md。
-- [ ] **Step 4:** 跑测试绿；确认不误伤 lease 未过期的在跑记录。
+- [x] **Step 1（已完成）:** `test_worker_periodic_recovery.py` 造过期 lease 的 running 记录 + 死认领 task，RED 为正确原因（`_periodic_recovery` 不存在 → 周期未跑 recover）。
+- [x] **Step 2（已完成）:** 周期分支抽成 `_periodic_recovery(db)`，`% 60 == 0` 时跑 `recover_stuck_records` + `recover_stuck_task_claims` + 原有 `_check_stuck_tasks`，各包 try/except；两个 recover 不改签名/逻辑（仍租约保护、自带 commit）。
+- [x] **Step 3（已完成）:** CLAUDE.md「Task Execution」节订正——明确周期复位经 `_periodic_recovery`、不只启动跑一次。
+- [x] **Step 4（已完成）:** 2 passed，含护栏用例：未过期 lease 的在跑记录/认领不被误动；回归 worker/task 相关测试绿。
 
 ## Task 3: 可观测底座 —— 快照 + 周期采样落盘 + 阈值 WARN（封堵 #10）
 
@@ -167,11 +167,11 @@
 - Modify: `server/app/main.py` 或后台线程（周期采样**落盘/打点** + checkedout/上限 >80% 升 WARNING；提供统一告警 hook 供 Task 5 接）
 - Test: `server/tests/test_resource_metrics_api.py`（新建）
 
-- [ ] **Step 1（失败测试）**：占用 N 连接后请求端点，断言 `checkedout/overflow/size` 随占用变化；非 admin 403。
-- [ ] **Step 2:** 采集函数（闸占用先占位，Wave 2 接 `ObservableGate.in_use/waiting`）。
-- [ ] **Step 3:** 健康端点 + **周期采样落盘**（轮转日志/简单表，事故后可回溯当时占用）+ >80% WARN + 暴露告警 hook。
-- [ ] **Step 4:** 发布/生文 `ThreadPoolExecutor` 加 `thread_name_prefix`。
-- [ ] **Step 5:** 跑测试绿。
+- [x] **Step 1（已完成）:** `test_resource_metrics_api.py`——占 3 连接后请求端点断言 `checked_out` 随占用上升 + `max`/`size` 在；operator 客户端 403。RED 为正确原因（端点未实现 → 404）。
+- [x] **Step 2（已完成）:** `shared/resource_metrics.py:collect_resource_metrics()`——池 `size/checked_out/overflow/checked_in/max`（`max=pool_size+max_overflow`，读 `_max_overflow` 而非可能为负的 `overflow()`）；`gates: {}` + `gates_placeholder` 占位（Wave 2 接 `ObservableGate`）；`active_publish_records` / `expired_leases`（无 db 时为 `null`）。线程安全、依赖轻。
+- [x] **Step 3（已完成）:** `GET /api/system/db-pool`（`require_admin`）；`start_resource_sampler(SessionLocal)` 守护线程周期采样 → 结构化日志落盘 + `checked_out/max > GEO_RESOURCE_METRICS_WARN_RATIO`（默认 0.8）经统一 `emit_resource_alert` 告警 hook（`set_alert_hook` 供 Task 5 换通道）；开关 `GEO_RESOURCE_METRICS_SAMPLING_ENABLED`（默认开、可关）+ `..._SAMPLE_INTERVAL_SECONDS`（60）。启动安全（try/except、不阻塞，create_app 0.8s 起）。
+- [x] **Step 4（已完成）:** `tasks/executor.py` 发布池 `thread_name_prefix="publish"`、`scheme_executor.py` `="scheme-run"`。**偏离**：`pipelines/executor.py` 无 `ThreadPoolExecutor`（用 `threading.Semaphore` + router 起 `Thread`），未捏造执行器；scheduler 线程本已命名。
+- [x] **Step 5（已完成）:** 端点测试 2 passed；集成后与 Task 1a/1b/2 同跑全绿。
 
 ## Task G: 机制护栏 —— 运行期长持连接断言（防 A 类复发）
 

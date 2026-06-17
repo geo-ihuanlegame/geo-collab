@@ -1,17 +1,19 @@
-"""Wave 0 / Task ACC —— 连接池负载复现签收脚本（一次性基线签收，非持续门禁）。
+"""Wave 0 / Task ACC —— 连接池负载复现签收脚本（一次性基线签收 + 稳态护栏，非持续门禁）。
 
 度量「M 路并发排版、全部停在 LLM 调用那一刻时，*正被占用* 的连接数」——这是与池绝对容量
-无关的纯隔离指标（测试 engine 默认池=15，生产=60），直接对应 Task 1a 的论点「慢 IO 期间不持连接」。
+无关的纯隔离指标（测试 engine 默认池=15，生产=60），直接对应 Task 1 的论点「慢 IO 期间不持连接」。
 
 用 LLM 内的 threading.Barrier(action=...) 在「M 路全部进入 LLM、且都还没离开」的瞬间采样
-engine.pool.checkedout()——action 在最后一路到达、所有路仍阻塞时执行且仅执行一次，无竞态：
-- before：web_fallback=True 路由到 _run_ai_format_single_session（旧单 session，行为同改造前），
-  整段持连接 → 采样 = M。
-- after ：web_fallback=False 三段式，段1 已 close、段3 未起，LLM 期间 → 采样 = 0。
+engine.pool.checkedout()——action 在最后一路到达、所有路仍阻塞时执行且仅执行一次，无竞态。
 
-两路都用 *当前代码* 实测（旧路径保留在 _run_ai_format_single_session 里），所以这份对比可重复跑、
-不依赖 git stash。范围限定单进程：#110 的多进程放大由 Task 6/7 覆盖。持续防回归不靠本脚本，
-靠 test_ai_format_connection_lifecycle.py 的确定性单测 + Task G 运行期断言。
+历史签收（Task 1a，见该 commit 与 docs/plans/2026-06-16-resource-hardening.md）：改造前旧单 session
+路径整段持连接 → 采样 = M(=12)；三段式 → 0。该 before/after 对比依赖已被 Task 1b 删除的
+_run_ai_format_single_session，故不再可跑，结论留在 git 历史与计划文档里。
+
+Task 1b 后 **两条 fallback 路径都连接安全**：web_fallback=False 走三段式、web_fallback=True 走
+五段式（决策→内存下载→短 session 落库），LLM 期间均不持连接。本脚本因此转为**稳态护栏**：在 M 路
+并发下断言两种模式 LLM 期间被占用连接数均为 0。范围限定单进程：#110 的多进程放大由 Task 6/7 覆盖；
+持续防回归仍靠 test_ai_format_connection_lifecycle.py 的确定性单测 + Task G 运行期断言。
 
 opt-in：标 `load`，默认不跑；需 `GEO_RUN_LOAD_TESTS=1` + `GEO_TEST_DATABASE_URL`。
 """
@@ -27,7 +29,7 @@ import pytest
 
 from server.tests.utils import build_test_app
 
-_M = 12  # 并发排版数（< 测试 engine 默认池上限 15，避免 before 路径在 LLM 处因池满互相死锁）
+_M = 12  # 并发排版数（< 测试 engine 默认池上限 15，给各段短 session 同时借连接留余量）
 
 
 def _fake_completion(content: str):
@@ -100,21 +102,27 @@ def _peak_checkout_during_llm(test_app, monkeypatch, *, web_fallback: bool) -> i
 
 @pytest.mark.mysql
 @pytest.mark.load
-def test_connection_holding_during_llm_before_vs_after(monkeypatch):
+def test_no_connection_held_during_llm_either_fallback_mode(monkeypatch):
+    """稳态护栏（Task 1a + 1b）：M 路并发下，两种 fallback 模式 LLM 期间均不持连接。"""
     monkeypatch.setenv("GEO_AI_FORMAT_API_KEY", "test-key")
     test_app = build_test_app(monkeypatch)
     try:
-        before = _peak_checkout_during_llm(test_app, monkeypatch, web_fallback=True)
-        after = _peak_checkout_during_llm(test_app, monkeypatch, web_fallback=False)
+        web_fallback_peak = _peak_checkout_during_llm(test_app, monkeypatch, web_fallback=True)
+        structured_peak = _peak_checkout_during_llm(test_app, monkeypatch, web_fallback=False)
 
         print(
             f"\n[Task ACC] connections held DURING LLM (M={_M}): "
-            f"before(single-session)={before}  after(3-seg)={after}"
+            f"web_fallback=True(5-seg)={web_fallback_peak}  "
+            f"web_fallback=False(3-seg)={structured_peak}"
         )
 
-        # 改造前（旧单 session 路径）：整段持连接 → M 条全被钉在 LLM 期间
-        assert before == _M, f"before proxy should pin {_M} connections during LLM, got {before}"
-        # 改造后（Task 1a 三段式）：LLM 期间一条都不持
-        assert after == 0, f"Task 1a must hold 0 connections during the LLM call, got {after}"
+        # 三段式（web_fallback=False，Task 1a）：LLM 期间一条都不持
+        assert structured_peak == 0, (
+            f"web_fallback=False must hold 0 connections during the LLM call, got {structured_peak}"
+        )
+        # 五段式（web_fallback=True，Task 1b）：LLM 期间同样不持
+        assert web_fallback_peak == 0, (
+            f"web_fallback=True must hold 0 connections during the LLM call, got {web_fallback_peak}"
+        )
     finally:
         test_app.cleanup()
