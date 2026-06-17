@@ -17,8 +17,12 @@ from io import BytesIO
 
 import pytest
 
-from server.app.modules.tasks import router as tasks_router
 from server.tests.utils import build_test_app
+
+# 注意：不要在模块顶层 import server.app.modules.tasks.router —— 它会在 collection 期触发
+# server.app.db.session 的模块级 get_database_url()（饿汉建引擎），而 collection 早于
+# build_test_app 注入 GEO_DATABASE_URL/GEO_DATA_DIR，CI 无 .env 时直接 RuntimeError 收集失败。
+# 改为各测试内、build_test_app 之后再 lazy import（与仓库内其它 DB 测试一致）。
 
 _PNG = (
     b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
@@ -78,6 +82,8 @@ def test_web_execute_enqueues_without_publishing(monkeypatch):
     """生产路径（内联关）：execute 只入队，绝不在 web 进程调 execute_task；记录留 pending。"""
     test_app = build_test_app(monkeypatch)
     try:
+        from server.app.modules.tasks import router as tasks_router
+
         # 模拟生产：关掉内联开关（建任务时的自动续跑也随之 no-op，不会偷跑发布）
         monkeypatch.setattr(tasks_router, "inline_execute_enabled", False)
 
@@ -110,6 +116,7 @@ def test_web_execute_alerts_when_no_fresh_worker(monkeypatch):
     """入队时无新鲜 worker：走告警 hook + 回包 worker_online=False（不静默卡 pending）。"""
     test_app = build_test_app(monkeypatch)
     try:
+        from server.app.modules.tasks import router as tasks_router
         from server.app.shared import resource_metrics as rm
 
         monkeypatch.setattr(tasks_router, "inline_execute_enabled", False)
@@ -137,6 +144,7 @@ def test_web_execute_no_alert_when_worker_fresh(monkeypatch):
     """入队时有新鲜 worker：不告警，回包 worker_online=True。"""
     test_app = build_test_app(monkeypatch)
     try:
+        from server.app.modules.tasks import router as tasks_router
         from server.app.shared import resource_metrics as rm
 
         monkeypatch.setattr(tasks_router, "inline_execute_enabled", False)
@@ -166,6 +174,7 @@ def test_stale_worker_heartbeat_not_considered_fresh(monkeypatch):
     try:
         from server.app.core.time import utcnow
         from server.app.modules.system.models import WorkerHeartbeat
+        from server.app.modules.tasks import router as tasks_router
         from server.app.shared import resource_metrics as rm
 
         monkeypatch.setattr(tasks_router, "inline_execute_enabled", False)
@@ -204,6 +213,8 @@ def test_explicit_switch_runs_inline(monkeypatch):
 
     test_app = build_test_app(monkeypatch)
     try:
+        from server.app.modules.tasks import router as tasks_router
+
         ran = threading.Event()
         monkeypatch.setattr(tasks_router, "execute_task", lambda *a, **k: ran.set())
 
