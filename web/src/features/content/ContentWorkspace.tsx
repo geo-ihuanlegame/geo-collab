@@ -289,7 +289,9 @@ const CustomImage = Image.extend({
         renderHTML: (attrs) => (attrs.stockImageId ? { "data-stock-image-id": attrs.stockImageId } : {}),
       },
       width: {
-        default: "100%",
+        // 新插入的图片默认显示宽度（编辑器内）。已有文章在 content_json 里存了
+        // 显式宽度、旧 HTML 也走下面的 parseHTML 回落，不受此默认值影响。
+        default: "30%",
         parseHTML: (el) => el.style.width || "100%",
         renderHTML: (attrs) => ({ style: `width: ${attrs.width ?? "100%"}` }),
       },
