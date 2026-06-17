@@ -96,6 +96,9 @@ class Settings(BaseSettings):
     ai_generate_max_count: int = 20  # GEO_AI_GENERATE_MAX_COUNT
     pipeline_max_concurrent_runs: int = 3  # GEO_PIPELINE_MAX_CONCURRENT_RUNS
     scheme_max_concurrent_runs: int = 2  # GEO_SCHEME_MAX_CONCURRENT_RUNS（方案运行全局并发闸）
+    # 等并发槽超时（秒）：超时即把 run 置 failed、不无限阻塞（#9）。默认给够单 run ~25min 占槽下的排队余量。
+    pipeline_run_acquire_timeout_seconds: int = 1800  # GEO_PIPELINE_RUN_ACQUIRE_TIMEOUT_SECONDS
+    scheme_run_acquire_timeout_seconds: int = 1800  # GEO_SCHEME_RUN_ACQUIRE_TIMEOUT_SECONDS
     # [临时] 方案生文封面兜底存储桶（GEO_TEMP_COVER_BUCKET）。空字符串=禁用整段临时封面逻辑。
     temp_cover_bucket: str = "cantingyangchengji"
     # AI 生文（LangGraph 写作智能体）—— 保持 Claude

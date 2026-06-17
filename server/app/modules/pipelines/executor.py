@@ -6,7 +6,6 @@ _RUN_SEMAPHORE（GEO_PIPELINE_MAX_CONCURRENT_RUNS）限制。"""
 from __future__ import annotations
 
 import logging
-import threading as _threading
 from collections.abc import Callable
 from typing import Any
 
@@ -17,13 +16,19 @@ from server.app.modules.pipelines.flow_meta import apply_input_mapping, should_s
 from server.app.modules.pipelines.models import Pipeline, PipelineNode, PipelineRun
 from server.app.modules.pipelines.nodes.base import NodeRunContext, get_handler
 from server.app.modules.pipelines.snapshot import nodes_to_snapshot, snapshot_to_node_dicts
+from server.app.shared.concurrency import ObservableGate
 from server.app.shared.errors import ConflictError
 
 logger = logging.getLogger(__name__)
 SessionFactory = Callable[[], Any]
 
-# 全局并发闸：限制单进程同时执行的 pipeline 运行数（与单主实例约束配合即为全局上限）
-_RUN_SEMAPHORE = _threading.Semaphore(max(1, _get_settings().pipeline_max_concurrent_runs))
+# 全局并发闸：限制单进程同时执行的 pipeline 运行数（与单主实例约束配合即为全局上限）。
+# ObservableGate 暴露 in_use/waiting 供 resource_metrics 上报，acquire(timeout) 不无限阻塞（#9）。
+_RUN_GATE = ObservableGate(max(1, _get_settings().pipeline_max_concurrent_runs), name="pipeline")
+
+
+def _run_acquire_timeout() -> float:
+    return float(_get_settings().pipeline_run_acquire_timeout_seconds)
 
 
 def create_run(db, *, pipeline_id: int, user_id: int) -> PipelineRun:
@@ -239,19 +244,33 @@ def _run_pipeline_inner(run_id: int, session_factory: SessionFactory) -> None:
 
 
 def run_pipeline(run_id: int, session_factory: SessionFactory) -> None:
-    """后台线程入口：占全局并发信号量后执行运行；顶层异常兜底把 pending/running 置 failed。"""
+    """后台线程入口：等到并发槽后执行运行；等槽超时或顶层异常都把 pending/running 置 failed。
+
+    等槽用 acquire(timeout)：闸满超时即置 failed、不无限阻塞（旧 `with Semaphore` 会让慢 run
+    占槽时后来者永久卡住，#9）。槽在 finally 释放，绝不泄漏。
+    """
+    if not _RUN_GATE.acquire(timeout=_run_acquire_timeout()):
+        logger.warning("pipeline run %s timed out waiting for a concurrency slot", run_id)
+        _mark_run_failed(run_id, session_factory, "等待并发槽位超时，运行已中止")
+        return
     try:
-        with _RUN_SEMAPHORE:
-            _run_pipeline_inner(run_id, session_factory)
+        _run_pipeline_inner(run_id, session_factory)
     except Exception:
         logger.exception("pipeline run %s crashed at top level", run_id)
-        db = session_factory()
-        try:
-            run = db.get(PipelineRun, run_id)
-            if run is not None and run.status in ("pending", "running"):
-                run.status = "failed"
-                run.error_message = "执行器内部异常，运行已中止"
-                run.completed_at = utcnow()
-                db.commit()
-        finally:
-            db.close()
+        _mark_run_failed(run_id, session_factory, "执行器内部异常，运行已中止")
+    finally:
+        _RUN_GATE.release()
+
+
+def _mark_run_failed(run_id: int, session_factory: SessionFactory, message: str) -> None:
+    """开短 session 把 pending/running 的 run 置 failed（等槽超时 / 顶层崩溃共用）。"""
+    db = session_factory()
+    try:
+        run = db.get(PipelineRun, run_id)
+        if run is not None and run.status in ("pending", "running"):
+            run.status = "failed"
+            run.error_message = message
+            run.completed_at = utcnow()
+            db.commit()
+    finally:
+        db.close()

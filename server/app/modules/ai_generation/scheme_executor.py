@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import logging
 import random
-import threading as _threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
@@ -29,6 +28,7 @@ from server.app.modules.ai_generation.models import (
 from server.app.modules.ai_generation.scheme_service import get_line_questions, get_lines
 from server.app.modules.articles.ai_format import all_category_contexts, run_ai_format
 from server.app.modules.prompt_templates.service import get_visible_prompt_template
+from server.app.shared.concurrency import ObservableGate
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,11 @@ SessionFactory = Callable[[], Any]
 # 全局并发闸：限制单进程同时执行的方案运行数（与 pipeline executor 的 _RUN_SEMAPHORE 对称）。
 # 缺它时每次 POST /schemes/{id}/runs 都裸 fork 出 1+4 个线程争抢 DB 连接，连点即耗尽连接池
 # （连接池耗尽事故根因之一）。多于 cap 的运行线程阻塞在信号量上、不持 DB 连接，安全排队。
-_RUN_SEMAPHORE = _threading.Semaphore(max(1, get_settings().scheme_max_concurrent_runs))
+_RUN_GATE = ObservableGate(max(1, get_settings().scheme_max_concurrent_runs), name="scheme")
+
+
+def _run_acquire_timeout() -> float:
+    return float(get_settings().scheme_run_acquire_timeout_seconds)
 
 
 def _render_questions(questions: list[Any]) -> str:
@@ -184,13 +188,34 @@ def _execute_task(
 
 
 def run_scheme(run_id: int, session_factory: SessionFactory) -> None:
-    """方案运行入口（由后台线程调用）：占全局并发信号量后执行运行。
+    """方案运行入口（由后台线程调用）：等到并发槽后执行运行。
 
-    信号量在执行体外层 acquire：多于 cap 的运行线程在此阻塞等待（不持 DB 连接），
-    避免「连点运行 = 无界线程 ×4 worker 争抢连接池」。与 pipeline run_pipeline 对称。
+    用 acquire(timeout)：多于 cap 的运行在此等待（不持 DB 连接），等槽超时即把 run 置 failed、
+    不无限阻塞（#9）；避免「连点运行 = 无界线程 ×4 worker 争抢连接池」。槽在 finally 释放，
+    与 pipeline run_pipeline 对称。
     """
-    with _RUN_SEMAPHORE:
+    if not _RUN_GATE.acquire(timeout=_run_acquire_timeout()):
+        logger.warning("scheme run %s timed out waiting for a concurrency slot", run_id)
+        _mark_run_failed(run_id, session_factory, "等待并发槽位超时，运行已中止")
+        return
+    try:
         _run_scheme_inner(run_id, session_factory)
+    finally:
+        _RUN_GATE.release()
+
+
+def _mark_run_failed(run_id: int, session_factory: SessionFactory, message: str) -> None:
+    """开短 session 把 pending/running 的方案 run 置 failed（等槽超时用）。"""
+    db = session_factory()
+    try:
+        run = db.get(GenerationSchemeRun, run_id)
+        if run is not None and run.status in ("pending", "running"):
+            run.status = "failed"
+            run.error_message = message
+            run.completed_at = utcnow()
+            db.commit()
+    finally:
+        db.close()
 
 
 def _run_scheme_inner(run_id: int, session_factory: SessionFactory) -> None:

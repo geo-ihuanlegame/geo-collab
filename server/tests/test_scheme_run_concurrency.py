@@ -1,10 +1,10 @@
-"""scheme run 全局并发闸 `_RUN_SEMAPHORE` 契约（与 pipeline 的 executor._RUN_SEMAPHORE 对称）。
+"""scheme run 全局并发闸 `_RUN_GATE`（ObservableGate）契约（与 pipeline 的 executor._RUN_GATE 对称）。
 
-run_scheme 用 `with _RUN_SEMAPHORE:` 包住 _run_scheme_inner，把单进程同时执行的方案运行数限制在
-GEO_SCHEME_MAX_CONCURRENT_RUNS（默认 2）。缺它时（改前 scheme run 完全无限流）连点「运行方案」会
-无界 fork 后台线程、每个再开 4 个生文 worker 争抢 DB 连接，秒爆连接池（连接池耗尽事故根因之一）。
+run_scheme 用 `_RUN_GATE.acquire(timeout)` + finally release 包住 _run_scheme_inner，把单进程同时
+执行的方案运行数限制在 GEO_SCHEME_MAX_CONCURRENT_RUNS（默认 2）。缺它时（改前 scheme run 完全无限流）
+连点「运行方案」会无界 fork 后台线程、每个再开 4 个生文 worker 争抢 DB 连接，秒爆连接池（事故根因之一）。
 
-照抄 test_pipeline_concurrency 的隔离手法：把信号量换成小 cap、用栅栏阻住 inner、启动多于 cap 的
+照抄 test_pipeline_concurrency 的隔离手法：把闸换成小 cap、用栅栏阻住 inner、启动多于 cap 的
 run，断言「并发进入数 ≤ cap」且「完成后槽位全部回收」。只验闸门本身，不起真生文。
 """
 
@@ -13,6 +13,7 @@ import time
 
 import pytest
 
+from server.app.shared.concurrency import ObservableGate
 from server.tests.utils import build_test_app
 
 
@@ -23,7 +24,7 @@ def test_run_scheme_honors_global_concurrency_cap_and_reclaims_slots(monkeypatch
         from server.app.modules.ai_generation import scheme_executor
 
         cap = 2
-        monkeypatch.setattr(scheme_executor, "_RUN_SEMAPHORE", threading.Semaphore(cap))
+        monkeypatch.setattr(scheme_executor, "_RUN_GATE", ObservableGate(cap))
 
         lock = threading.Lock()
         state = {"active": 0, "max_active": 0}
@@ -66,9 +67,9 @@ def test_run_scheme_honors_global_concurrency_cap_and_reclaims_slots(monkeypatch
             assert state["max_active"] <= cap, "全程并发不得超过 cap"
             assert state["active"] == 0
 
-        # 槽位已回收：全部完成后还能拿到 cap 个槽（with 语句正确 release 的证据）
-        sem = scheme_executor._RUN_SEMAPHORE
-        got = [sem.acquire(blocking=False) for _ in range(cap)]
-        assert all(got), "完成后信号量槽位应已全部释放"
+        # 槽位已回收：全部完成后还能拿到 cap 个槽（finally release 正确执行的证据）
+        gate = scheme_executor._RUN_GATE
+        got = [gate.try_acquire() for _ in range(cap)]
+        assert all(got), "完成后闸槽位应已全部释放"
     finally:
         app.cleanup()
