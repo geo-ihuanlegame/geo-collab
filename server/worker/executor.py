@@ -272,6 +272,30 @@ def _check_stuck_tasks(db) -> None:
         db.commit()
 
 
+def _periodic_recovery(db) -> None:
+    """主循环周期复位卡死状态（#7）：不再只在 _startup 跑一次。
+
+    三类恢复彼此独立、各包 try/except，单个失败不拖垮主循环：
+      - recover_stuck_records：status='running' 且 lease 过期的记录拨回 pending（租约保护，
+        不误伤别的进程在跑的记录）；否则进程不重启时这些记录永久占着账号/profile 锁。
+      - recover_stuck_task_claims：清空 worker_lease_until 已过期的 worker 认领，让别人重抢。
+      - _check_stuck_tasks：记录均已终态但任务仍卡 running 时收口。
+    三者均自带 commit / 条件 UPDATE，专为周期调用设计。
+    """
+    try:
+        recover_stuck_records(db)
+    except Exception:
+        _logger.exception("Worker %s: periodic recover_stuck_records failed", WORKER_ID)
+    try:
+        recover_stuck_task_claims(db)
+    except Exception:
+        _logger.exception("Worker %s: periodic recover_stuck_task_claims failed", WORKER_ID)
+    try:
+        _check_stuck_tasks(db)
+    except Exception:
+        _logger.exception("Worker %s: stuck task recovery check failed", WORKER_ID)
+
+
 def main() -> None:
     # 注册为 GEO_WORKER_ID，供 browser_sessions.py 标记数据库行
     os.environ["GEO_WORKER_ID"] = WORKER_ID
@@ -303,12 +327,9 @@ def main() -> None:
         task_id: int | None = None
         try:
             _write_worker_heartbeat(db)
-            # 周期性恢复：检测记录均已终态但任务仍卡在 "running" 的情况
+            # 周期性恢复：复位过期 lease 的卡死记录/认领 + 收口记录均终态却仍 running 的任务。
             if _recovery_cycle % 60 == 0:
-                try:
-                    _check_stuck_tasks(db)
-                except Exception:
-                    _logger.exception("Worker %s: stuck task recovery check failed", WORKER_ID)
+                _periodic_recovery(db)
             _recovery_cycle += 1
             task = _claim_next_task(db)
             if task is None:
