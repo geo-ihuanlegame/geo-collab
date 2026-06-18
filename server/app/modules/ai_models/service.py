@@ -60,6 +60,13 @@ def resolve_writing_engine(db: Session, selected: str | None) -> tuple[str, str,
     return resolve_engine(selected)
 
 
+def resolve_ai_format_model(
+    db: Session, selected: str | None = None
+) -> tuple[str, str, str | None, int]:
+    """Alias for resolve_format_engine; used by auto_review.service and tests."""
+    return resolve_format_engine(db, selected=selected)
+
+
 def resolve_format_engine(
     db: Session, selected: str | None = None
 ) -> tuple[str, str, str | None, int]:
