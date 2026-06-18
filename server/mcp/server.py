@@ -21,8 +21,8 @@ _cfg = get_config()
 mcp = FastMCP("geo")
 
 # 触发各 tool 模块注册（导入即调用 @mcp.tool 装饰器）
-from server.mcp.tools import catalog as _catalog  # noqa: F401,E402
 from server.mcp.tools import action as _action  # noqa: F401,E402
+from server.mcp.tools import catalog as _catalog  # noqa: F401,E402
 from server.mcp.tools import meta as _meta  # noqa: F401,E402
 
 

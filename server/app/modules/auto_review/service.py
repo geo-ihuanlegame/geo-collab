@@ -69,22 +69,21 @@ def score_articles(db: Session, req: ScoreRequest) -> list[ScoreBreakdown]:
     model, api_key, base_url, timeout = resolve_ai_format_model(db, selected=None)
 
     results: list[ScoreBreakdown] = []
-    articles = (
-        db.query(Article)
-        .filter(Article.id.in_(req.article_ids))
-        .all()
-    )
+    articles = db.query(Article).filter(Article.id.in_(req.article_ids)).all()
     by_id = {a.id: a for a in articles}
 
     for aid in req.article_ids:
         a = by_id.get(aid)
         if a is None:
-            results.append(ScoreBreakdown(
-                article_id=aid, score_total=-1,
-                score_breakdown={k: 0 for k in dimensions},
-                suggested_decision="rejected",
-                reasoning="[评分失败] article not found",
-            ))
+            results.append(
+                ScoreBreakdown(
+                    article_id=aid,
+                    score_total=-1,
+                    score_breakdown={k: 0 for k in dimensions},
+                    suggested_decision="rejected",
+                    reasoning="[评分失败] article not found",
+                )
+            )
             continue
 
         plain = (a.plain_text or "")[:4000]
@@ -104,21 +103,28 @@ def score_articles(db: Session, req: ScoreRequest) -> list[ScoreBreakdown]:
             )
             content = resp.choices[0].message.content or "{}"
             parsed = json.loads(content)
-            results.append(ScoreBreakdown(
-                article_id=aid,
-                score_total=int(parsed.get("score_total", 0)),
-                score_breakdown={k: int(parsed.get("score_breakdown", {}).get(k, 0)) for k in dimensions},
-                suggested_decision=parsed.get("suggested_decision", "needs_rewrite"),
-                reasoning=parsed.get("reasoning", ""),
-            ))
+            results.append(
+                ScoreBreakdown(
+                    article_id=aid,
+                    score_total=int(parsed.get("score_total", 0)),
+                    score_breakdown={
+                        k: int(parsed.get("score_breakdown", {}).get(k, 0)) for k in dimensions
+                    },
+                    suggested_decision=parsed.get("suggested_decision", "needs_rewrite"),
+                    reasoning=parsed.get("reasoning", ""),
+                )
+            )
         except Exception as exc:  # noqa: BLE001 single-item failure doesn't affect others
             _logger.warning("score article %s failed: %s", aid, exc)
-            results.append(ScoreBreakdown(
-                article_id=aid, score_total=-1,
-                score_breakdown={k: 0 for k in dimensions},
-                suggested_decision="rejected",
-                reasoning=f"[评分失败] {exc}",
-            ))
+            results.append(
+                ScoreBreakdown(
+                    article_id=aid,
+                    score_total=-1,
+                    score_breakdown={k: 0 for k in dimensions},
+                    suggested_decision="rejected",
+                    reasoning=f"[评分失败] {exc}",
+                )
+            )
 
     return results
 

@@ -17,9 +17,7 @@ class McpConfig:
 
     def assert_ready(self) -> None:
         if not self.token:
-            raise RuntimeError(
-                "GEO_MCP_TOKEN is empty. Set it in Claude Code mcpServers.geo.env."
-            )
+            raise RuntimeError("GEO_MCP_TOKEN is empty. Set it in Claude Code mcpServers.geo.env.")
 
 
 def get_config() -> McpConfig:

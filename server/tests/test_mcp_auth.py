@@ -1,6 +1,6 @@
-import pytest
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
+
 from server.app.core.mcp_auth import require_mcp_token
 
 
@@ -16,6 +16,7 @@ def _app():
 
 def test_missing_token_returns_401(monkeypatch):
     from server.app.core import config
+
     monkeypatch.setenv("GEO_MCP_TOKEN", "secret-abc")
     config.get_settings.cache_clear()
     r = _app().get("/probe")
@@ -24,6 +25,7 @@ def test_missing_token_returns_401(monkeypatch):
 
 def test_wrong_token_returns_401(monkeypatch):
     from server.app.core import config
+
     monkeypatch.setenv("GEO_MCP_TOKEN", "secret-abc")
     config.get_settings.cache_clear()
     r = _app().get("/probe", headers={"X-MCP-Token": "wrong"})
@@ -32,6 +34,7 @@ def test_wrong_token_returns_401(monkeypatch):
 
 def test_correct_token_passes(monkeypatch):
     from server.app.core import config
+
     monkeypatch.setenv("GEO_MCP_TOKEN", "secret-abc")
     config.get_settings.cache_clear()
     r = _app().get("/probe", headers={"X-MCP-Token": "secret-abc"})
@@ -41,6 +44,7 @@ def test_correct_token_passes(monkeypatch):
 
 def test_empty_configured_token_rejects_all(monkeypatch):
     from server.app.core import config
+
     monkeypatch.setenv("GEO_MCP_TOKEN", "")
     config.get_settings.cache_clear()
     r = _app().get("/probe", headers={"X-MCP-Token": ""})

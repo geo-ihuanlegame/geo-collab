@@ -6,6 +6,7 @@ def test_feishu_notify_requires_mcp_token(monkeypatch):
     try:
         monkeypatch.setenv("GEO_MCP_TOKEN", "secret")
         from server.app.core import config
+
         config.get_settings.cache_clear()
 
         r = test_app.client.post(
@@ -23,6 +24,7 @@ def test_feishu_notify_returns_sent_false_when_webhook_unset(monkeypatch):
     try:
         monkeypatch.setenv("GEO_MCP_TOKEN", "secret")
         from server.app.core import config
+
         config.get_settings.cache_clear()
 
         r = test_app.client.post(

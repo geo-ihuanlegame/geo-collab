@@ -47,7 +47,7 @@ def post_auto_review(
     try:
         decision = submit_decision(db, article_id, req)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     db.commit()
     db.refresh(decision)
     return AutoReviewDecisionRead.model_validate(decision)

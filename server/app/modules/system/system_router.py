@@ -9,9 +9,11 @@ from datetime import timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
+from pydantic import BaseModel
 from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session
 
+from server.app.core.mcp_auth import require_mcp_token
 from server.app.core.security import require_admin
 from server.app.core.time import utcnow
 from server.app.db.session import get_db
@@ -19,6 +21,7 @@ from server.app.modules.accounts import remote_browser_runtime_status
 from server.app.modules.audit.service import add_audit_entry
 from server.app.modules.system.models import User, WorkerHeartbeat
 from server.app.modules.system.schemas import SystemStatus
+from server.app.shared.feishu import send_text
 from server.app.shared.resource_metrics import collect_resource_metrics
 from server.app.shared.system_status import get_system_status
 
@@ -156,10 +159,6 @@ def read_db_pool_metrics(
 # === MCP-facing endpoints（不走 user JWT，走 MCP token）===
 # Reason: system_router is mounted with Depends(get_current_user) globally.
 # MCP service calls have no user JWT, so we expose MCP endpoints on a separate sub-router.
-from pydantic import BaseModel
-
-from server.app.core.mcp_auth import require_mcp_token
-from server.app.shared.feishu import send_text
 
 
 class FeishuNotifyPayload(BaseModel):

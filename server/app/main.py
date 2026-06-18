@@ -54,11 +54,12 @@ from server.app.modules.articles.router import (
     assets_router,
     chunked_assets_router,
 )
-from server.app.modules.auto_review.router import router as auto_review_router
 from server.app.modules.audit.router import router as audit_router
+from server.app.modules.auto_review.router import router as auto_review_router
 from server.app.modules.hot_lists.router import router as hot_lists_router
 from server.app.modules.image_library.router import files_router as stock_files_router
 from server.app.modules.image_library.router import router as stock_images_router
+from server.app.modules.performance.router import router as performance_router
 from server.app.modules.pipelines.router import router as pipelines_router
 from server.app.modules.prompt_templates.router import router as prompt_templates_router
 from server.app.modules.system.auth_router import router as auth_router
@@ -66,7 +67,6 @@ from server.app.modules.system.models import User
 from server.app.modules.system.system_router import mcp_system_router
 from server.app.modules.system.system_router import router as system_router
 from server.app.modules.system.users_router import router as users_router
-from server.app.modules.performance.router import router as performance_router
 from server.app.modules.tasks.router import publish_records_router, tasks_mcp_router, tasks_router
 from server.app.shared.errors import AccountError, ClientError, ConflictError, ValidationError
 

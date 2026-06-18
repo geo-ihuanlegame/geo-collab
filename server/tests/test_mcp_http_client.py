@@ -1,7 +1,7 @@
 import httpx
 import pytest
 
-from server.mcp.http_client import GeoApiClient, ApiError
+from server.mcp.http_client import ApiError, GeoApiClient
 
 
 def test_get_attaches_token_header(monkeypatch):
@@ -50,5 +50,9 @@ def test_post_json_body_and_header(monkeypatch):
     )
     client.post("/api/articles/score", json={"article_ids": [1, 2]})
 
-    assert '"article_ids": [1, 2]' in captured["body"].replace(" ", "").replace("[", "[ ").replace("]", " ]") or '"article_ids":[1,2]' in captured["body"]
+    assert (
+        '"article_ids": [1, 2]'
+        in captured["body"].replace(" ", "").replace("[", "[ ").replace("]", " ]")
+        or '"article_ids":[1,2]' in captured["body"]
+    )
     assert "application/json" in captured["content_type"]

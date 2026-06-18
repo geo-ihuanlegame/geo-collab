@@ -57,6 +57,6 @@ def post_publish_metrics(
     try:
         record_publish_metrics(db, record_id, payload.metrics)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     db.commit()
     return {"ok": True}

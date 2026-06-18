@@ -10,6 +10,7 @@ def test_post_score_api_requires_mcp_token(monkeypatch):
     try:
         monkeypatch.setenv("GEO_MCP_TOKEN", "secret")
         from server.app.core import config
+
         config.get_settings.cache_clear()
 
         r = test_app.client.post("/api/articles/score", json={"article_ids": [1]})
@@ -23,6 +24,7 @@ def test_post_auto_review_api_404_on_missing_article(monkeypatch):
     try:
         monkeypatch.setenv("GEO_MCP_TOKEN", "secret")
         from server.app.core import config
+
         config.get_settings.cache_clear()
 
         r = test_app.client.post(
@@ -88,12 +90,20 @@ def test_score_articles_returns_one_per_input(monkeypatch):
     # mock litellm.completion
     def fake_completion(*args, **kwargs):
         class _Choice:
-            message = type("m", (), {"content": (
-                '{"score_breakdown": {"factuality": 85, "readability": 80, "style": 75, "policy_safety": 90},'
-                ' "score_total": 82, "suggested_decision": "approved", "reasoning": "looks ok"}'
-            )})()
+            message = type(
+                "m",
+                (),
+                {
+                    "content": (
+                        '{"score_breakdown": {"factuality": 85, "readability": 80, "style": 75, "policy_safety": 90},'
+                        ' "score_total": 82, "suggested_decision": "approved", "reasoning": "looks ok"}'
+                    )
+                },
+            )()
+
         class _Resp:
             choices = [_Choice()]
+
         return _Resp()
 
     monkeypatch.setattr("litellm.completion", fake_completion)
@@ -108,6 +118,7 @@ def test_score_articles_returns_one_per_input(monkeypatch):
     try:
         # 建 2 篇 article
         from server.app.modules.articles.models import Article
+
         db = test_app.session_factory()
         try:
             articles = []
@@ -150,8 +161,10 @@ def test_score_articles_returns_failure_for_invalid_json(monkeypatch):
     def fake_completion(*args, **kwargs):
         class _Choice:
             message = type("m", (), {"content": "this is not json"})()
+
         class _Resp:
             choices = [_Choice()]
+
         return _Resp()
 
     monkeypatch.setattr("litellm.completion", fake_completion)
@@ -163,21 +176,28 @@ def test_score_articles_returns_failure_for_invalid_json(monkeypatch):
     test_app = build_test_app(monkeypatch)
     try:
         from server.app.modules.articles.models import Article
+
         db = test_app.session_factory()
         try:
             a = Article(
-                user_id=test_app.admin_id, title="x",
+                user_id=test_app.admin_id,
+                title="x",
                 content_json=json.dumps({"type": "doc", "content": []}),
-                content_html="", plain_text="text",
-                word_count=4, status="draft", review_status="pending",
+                content_html="",
+                plain_text="text",
+                word_count=4,
+                status="draft",
+                review_status="pending",
             )
-            db.add(a); db.commit()
+            db.add(a)
+            db.commit()
             aid = a.id
         finally:
             db.close()
 
         from server.app.modules.auto_review.schemas import ScoreRequest
         from server.app.modules.auto_review.service import score_articles
+
         db = test_app.session_factory()
         try:
             results = score_articles(db, ScoreRequest(article_ids=[aid]))

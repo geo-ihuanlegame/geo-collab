@@ -1002,11 +1002,19 @@ def illustrate_article_mcp(
 
     # 自动 positions：默认在 content_json 第 2、4、6 段后插
     positions = payload.image_positions or [2, 4, 6]
-    before = len(article.content_json.get("content", [])) if isinstance(article.content_json, dict) else 0
+    before = (
+        len(article.content_json.get("content", []))
+        if isinstance(article.content_json, dict)
+        else 0
+    )
     insert_images_for_article(article_id, category_id, positions, db)
     db.commit()
     db.refresh(article)
-    after = len(article.content_json.get("content", [])) if isinstance(article.content_json, dict) else 0
+    after = (
+        len(article.content_json.get("content", []))
+        if isinstance(article.content_json, dict)
+        else 0
+    )
     return IllustrateResponse(inserted_count=max(0, after - before))
 
 

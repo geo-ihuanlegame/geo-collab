@@ -13,13 +13,13 @@
 from datetime import datetime
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     CheckConstraint,
     Column,
     DateTime,
     ForeignKey,
     Integer,
-    JSON,
     String,
     Table,
     Text,

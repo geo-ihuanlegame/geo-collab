@@ -240,7 +240,10 @@ def list_question_types(
 # 否则 JWT cookie 检查会先于 MCP token 检查触发 401。
 
 from server.app.core.mcp_auth import require_mcp_token  # noqa: E402
-from server.app.modules.ai_generation.compose_once import ComposeOnceRequest, compose_one  # noqa: E402
+from server.app.modules.ai_generation.compose_once import (  # noqa: E402
+    ComposeOnceRequest,
+    compose_one,
+)
 
 mcp_router = APIRouter()
 
@@ -274,5 +277,5 @@ def post_compose_once(payload: ComposeOncePayload) -> ComposeOnceResponse:
             ),
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return ComposeOnceResponse(article_id=article_id)

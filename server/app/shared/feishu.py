@@ -68,9 +68,7 @@ def send_text(title: str, message: str, level: str = "info") -> bool:
     emoji = {"info": "💬", "warning": "⚠️", "error": "❌", "done": "✅"}.get(level, "💬")
     text = f"【geo】{emoji} {title}\n{message}"
     payload = json.dumps({"msg_type": "text", "content": {"text": text}}).encode()
-    req = urllib.request.Request(
-        url, data=payload, headers={"Content-Type": "application/json"}
-    )
+    req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             resp.read()

@@ -78,6 +78,7 @@ def test_compose_once_api_requires_mcp_token(monkeypatch):
     try:
         monkeypatch.setenv("GEO_MCP_TOKEN", "secret")
         from server.app.core import config
+
         config.get_settings.cache_clear()
 
         # 不带 token → 401
@@ -105,11 +106,16 @@ def test_compose_once_api_returns_400_on_missing_question(monkeypatch):
     try:
         monkeypatch.setenv("GEO_MCP_TOKEN", "secret")
         from server.app.core import config
+
         config.get_settings.cache_clear()
 
         r = test_app.client.post(
             "/api/generation/compose-once",
-            json={"question_item_id": 999999, "prompt_template_id": 1, "user_id": test_app.admin_id},
+            json={
+                "question_item_id": 999999,
+                "prompt_template_id": 1,
+                "user_id": test_app.admin_id,
+            },
             headers={"X-MCP-Token": "secret"},
         )
         assert r.status_code == 400
