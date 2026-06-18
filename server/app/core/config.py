@@ -146,6 +146,10 @@ class Settings(BaseSettings):
         120  # GEO_BAIDU_NEG_CACHE_SECONDS 同名搜图失败的负缓存 TTL，省得本批反复打
     )
 
+    # MCP server（Claude Code 通过 stdio spawn 调用 GEO 能力）
+    mcp_token: str = ""  # GEO_MCP_TOKEN（独立 service token，与 user JWT 隔离；空=禁用 MCP）
+    mcp_api_base_url: str = "http://127.0.0.1:8000"  # GEO_MCP_API_BASE_URL
+
     model_config = SettingsConfigDict(env_prefix="GEO_", env_file=".env", extra="ignore")
 
 
