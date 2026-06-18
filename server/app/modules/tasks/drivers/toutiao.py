@@ -25,11 +25,80 @@ from server.app.modules.tasks.drivers.base import (
     UserInputRequired,
 )
 from server.app.modules.tasks.drivers.image_upload import _maybe_resize_for_upload
+from server.app.modules.tasks.drivers.toutiao_creator_id import (
+    TOUTIAO_ID_LABEL,
+    CreatorIdResult,
+    normalize_dom_scan_result,
+    parse_creator_info_response,
+)
 from server.app.shared.diagnostics import publish_step, record_publish_diagnostic
 
 logger = logging.getLogger(__name__)
 
 TOUTIAO_PUBLISH_URL = "https://mp.toutiao.com/profile_v4/graphic/publish"
+# 创作者平台个人信息页 + 取 media_id 的 creator_center 接口（与 spike 一致，见设计稿 §3）
+TOUTIAO_CREATOR_INFO_URL = "https://mp.toutiao.com/profile_v4/personal/info"
+TOUTIAO_CREATOR_INFO_API = "/mp/agw/creator_center/user_info"
+# best-effort 抽取的导航 / 接口超时（毫秒）；超时即降级返回 None，绝不拖垮登录
+_EXTRACT_NAV_TIMEOUT_MS = 30_000
+
+
+# ── creator-ID 抽取：page.evaluate 用的 JS 片段（sync / async 共用）─────────────
+
+# 在活页上 fetch creator_center user_info（带 cookie），返回 {url,status,text}
+_CREATOR_INFO_FETCH_JS = """
+async (path) => {
+  const response = await fetch(new URL(path, location.origin).href, {
+    credentials: 'include',
+    cache: 'no-store',
+    headers: {'Accept': 'application/json,text/plain,*/*'}
+  });
+  return {url: response.url, status: response.status, text: await response.text()};
+}
+"""
+
+# DOM 兜底：找含「头条号ID」label 的节点，向上 5 层内抓首个合法数字
+_CREATOR_INFO_DOM_JS = """
+(label) => {
+  const normalize = (s) => (s || '').replace(/\\s+/g, ' ').trim();
+  const idPattern = /[1-9]\\d{7,29}/;
+  for (const node of document.querySelectorAll('body *')) {
+    const ownText = normalize(node.innerText || node.textContent || '');
+    if (!ownText || !ownText.includes(label)) continue;
+    let current = node;
+    for (let depth = 0; depth < 5 && current; depth++) {
+      const text = normalize(current.innerText || current.textContent || '');
+      const match = idPattern.exec(text);
+      if (match) return {value: match[0], evidence: text};
+      current = current.parentElement;
+    }
+  }
+  const bodyText = normalize(document.body ? document.body.innerText : '');
+  const index = bodyText.indexOf(label);
+  if (index >= 0) {
+    const evidence = bodyText.slice(index, index + 180);
+    const match = idPattern.exec(evidence);
+    if (match) return {value: match[0], evidence};
+  }
+  return null;
+}
+"""
+
+
+def _redact_url(url: str) -> str:
+    """脱敏诊断 URL 里的 token / ticket / session 等敏感 query（与 spike 一致）。"""
+    return re.sub(
+        r"([?&](?:token|ticket|session|sid|auth|csrf|msToken|X-Bogus)=)[^&#]+",
+        r"\1<redacted>",
+        url or "",
+    )
+
+
+def _on_creator_info_page(url: str) -> bool:
+    low = (url or "").lower()
+    return "mp.toutiao.com" in low and "auth/page/login" not in low and "/passport/" not in low
+
+
 QR_HINTS = ("扫码", "扫一扫", "二维码")
 CAPTCHA_HINTS = ("验证码", "安全验证", "图形验证")
 LOGIN_REDIRECT_HINTS = ("login", "passport", "sso", "登录")
@@ -1034,6 +1103,119 @@ class ToutiaoDriver:
         stop_before_publish: bool,
     ) -> PublishResult:
         return _do_publish(page, context, payload, stop_before_publish)
+
+    def extract_platform_user_id_sync(self, *, page: Any) -> str | None:
+        """同步 Playwright 活页上抽取头条号ID（media_id）。best-effort，失败返回 None。
+
+        导航到创作者个人信息页 → page.evaluate 调 creator_center user_info 接口取 media_id
+        → DOM label 兜底。解析全部委托给 toutiao_creator_id 纯函数层。任何异常都记脱敏
+        诊断后返回 None，绝不抛出（抽取失败不能拖垮登录态检测）。
+        """
+        try:
+            result = _extract_creator_id_sync(page)
+            if result is not None:
+                logger.info("Toutiao creator-id extracted (sync): source=%s", result.source)
+                return result.value
+            return None
+        except Exception:
+            logger.warning(
+                "Toutiao creator-id sync extraction failed for %s",
+                _redact_url(getattr(page, "url", "") or ""),
+                exc_info=True,
+            )
+            return None
+
+    async def extract_platform_user_id_async(self, *, page: Any) -> str | None:
+        """异步 Playwright 活页上抽取头条号ID（media_id）。best-effort，失败返回 None。
+
+        与 sync 版同源逻辑，只是用 async Playwright API；解析复用同一纯函数层。
+        """
+        try:
+            result = await _extract_creator_id_async(page)
+            if result is not None:
+                logger.info("Toutiao creator-id extracted (async): source=%s", result.source)
+                return result.value
+            return None
+        except Exception:
+            logger.warning(
+                "Toutiao creator-id async extraction failed for %s",
+                _redact_url(getattr(page, "url", "") or ""),
+                exc_info=True,
+            )
+            return None
+
+
+# ── creator-ID 抽取 I/O（sync / async 各一份，解析复用纯函数）──────────────────
+
+
+def _extract_creator_id_sync(page: Any) -> CreatorIdResult | None:
+    """sync Playwright：导航 → fetch 接口 → DOM 兜底。返回解析结果或 None。"""
+    url = page.url or ""
+    if not _on_creator_info_page(url) or "/profile_v4/" not in url.lower():
+        try:
+            page.goto(
+                TOUTIAO_CREATOR_INFO_URL,
+                wait_until="domcontentloaded",
+                timeout=_EXTRACT_NAV_TIMEOUT_MS,
+            )
+        except Exception:
+            logger.warning("Toutiao creator info navigation failed (sync)", exc_info=True)
+
+    if not _on_creator_info_page(page.url or ""):
+        return None
+
+    # 1) creator_center user_info 接口（结构化 media_id）
+    try:
+        response = page.evaluate(_CREATOR_INFO_FETCH_JS, TOUTIAO_CREATOR_INFO_API)
+        source = f"fetch:{response.get('status')}:{_redact_url(response.get('url', ''))}"
+        found = parse_creator_info_response(response.get("text") or "", source)
+        if found is not None:
+            return found
+    except Exception:
+        logger.warning("Toutiao creator info fetch failed (sync)", exc_info=True)
+
+    # 2) DOM label 兜底
+    try:
+        dom = page.evaluate(_CREATOR_INFO_DOM_JS, TOUTIAO_ID_LABEL)
+        return normalize_dom_scan_result(dom, f"dom:{_redact_url(page.url or '')}")
+    except Exception:
+        logger.warning("Toutiao creator info DOM scan failed (sync)", exc_info=True)
+        return None
+
+
+async def _extract_creator_id_async(page: Any) -> CreatorIdResult | None:
+    """async Playwright：导航 → fetch 接口 → DOM 兜底。返回解析结果或 None。"""
+    url = page.url or ""
+    if not _on_creator_info_page(url) or "/profile_v4/" not in url.lower():
+        try:
+            await page.goto(
+                TOUTIAO_CREATOR_INFO_URL,
+                wait_until="domcontentloaded",
+                timeout=_EXTRACT_NAV_TIMEOUT_MS,
+            )
+        except Exception:
+            logger.warning("Toutiao creator info navigation failed (async)", exc_info=True)
+
+    if not _on_creator_info_page(page.url or ""):
+        return None
+
+    # 1) creator_center user_info 接口（结构化 media_id）
+    try:
+        response = await page.evaluate(_CREATOR_INFO_FETCH_JS, TOUTIAO_CREATOR_INFO_API)
+        source = f"fetch:{response.get('status')}:{_redact_url(response.get('url', ''))}"
+        found = parse_creator_info_response(response.get("text") or "", source)
+        if found is not None:
+            return found
+    except Exception:
+        logger.warning("Toutiao creator info fetch failed (async)", exc_info=True)
+
+    # 2) DOM label 兜底
+    try:
+        dom = await page.evaluate(_CREATOR_INFO_DOM_JS, TOUTIAO_ID_LABEL)
+        return normalize_dom_scan_result(dom, f"dom:{_redact_url(page.url or '')}")
+    except Exception:
+        logger.warning("Toutiao creator info DOM scan failed (async)", exc_info=True)
+        return None
 
 
 # register() 需在 ToutiaoDriver 定义之后调用，故 import 置于文件末尾

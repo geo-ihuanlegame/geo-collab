@@ -21,7 +21,7 @@ import asyncio
 import logging
 import os
 import threading
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass
 from pathlib import Path
@@ -42,6 +42,13 @@ class LoginBrowserResult:
     logged_in: bool
     url: str
     title: str
+    # 平台侧用户 ID（creator-ID 查重，见设计稿 §3/§4）。未传抽取器 / 抽取失败时为 None。
+    extracted_platform_user_id: str | None = None
+
+
+# 异步抽取器：在 broker 自己的事件循环上、对 live async page 运行，返回平台侧用户 ID 或 None。
+# best-effort——抽取器内部已自吞异常，broker 这层再加一层兜底，绝不让抽取拖垮登录读态。
+ExtractorAsync = Callable[..., Awaitable[str | None]]
 
 
 # ── 实际 Playwright 调用（测试用 monkeypatch 替换这些 seam，无需真浏览器）──────────
@@ -202,8 +209,16 @@ class LoginBrowserBroker:
         *,
         detect: Callable[[str, str, str], bool],
         state_path: Path,
+        extractor: ExtractorAsync | None = None,
     ) -> LoginBrowserResult:
-        return self._submit(self._read(session_id, detect, state_path), READ_STATE_TIMEOUT_SECONDS)
+        """读登录态并存盘；若已登录且传了 extractor，在 live async page 上跑它抽 creator-ID。
+
+        extractor 在 broker 自己的事件循环线程上运行，正是 async Playwright 活页所在处
+        （见设计稿 §4：抽取必须在持有活页的进程 / loop 上跑）。
+        """
+        return self._submit(
+            self._read(session_id, detect, state_path, extractor), READ_STATE_TIMEOUT_SECONDS
+        )
 
     def close(self, session_id: str) -> None:
         self._submit(self._close(session_id), CLOSE_TIMEOUT_SECONDS)
@@ -278,7 +293,11 @@ class LoginBrowserBroker:
         await _pw_goto(page, home_url)
 
     async def _read(
-        self, session_id: str, detect: Callable[[str, str, str], bool], state_path: Path
+        self,
+        session_id: str,
+        detect: Callable[[str, str, str], bool],
+        state_path: Path,
+        extractor: ExtractorAsync | None = None,
     ) -> LoginBrowserResult:
         entry = self._contexts.get(session_id)
         if entry is None:
@@ -291,7 +310,23 @@ class LoginBrowserBroker:
             raise ClientError("Remote browser session has no page")
         url, title, body = await _pw_read(context, page)
         await _pw_storage_state(context, state_path)
-        return LoginBrowserResult(logged_in=bool(detect(url, title, body)), url=url, title=title)
+        logged_in = bool(detect(url, title, body))
+
+        # 已登录且传了 extractor → 在 live async page 上抽 creator-ID（best-effort，绝不抛）
+        extracted: str | None = None
+        if logged_in and extractor is not None:
+            try:
+                extracted = await extractor(page=page)
+            except Exception:
+                _logger.warning("creator-id extractor failed during login read", exc_info=True)
+                extracted = None
+
+        return LoginBrowserResult(
+            logged_in=logged_in,
+            url=url,
+            title=title,
+            extracted_platform_user_id=extracted,
+        )
 
     async def _close(self, session_id: str) -> None:
         entry = self._contexts.pop(session_id, None)

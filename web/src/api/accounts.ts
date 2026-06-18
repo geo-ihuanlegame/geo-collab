@@ -4,6 +4,8 @@ import type {
   AccountBrowserSession,
   AccountBrowserSessionFinish,
   AccountLoginSessionStatusResponse,
+  AccountMember,
+  BackfillIdentitySummary,
   PlatformLoginPayload,
   PlatformOption,
 } from "../types";
@@ -164,4 +166,16 @@ export async function exportAccountPackage(accountIds: number[]): Promise<Respon
     throw new Error(payload.detail || `${response.status} ${response.statusText}`);
   }
   return response;
+}
+
+export function listAccountMembers(accountId: number): Promise<AccountMember[]> {
+  return api<AccountMember[]>(`/api/accounts/${accountId}/members`);
+}
+
+export function removeAccountMember(accountId: number, userId: number): Promise<void> {
+  return api<void>(`/api/accounts/${accountId}/members/${userId}`, { method: "DELETE" });
+}
+
+export function backfillIdentity(): Promise<BackfillIdentitySummary> {
+  return api<BackfillIdentitySummary>("/api/accounts/backfill-identity", { method: "POST" });
 }

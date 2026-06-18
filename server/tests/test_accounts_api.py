@@ -167,7 +167,7 @@ def test_worker_finish_login_session_reads_state_via_broker(monkeypatch):
 
         closed: dict[str, bool] = {}
 
-        def fake_read(session_id, *, detect, state_path):
+        def fake_read(session_id, *, detect, state_path, extractor=None):
             assert session_id == "wk-session"
             Path(state_path).parent.mkdir(parents=True, exist_ok=True)
             Path(state_path).write_text(
@@ -439,7 +439,7 @@ def test_finish_remote_login_session_saves_state_and_stops_session(monkeypatch):
 
         closed: dict[str, bool] = {}
 
-        def fake_read(session_id, *, detect, state_path):
+        def fake_read(session_id, *, detect, state_path, extractor=None):
             Path(state_path).parent.mkdir(parents=True, exist_ok=True)
             Path(state_path).write_text(
                 '{"cookies":[{"name":"session"}],"origins":[]}', encoding="utf-8"

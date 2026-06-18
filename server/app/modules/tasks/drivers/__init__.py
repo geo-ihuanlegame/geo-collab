@@ -36,6 +36,23 @@ class PlatformDriver(Protocol):
     ) -> PublishResult:
         """填写表单、上传资源并点击发布；不负责浏览器生命周期。"""
 
+    # ── 平台侧用户 ID 抽取（查重 / 共享账号，见设计稿 §3）────────────────────────
+    #
+    # 两个方法都**可选**（Protocol 默认实现返回 None）：缺省 = 不抽取 = platform_user_id
+    # 保持 NULL = 不查重，对其它平台**无回归**。实现者各自做 sync / async Playwright I/O，
+    # 解析复用纯函数层。best-effort：任何异常都吞掉返回 None，绝不抛出拖垮登录 / 检测。
+    #
+    # sync 版用于账号有效性检测路径（auth._check_account_in_browser，sync Playwright）；
+    # async 版用于登录 broker（login_broker，async Playwright 活页）。
+
+    def extract_platform_user_id_sync(self, *, page: Page) -> str | None:
+        """同步 Playwright 活页上抽取平台侧用户 ID；不支持 / 失败返回 None。"""
+        return None
+
+    async def extract_platform_user_id_async(self, *, page: Page) -> str | None:
+        """异步 Playwright 活页上抽取平台侧用户 ID；不支持 / 失败返回 None。"""
+        return None
+
 
 logger = logging.getLogger(__name__)
 

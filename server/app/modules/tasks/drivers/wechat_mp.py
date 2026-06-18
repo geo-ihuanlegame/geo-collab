@@ -65,6 +65,12 @@ class WeChatMpDriver:
     def detect_logged_in(self, *, url: str, title: str, body: str) -> bool:
         return False  # API 平台不走浏览器登录检测
 
+    def extract_platform_user_id_sync(self, *, page) -> str | None:  # pragma: no cover
+        return None  # API 平台不抽取浏览器侧 creator-ID（platform_user_id 即 AppID）
+
+    async def extract_platform_user_id_async(self, *, page) -> str | None:  # pragma: no cover
+        return None  # API 平台不抽取浏览器侧 creator-ID（platform_user_id 即 AppID）
+
     def publish(self, *, page, context, payload, stop_before_publish):  # pragma: no cover
         raise PublishError("微信公众号为 API 接入，不支持浏览器发布路径")
 

@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { deleteAccount, listAccounts, listPlatforms } from "../../api/accounts";
+import { backfillIdentity, deleteAccount, listAccounts, listPlatforms } from "../../api/accounts";
 import type { Account, PlatformOption } from "../../types";
-import { ChevronDown, ChevronRight, Plus, Search, Trash2, X } from "lucide-react";
+import { ChevronDown, ChevronRight, LoaderCircle, Plus, Search, Trash2, X } from "lucide-react";
 import { useToast } from "../../components/Toast";
 import { useAuth } from "../auth/AuthContext";
 import { AccountRow, AccountRowHeader } from "./AccountRow";
+import { AccountMembersDialog } from "./AccountMembersDialog";
 import { AddAuthorizationDialog } from "./AddAuthorizationDialog";
 import { EditAccountDialog } from "./EditAccountDialog";
 import { ReauthorizeDialog } from "./ReauthorizeDialog";
@@ -49,6 +50,8 @@ export function AccountsWorkspace({ isActive }: { isActive?: boolean } = {}) {
   const [editTarget, setEditTarget] = useState<Account | null>(null);
   const [reauthTarget, setReauthTarget] = useState<Account | null>(null);
   const [pendingExpanded, setPendingExpanded] = useState(true);
+  const [membersTarget, setMembersTarget] = useState<Account | null>(null);
+  const [backfilling, setBackfilling] = useState(false);
 
   const isInitialMountRef = useRef(true);
   const isSearchMountRef = useRef(true);
@@ -149,12 +152,38 @@ export function AccountsWorkspace({ isActive }: { isActive?: boolean } = {}) {
     }
   }
 
+  async function handleBackfill() {
+    setBackfilling(true);
+    try {
+      const result = await backfillIdentity();
+      toast(
+        `回填完成：处理 ${result.processed} 个，写入 ${result.backfilled} 个，合并 ${result.merged} 个，冲突 ${result.conflicts} 个，仍未知 ${result.still_unknown} 个，失败 ${result.failed} 个`,
+        result.failed > 0 || result.conflicts > 0 ? "error" : "success",
+      );
+      await refreshAccounts();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "回填失败", "error");
+    } finally {
+      setBackfilling(false);
+    }
+  }
+
   return (
     <>
       <header className="mediaMatrixHeader">
         <span className="mediaMatrixBreadcrumb">媒体矩阵</span>
         <div className="mediaMatrixTitleRow">
           <h1 className="mediaMatrixTitle">平台账号授权</h1>
+          {isAdmin && (
+            <button
+              type="button"
+              className="mediaMatrixBackfillBtn"
+              disabled={backfilling}
+              onClick={() => void handleBackfill()}
+            >
+              {backfilling ? <LoaderCircle size={15} className="spin" /> : "批量回填身份"}
+            </button>
+          )}
           <button
             type="button"
             className="mediaMatrixAddBtn"
@@ -187,6 +216,7 @@ export function AccountsWorkspace({ isActive }: { isActive?: boolean } = {}) {
                   onCheck={() => void handleCheck(account)}
                   onEdit={() => setEditTarget(account)}
                   onDelete={() => requestDelete(account)}
+                  onManageMembers={() => setMembersTarget(account)}
                 />
               ))}
             </div>
@@ -263,6 +293,7 @@ export function AccountsWorkspace({ isActive }: { isActive?: boolean } = {}) {
               onCheck={() => void handleCheck(account)}
               onEdit={() => setEditTarget(account)}
               onDelete={() => requestDelete(account)}
+              onManageMembers={() => setMembersTarget(account)}
             />
           ))}
           {filteredAccounts.length === 0 && (
@@ -293,6 +324,14 @@ export function AccountsWorkspace({ isActive }: { isActive?: boolean } = {}) {
           mode={platforms.find((p) => p.code === reauthTarget.platform_code)?.mode}
           onClose={() => setReauthTarget(null)}
           onReauthorized={() => void refreshAccounts()}
+        />
+      )}
+
+      {membersTarget && (
+        <AccountMembersDialog
+          account={membersTarget}
+          onClose={() => setMembersTarget(null)}
+          onChanged={() => void refreshAccounts()}
         />
       )}
 

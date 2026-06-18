@@ -261,6 +261,17 @@ class ToutiaoInPageDriver:
             return False
         return "mp.toutiao.com" in url
 
+    def extract_platform_user_id_sync(self, *, page: Any) -> str | None:
+        # 复用默认头条驱动的 creator-ID 抽取（同平台、同 DOM/接口）；best-effort 返回 None
+        from server.app.modules.tasks.drivers.toutiao import ToutiaoDriver
+
+        return ToutiaoDriver().extract_platform_user_id_sync(page=page)
+
+    async def extract_platform_user_id_async(self, *, page: Any) -> str | None:
+        from server.app.modules.tasks.drivers.toutiao import ToutiaoDriver
+
+        return await ToutiaoDriver().extract_platform_user_id_async(page=page)
+
     def publish(
         self,
         *,

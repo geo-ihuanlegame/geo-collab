@@ -29,6 +29,7 @@ from typing import Any
 from sqlalchemy import and_, or_, select
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import update as sa_update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from server.app.core.config import get_settings
@@ -65,6 +66,8 @@ class BrowserCheckResult:
     logged_in: bool
     url: str
     title: str
+    # 平台侧用户 ID（creator-ID 查重，见设计稿 §3/§4）。未抽取 / 抽取失败为 None。
+    extracted_platform_user_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -485,8 +488,15 @@ def _finish_login_browser_via_worker(
         logged_in=bool(request.logged_in),
         url=request.result_url or "",
         title=request.result_title or "",
+        extracted_platform_user_id=request.extracted_platform_user_id,
     )
+    # 查重决议可能把本账号并入了共享 canonical（设计稿 §4）：返回 canonical，B 的前端立刻看到。
+    resolved_id = request.resolved_account_id
     db.expire_all()
+    if resolved_id is not None and resolved_id != account.id:
+        resolved = get_account(db, resolved_id)
+        if resolved is not None:
+            return resolved, result
     return get_account(db, account.id) or account, result
 
 
@@ -699,6 +709,22 @@ def _worker_finish_login_session(db: Session, request: AccountLoginSession) -> N
         request.logged_in = result.logged_in
         request.result_url = result.url
         request.result_title = result.title
+
+        # ── creator-ID 查重决议（设计稿 §4）：仅在已登录时跑 ─────────────────────
+        # 抽取诊断值无条件回写；决议把 account 并入 / 升级 canonical，resolved_account_id
+        # 让 finish/status 返回正确（可能是共享 canonical 的）账号。
+        # 决议内部会自提交（claim / reconcile），故先把要随之落库的 request 字段写好。
+        resolved_id = account.id
+        if result.logged_in:
+            request.extracted_platform_user_id = result.extracted_platform_user_id
+            db.flush()
+            resolved_id = _resolve_account_identity(
+                db,
+                account,
+                result.extracted_platform_user_id,
+                granted_via="login_dedup",
+            )
+        request.resolved_account_id = resolved_id
         request.status = LOGIN_STATUS_FINISHED
         request.error_message = None
         request.queue_reason = None
@@ -838,6 +864,161 @@ def _apply_login_result(account: Account, result: BrowserCheckResult) -> None:
     account.updated_at = now
 
 
+# ── creator-ID 查重决议（登录 §4 / 检测回填 §5 共用，见设计稿）──────────────────
+
+
+def _select_active_canonical(
+    db: Session, account: Account, platform_user_id: str
+) -> Account | None:
+    """SELECT 同平台、同 creator-ID 的活账号（未软删、非 merged_into、排除 account 自己）。"""
+    return db.execute(
+        select(Account).where(
+            Account.platform_id == account.platform_id,
+            Account.platform_user_id == platform_user_id,
+            Account.is_deleted == False,  # noqa: E712
+            Account.merged_into.is_(None),
+            Account.id != account.id,
+        )
+    ).scalar_one_or_none()
+
+
+def _account_has_history(db: Session, account: Account) -> bool:
+    """该账号是否有「历史」= 任一未软删 PublishRecord、任一成员、或任一任务绑定。
+
+    用于「身份冲突」收紧判定（设计稿 §5）：有历史的行不自动改写 platform_user_id。
+    """
+    from server.app.modules.accounts.models import AccountMember
+    from server.app.modules.tasks.models import PublishRecord, PublishTaskAccount
+
+    has_record = (
+        db.execute(
+            select(PublishRecord.id)
+            .where(
+                PublishRecord.account_id == account.id,
+                PublishRecord.is_deleted == False,  # noqa: E712
+            )
+            .limit(1)
+        ).scalar_one_or_none()
+        is not None
+    )
+    if has_record:
+        return True
+    has_member = (
+        db.execute(
+            select(AccountMember.user_id).where(AccountMember.account_id == account.id).limit(1)
+        ).scalar_one_or_none()
+        is not None
+    )
+    if has_member:
+        return True
+    has_task = (
+        db.execute(
+            select(PublishTaskAccount.id)
+            .where(PublishTaskAccount.account_id == account.id)
+            .limit(1)
+        ).scalar_one_or_none()
+        is not None
+    )
+    return has_task
+
+
+def _claim_or_reconcile_identity(
+    db: Session, account: Account, platform_user_id: str, *, granted_via: str
+) -> int:
+    """把 creator-ID `X` 落到身份模型上，返回决议后的 canonical 账号 id。
+
+    前置：调用方已确认 `account.platform_user_id` 为 NULL 或等于 X（不是「有值且 != X」的
+    身份冲突情形——那由调用方先用 _account_has_history 收紧处理）。
+
+    - 已有活 canonical C（X 已被别的账号占）→ reconcile_duplicate_into_canonical(account→C)，
+      返回 C.id。**此路径绝不在 account 上 claim X**（避免撞唯一约束 / 与 reconcile 自提交纠缠）。
+    - 无 canonical → 在 account 上 claim X（account 升为 canonical/owner），commit；
+      并发下 commit 撞 IntegrityError → rollback、重查 canonical 转 reconcile 路径。
+
+    reconcile_duplicate_into_canonical 内部经 add_audit_entry 自提交；故本函数严格区分两路：
+    canonical-exists 路径不暂存 X claim，no-canonical 路径只 claim 不 reconcile（见任务 CRITICAL）。
+    """
+    from server.app.modules.accounts.service import reconcile_duplicate_into_canonical
+
+    canonical = _select_active_canonical(db, account, platform_user_id)
+    if canonical is not None:
+        canonical_id = canonical.id
+        reconcile_duplicate_into_canonical(db, account, canonical, granted_via=granted_via)
+        db.commit()
+        return canonical_id
+
+    # 无既有 canonical：account 升为 canonical，claim X
+    account.platform_user_id = platform_user_id
+    account.updated_at = utcnow()
+    try:
+        db.commit()
+        return account.id
+    except IntegrityError:
+        # 并发：另一登录 / 检测刚抢先 claim 了同一个 X → 回退到 reconcile 路径
+        db.rollback()
+        db.expire_all()
+        account = db.get(Account, account.id) or account
+        # 复位本进程未提交的 claim（rollback 已回滚，但对象状态需重读）
+        account.platform_user_id = None
+        winner = _select_active_canonical(db, account, platform_user_id)
+        if winner is None:
+            # 极端竞态下重查仍空（赢家又被删/合并）：放弃 claim、保持 NULL，留后续回填
+            db.rollback()
+            return account.id
+        winner_id = winner.id
+        reconcile_duplicate_into_canonical(db, account, winner, granted_via=granted_via)
+        db.commit()
+        return winner_id
+
+
+def _resolve_account_identity(
+    db: Session, account: Account, extracted: str | None, *, granted_via: str
+) -> int:
+    """统一身份决议入口：据抽取到的 `extracted` 把 account 并入 / 升级 canonical。
+
+    返回决议后应当对外呈现的 canonical 账号 id（抽取为空 / 冲突阻断时即 account 自身 id）。
+    覆盖设计稿 §4（登录）/ §5（检测回填）共有的分支：
+
+    - extracted 为空 → 不动，返回 account.id。
+    - account.platform_user_id == extracted → 已回填，不动，返回 account.id。
+    - account.platform_user_id 为 NULL → claim / reconcile（_claim_or_reconcile_identity）。
+    - account.platform_user_id 有值但 != extracted（身份冲突，重新识别收紧规则）：
+        · account 无历史 / 成员 / 任务 → 视为干净行，按 extracted 重跑决议；
+        · 有历史 → 不自动改身份，记 warning（身份冲突待 admin 确认），platform_user_id 不变。
+    """
+    if not extracted:
+        return account.id
+    current = account.platform_user_id
+    if current == extracted:
+        return account.id
+
+    if current is None:
+        return _claim_or_reconcile_identity(db, account, extracted, granted_via=granted_via)
+
+    # current 有值且 != extracted：身份冲突
+    if _account_has_history(db, account):
+        _logger.warning(
+            "Account %s identity conflict: stored platform_user_id=%r but extracted=%r; "
+            "has history/members/tasks, NOT auto-changing (awaiting admin confirmation)",
+            account.id,
+            current,
+            extracted,
+        )
+        return account.id
+
+    # 干净行：先清旧身份再按新 X 重跑决议（清空 commit 一次，避免与下一步 claim 竞态混淆）
+    _logger.warning(
+        "Account %s re-identified: stored platform_user_id=%r → extracted=%r (no history)",
+        account.id,
+        current,
+        extracted,
+    )
+    account.platform_user_id = None
+    account.updated_at = utcnow()
+    db.commit()
+    return _claim_or_reconcile_identity(db, account, extracted, granted_via=granted_via)
+
+
 def _finish_login_browser_local(
     platform_code: str,
     account_key: str,
@@ -845,6 +1026,15 @@ def _finish_login_browser_local(
     session_id: str,
 ) -> BrowserCheckResult:
     return _finish_login_browser_impl(platform_code, account_key, state_path, session_id)
+
+
+def _driver_async_extractor(driver: Any):
+    """从 driver 取出 async creator-ID 抽取器；驱动没实现 / 不支持时返回 None（=不抽取）。
+
+    抽取本身 best-effort（驱动内部已自吞异常），这里只是个适配 seam，方便测试 monkeypatch。
+    """
+    extractor = getattr(driver, "extract_platform_user_id_async", None)
+    return extractor if callable(extractor) else None
 
 
 def _finish_login_browser_impl(
@@ -869,8 +1059,14 @@ def _finish_login_browser_impl(
                 url=url, title=title, body=body
             ),
             state_path=get_data_dir() / state_path,
+            extractor=_driver_async_extractor(driver),
         )
-        return BrowserCheckResult(logged_in=result.logged_in, url=result.url, title=result.title)
+        return BrowserCheckResult(
+            logged_in=result.logged_in,
+            url=result.url,
+            title=result.title,
+            extracted_platform_user_id=result.extracted_platform_user_id,
+        )
     finally:
         stop_remote_browser_session(session_id)
 
@@ -972,23 +1168,40 @@ def check_account(db: Session, account: Account, payload: AccountCheckRequest) -
         ):
             raise ClientError("账号正在执行发布或登录操作，请稍后再检查授权状态")
         try:
-            logged_in = _run_in_plain_thread(
+            logged_in, extracted = _run_in_plain_thread(
                 lambda: _check_account_in_browser(driver, abs_state_path, payload)
             )
         finally:
             release_profile_lock(profile_key, owner_kind="account_check", owner_id=account.id)
     else:
         logged_in = abs_state_path.exists()
+        extracted = None
 
     now = utcnow()
     account.status = "valid" if logged_in else "expired"
     account.last_checked_at = now
     account.updated_at = now
     db.flush()
-    return get_account(db, account.id) or account
+
+    # ── creator-ID 历史回填 + 自动合并（设计稿 §5 触发点 A）：仅在 logged_in 时回填 ──
+    # best-effort：决议不抛（内部已兜底）。决议把 NULL 行回填 X / 并入已存在 canonical，
+    # 或对身份冲突收紧处理。决议内部自提交，故放在 flush 之后。
+    resolved_id = account.id
+    if logged_in and extracted:
+        resolved_id = _resolve_account_identity(
+            db, account, extracted, granted_via="backfill_merge"
+        )
+    return get_account(db, resolved_id) or get_account(db, account.id) or account
 
 
-def _check_account_in_browser(driver, abs_state_path: Path, payload: AccountCheckRequest) -> bool:
+def _check_account_in_browser(
+    driver, abs_state_path: Path, payload: AccountCheckRequest
+) -> tuple[bool, str | None]:
+    """无头载入登录态判断是否已登录；已登录则 best-effort 抽取平台侧用户 ID。
+
+    返回 (logged_in, extracted_platform_user_id)。抽取走 driver.extract_platform_user_id_sync
+    在同一 sync 活页上跑（驱动内部已自吞异常、缺省返回 None），绝不拖垮检测主流程。
+    """
     from playwright.sync_api import sync_playwright
 
     with sync_playwright() as pw:
@@ -1011,8 +1224,20 @@ def _check_account_in_browser(driver, abs_state_path: Path, payload: AccountChec
             except Exception:
                 body = ""
             logged_in = driver.detect_logged_in(url=url, title=title, body=body)
+            extracted: str | None = None
+            if logged_in:
+                extractor = getattr(driver, "extract_platform_user_id_sync", None)
+                if callable(extractor):
+                    try:
+                        extracted = extractor(page=page)
+                    except Exception:
+                        _logger.warning(
+                            "creator-id sync extraction failed during account check",
+                            exc_info=True,
+                        )
+                        extracted = None
             context.storage_state(path=str(abs_state_path))
-            return logged_in
+            return logged_in, extracted
         finally:
             context.close()
             browser.close()
@@ -1190,12 +1415,15 @@ def import_accounts_auth_package(
                 skipped.append(f"{display_name}（last_login_at 格式无效）")
                 continue
             imported_status = _assess_imported_status(dest)
+            # 浏览器账号导入：不信任包内 platform_user_id，一律置 NULL（设计稿 §9）。
+            # 否则「另一用户导入同一账号包」会直接撞 uq_accounts_platform_user 唯一约束、整包
+            # flush 失败。creator-ID 留给后续账号检测 / 登录再抽取 + 走查重并入。
             if existing is None:
                 account = Account(
                     user_id=user_id,
                     platform=platform,
                     display_name=display_name,
-                    platform_user_id=entry.get("platform_user_id"),
+                    platform_user_id=None,
                     status=imported_status,
                     state_path=new_state_path_rel,
                     note=entry.get("note"),
@@ -1207,7 +1435,7 @@ def import_accounts_auth_package(
                 existing.user_id = user_id
                 existing.platform = platform
                 existing.display_name = display_name
-                existing.platform_user_id = entry.get("platform_user_id")
+                existing.platform_user_id = None
                 existing.status = imported_status
                 existing.note = entry.get("note")
                 existing.last_login_at = last_login_at

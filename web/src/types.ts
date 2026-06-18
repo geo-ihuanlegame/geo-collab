@@ -260,6 +260,29 @@ export type Account = {
   app_secret_tail: string | null;
   created_at: string;
   updated_at: string;
+  owner_name: string | null;
+  member_count: number;
+  can_manage: boolean;
+  identity_known: boolean;
+};
+
+export type AccountMember = {
+  user_id: number;
+  username: string | null;
+  display_name?: string | null;
+  account_id?: number;
+  is_owner: boolean;
+  granted_via: string;
+  created_at?: string;
+};
+
+export type BackfillIdentitySummary = {
+  processed: number;
+  backfilled: number;
+  merged: number;
+  conflicts: number;
+  still_unknown: number;
+  failed: number;
 };
 
 export type AccountBrowserSession = {

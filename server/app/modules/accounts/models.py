@@ -68,12 +68,41 @@ class Account(Base):
     )  # 账号头像
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0", index=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # 合并 tombstone 指针：非空表示本行是某 canonical 账号的被并入行；从可用/活跃列表排除，
+    # 但不置 is_deleted，使其名下未终态发布记录仍能发完（共享账号查重合并用，见设计稿 §2.3）。
+    merged_into: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("accounts.id"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
     platform = relationship("Platform", back_populates="accounts")
     publish_task_accounts = relationship("PublishTaskAccount", back_populates="account")
     publish_records = relationship("PublishRecord", back_populates="account")
+
+
+class AccountMember(Base):
+    """共享账号成员表：canonical 账号被授予使用权的非 owner 用户（owner 仍是 Account.user_id）。
+
+    复合主键 (account_id, user_id)；FK 均 ON DELETE CASCADE，但账号走软删，故 CASCADE 平时
+    不触发，delete_account 中手动清空成员行。granted_via 溯源授予来源。详见设计稿 §2.2。
+    """
+
+    __tablename__ = "account_members"
+
+    account_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("accounts.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    # granted_via：login_dedup / backfill_merge / manual，溯源授予来源
+    granted_via: Mapped[str] = mapped_column(String(40), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
 class AccountLoginSession(Base):
@@ -102,6 +131,13 @@ class AccountLoginSession(Base):
     queue_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     previous_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
     worker_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    # 查重决议结果回传通道（worker 写、finish/status 读）：见设计稿 §2.4。
+    resolved_account_id: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )  # worker 写入查重决议后的 canonical id；finish/status 据此返回正确账号
+    extracted_platform_user_id: Mapped[str | None] = mapped_column(
+        String(200), nullable=True
+    )  # 抽取到的 creator-ID，便于诊断 / 审计
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
