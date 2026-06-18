@@ -54,3 +54,51 @@ def list_articles(
         return _ok(data)
     except ApiError as exc:
         return _fail(str(exc))
+
+
+@mcp.tool()
+def list_question_pools() -> dict[str, Any]:
+    """List all question pools (Feishu-synced topic libraries)."""
+    try:
+        data = _client().get("/api/generation/question-pools")
+        return _ok(data)
+    except ApiError as exc:
+        return _fail(str(exc))
+
+
+@mcp.tool()
+def list_question_items(
+    pool_id: int,
+    limit: int = 20,
+    category: str | None = None,
+) -> dict[str, Any]:
+    """List question items within a pool, optionally filtered by category.
+
+    Args:
+        pool_id: Question pool id (from list_question_pools).
+        limit: Max items to return (1-100).
+        category: Optional category filter (e.g. "未分类" / specific category name).
+    """
+    params: dict[str, Any] = {"limit": max(1, min(100, limit))}
+    if category:
+        params["category"] = category
+    try:
+        data = _client().get(f"/api/generation/question-pools/{pool_id}/items", params=params)
+        return _ok(data)
+    except ApiError as exc:
+        return _fail(str(exc))
+
+
+@mcp.tool()
+def list_prompt_templates(scope: str = "generation") -> dict[str, Any]:
+    """List prompt templates filtered by scope.
+
+    Args:
+        scope: One of "generation", "ai_format", "image_search", "image_companion".
+               "generation" = article writing prompts (most common for Loops).
+    """
+    try:
+        data = _client().get("/api/prompt-templates", params={"scope": scope})
+        return _ok(data)
+    except ApiError as exc:
+        return _fail(str(exc))
