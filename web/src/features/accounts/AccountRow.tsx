@@ -1,6 +1,6 @@
 import type { Account } from "../../types";
 import { assetSrc } from "../../api/core";
-import { Users } from "lucide-react";
+import { Phone, Users } from "lucide-react";
 
 type StatusMeta = { label: string; pill: "active" | "inactive" | "disabled"; dot: string };
 
@@ -35,7 +35,8 @@ export function AccountRow({
   onManageMembers?: () => void;
 }) {
   const meta = accountStatusMeta(account);
-  const accountId = account.platform_user_id ?? account.app_id ?? account.contact ?? "—";
+  // 列表行展示账号手机号（联系方式）；平台 ID 移到编辑弹窗里只读展示。
+  const phone = account.contact?.trim() || "—";
   const isShared = account.member_count > 0;
 
   return (
@@ -75,7 +76,10 @@ export function AccountRow({
             )}
           </div>
           <div className="accountRowMetaLine">
-            <span className="accountRowId">{accountId}</span>
+            <span className="accountRowId">
+              <Phone size={11} className="accountRowPhoneIcon" />
+              {phone}
+            </span>
             {account.owner_name && (
               <span className="accountRowOwner">归属：{account.owner_name}</span>
             )}

@@ -1,7 +1,9 @@
-import { useState } from "react";
-import { LoaderCircle, X } from "lucide-react";
+import { useRef, useState } from "react";
+import { Camera, Lock, LoaderCircle, X } from "lucide-react";
 import type { Account } from "../../types";
 import { updateAccount } from "../../api/accounts";
+import { uploadAsset } from "../../api/assets";
+import { assetSrc } from "../../api/core";
 import { useToast } from "../../components/Toast";
 
 export function EditAccountDialog({
@@ -20,6 +22,31 @@ export function EditAccountDialog({
   const [distributionEnabled, setDistributionEnabled] = useState(account.distribution_enabled);
   const [saving, setSaving] = useState(false);
 
+  const [avatarAssetId, setAvatarAssetId] = useState<string | null>(account.avatar_asset_id);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // 允许重选同一文件
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast("请选择图片文件", "error");
+      return;
+    }
+    setAvatarUploading(true);
+    try {
+      const asset = await uploadAsset(file);
+      setAvatarAssetId(asset.id);
+      setAvatarPreview(URL.createObjectURL(file));
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "头像上传失败", "error");
+    } finally {
+      setAvatarUploading(false);
+    }
+  }
+
   async function handleSave() {
     if (!displayName.trim()) {
       toast("请填写账号名称", "error");
@@ -28,11 +55,13 @@ export function EditAccountDialog({
     setSaving(true);
     try {
       // contact / note 传空串即可清空（后端 update_account_fields 对空串 != None 直接落库）。
+      // avatar_asset_id 后端只在非 None 时落库，仅用于「换头像」、不支持清空。
       await updateAccount(account.id, {
         display_name: displayName.trim(),
         contact: contact.trim(),
         note: note.trim(),
         distribution_enabled: distributionEnabled,
+        avatar_asset_id: avatarAssetId,
       });
       onSaved();
       toast("已保存", "success");
@@ -62,12 +91,60 @@ export function EditAccountDialog({
         <div className="addAuthBody">
           <div className="addAuthField">
             <div className="addAuthLabel">账号名称 *</div>
-            <input
-              className="addAuthInput"
-              placeholder="例如：纪缘"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-            />
+            <div className="addAuthNameRow">
+              <div
+                className="addAuthAvatarUpload"
+                onClick={() => {
+                  if (!avatarUploading) fileInputRef.current?.click();
+                }}
+              >
+                {avatarUploading ? (
+                  <LoaderCircle size={18} className="spin" />
+                ) : avatarPreview || avatarAssetId ? (
+                  <img
+                    className="addAuthAvatarPreview"
+                    src={avatarPreview ?? assetSrc(avatarAssetId) ?? undefined}
+                    alt=""
+                  />
+                ) : (
+                  <>
+                    <Camera size={18} />
+                    <span>上传</span>
+                  </>
+                )}
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                style={{ display: "none" }}
+                onChange={(e) => void handleAvatarChange(e)}
+              />
+              <input
+                className="addAuthInput"
+                placeholder="例如：纪缘"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="addAuthField">
+            <div className="addAuthLabel">平台</div>
+            <div className="addAuthLocked">
+              <span className="addAuthLockedValue">{account.platform_name}</span>
+              <Lock size={13} />
+            </div>
+          </div>
+
+          <div className="addAuthField">
+            <div className="addAuthLabel">平台 ID</div>
+            <div className="addAuthLocked">
+              <span className={`addAuthLockedValue${account.platform_user_id ? "" : " isEmpty"}`}>
+                {account.platform_user_id || "未获取到"}
+              </span>
+              <Lock size={13} />
+            </div>
           </div>
 
           <div className="addAuthField">
