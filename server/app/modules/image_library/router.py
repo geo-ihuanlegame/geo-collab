@@ -8,9 +8,10 @@ from datetime import datetime
 from typing import Any
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field, field_validator
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from server.app.core.security import get_current_user
@@ -75,6 +76,16 @@ class CategoryRead(BaseModel):
     description: str | None
     official_url: str | None
     created_at: datetime
+    latest_image_at: datetime | None = None
+
+
+class SearchResultRead(BaseModel):
+    id: int
+    filename: str
+    url: str
+    category_id: int
+    category_name: str
+    kind: str
 
 
 class StockImageRead(BaseModel):
@@ -143,7 +154,7 @@ def _normalize_official_url(value: Any) -> str | None:
     return trimmed
 
 
-def _to_category_read(cat: StockCategory) -> CategoryRead:
+def _to_category_read(cat: StockCategory, latest_image_at: datetime | None = None) -> CategoryRead:
     return CategoryRead(
         id=cat.id,
         name=cat.name,
@@ -152,6 +163,7 @@ def _to_category_read(cat: StockCategory) -> CategoryRead:
         description=cat.description,
         official_url=cat.official_url,
         created_at=cat.created_at,
+        latest_image_at=latest_image_at,
     )
 
 
@@ -222,11 +234,22 @@ def list_categories(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ) -> Any:
-    q = db.query(StockCategory)
+    # 子查询：每个栏目的最新图片时间
+    latest_sub = (
+        db.query(
+            StockImage.category_id,
+            func.max(StockImage.created_at).label("latest_image_at"),
+        )
+        .group_by(StockImage.category_id)
+        .subquery()
+    )
+    q = db.query(StockCategory, latest_sub.c.latest_image_at).outerjoin(
+        latest_sub, StockCategory.id == latest_sub.c.category_id
+    )
     if kind in {"main", "companion"}:
         q = q.filter(StockCategory.kind == kind)
-    cats = q.order_by(StockCategory.created_at.desc()).all()
-    return [_to_category_read(c) for c in cats]
+    rows = q.order_by(StockCategory.created_at.desc()).all()
+    return [_to_category_read(cat, latest_image_at) for cat, latest_image_at in rows]
 
 
 @router.patch("/categories/{category_id}", response_model=CategoryRead)
@@ -298,6 +321,57 @@ def delete_category(
         payload={"name": cat_name},
         request=request,
     )
+
+
+@router.get("/search", response_model=list[SearchResultRead])
+def search_images(
+    q: str = Query(...),
+    limit: int = Query(default=50, ge=1),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+) -> Any:
+    """全库跨栏目模糊搜索图片。
+
+    多字段 OR 匹配：filename / description / 栏目名 / 标签（json_search）。
+    q 为空（strip 后）直接返回 []，不查库。
+    limit 最大 200，超出 clamp 到 200。
+    """
+    q_stripped = q.strip()
+    if not q_stripped:
+        return []
+
+    # clamp limit 到 [1, 200]
+    limit = min(limit, 200)
+
+    # LIKE 转义：先对 q 里的 \ % _ 转义，再加通配符前后缀
+    escaped = q_stripped.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    pattern = f"%{escaped}%"
+
+    results = (
+        db.query(StockImage, StockCategory)
+        .join(StockCategory, StockImage.category_id == StockCategory.id)
+        .filter(
+            StockImage.filename.like(pattern, escape="\\")
+            | StockImage.description.like(pattern, escape="\\")
+            | StockCategory.name.like(pattern, escape="\\")
+            | func.json_search(StockImage.tags, "all", pattern, "\\").isnot(None)
+        )
+        .order_by(StockImage.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    return [
+        SearchResultRead(
+            id=img.id,
+            filename=img.filename,
+            url=f"/api/stock-images/{img.id}/file",
+            category_id=cat.id,
+            category_name=cat.name,
+            kind=cat.kind,
+        )
+        for img, cat in results
+    ]
 
 
 # ── 图片路由 ───────────────────────────────────────────────────────────────
