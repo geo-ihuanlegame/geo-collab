@@ -66,6 +66,7 @@ from server.app.modules.system.models import User
 from server.app.modules.system.system_router import mcp_system_router
 from server.app.modules.system.system_router import router as system_router
 from server.app.modules.system.users_router import router as users_router
+from server.app.modules.performance.router import router as performance_router
 from server.app.modules.tasks.router import publish_records_router, tasks_mcp_router, tasks_router
 from server.app.shared.errors import AccountError, ClientError, ConflictError, ValidationError
 
@@ -198,6 +199,14 @@ def create_app() -> FastAPI:
         auto_review_router,
         prefix="/api/articles",
         tags=["auto-review"],
+    )
+    # performance 路由：MCP token 鉴权，不走 user JWT cookie
+    # 路由内路径绝对写出（/prompt-templates/…, /accounts/…, /publish-records/…），
+    # prefix=/api 后解析为 /api/prompt-templates/.../performance 等
+    app.include_router(
+        performance_router,
+        prefix="/api",
+        tags=["performance"],
     )
 
     # 注册 API 路由模块（全部需要 JWT cookie 鉴权）
