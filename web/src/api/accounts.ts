@@ -151,6 +151,15 @@ export function verifyCredentials(accountId: number): Promise<Account> {
   return api<Account>(`/api/accounts/${accountId}/verify-credentials`, { method: "POST" });
 }
 
+// 浏览器接入账号（头条等）的登录态探测：开浏览器载入 storage_state，由 driver.detect_logged_in
+// 判定，刷新 status 为 valid/expired（不抛错，失效时返回 status==expired）。需浏览器栈（容器内）。
+export function checkAccount(accountId: number, useBrowser = true): Promise<Account> {
+  return api<Account>(`/api/accounts/${accountId}/check`, {
+    method: "POST",
+    body: JSON.stringify({ use_browser: useBrowser }),
+  });
+}
+
 export async function exportAccountPackage(accountIds: number[]): Promise<Response> {
   const response = await fetch("/api/accounts/export", {
     method: "POST",

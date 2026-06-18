@@ -32,7 +32,9 @@ class AccountRead(BaseModel):
     owner_name: str | None = None  # owner 的显示名（display_name 优先回落 username）
     member_count: int = 0  # 该账号被授予的成员数（不含 owner）
     can_manage: bool = False  # 请求方能否管理（= user_can_manage_account：admin 或 owner）
-    identity_known: bool = False  # 浏览器平台且 platform_user_id 非空（供「身份未知」徽标）
+    identity_known: bool = (
+        False  # platform_user_id 非空（头条 creator-ID / 公众号 AppID）；供「身份未知」徽标
+    )
     created_at: datetime
     updated_at: datetime
 
@@ -152,21 +154,16 @@ def to_account_read(
     owner_name: str | None = None,
     member_count: int = 0,
     can_manage: bool = False,
-    identity_known: bool | None = None,
 ) -> AccountRead:
     """ORM Account → AccountRead。
 
-    共享账号派生字段（owner_name / member_count / can_manage / identity_known）由调用方计算
-    后注入（需要 viewer 身份 + 成员数查询，见设计稿 §2.6）；缺省时取保守默认（can_manage=False、
-    member_count=0），identity_known 缺省按 owner-only 视角推导（浏览器平台且 platform_user_id 非空）。
+    共享账号派生字段（owner_name / member_count / can_manage）由调用方计算后注入（需要 viewer
+    身份 + 成员数查询，见设计稿 §2.6）；缺省时取保守默认（can_manage=False、member_count=0）。
+    identity_known 纯由账号自身派生：platform_user_id 非空即已知（头条=creator-ID 已抽取 /
+    公众号=AppID，两类平台共用此字段），与 viewer 无关，故不由调用方传入。
     """
-    from server.app.modules.accounts.service import is_api_platform_code
-
     creds = account.api_credentials or {}
     secret = creds.get("app_secret") or ""
-    if identity_known is None:
-        is_browser = not is_api_platform_code(account.platform.code)
-        identity_known = bool(is_browser and account.platform_user_id)
     return AccountRead(
         id=account.id,
         platform_code=account.platform.code,
@@ -186,7 +183,7 @@ def to_account_read(
         owner_name=owner_name,
         member_count=member_count,
         can_manage=can_manage,
-        identity_known=identity_known,
+        identity_known=bool(account.platform_user_id),
         created_at=account.created_at,
         updated_at=account.updated_at,
     )
