@@ -376,6 +376,46 @@ def test_toutiao_remote_login_session_creates_unknown_account(monkeypatch):
         test_app.cleanup()
 
 
+def test_remote_login_session_same_key_reuses_account(monkeypatch):
+    """同一 account_key 反复发起登录会话只对应一个账号（前端复用稳定 key 的回归保护）。
+
+    添加账号弹窗在第 2 步「上一步 → 下一步」时会复用同一个 account_key，后端必须按 state_path
+    upsert 命中已建账号、走更新分支，而不是每次新建——否则 DB 里会留下重复账号（本次修复的根因）。
+    """
+    test_app = build_test_app(monkeypatch)
+    client = test_app.client
+    install_fake_driver(monkeypatch)
+
+    monkeypatch.setattr(
+        "server.app.modules.accounts.auth._start_login_browser_via_worker",
+        lambda *_args, **_kwargs: "login-session-dup",
+    )
+
+    try:
+        body = {"display_name": "dup-demo", "account_key": "dup-demo"}
+        first = client.post("/api/accounts/toutiao/login-session", json=body)
+        assert first.status_code == 200
+        first_id = first.json()["account"]["id"]
+
+        # 模拟前后进退后再次进入第 2 步：同 key 再发一次，顺带改了名字
+        second = client.post(
+            "/api/accounts/toutiao/login-session",
+            json={**body, "display_name": "dup-demo-renamed"},
+        )
+        assert second.status_code == 200
+
+        # 关键：复用同一个账号、不新建；改过的名字经更新分支同步上去
+        assert second.json()["account"]["id"] == first_id
+        assert second.json()["account"]["display_name"] == "dup-demo-renamed"
+
+        # 该用户该平台在库里只剩一条账号
+        accounts = client.get("/api/accounts").json()
+        assert len(accounts) == 1
+        assert accounts[0]["id"] == first_id
+    finally:
+        test_app.cleanup()
+
+
 def test_toutiao_remote_login_session_persists_profile_fields(monkeypatch):
     """浏览器平台建号时，表单里的 contact / 分发开关应一并写入账号（A2：复用 /login-session 端点）。"""
     test_app = build_test_app(monkeypatch)

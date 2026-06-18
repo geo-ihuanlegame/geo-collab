@@ -7,6 +7,20 @@ import { assetSrc } from "../../api/core";
 import { useToast } from "../../components/Toast";
 import { openRemoteBrowser } from "../../utils/remoteBrowser";
 
+// 单次「添加账号」流程内复用的稳定账号 key：决定后端 storage_state 路径，进而决定账号 upsert
+// 去重键。第 2 步前后进退时复用同一个 key，后端就命中已建账号走更新分支、而不是每次新建一条。
+// crypto.randomUUID 仅安全上下文（HTTPS / localhost）可用，局域网 HTTP 部署会缺，故带回退。
+function newAccountKey(): string {
+  try {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+  } catch {
+    // 安全上下文不满足时落到下面的回退
+  }
+  return `acct-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export function AddAuthorizationDialog({
   platforms,
   onClose,
@@ -45,6 +59,8 @@ export function AddAuthorizationDialog({
 
   const pollingActiveRef = useRef(false);
   const finishRequestedRef = useRef(false);
+  // 本次添加流程的稳定账号 key：建一次、整个弹窗生命周期复用（上一步/下一步不重置），关弹窗才清。
+  const accountKeyRef = useRef<string | null>(null);
 
   const filteredPlatforms = platforms.filter(
     (p) => !searchQuery || p.name.includes(searchQuery),
@@ -77,6 +93,7 @@ export function AddAuthorizationDialog({
     setResultMessage("");
     pollingActiveRef.current = false;
     finishRequestedRef.current = false;
+    accountKeyRef.current = null;
   }
 
   function selectPlatform(p: PlatformOption) {
@@ -189,9 +206,13 @@ export function AddAuthorizationDialog({
 
     async function init() {
       try {
+        // 复用本次流程的稳定 key：前后进退再进第 2 步时命中同一账号、不再重复建号。
+        if (!accountKeyRef.current) {
+          accountKeyRef.current = newAccountKey();
+        }
         const session = await startPlatformLoginSession(selectedPlatform!.code, {
           display_name: displayName.trim(),
-          account_key: "",
+          account_key: accountKeyRef.current,
           use_browser: true,
           contact: contact.trim() || null,
           note: note.trim() || null,
