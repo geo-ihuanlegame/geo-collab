@@ -171,6 +171,33 @@ def test_delete_category_minio_error_still_deletes_db(monkeypatch):
 
 
 @pytest.mark.mysql
+def test_delete_category_remove_bucket_error_still_deletes_db(monkeypatch):
+    """remove_bucket 抛错时仍删 DB 记录（best-effort 不阻断）。"""
+    app = build_test_app(monkeypatch)
+    try:
+        _patch_minio(monkeypatch)
+
+        def _boom(bucket):
+            raise RuntimeError("minio remove_bucket down")
+
+        monkeypatch.setattr(
+            "server.app.modules.image_library.router.minio_store.remove_bucket", _boom
+        )
+        with app.session_factory() as db:
+            cat = _insert_category(db, "MinIO删桶炸栏目", "remove-boom-bucket", "companion")
+            _insert_image(db, cat.id, "y.jpg")
+            db.commit()
+            cat_id = cat.id
+
+        r = app.client.delete(f"/api/image-library/categories/{cat_id}")
+        assert r.status_code == 204, r.text
+        with app.session_factory() as db:
+            assert db.get(StockCategory, cat_id) is None
+    finally:
+        app.cleanup()
+
+
+@pytest.mark.mysql
 def test_delete_nonexistent_category_404(monkeypatch):
     app = build_test_app(monkeypatch)
     try:
