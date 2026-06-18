@@ -87,3 +87,41 @@ def illustrate_article(
         return _ok(data)
     except ApiError as exc:
         return _fail(str(exc))
+
+
+@mcp.tool()
+def submit_review_decision(
+    article_id: int,
+    decision: str,
+    score_total: int | None = None,
+    score_breakdown: dict[str, int] | None = None,
+    reasoning: str | None = None,
+    decided_by: str = "claude-code-loop",
+) -> dict[str, Any]:
+    """Record an auto-review decision for an article.
+
+    Note: this does NOT change `article.review_status` — final human review is still authoritative.
+    The decision is persisted for audit / training data.
+
+    Args:
+        article_id: Target article.
+        decision: One of "approved" / "needs_rewrite" / "rejected".
+        score_total: 0-100 weighted score, optional.
+        score_breakdown: dict[dimension_key, score_0_100], optional.
+        reasoning: 1-2 sentence explanation, optional.
+        decided_by: Identifier for the deciding agent (default "claude-code-loop").
+    """
+    if decision not in ("approved", "needs_rewrite", "rejected"):
+        return _fail(f"invalid decision: {decision}")
+    body: dict[str, Any] = {"decision": decision, "decided_by": decided_by}
+    if score_total is not None:
+        body["score_total"] = score_total
+    if score_breakdown is not None:
+        body["score_breakdown"] = score_breakdown
+    if reasoning:
+        body["reasoning"] = reasoning
+    try:
+        data = _client().post(f"/api/articles/{article_id}/auto-review", json=body)
+        return _ok(data)
+    except ApiError as exc:
+        return _fail(str(exc))
