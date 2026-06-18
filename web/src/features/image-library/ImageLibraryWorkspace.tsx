@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { MoreHorizontal, Plus, Trash2, Upload, Pencil, ChevronLeft, ChevronRight, X, Images, Search, ArrowUpDown } from "lucide-react";
-import { createCategory, deleteImage, listCategories, listImages, searchImages, updateCategory, updateImage, uploadImage } from "../../api/image-library";
+import { createCategory, deleteCategory, deleteImage, getCategoryDeletePreview, listCategories, listImages, searchImages, updateCategory, updateImage, uploadImage } from "../../api/image-library";
 import type { ImageSearchResult, StockCategory, StockImage } from "../../types";
 import { useToast } from "../../components/Toast";
 
@@ -33,6 +33,14 @@ export function ImageLibraryWorkspace() {
   const [editCatDesc, setEditCatDesc] = useState("");
   const [editCatUrl, setEditCatUrl] = useState("");
   const [editCatSaving, setEditCatSaving] = useState(false);
+
+  const [deletingCategory, setDeletingCategory] = useState<StockCategory | null>(null);
+  const [deletePreview, setDeletePreview] = useState<{
+    image_count: number;
+    referenced_article_count: number | null;
+  } | null>(null);
+  const [deletePreviewLoading, setDeletePreviewLoading] = useState(false);
+  const [deleteSaving, setDeleteSaving] = useState(false);
 
   const [showUpload, setShowUpload] = useState(false);
   const [uploadCategoryId, setUploadCategoryId] = useState<number | null>(null);
@@ -377,6 +385,37 @@ export function ImageLibraryWorkspace() {
     }
   }
 
+  function openDeleteCategory(category: StockCategory) {
+    setDeletingCategory(category);
+    setDeletePreview(null);
+    setDeletePreviewLoading(true);
+    getCategoryDeletePreview(category.id)
+      .then(setDeletePreview)
+      .catch(() => setDeletePreview(null))
+      .finally(() => setDeletePreviewLoading(false));
+  }
+
+  async function handleConfirmDeleteCategory() {
+    if (!deletingCategory) return;
+    const deletedId = deletingCategory.id;
+    setDeleteSaving(true);
+    try {
+      await deleteCategory(deletedId);
+      const remaining = categories.filter((c) => c.id !== deletedId);
+      setCategories(remaining);
+      if (selectedCategoryId === deletedId) {
+        setSelectedCategoryId(remaining.length > 0 ? remaining[0].id : null);
+      }
+      setDeletingCategory(null);
+      setDeletePreview(null);
+      showToast("栏目已删除", "success");
+    } catch (e: unknown) {
+      showToast((e as Error).message, "error");
+    } finally {
+      setDeleteSaving(false);
+    }
+  }
+
   const lightboxImage = lightboxIndex !== null ? (images[lightboxIndex] ?? null) : null;
   const selectedCategory = categories.find((cat) => cat.id === selectedCategoryId) ?? null;
 
@@ -510,6 +549,16 @@ export function ImageLibraryWorkspace() {
             onClick={() => { if (selectedCategory) openCategoryEdit(selectedCategory); }}
           >
             <Pencil size={15} /> 编辑栏目
+          </button>
+          <button
+            type="button"
+            className="dangerButton"
+            disabled={!selectedCategory}
+            onClick={() => {
+              if (selectedCategory) openDeleteCategory(selectedCategory);
+            }}
+          >
+            <Trash2 size={15} /> 删除栏目
           </button>
           <button
             type="button"
@@ -666,6 +715,42 @@ export function ImageLibraryWorkspace() {
               <button type="button" className="secondaryButton" onClick={() => setEditingCategory(null)}>取消</button>
               <button type="button" className="primaryButton" disabled={editCatSaving || !editCatName.trim()} onClick={handleSaveCategoryEdit}>
                 {editCatSaving ? "保存中..." : "保存"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deletingCategory && (
+        <div className="modalOverlay" onClick={() => { if (!deleteSaving) setDeletingCategory(null); }}>
+          <div className="modalCard" onClick={(e) => e.stopPropagation()}>
+            <h2>删除栏目</h2>
+            <p>
+              确定删除栏目「<strong>{deletingCategory.name}</strong>」？
+              {deletePreviewLoading
+                ? "（正在统计…）"
+                : deletePreview
+                  ? ` 该栏目含 ${deletePreview.image_count} 张图片，将被一并永久删除。`
+                  : ""}
+            </p>
+            {!deletePreviewLoading && deletePreview && (
+              deletePreview.referenced_article_count === null ? (
+                <p className="imageLibraryDeleteWarn">引用统计失败，请谨慎删除。</p>
+              ) : deletePreview.referenced_article_count > 0 ? (
+                <p className="imageLibraryDeleteWarn">
+                  ⚠ 有 {deletePreview.referenced_article_count} 篇平台内文章正引用本栏目图片，
+                  删除后它们在平台内会显示裂图（已发布到外部平台的不受影响）。
+                </p>
+              ) : (
+                <p className="imageLibraryDeleteSafe">无文章引用，可安全删除。</p>
+              )
+            )}
+            <div className="modalActions">
+              <button type="button" className="secondaryButton" onClick={() => setDeletingCategory(null)} disabled={deleteSaving}>
+                取消
+              </button>
+              <button type="button" className="dangerButton" onClick={handleConfirmDeleteCategory} disabled={deleteSaving}>
+                {deleteSaving ? "删除中..." : "确认删除"}
               </button>
             </div>
           </div>

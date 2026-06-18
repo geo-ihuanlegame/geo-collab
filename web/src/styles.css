@@ -2426,6 +2426,8 @@ option, optgroup {
 .imageLibraryDropdown button:hover { background: var(--bg-2); }
 .imageLibraryDropdown button.danger { color: #e53e3e; }
 .imageLibraryDropdown button.danger:hover { background: var(--glass); }
+.imageLibraryDeleteWarn { color: #e53e3e; font-size: 13px; line-height: 1.5; margin: 0; }
+.imageLibraryDeleteSafe { color: #6b7280; font-size: 13px; margin: 0; }
 
 /* ── Image Library: Card Hover ── */
 .imageLibraryCard { transition: border-color 0.2s, box-shadow 0.2s; }
