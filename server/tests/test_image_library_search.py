@@ -477,7 +477,7 @@ def test_list_categories_latest_image_at_is_max(monkeypatch):
 
         # 使用固定、明确分离的时间戳（秒级截断，避免 Python 侧毫秒扰动）
         base_time = datetime(2020, 1, 1, 12, 0, 0, tzinfo=UTC)
-        older_time = base_time                        # 2020-01-01T12:00:00Z
+        older_time = base_time  # 2020-01-01T12:00:00Z
         newer_time = base_time + timedelta(seconds=60)  # 2020-01-01T12:01:00Z
 
         with app.session_factory() as db:
@@ -499,7 +499,9 @@ def test_list_categories_latest_image_at_is_max(monkeypatch):
         returned = datetime.fromisoformat(cat_data["latest_image_at"].replace("Z", "+00:00"))
         expected = newer_time
         diff = abs((returned - expected).total_seconds())
-        assert diff < 1, f"latest_image_at 应等于较晚图的时间戳，实际差: {diff}s (returned={returned}, expected={expected})"
+        assert diff < 1, (
+            f"latest_image_at 应等于较晚图的时间戳，实际差: {diff}s (returned={returned}, expected={expected})"
+        )
     finally:
         app.cleanup()
 
