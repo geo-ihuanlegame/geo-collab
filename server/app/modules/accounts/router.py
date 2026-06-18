@@ -84,18 +84,16 @@ def _require_manage(db: Session, account: AccountModel | None, current_user: Use
 
 
 def _account_read(db: Session, account: AccountModel, current_user: User) -> AccountRead:
-    """单账号 AccountRead，注入共享账号派生字段（owner_name/member_count/can_manage/identity_known）。"""
+    """单账号 AccountRead，注入共享账号派生字段（owner_name/member_count/can_manage）。
+    identity_known 由 to_account_read 从 platform_user_id 自派生。"""
     owner_name = account_service.owner_names_for(db, [account.user_id]).get(account.user_id)
     member_count = account_service.count_account_members(db, account.id)
     can_manage = account_service.user_can_manage_account(account, current_user)
-    is_browser = not account_service.is_api_platform_code(account.platform.code)
-    identity_known = bool(is_browser and account.platform_user_id)
     return to_account_read(
         account,
         owner_name=owner_name,
         member_count=member_count,
         can_manage=can_manage,
-        identity_known=identity_known,
     )
 
 
@@ -108,15 +106,12 @@ def _account_reads(
     out: list[AccountRead] = []
     for account in accounts:
         can_manage = account_service.user_can_manage_account(account, current_user)
-        is_browser = not account_service.is_api_platform_code(account.platform.code)
-        identity_known = bool(is_browser and account.platform_user_id)
         out.append(
             to_account_read(
                 account,
                 owner_name=owner_names.get(account.user_id),
                 member_count=member_counts.get(account.id, 0),
                 can_manage=can_manage,
-                identity_known=identity_known,
             )
         )
     return out

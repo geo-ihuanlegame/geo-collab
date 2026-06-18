@@ -69,6 +69,8 @@ def test_create_wechat_account_masks_secret(monkeypatch):
         assert body["state_path"] is None
         assert body["distribution_enabled"] is True
         assert body["platform_user_id"] == "wx8f2a91c0d3e5b6"
+        # API 平台身份 = AppID（建号即写），不应误挂「身份未知」徽标（identity_known 只看 platform_user_id）
+        assert body["identity_known"] is True
         assert "api_credentials" not in body
     finally:
         test_app.cleanup()

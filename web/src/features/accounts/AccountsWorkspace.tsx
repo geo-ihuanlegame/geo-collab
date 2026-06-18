@@ -111,9 +111,10 @@ export function AccountsWorkspace({ isActive }: { isActive?: boolean } = {}) {
   const filteredAccounts = useMemo(() => {
     return normalAccounts.filter((a) => {
       if (selectedPlatforms.length > 0 && !selectedPlatforms.includes(a.platform_code)) return false;
-      if (filterStatus === "valid" && a.status !== "valid") return false;
-      if (filterStatus === "expired" && a.status !== "expired") return false;
-      if (filterStatus === "disabled" && a.status !== "disabled") return false;
+      // normalAccounts 已是 status==valid（已失效号归「待处理」区）；此处「启用中」=分发开、
+      // 「已停用」=分发关，均由 distribution_enabled 派生（与 AccountRow badge 同源）。
+      if (filterStatus === "valid" && !a.distribution_enabled) return false;
+      if (filterStatus === "disabled" && a.distribution_enabled) return false;
       return true;
     });
   }, [normalAccounts, selectedPlatforms, filterStatus]);
@@ -127,12 +128,22 @@ export function AccountsWorkspace({ isActive }: { isActive?: boolean } = {}) {
   async function handleCheck(account: Account) {
     setLoading(true);
     try {
-      const { verifyCredentials } = await import("../../api/accounts");
-      await verifyCredentials(account.id);
+      const isApi = platforms.find((p) => p.code === account.platform_code)?.mode === "api";
+      if (isApi) {
+        // API 接入（公众号）：验 AppID/AppSecret 换 token，失败抛错置 expired。
+        const { verifyCredentials } = await import("../../api/accounts");
+        await verifyCredentials(account.id);
+        toast("凭据验证通过", "success");
+      } else {
+        // 浏览器接入（头条等）：开浏览器载入 storage_state 探测登录态，置 valid/expired（不抛）。
+        const { checkAccount } = await import("../../api/accounts");
+        const updated = await checkAccount(account.id, true);
+        const ok = updated.status === "valid";
+        toast(ok ? "登录态正常" : "登录态已失效，请重新授权", ok ? "success" : "error");
+      }
       await refreshAccounts();
-      toast("凭据验证通过", "success");
     } catch (error) {
-      toast(error instanceof Error ? error.message : "验证失败", "error");
+      toast(error instanceof Error ? error.message : "检测失败", "error");
     } finally {
       setLoading(false);
     }
@@ -259,11 +270,6 @@ export function AccountsWorkspace({ isActive }: { isActive?: boolean } = {}) {
                   className={`mediaMatrixFilterChip${filterStatus === "valid" ? " active" : ""}`}
                   onClick={() => setFilterStatus(filterStatus === "valid" ? "" : "valid")}
                 >启用中</button>
-                <button
-                  type="button"
-                  className={`mediaMatrixFilterChip${filterStatus === "expired" ? " active" : ""}`}
-                  onClick={() => setFilterStatus(filterStatus === "expired" ? "" : "expired")}
-                >已失效</button>
                 <button
                   type="button"
                   className={`mediaMatrixFilterChip${filterStatus === "disabled" ? " active" : ""}`}
