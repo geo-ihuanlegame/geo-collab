@@ -14,6 +14,10 @@ def _patch_minio(monkeypatch):
         lambda *a, **k: None,
     )
     monkeypatch.setattr(
+        "server.app.modules.image_library.router.minio_store.empty_bucket",
+        lambda *a, **k: None,
+    )
+    monkeypatch.setattr(
         "server.app.modules.image_library.router.minio_store.upload_image",
         lambda *a, **k: None,
     )
@@ -23,15 +27,6 @@ def _make_cat(client, name="文件夹A", bucket="folder-a", kind="main"):
     r = client.post(
         "/api/image-library/categories",
         json={"name": name, "bucket_name": bucket, "kind": kind},
-    )
-    assert r.status_code == 201, r.text
-    return r.json()
-
-
-def _upload(client, category_id):
-    r = client.post(
-        f"/api/image-library/images?category_id={category_id}",
-        files={"file": ("a.png", b"\x89PNG\r\n\x1a\n" + b"0" * 32, "image/png")},
     )
     assert r.status_code == 201, r.text
     return r.json()
@@ -53,33 +48,9 @@ def test_delete_empty_folder_succeeds(monkeypatch):
         app.cleanup()
 
 
-@pytest.mark.mysql
-def test_delete_nonempty_folder_409(monkeypatch):
-    app = build_test_app(monkeypatch)
-    try:
-        _patch_minio(monkeypatch)
-        client = app.client
-        cat = _make_cat(client)
-        _upload(client, cat["id"])
-        r = client.delete(f"/api/image-library/categories/{cat['id']}")
-        assert r.status_code == 409, r.text
-        # 仍然存在
-        ids = {x["id"] for x in client.get("/api/image-library/categories").json()}
-        assert cat["id"] in ids
-    finally:
-        app.cleanup()
-
-
-@pytest.mark.mysql
-def test_delete_missing_folder_404(monkeypatch):
-    app = build_test_app(monkeypatch)
-    try:
-        _patch_minio(monkeypatch)
-        client = app.client
-        r = client.delete("/api/image-library/categories/999999")
-        assert r.status_code == 404, r.text
-    finally:
-        app.cleanup()
+# 删非空栏目（硬删，204）与删不存在栏目（404）的覆盖已迁到 test_image_library_delete.py
+# （test_delete_non_empty_category / test_delete_nonexistent_category_404）。
+# 旧的 test_delete_nonempty_folder_409 断言「非空→409 拦截」与 #124 改成硬删后的行为矛盾，已删除。
 
 
 @pytest.mark.mysql
