@@ -125,3 +125,50 @@ def submit_review_decision(
         return _ok(data)
     except ApiError as exc:
         return _fail(str(exc))
+
+
+@mcp.tool()
+def notify_feishu(
+    title: str,
+    message: str,
+    level: str = "info",
+) -> dict[str, Any]:
+    """Send a Feishu webhook notification.
+
+    Args:
+        title: Short header line (e.g. "Loop 完成").
+        message: Body text (multi-line OK).
+        level: "info" | "warning" | "error" | "done" — controls emoji prefix.
+    """
+    if level not in ("info", "warning", "error", "done"):
+        return _fail(f"invalid level: {level}")
+    try:
+        data = _client().post(
+            "/api/system/feishu-notify",
+            json={"title": title, "message": message, "level": level},
+        )
+        return _ok(data)
+    except ApiError as exc:
+        return _fail(str(exc))
+
+
+@mcp.tool()
+def set_review_status(article_id: int, review_status: str) -> dict[str, Any]:
+    """Update an article's review_status.
+
+    Args:
+        article_id: Target article id.
+        review_status: "pending" (enter review queue) or "approved" (move to approved library).
+
+    Note: This uses a dedicated MCP-only endpoint that doesn't require user JWT.
+    """
+    if review_status not in ("pending", "approved"):
+        return _fail(f"invalid review_status: {review_status}")
+    try:
+        data = _client().post(
+            f"/api/articles/{article_id}/set-review-status",
+            json={"review_status": review_status},
+        )
+        return _ok(data)
+    except ApiError as exc:
+        return _fail(str(exc))

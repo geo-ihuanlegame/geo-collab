@@ -1008,3 +1008,34 @@ def illustrate_article_mcp(
     db.refresh(article)
     after = len(article.content_json.get("content", [])) if isinstance(article.content_json, dict) else 0
     return IllustrateResponse(inserted_count=max(0, after - before))
+
+
+class SetReviewStatusPayload(BaseModel):
+    review_status: str  # "pending" | "approved"
+
+
+class SetReviewStatusResponse(BaseModel):
+    article_id: int
+    review_status: str
+
+
+@articles_mcp_router.post(
+    "/{article_id}/set-review-status",
+    response_model=SetReviewStatusResponse,
+    dependencies=[Depends(require_mcp_token)],
+)
+def set_review_status_mcp(
+    article_id: int,
+    payload: SetReviewStatusPayload,
+    db: Session = Depends(get_db),
+) -> SetReviewStatusResponse:
+    """[MCP] Switch article.review_status between pending / approved."""
+    if payload.review_status not in ("pending", "approved"):
+        raise HTTPException(status_code=400, detail="invalid review_status")
+    article = db.query(Article).filter(Article.id == article_id).first()
+    if article is None:
+        raise HTTPException(status_code=404, detail="article not found")
+    article.review_status = payload.review_status
+    db.commit()
+    db.refresh(article)
+    return SetReviewStatusResponse(article_id=article_id, review_status=article.review_status)
