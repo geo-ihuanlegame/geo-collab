@@ -44,3 +44,63 @@ def score_recent_articles(
         return _ok(data)
     except ApiError as exc:
         return _fail(str(exc))
+
+
+@mcp.tool()
+def get_template_performance(
+    template_id: int,
+    window_days: int = 7,
+) -> dict[str, Any]:
+    """Aggregate performance for a prompt template's output articles.
+
+    Returns: {template_id, window_days, article_count, avg_views, avg_likes, approval_rate}
+    """
+    try:
+        data = _client().get(
+            f"/api/prompt-templates/{template_id}/performance",
+            params={"window_days": window_days},
+        )
+        return _ok(data)
+    except ApiError as exc:
+        return _fail(str(exc))
+
+
+@mcp.tool()
+def get_account_performance(
+    account_id: int,
+    window_days: int = 7,
+) -> dict[str, Any]:
+    """Aggregate performance for an account's published articles.
+
+    Returns: {account_id, window_days, publish_count, with_metrics_count, avg_views, avg_likes}
+    """
+    try:
+        data = _client().get(
+            f"/api/accounts/{account_id}/performance",
+            params={"window_days": window_days},
+        )
+        return _ok(data)
+    except ApiError as exc:
+        return _fail(str(exc))
+
+
+@mcp.tool()
+def record_publish_metrics(
+    record_id: int,
+    metrics: dict[str, Any],
+) -> dict[str, Any]:
+    """Record post-publish metrics (views/likes/comments/shares) for a publish record.
+
+    Args:
+        record_id: PublishRecord id (from list_articles → check publish history; or platform API).
+        metrics: Dict, typically {"views": int, "likes": int, "comments": int, "shares": int}.
+                 Merges into the article's metrics JSON column.
+    """
+    try:
+        data = _client().post(
+            f"/api/publish-records/{record_id}/metrics",
+            json={"metrics": metrics},
+        )
+        return _ok(data)
+    except ApiError as exc:
+        return _fail(str(exc))
