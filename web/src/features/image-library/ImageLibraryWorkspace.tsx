@@ -40,6 +40,7 @@ export function ImageLibraryWorkspace() {
     referenced_article_count: number | null;
   } | null>(null);
   const [deletePreviewLoading, setDeletePreviewLoading] = useState(false);
+  const [deletePreviewFailed, setDeletePreviewFailed] = useState(false);
   const [deleteSaving, setDeleteSaving] = useState(false);
 
   const [showUpload, setShowUpload] = useState(false);
@@ -388,10 +389,11 @@ export function ImageLibraryWorkspace() {
   function openDeleteCategory(category: StockCategory) {
     setDeletingCategory(category);
     setDeletePreview(null);
+    setDeletePreviewFailed(false);
     setDeletePreviewLoading(true);
     getCategoryDeletePreview(category.id)
       .then(setDeletePreview)
-      .catch(() => setDeletePreview({ image_count: 0, referenced_article_count: null }))
+      .catch(() => setDeletePreviewFailed(true))
       .finally(() => setDeletePreviewLoading(false));
   }
 
@@ -733,10 +735,12 @@ export function ImageLibraryWorkspace() {
                   ? ` 该栏目含 ${deletePreview.image_count} 张图片，将被一并永久删除。`
                   : ""}
             </p>
-            {!deletePreviewLoading && deletePreview && (
-              deletePreview.referenced_article_count === null ? (
+            {!deletePreviewLoading &&
+              (deletePreviewFailed || deletePreview?.referenced_article_count === null) && (
                 <p className="imageLibraryDeleteWarn">引用统计失败，请谨慎删除。</p>
-              ) : deletePreview.referenced_article_count > 0 ? (
+              )}
+            {!deletePreviewLoading && deletePreview && deletePreview.referenced_article_count !== null && (
+              deletePreview.referenced_article_count > 0 ? (
                 <p className="imageLibraryDeleteWarn">
                   ⚠ 有 {deletePreview.referenced_article_count} 篇平台内文章正引用本栏目图片，
                   删除后它们在平台内会显示裂图（已发布到外部平台的不受影响）。
