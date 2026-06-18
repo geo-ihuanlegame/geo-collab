@@ -43,7 +43,7 @@ export function AccountsWorkspace({ isActive }: { isActive?: boolean } = {}) {
   const [loading, setLoading] = useState(false);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [filterPlatform, setFilterPlatform] = useState<string>("");
+  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
   const [filterStatus, setFilterStatus] = useState<string>("");
   const [confirmDelete, setConfirmDelete] = useState<Account | null>(null);
   const [editTarget, setEditTarget] = useState<Account | null>(null);
@@ -104,14 +104,22 @@ export function AccountsWorkspace({ isActive }: { isActive?: boolean } = {}) {
   );
 
   // 搜索已交给后端（searchQuery → listAccounts(q)）；这里只做平台 / 状态的前端筛选。
+  // 平台筛选支持多选：空集 = 全部；非空 = 命中所选平台的并集。
   const filteredAccounts = useMemo(() => {
     return normalAccounts.filter((a) => {
-      if (filterPlatform && a.platform_code !== filterPlatform) return false;
+      if (selectedPlatforms.length > 0 && !selectedPlatforms.includes(a.platform_code)) return false;
       if (filterStatus === "valid" && a.status !== "valid") return false;
       if (filterStatus === "expired" && a.status !== "expired") return false;
+      if (filterStatus === "disabled" && a.status !== "disabled") return false;
       return true;
     });
-  }, [normalAccounts, filterPlatform, filterStatus]);
+  }, [normalAccounts, selectedPlatforms, filterStatus]);
+
+  function togglePlatform(code: string) {
+    setSelectedPlatforms((prev) =>
+      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code],
+    );
+  }
 
   async function handleCheck(account: Account) {
     setLoading(true);
@@ -188,39 +196,50 @@ export function AccountsWorkspace({ isActive }: { isActive?: boolean } = {}) {
 
       <section className="mediaMatrixSection">
         <div className="mediaMatrixFilterBar">
-          <div className="mediaMatrixFilterChips mediaMatrixPlatformChips">
-            <button
-              type="button"
-              className={`mediaMatrixFilterChip${!filterPlatform ? " active" : ""}`}
-              onClick={() => setFilterPlatform("")}
-            >全部</button>
-            {PLATFORM_FILTERS.map((p) => (
+          <div className="mediaMatrixFilterRow">
+            <span className="mediaMatrixFilterRowLabel">平台</span>
+            <div className="mediaMatrixFilterChips mediaMatrixPlatformChips">
               <button
-                key={p.code}
                 type="button"
-                className={`mediaMatrixFilterChip${filterPlatform === p.code ? " active" : ""}`}
-                onClick={() => setFilterPlatform(filterPlatform === p.code ? "" : p.code)}
-              >{p.label}</button>
-            ))}
+                className={`mediaMatrixFilterChip${selectedPlatforms.length === 0 ? " active" : ""}`}
+                onClick={() => setSelectedPlatforms([])}
+              >全部</button>
+              {PLATFORM_FILTERS.map((p) => (
+                <button
+                  key={p.code}
+                  type="button"
+                  className={`mediaMatrixFilterChip${selectedPlatforms.includes(p.code) ? " active" : ""}`}
+                  onClick={() => togglePlatform(p.code)}
+                >{p.label}</button>
+              ))}
+            </div>
           </div>
 
           <div className="mediaMatrixFilterRow2">
-            <div className="mediaMatrixFilterChips">
-              <button
-                type="button"
-                className={`mediaMatrixFilterChip${!filterStatus ? " active" : ""}`}
-                onClick={() => setFilterStatus("")}
-              >全部</button>
-              <button
-                type="button"
-                className={`mediaMatrixFilterChip${filterStatus === "valid" ? " active" : ""}`}
-                onClick={() => setFilterStatus(filterStatus === "valid" ? "" : "valid")}
-              >启用中</button>
-              <button
-                type="button"
-                className={`mediaMatrixFilterChip${filterStatus === "expired" ? " active" : ""}`}
-                onClick={() => setFilterStatus(filterStatus === "expired" ? "" : "expired")}
-              >已失效</button>
+            <div className="mediaMatrixFilterRow">
+              <span className="mediaMatrixFilterRowLabel">状态</span>
+              <div className="mediaMatrixFilterChips">
+                <button
+                  type="button"
+                  className={`mediaMatrixFilterChip${!filterStatus ? " active" : ""}`}
+                  onClick={() => setFilterStatus("")}
+                >全部</button>
+                <button
+                  type="button"
+                  className={`mediaMatrixFilterChip${filterStatus === "valid" ? " active" : ""}`}
+                  onClick={() => setFilterStatus(filterStatus === "valid" ? "" : "valid")}
+                >启用中</button>
+                <button
+                  type="button"
+                  className={`mediaMatrixFilterChip${filterStatus === "expired" ? " active" : ""}`}
+                  onClick={() => setFilterStatus(filterStatus === "expired" ? "" : "expired")}
+                >已失效</button>
+                <button
+                  type="button"
+                  className={`mediaMatrixFilterChip${filterStatus === "disabled" ? " active" : ""}`}
+                  onClick={() => setFilterStatus(filterStatus === "disabled" ? "" : "disabled")}
+                >已停用</button>
+              </div>
             </div>
 
             <div className="mediaMatrixSearchBox">

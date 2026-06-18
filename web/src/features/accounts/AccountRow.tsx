@@ -1,6 +1,19 @@
 import type { Account } from "../../types";
 import { assetSrc } from "../../api/core";
 
+type StatusMeta = { label: string; pill: "active" | "inactive" | "disabled"; dot: string };
+
+// 三态显示：valid=启用中 / disabled=已停用（后端暂未产出，前向兼容）/ 其它(expired/unknown)=已失效。
+// 后端状态枚举 valid|expired|unknown 见 server/app/modules/accounts/models.py。
+const STATUS_META: Record<string, StatusMeta> = {
+  valid: { label: "启用中", pill: "active", dot: "var(--green)" },
+  disabled: { label: "已停用", pill: "disabled", dot: "var(--fg-3)" },
+};
+
+function accountStatusMeta(status: string): StatusMeta {
+  return STATUS_META[status] ?? { label: "已失效", pill: "inactive", dot: "var(--red)" };
+}
+
 export function AccountRow({
   account,
   onAuthorize,
@@ -14,15 +27,13 @@ export function AccountRow({
   onEdit: () => void;
   onDelete: () => void;
 }) {
-  const isActive = account.status === "valid";
+  const meta = accountStatusMeta(account.status);
   const accountId = account.platform_user_id ?? account.app_id ?? account.contact ?? "—";
 
   return (
     <div className="accountRow">
       <div className="accountRowCell accountRowCellStatus">
-        <span className={`statusPill ${isActive ? "active" : "inactive"}`}>
-          {isActive ? "启用中" : "已失效"}
-        </span>
+        <span className={`statusPill ${meta.pill}`}>{meta.label}</span>
       </div>
       <div className="accountRowCell accountRowCellAccount">
         <div className="accountRowAvatar">
@@ -39,7 +50,7 @@ export function AccountRow({
           </span>
           <span
             className="accountRowStatusDot"
-            style={{ background: isActive ? "#3C9A66" : "#D45550" }}
+            style={{ background: meta.dot }}
           />
         </div>
         <div className="accountRowNameWrap">
