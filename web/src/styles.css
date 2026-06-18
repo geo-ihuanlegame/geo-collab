@@ -3951,11 +3951,19 @@ option, optgroup {
 }
 
 .accountRowId {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 12.5px;
   color: var(--fg-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.accountRowPhoneIcon {
+  flex-shrink: 0;
+  opacity: 0.6;
 }
 
 /* Remark */
@@ -4405,6 +4413,33 @@ option, optgroup {
   box-shadow: 0 0 0 3px rgba(139, 111, 240, .18);
 }
 .addAuthInput::placeholder { color: #8C94A6; }   /* 占位文字 */
+
+/* Locked / read-only field（平台、平台 ID —— 不可编辑，带锁标识） */
+.addAuthLocked {
+  width: 100%;
+  min-height: 38px;
+  padding: 9px 13px;
+  border: 1px solid #2F3645;        /* 比输入框更弱的描边 */
+  border-radius: 9px;
+  font-size: 13px;
+  color: #8C94A6;                   /* 灰字，表示只读 */
+  background: #171C26;              /* 比输入框更暗，表示锁定 */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  cursor: not-allowed;
+}
+.addAuthLocked .addAuthLockedValue {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.addAuthLocked .addAuthLockedValue.isEmpty { color: #5A6273; }
+.addAuthLocked svg {
+  flex-shrink: 0;
+  opacity: 0.65;
+}
 
 /* Platform Select */
 .addAuthSelect {
