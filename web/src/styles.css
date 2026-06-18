@@ -3777,7 +3777,7 @@ option, optgroup {
   padding: 11px 18px;
   background: var(--cream-2);
   border-bottom: 1px solid var(--hair);
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 500;
   letter-spacing: 0.4px;
   text-transform: uppercase;
@@ -3813,6 +3813,10 @@ option, optgroup {
 .statusPill.inactive {
   background: var(--red-soft);
   color: var(--red);
+}
+.statusPill.disabled {
+  background: var(--glass);
+  color: var(--fg-2);
 }
 
 /* Avatar */
@@ -4023,6 +4027,21 @@ option, optgroup {
   flex-wrap: wrap;
 }
 
+/* 平台 / 状态两行各加一列左侧注释标签，chips 整体右移对齐 */
+.mediaMatrixFilterRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+.mediaMatrixFilterRowLabel {
+  width: 48px;
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg-2);
+}
+
 .mediaMatrixFilterChips {
   display: flex;
   gap: 8px;
@@ -4042,9 +4061,9 @@ option, optgroup {
 }
 .mediaMatrixFilterChip:hover { border-color: var(--fg-3); }
 .mediaMatrixFilterChip.active {
-  background: #2D2A24;
-  color: #fff;
-  border-color: #2D2A24;
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+  border-color: var(--accent);
 }
 
 /* Search Box */
@@ -4219,8 +4238,8 @@ option, optgroup {
 }
 
 .addAuthDialog {
-  width: min(520px, 100%);
-  max-height: min(700px, calc(100vh - 48px));
+  width: min(560px, 100%);
+  max-height: min(860px, calc(100vh - 48px));
   display: flex;
   flex-direction: column;
   background: rgba(23, 28, 39, 0.9);           /* 面板填充 Panel #171C27 · 90% */
