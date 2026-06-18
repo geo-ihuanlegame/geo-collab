@@ -1,5 +1,5 @@
 import { api } from "./core";
-import type { StockCategory, StockImage } from "../types";
+import type { ImageSearchResult, StockCategory, StockImage } from "../types";
 
 export function listCategories(kind?: "main" | "companion"): Promise<StockCategory[]> {
   const qs = kind ? `?kind=${kind}` : "";
@@ -73,4 +73,10 @@ export function updateImage(imageId: number, payload: { tags?: string | null; de
     method: "PATCH",
     body: JSON.stringify(payload),
   });
+}
+
+export function searchImages(q: string, limit?: number): Promise<ImageSearchResult[]> {
+  const params = new URLSearchParams({ q });
+  if (limit != null) params.set("limit", String(limit));
+  return api<ImageSearchResult[]>(`/api/image-library/search?${params.toString()}`);
 }

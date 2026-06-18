@@ -364,7 +364,7 @@ export function AddAuthorizationDialog({
                     <input
                       className="addAuthInput"
                       placeholder="填写公众号 AppSecret"
-                      type="password"
+                      type="text"
                       value={appSecret}
                       onChange={(e) => setAppSecret(e.target.value)}
                     />

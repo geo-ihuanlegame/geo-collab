@@ -2530,6 +2530,79 @@ option, optgroup {
 .imageLibraryEmptyTitle { font-size: 14px; font-weight: 500; color: var(--fg-2); }
 .imageLibraryEmptyState > p:not(.imageLibraryEmptyTitle) { font-size: 12px; }
 
+/* ── Image Library: Search Overlay ── */
+.imageLibrarySearchWrap { position: relative; }
+.imageLibrarySearchClear {
+  display: grid; place-items: center; width: 18px; height: 18px;
+  border: none; background: none; cursor: pointer; color: var(--fg-3);
+  border-radius: 3px; padding: 0; flex-shrink: 0;
+  transition: color .12s;
+}
+.imageLibrarySearchClear:hover { color: var(--fg); }
+.imageLibrarySearchOverlay {
+  position: absolute; top: calc(100% + 6px); left: 0;
+  width: 320px; max-height: 360px; overflow-y: auto;
+  background: var(--surface-2); border: 1px solid var(--hair);
+  border-radius: 8px; box-shadow: 0 12px 32px rgba(0,0,0,.45);
+  z-index: 200;
+  scrollbar-width: thin; scrollbar-color: var(--hair-2) transparent;
+}
+.imageLibrarySearchOverlay::-webkit-scrollbar { width: 4px; }
+.imageLibrarySearchOverlay::-webkit-scrollbar-thumb { background: var(--hair-2); border-radius: 3px; }
+.imageLibrarySearchStatus {
+  font-size: 12px; color: var(--fg-3); padding: 14px 16px; margin: 0; text-align: center;
+}
+.imageLibrarySearchError { color: #e53e3e; }
+.imageLibrarySearchRow {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 8px 12px; border: none; background: none;
+  cursor: pointer; text-align: left; transition: background .1s;
+}
+.imageLibrarySearchRow:hover { background: var(--bg-2); }
+.imageLibrarySearchThumb {
+  width: 40px; height: 40px; object-fit: cover; border-radius: 5px;
+  background: var(--bg-2); flex-shrink: 0;
+}
+.imageLibrarySearchFilename {
+  flex: 1; min-width: 0; font-size: 12px; color: var(--fg);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.imageLibrarySearchChip {
+  font-size: 10px; padding: 2px 6px; border-radius: 4px; flex-shrink: 0;
+  background: var(--accent-soft); color: var(--accent-deep); white-space: nowrap;
+}
+
+/* ── Image Library: Sort Dropdown ── */
+.imageLibrarySortWrap { position: relative; }
+.imageLibrarySortBtn { display: inline-flex; align-items: center; gap: 5px; }
+.imageLibrarySortMenu {
+  display: none; flex-direction: column;
+  position: absolute; top: calc(100% + 4px); right: 0;
+  min-width: 160px; z-index: 200;
+  background: var(--surface-2); border: 1px solid var(--hair);
+  border-radius: 7px; box-shadow: 0 10px 28px rgba(0,0,0,.4);
+  overflow: hidden;
+}
+.imageLibrarySortMenu.imageLibrarySortMenuOpen { display: flex; }
+.imageLibrarySortOption {
+  display: block; width: 100%; padding: 9px 14px; border: none; background: none;
+  font-size: 12px; color: var(--fg); cursor: pointer; text-align: left;
+  transition: background .1s;
+}
+.imageLibrarySortOption:hover { background: var(--bg-2); }
+.imageLibrarySortOption.active { color: var(--accent); font-weight: 500; }
+
+/* ── Image Library: Highlight ── */
+@keyframes imageLibraryCardPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(91,95,233,0.7); border-color: var(--accent); }
+  70%  { box-shadow: 0 0 0 8px rgba(91,95,233,0); border-color: var(--accent); }
+  100% { box-shadow: none; border-color: var(--hair); }
+}
+.imageLibraryCardHighlight {
+  animation: imageLibraryCardPulse 1.5s ease-out forwards;
+  border-color: var(--accent) !important;
+}
+
 /* ── 方案库 / 方案编辑器 / 运行明细 ──────────────────────────────────────── */
 .schemeLib { display: flex; flex-direction: column; gap: 18px; }
 .schemeLibHead { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
@@ -3777,7 +3850,7 @@ option, optgroup {
   padding: 11px 18px;
   background: var(--cream-2);
   border-bottom: 1px solid var(--hair);
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 500;
   letter-spacing: 0.4px;
   text-transform: uppercase;
@@ -3813,6 +3886,10 @@ option, optgroup {
 .statusPill.inactive {
   background: var(--red-soft);
   color: var(--red);
+}
+.statusPill.disabled {
+  background: var(--glass);
+  color: var(--fg-2);
 }
 
 /* Avatar */
@@ -4023,6 +4100,21 @@ option, optgroup {
   flex-wrap: wrap;
 }
 
+/* 平台 / 状态两行各加一列左侧注释标签，chips 整体右移对齐 */
+.mediaMatrixFilterRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+.mediaMatrixFilterRowLabel {
+  width: 48px;
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg-2);
+}
+
 .mediaMatrixFilterChips {
   display: flex;
   gap: 8px;
@@ -4042,9 +4134,9 @@ option, optgroup {
 }
 .mediaMatrixFilterChip:hover { border-color: var(--fg-3); }
 .mediaMatrixFilterChip.active {
-  background: #2D2A24;
-  color: #fff;
-  border-color: #2D2A24;
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+  border-color: var(--accent);
 }
 
 /* Search Box */
@@ -4219,8 +4311,8 @@ option, optgroup {
 }
 
 .addAuthDialog {
-  width: min(520px, 100%);
-  max-height: min(700px, calc(100vh - 48px));
+  width: min(560px, 100%);
+  max-height: min(860px, calc(100vh - 48px));
   display: flex;
   flex-direction: column;
   background: rgba(23, 28, 39, 0.9);           /* 面板填充 Panel #171C27 · 90% */

@@ -446,6 +446,16 @@ export type StockCategory = {
   description: string | null;
   official_url: string | null;
   created_at: string;
+  latest_image_at: string | null;
+};
+
+export type ImageSearchResult = {
+  id: number;
+  filename: string;
+  url: string;
+  category_id: number;
+  category_name: string;
+  kind: "main" | "companion";
 };
 
 export type StockImage = {

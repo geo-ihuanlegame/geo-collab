@@ -1,8 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import { MoreHorizontal, Plus, Trash2, Upload, Pencil, ChevronLeft, ChevronRight, X, Images, Search, SlidersHorizontal } from "lucide-react";
-import { createCategory, deleteImage, listCategories, listImages, updateCategory, updateImage, uploadImage } from "../../api/image-library";
-import type { StockCategory, StockImage } from "../../types";
+import { MoreHorizontal, Plus, Trash2, Upload, Pencil, ChevronLeft, ChevronRight, X, Images, Search, ArrowUpDown } from "lucide-react";
+import { createCategory, deleteImage, listCategories, listImages, searchImages, updateCategory, updateImage, uploadImage } from "../../api/image-library";
+import type { ImageSearchResult, StockCategory, StockImage } from "../../types";
 import { useToast } from "../../components/Toast";
+
+type CategorySort = "created" | "name_asc" | "name_desc" | "latest_image";
+
+type PendingJump = {
+  kind: "main" | "companion";
+  categoryId: number;
+  imageId: number;
+};
 
 export function ImageLibraryWorkspace() {
   const { toast: showToast } = useToast();
@@ -45,18 +53,50 @@ export function ImageLibraryWorkspace() {
 
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
-  // 搜索框 / 筛选：本次仅前端占位（可输入但不过滤），过滤逻辑待后端做全库搜索时再接。
+  // Search state
   const [searchInput, setSearchInput] = useState("");
+  const [searchResults, setSearchResults] = useState<ImageSearchResult[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchBoxRef = useRef<HTMLLabelElement>(null);
+  const searchOverlayRef = useRef<HTMLDivElement>(null);
+
+  // Pending jump: set when user clicks a search result
+  const [pendingJump, setPendingJump] = useState<PendingJump | null>(null);
+  // Track highlighted card id
+  const [highlightedImageId, setHighlightedImageId] = useState<number | null>(null);
+
+  // Category sort state (does NOT reset when switching tabs)
+  const [categorySort, setCategorySort] = useState<CategorySort>("created");
+  // Sort menu open/closed (React state, not DOM classList)
+  const [sortMenuOpen, setSortMenuOpen] = useState(false);
+  const sortMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setMenuOpenId(null);
       }
+      // Close search overlay on outside click
+      if (
+        searchOpen &&
+        searchBoxRef.current &&
+        !searchBoxRef.current.contains(e.target as Node) &&
+        searchOverlayRef.current &&
+        !searchOverlayRef.current.contains(e.target as Node)
+      ) {
+        setSearchOpen(false);
+      }
+      // Close sort menu on outside click
+      if (sortMenuOpen && sortMenuRef.current && !sortMenuRef.current.contains(e.target as Node)) {
+        setSortMenuOpen(false);
+      }
     }
     document.addEventListener("click", handleClickOutside);
     return () => document.removeEventListener("click", handleClickOutside);
-  }, []);
+  }, [searchOpen, sortMenuOpen]);
 
   useEffect(() => {
     if (lightboxIndex === null) return;
@@ -69,15 +109,44 @@ export function ImageLibraryWorkspace() {
     return () => window.removeEventListener("keydown", handleKey);
   }, [lightboxIndex, images]);
 
+  // ESC closes search overlay and sort menu (when not in lightbox)
   useEffect(() => {
-    // 切换主推/陪衬 tab 时按 kind 重新拉取栏目，并把选中项重置到新列表首项。
+    if (!searchOpen && !sortMenuOpen) return;
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setSearchOpen(false);
+        setSortMenuOpen(false);
+      }
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [searchOpen, sortMenuOpen]);
+
+  useEffect(() => {
+    // 切换主推/陪衬 tab 时按 kind 重新拉取栏目；若有 pendingJump 且目标在新列表里，选中它；否则选首项。
+    //
+    // Why pendingJump is intentionally omitted from deps:
+    // This effect must ONLY re-run when kindTab changes — not every time pendingJump updates
+    // (which would re-fetch categories on every search-result click). Correctness is guaranteed
+    // because handleSearchResultClick always calls setPendingJump(...) and setKindTab(...) in the
+    // same synchronous event handler: React batches both state updates into a single re-render, so
+    // by the time this effect fires (after the re-render), the .then closure already captures the
+    // updated pendingJump value.
     listCategories(kindTab)
       .then((cats) => {
         setCategories(cats);
-        setSelectedCategoryId(cats.length > 0 ? cats[0].id : null);
+        if (pendingJump && cats.some((c) => c.id === pendingJump.categoryId)) {
+          setSelectedCategoryId(pendingJump.categoryId);
+        } else {
+          setSelectedCategoryId(cats.length > 0 ? cats[0].id : null);
+          // If pendingJump was for a category not in this tab, clear it
+          if (pendingJump) {
+            setPendingJump(null);
+          }
+        }
       })
       .catch(() => showToast("加载栏目失败", "error"));
-  }, [kindTab]);
+  }, [kindTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setLightboxIndex(null);
@@ -90,7 +159,95 @@ export function ImageLibraryWorkspace() {
       .then(setImages)
       .catch(() => showToast("加载图片失败", "error"))
       .finally(() => setLoading(false));
-  }, [selectedCategoryId]);
+  }, [selectedCategoryId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // After images load, if there's a pending jump targeting an image in this list, scroll + highlight
+  useEffect(() => {
+    if (!pendingJump || loading) return;
+    const found = images.find((img) => img.id === pendingJump.imageId);
+    if (!found) return;
+
+    const el = document.getElementById(`il-card-${found.id}`);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      setHighlightedImageId(found.id);
+      setTimeout(() => {
+        setHighlightedImageId(null);
+      }, 1500);
+    }
+    setPendingJump(null);
+  }, [images, pendingJump, loading]);
+
+  // Debounced search
+  useEffect(() => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    const trimmed = searchInput.trim();
+    if (!trimmed) {
+      setSearchResults([]);
+      setSearchOpen(false);
+      setSearchError(false);
+      return;
+    }
+    // Guard against stale in-flight responses: if the input changes or the effect
+    // re-runs before the promise resolves, the cleanup sets cancelled=true so the
+    // stale .then/.catch won't overwrite results from the newer query.
+    let cancelled = false;
+    searchDebounceRef.current = setTimeout(async () => {
+      setSearchLoading(true);
+      setSearchError(false);
+      setSearchOpen(true);
+      try {
+        const results = await searchImages(trimmed);
+        if (!cancelled) setSearchResults(results);
+      } catch {
+        if (!cancelled) {
+          setSearchError(true);
+          setSearchResults([]);
+        }
+      } finally {
+        if (!cancelled) setSearchLoading(false);
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    };
+  }, [searchInput]);
+
+  function handleSearchResultClick(item: ImageSearchResult) {
+    // Record pending jump
+    setPendingJump({ kind: item.kind, categoryId: item.category_id, imageId: item.id });
+    // Close overlay + clear input
+    setSearchOpen(false);
+    setSearchInput("");
+    setSearchResults([]);
+    // Switch tab if needed — kindTab effect will handle category selection using pendingJump
+    if (item.kind !== kindTab) {
+      setKindTab(item.kind);
+    } else {
+      // Same tab: directly select the category; images effect will scroll
+      setSelectedCategoryId(item.category_id);
+    }
+  }
+
+  // Compute sorted categories
+  const sortedCategories = [...categories].sort((a, b) => {
+    if (categorySort === "name_asc") {
+      return a.name.localeCompare(b.name, "zh-Hans-CN");
+    }
+    if (categorySort === "name_desc") {
+      return b.name.localeCompare(a.name, "zh-Hans-CN");
+    }
+    if (categorySort === "created") {
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    }
+    if (categorySort === "latest_image") {
+      const aTime = a.latest_image_at ? new Date(a.latest_image_at).getTime() : -Infinity;
+      const bTime = b.latest_image_at ? new Date(b.latest_image_at).getTime() : -Infinity;
+      return bTime - aTime;
+    }
+    return 0;
+  });
 
   async function handleCreateCategory() {
     if (!catName.trim() || !catBucket.trim()) return;
@@ -249,19 +406,100 @@ export function ImageLibraryWorkspace() {
         </button>
 
         <div className="imageLibraryTabActions">
-          <label className="imageLibrarySearch">
-            <Search size={15} aria-hidden />
-            <input
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="在图片库中搜索"
-              aria-label="在图片库中搜索"
-            />
-          </label>
-          {/* 筛选：本次仅占位，菜单 / 过滤维度待后端确定后再接 */}
-          <button type="button" className="secondaryButton">
-            <SlidersHorizontal size={15} /> 筛选
-          </button>
+          <div className="imageLibrarySearchWrap">
+            <label className="imageLibrarySearch" ref={searchBoxRef}>
+              <Search size={15} aria-hidden />
+              <input
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                placeholder="在图片库中搜索"
+                aria-label="在图片库中搜索"
+                onFocus={() => {
+                  if (searchInput.trim() && (searchResults.length > 0 || searchError)) {
+                    setSearchOpen(true);
+                  }
+                }}
+              />
+              {searchInput && (
+                <button
+                  type="button"
+                  className="imageLibrarySearchClear"
+                  aria-label="清空搜索"
+                  onClick={() => { setSearchInput(""); setSearchOpen(false); setSearchResults([]); }}
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </label>
+            {searchOpen && (
+              <div className="imageLibrarySearchOverlay" ref={searchOverlayRef}>
+                {searchLoading && (
+                  <p className="imageLibrarySearchStatus">搜索中…</p>
+                )}
+                {!searchLoading && searchError && (
+                  <p className="imageLibrarySearchStatus imageLibrarySearchError">搜索出错，请重试</p>
+                )}
+                {!searchLoading && !searchError && searchResults.length === 0 && (
+                  <p className="imageLibrarySearchStatus">无匹配</p>
+                )}
+                {!searchLoading && !searchError && searchResults.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className="imageLibrarySearchRow"
+                    onClick={() => handleSearchResultClick(item)}
+                  >
+                    <img
+                      className="imageLibrarySearchThumb"
+                      src={item.url}
+                      alt={item.filename}
+                      loading="lazy"
+                    />
+                    <span className="imageLibrarySearchFilename" title={item.filename}>{item.filename}</span>
+                    <span className="imageLibrarySearchChip">{item.category_name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* 排序下拉：替换原「筛选」按钮 */}
+          <div className="imageLibrarySortWrap" ref={sortMenuRef}>
+            <button
+              type="button"
+              className="secondaryButton imageLibrarySortBtn"
+              onClick={(e) => {
+                e.stopPropagation();
+                setSortMenuOpen((prev) => !prev);
+              }}
+            >
+              <ArrowUpDown size={15} /> 排序
+            </button>
+            <div className={`imageLibrarySortMenu${sortMenuOpen ? " imageLibrarySortMenuOpen" : ""}`}>
+              {(
+                [
+                  { value: "created", label: "创建时间（默认）" },
+                  { value: "name_asc", label: "栏目名 A → Z" },
+                  { value: "name_desc", label: "栏目名 Z → A" },
+                  { value: "latest_image", label: "最新图片时间" },
+                ] as { value: CategorySort; label: string }[]
+              ).map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  className={`imageLibrarySortOption${categorySort === opt.value ? " active" : ""}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCategorySort(opt.value);
+                    setSortMenuOpen(false);
+                  }}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <button type="button" className="secondaryButton" onClick={() => setShowNewCat(true)}>
             <Plus size={15} /> 新建栏目
           </button>
@@ -289,7 +527,7 @@ export function ImageLibraryWorkspace() {
 
       <div className="imageLibraryLayout">
         <aside className="imageLibrarySidebar">
-          {categories.map((cat) => (
+          {sortedCategories.map((cat) => (
             <button
               key={cat.id}
               type="button"
@@ -322,7 +560,11 @@ export function ImageLibraryWorkspace() {
             </div>
           )}
           {!loading && images.map((img, idx) => (
-            <div key={img.id} className="imageLibraryCard">
+            <div
+              key={img.id}
+              id={`il-card-${img.id}`}
+              className={`imageLibraryCard${highlightedImageId === img.id ? " imageLibraryCardHighlight" : ""}`}
+            >
               <div className="imageLibraryCardImg" onClick={() => setLightboxIndex(idx)}>
                 <img src={img.url} alt={img.filename} loading="lazy" />
                 <div className="imageLibraryCardOverlay">
