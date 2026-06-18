@@ -412,6 +412,8 @@ def reconcile_duplicate_into_canonical(
     """
     from server.app.modules.audit.service import add_audit_entry
 
+    changed = False
+
     # 1) 加成员（幂等）：非 owner 且未在成员表才插
     if dup.user_id != canonical.user_id:
         existing = db.execute(
@@ -428,6 +430,7 @@ def reconcile_duplicate_into_canonical(
                     granted_via=granted_via,
                 )
             )
+            changed = True
 
     # 2) 条件合并 dup 行（幂等跳过已终态情形）
     already_merged = dup.is_deleted or dup.merged_into == canonical.id
@@ -460,17 +463,19 @@ def reconcile_duplicate_into_canonical(
             dup.deleted_at = utcnow()
             dup.platform_user_id = None
         dup.updated_at = utcnow()
+        changed = True
 
-    # 3) 审计（add_audit_entry 内部自吞异常、自 commit，但这里 best-effort 即可）
-    add_audit_entry(
-        db,
-        user=None,
-        action="account.dedup_merge",
-        target_type="account",
-        target_id=canonical.id,
-        payload={
-            "dup_id": dup.id,
-            "canonical_id": canonical.id,
-            "granted_via": granted_via,
-        },
-    )
+    # 3) 审计：仅本次调用产生了实际状态变更时才写（no-op 重调不追加审计行）
+    if changed:
+        add_audit_entry(
+            db,
+            user=None,
+            action="account.dedup_merge",
+            target_type="account",
+            target_id=canonical.id,
+            payload={
+                "dup_id": dup.id,
+                "canonical_id": canonical.id,
+                "granted_via": granted_via,
+            },
+        )

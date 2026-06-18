@@ -239,6 +239,17 @@ def test_reconcile_is_idempotent_on_recall(monkeypatch):
 
             refreshed_dup = db.get(Account, dup_id)
             assert refreshed_dup.is_deleted is True
+
+            # 幂等重调不追加审计行：3 次调用 → 恰好 1 条 account.dedup_merge 记录
+            audits = (
+                db.query(AuditLog)
+                .filter(
+                    AuditLog.action == "account.dedup_merge",
+                    AuditLog.target_id == canonical_id,
+                )
+                .all()
+            )
+            assert len(audits) == 1
     finally:
         test_app.cleanup()
 
