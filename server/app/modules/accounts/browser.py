@@ -1137,7 +1137,11 @@ def _stop_idle_cleanup() -> None:
 
 def _novnc_url(host: str, novnc_port: int) -> str:
     # 经 80 端口反代访问：真实 websockify 端口编进 ws path，前端连 port=80 由反代转发到 novnc_port
-    return f"http://{host}/novnc/vnc.html?host={host}&port=80&path=novnc/ws/{novnc_port}"
+    # autoconnect=true：noVNC 完整客户端打开即自动连接，省掉用户手动点一次「连接」按钮。
+    return (
+        f"http://{host}/novnc/vnc.html"
+        f"?host={host}&port=80&path=novnc/ws/{novnc_port}&autoconnect=true"
+    )
 
 
 def _reset_globals() -> None:
