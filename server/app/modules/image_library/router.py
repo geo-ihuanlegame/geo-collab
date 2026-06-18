@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import struct
 import uuid
 from datetime import datetime
@@ -92,6 +93,11 @@ class SearchResultRead(BaseModel):
     kind: str
 
 
+class CategoryDeletePreview(BaseModel):
+    image_count: int
+    referenced_article_count: int | None
+
+
 class StockImageRead(BaseModel):
     id: int
     category_id: int
@@ -106,6 +112,8 @@ class StockImageRead(BaseModel):
 
 
 # ── 辅助函数 ───────────────────────────────────────────────────────────────
+
+_STOCK_IMG_URL_RE = re.compile(r"/api/stock-images/(\d+)/file")
 
 
 def _guess_image_size(data: bytes) -> tuple[int | None, int | None]:
@@ -335,6 +343,49 @@ def delete_category(
         target_id=category_id,
         payload={"name": cat_name, "image_count": image_count},
         request=request,
+    )
+
+
+@router.get("/categories/{category_id}/delete-preview", response_model=CategoryDeletePreview)
+def category_delete_preview(
+    category_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+) -> Any:
+    """删除栏目前的引用预览：图片数 + 平台内仍引用本栏目图片的（未软删）文章数。
+
+    引用扫描全表 LIKE 预筛 + Python 正则精确交集，best-effort：扫描异常返回
+    referenced_article_count=None，前端提示「统计失败」但不阻断删除。
+    """
+    cat = db.get(StockCategory, category_id)
+    if cat is None:
+        raise HTTPException(status_code=404, detail="栏目不存在")
+
+    image_ids = {
+        row[0] for row in db.query(StockImage.id).filter(StockImage.category_id == category_id)
+    }
+    image_count = len(image_ids)
+
+    referenced_article_count: int | None
+    try:
+        referenced = 0
+        rows = db.query(Article.content_html).filter(
+            Article.content_html.like("%/api/stock-images/%"),
+            Article.is_deleted.is_(False),
+        )
+        for (content_html,) in rows:
+            if not content_html:
+                continue
+            ids_in_article = {int(m) for m in _STOCK_IMG_URL_RE.findall(content_html)}
+            if ids_in_article & image_ids:
+                referenced += 1
+        referenced_article_count = referenced
+    except Exception:
+        logger.warning("统计栏目引用文章数失败: category_id=%s", category_id, exc_info=True)
+        referenced_article_count = None
+
+    return CategoryDeletePreview(
+        image_count=image_count, referenced_article_count=referenced_article_count
     )
 
 

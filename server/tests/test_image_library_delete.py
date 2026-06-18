@@ -206,3 +206,102 @@ def test_delete_nonexistent_category_404(monkeypatch):
         assert r.status_code == 404, r.text
     finally:
         app.cleanup()
+
+
+def _insert_article_html(db, uid, title, html, *, is_deleted=False):
+    art = Article(user_id=uid, title=title, content_html=html, is_deleted=is_deleted)
+    db.add(art)
+    db.flush()
+    return art
+
+
+@pytest.mark.mysql
+def test_delete_preview_counts_references(monkeypatch):
+    app = build_test_app(monkeypatch)
+    try:
+        _patch_minio(monkeypatch)
+        with app.session_factory() as db:
+            uid = _user_id(db)
+            cat = _insert_category(db, "预览栏目", "preview-bucket", "companion")
+            other = _insert_category(db, "别的栏目", "other-bucket", "companion")
+            img1 = _insert_image(db, cat.id, "p1.jpg")
+            img2 = _insert_image(db, cat.id, "p2.jpg")
+            other_img = _insert_image(db, other.id, "o1.jpg")
+            db.flush()
+            # 引用本栏目 img1 —— 计入
+            _insert_article_html(
+                db,
+                uid,
+                "用了图1",
+                f'<p><img src="/api/stock-images/{img1.id}/file"></p>',
+            )
+            # 引用本栏目 img2 —— 计入（另一篇）
+            _insert_article_html(
+                db,
+                uid,
+                "用了图2",
+                f'<img src="/api/stock-images/{img2.id}/file">',
+            )
+            # 引用别的栏目的图 —— 不计入
+            _insert_article_html(
+                db,
+                uid,
+                "用了别栏目",
+                f'<img src="/api/stock-images/{other_img.id}/file">',
+            )
+            # 软删文章引用 img1 —— 不计入
+            _insert_article_html(
+                db,
+                uid,
+                "软删的",
+                f'<img src="/api/stock-images/{img1.id}/file">',
+                is_deleted=True,
+            )
+            # prefix 不误中：引用 "{img1.id}9"（不存在的 id），不应误判为 img1
+            _insert_article_html(
+                db,
+                uid,
+                "prefix干扰",
+                f'<img src="/api/stock-images/{img1.id}9/file">',
+            )
+            db.commit()
+            cat_id = cat.id
+
+        r = app.client.get(f"/api/image-library/categories/{cat_id}/delete-preview")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["image_count"] == 2
+        assert body["referenced_article_count"] == 2
+    finally:
+        app.cleanup()
+
+
+@pytest.mark.mysql
+def test_delete_preview_zero_references(monkeypatch):
+    app = build_test_app(monkeypatch)
+    try:
+        _patch_minio(monkeypatch)
+        with app.session_factory() as db:
+            cat = _insert_category(db, "无引用栏目", "noref-bucket", "companion")
+            _insert_image(db, cat.id, "n1.jpg")
+            db.commit()
+            cat_id = cat.id
+
+        r = app.client.get(f"/api/image-library/categories/{cat_id}/delete-preview")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["image_count"] == 1
+        assert body["referenced_article_count"] == 0
+    finally:
+        app.cleanup()
+
+
+@pytest.mark.mysql
+def test_delete_preview_404(monkeypatch):
+    app = build_test_app(monkeypatch)
+    try:
+        _patch_minio(monkeypatch)
+        r = app.client.get("/api/image-library/categories/999999/delete-preview")
+        assert r.status_code == 404, r.text
+    finally:
+        app.cleanup()
