@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import re
 import struct
 import uuid
 from datetime import datetime
@@ -16,11 +18,14 @@ from sqlalchemy.orm import Session
 
 from server.app.core.security import get_current_user
 from server.app.db.session import get_db
+from server.app.modules.articles.models import Article
 from server.app.modules.audit.service import add_audit_entry
 from server.app.modules.image_library import service as image_service
 from server.app.modules.image_library import store as minio_store
 from server.app.modules.image_library.models import StockCategory, StockImage
 from server.app.modules.system.models import User
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()  # /api/image-library/* — 需要登录
 files_router = APIRouter()  # /api/stock-images/*  — 公开（图片嵌入文章）
@@ -88,6 +93,11 @@ class SearchResultRead(BaseModel):
     kind: str
 
 
+class CategoryDeletePreview(BaseModel):
+    image_count: int
+    referenced_article_count: int | None
+
+
 class StockImageRead(BaseModel):
     id: int
     category_id: int
@@ -102,6 +112,8 @@ class StockImageRead(BaseModel):
 
 
 # ── 辅助函数 ───────────────────────────────────────────────────────────────
+
+_STOCK_IMG_URL_RE = re.compile(r"/api/stock-images/(\d+)/file")
 
 
 def _guess_image_size(data: bytes) -> tuple[int | None, int | None]:
@@ -300,17 +312,28 @@ def delete_category(
         raise HTTPException(status_code=404, detail="栏目不存在")
 
     image_count = db.query(StockImage).filter(StockImage.category_id == category_id).count()
-    if image_count > 0:
-        raise HTTPException(status_code=409, detail="该文件夹内还有图片，请先清空")
-
     cat_name = cat.name
     bucket_name = cat.bucket_name
+
+    # 先解开指向本栏目的单值外键引用：articles.stock_category_id 的 FK 无 ON DELETE，
+    # 默认 RESTRICT，不置空会让 db.delete(cat) 触发 MySQL 1451。多对多 article_stock_categories
+    # 的 FK 带 ON DELETE CASCADE，由 DB 自动清理 join 行，无需手动处理。
+    db.query(Article).filter(Article.stock_category_id == category_id).update(
+        {Article.stock_category_id: None}, synchronize_session=False
+    )
+
+    # MinIO best-effort：清桶 + 删桶失败只 log warning 不阻断（与 delete_image 同哲学，
+    # 以 DB 记录为准，宁可残留孤儿对象/空桶——桶名自动唯一生成不影响后续建桶）。
+    try:
+        minio_store.empty_bucket(bucket_name)
+    except Exception:
+        logger.warning("清空 bucket 失败，残留对象待清理: %s", bucket_name, exc_info=True)
     try:
         minio_store.remove_bucket(bucket_name)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"MinIO bucket 删除失败: {exc}") from exc
+    except Exception:
+        logger.warning("删除 bucket 失败，残留空桶待清理: %s", bucket_name, exc_info=True)
 
-    db.delete(cat)
+    db.delete(cat)  # cascade="all, delete-orphan" 删该栏目所有 StockImage 记录
     db.commit()
     add_audit_entry(
         db,
@@ -318,8 +341,51 @@ def delete_category(
         action="stock_category.delete",
         target_type="stock_category",
         target_id=category_id,
-        payload={"name": cat_name},
+        payload={"name": cat_name, "image_count": image_count},
         request=request,
+    )
+
+
+@router.get("/categories/{category_id}/delete-preview", response_model=CategoryDeletePreview)
+def category_delete_preview(
+    category_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+) -> Any:
+    """删除栏目前的引用预览：图片数 + 平台内仍引用本栏目图片的（未软删）文章数。
+
+    引用扫描全表 LIKE 预筛 + Python 正则精确交集，best-effort：扫描异常返回
+    referenced_article_count=None，前端提示「统计失败」但不阻断删除。
+    """
+    cat = db.get(StockCategory, category_id)
+    if cat is None:
+        raise HTTPException(status_code=404, detail="栏目不存在")
+
+    image_ids = {
+        row[0] for row in db.query(StockImage.id).filter(StockImage.category_id == category_id)
+    }
+    image_count = len(image_ids)
+
+    referenced_article_count: int | None
+    try:
+        referenced = 0
+        rows = db.query(Article.content_html).filter(
+            Article.content_html.like("%/api/stock-images/%"),
+            Article.is_deleted.is_(False),
+        )
+        for (content_html,) in rows:
+            if not content_html:
+                continue
+            ids_in_article = {int(m) for m in _STOCK_IMG_URL_RE.findall(content_html)}
+            if ids_in_article & image_ids:
+                referenced += 1
+        referenced_article_count = referenced
+    except Exception:
+        logger.warning("统计栏目引用文章数失败: category_id=%s", category_id, exc_info=True)
+        referenced_article_count = None
+
+    return CategoryDeletePreview(
+        image_count=image_count, referenced_article_count=referenced_article_count
     )
 
 

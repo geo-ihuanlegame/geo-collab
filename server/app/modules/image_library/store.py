@@ -74,6 +74,17 @@ def delete_object(bucket_name: str, key: str) -> None:
     client.remove_object(bucket_name, key)
 
 
+def empty_bucket(bucket_name: str) -> None:
+    """删除桶内所有对象（删桶前先清空，MinIO 仅允许删空桶）。
+
+    list_objects(recursive=True) 列出所有对象 key，逐个 remove_object。
+    best-effort 语义由调用方决定（router 捕获异常不阻断）。
+    """
+    client = _client()
+    for obj in client.list_objects(bucket_name, recursive=True):
+        client.remove_object(bucket_name, obj.object_name)
+
+
 def remove_bucket(bucket_name: str) -> None:
     """删除空分桶。MinIO 仅允许删空桶，非空时 client 抛错——与"非空禁止删"语义天然一致。"""
     client = _client()

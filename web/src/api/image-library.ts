@@ -38,6 +38,14 @@ export function deleteCategory(categoryId: number): Promise<void> {
   return api<void>(`/api/image-library/categories/${categoryId}`, { method: "DELETE" });
 }
 
+export function getCategoryDeletePreview(
+  categoryId: number,
+): Promise<{ image_count: number; referenced_article_count: number | null }> {
+  return api<{ image_count: number; referenced_article_count: number | null }>(
+    `/api/image-library/categories/${categoryId}/delete-preview`,
+  );
+}
+
 export function listImages(params?: { category_id?: number; tag?: string }): Promise<StockImage[]> {
   const q = new URLSearchParams();
   if (params?.category_id != null) q.set("category_id", String(params.category_id));
