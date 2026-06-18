@@ -7,10 +7,11 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from server.app.core.security import get_current_user, require_admin
-from server.app.db.session import get_db
+from server.app.db.session import SessionLocal, get_db
 from server.app.modules.ai_generation import question_bank as qb
 from server.app.modules.ai_generation.schemas import (
     GenerationSessionRead,
@@ -230,3 +231,48 @@ def list_question_types(
         )
         for qtype, items in svc.question_types(db, pool.id)
     ]
+
+
+# === MCP-facing: compose_once ===
+# 不进 pipeline_run / scheme_run，给 Claude Code Loop 直接生一篇用。
+# 鉴权：MCP token（独立服务 token，跟 user JWT 隔离）。
+# 注意：此 router 必须在 main.py 中**不带** get_current_user 依赖地单独挂载，
+# 否则 JWT cookie 检查会先于 MCP token 检查触发 401。
+
+from server.app.core.mcp_auth import require_mcp_token  # noqa: E402
+from server.app.modules.ai_generation.compose_once import ComposeOnceRequest, compose_one  # noqa: E402
+
+mcp_router = APIRouter()
+
+
+class ComposeOncePayload(BaseModel):
+    question_item_id: int
+    prompt_template_id: int
+    model: str | None = None
+    user_id: int  # MCP 调用时由 Claude Code 传"代表谁生文"；POC 期可固定 admin 用户 id
+
+
+class ComposeOnceResponse(BaseModel):
+    article_id: int
+
+
+@mcp_router.post(
+    "/compose-once",
+    response_model=ComposeOnceResponse,
+    dependencies=[Depends(require_mcp_token)],
+)
+def post_compose_once(payload: ComposeOncePayload) -> ComposeOnceResponse:
+    """[MCP] 直调生文，返回 article_id。绕开 pipeline / scheme 编排。"""
+    try:
+        article_id = compose_one(
+            session_factory=SessionLocal,
+            user_id=payload.user_id,
+            req=ComposeOnceRequest(
+                question_item_id=payload.question_item_id,
+                prompt_template_id=payload.prompt_template_id,
+                model=payload.model,
+            ),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return ComposeOnceResponse(article_id=article_id)

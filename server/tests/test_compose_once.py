@@ -69,3 +69,50 @@ def test_compose_one_raises_on_missing_question(monkeypatch):
             user_id=42,
             req=ComposeOnceRequest(question_item_id=999, prompt_template_id=2),
         )
+
+
+def test_compose_once_api_requires_mcp_token(monkeypatch):
+    from server.tests.utils import build_test_app
+
+    test_app = build_test_app(monkeypatch)
+    try:
+        monkeypatch.setenv("GEO_MCP_TOKEN", "secret")
+        from server.app.core import config
+        config.get_settings.cache_clear()
+
+        # 不带 token → 401
+        r = test_app.client.post(
+            "/api/generation/compose-once",
+            json={"question_item_id": 1, "prompt_template_id": 2, "user_id": test_app.admin_id},
+        )
+        assert r.status_code == 401
+
+        # 带错 token → 401
+        r = test_app.client.post(
+            "/api/generation/compose-once",
+            json={"question_item_id": 1, "prompt_template_id": 2, "user_id": test_app.admin_id},
+            headers={"X-MCP-Token": "wrong"},
+        )
+        assert r.status_code == 401
+    finally:
+        test_app.cleanup()
+
+
+def test_compose_once_api_returns_400_on_missing_question(monkeypatch):
+    from server.tests.utils import build_test_app
+
+    test_app = build_test_app(monkeypatch)
+    try:
+        monkeypatch.setenv("GEO_MCP_TOKEN", "secret")
+        from server.app.core import config
+        config.get_settings.cache_clear()
+
+        r = test_app.client.post(
+            "/api/generation/compose-once",
+            json={"question_item_id": 999999, "prompt_template_id": 1, "user_id": test_app.admin_id},
+            headers={"X-MCP-Token": "secret"},
+        )
+        assert r.status_code == 400
+        assert "question_item" in r.json()["detail"]
+    finally:
+        test_app.cleanup()

@@ -43,6 +43,7 @@ from server.app.core.limiter import limiter
 from server.app.core.paths import ensure_data_dirs
 from server.app.core.security import get_current_user
 from server.app.modules.accounts.router import router as accounts_router
+from server.app.modules.ai_generation.router import mcp_router as generation_mcp_router
 from server.app.modules.ai_generation.router import router as generation_router
 from server.app.modules.ai_generation.scheme_router import scheme_router
 from server.app.modules.ai_models.router import router as ai_models_router
@@ -176,6 +177,13 @@ def create_app() -> FastAPI:
     # 注册认证路由（不加鉴权依赖）
     app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
     app.include_router(users_router, prefix="/api/users", tags=["users"])
+
+    # MCP 服务对服务路由（MCP token 鉴权，不走 user JWT cookie）
+    app.include_router(
+        generation_mcp_router,
+        prefix="/api/generation",
+        tags=["generation-mcp"],
+    )
 
     # 注册 API 路由模块（全部需要 JWT cookie 鉴权）
     app.include_router(
