@@ -5,6 +5,36 @@ from server.app.modules.auto_review.service import submit_decision
 from server.tests.utils import build_test_app
 
 
+def test_post_score_api_requires_mcp_token(monkeypatch):
+    test_app = build_test_app(monkeypatch)
+    try:
+        monkeypatch.setenv("GEO_MCP_TOKEN", "secret")
+        from server.app.core import config
+        config.get_settings.cache_clear()
+
+        r = test_app.client.post("/api/articles/score", json={"article_ids": [1]})
+        assert r.status_code == 401
+    finally:
+        test_app.cleanup()
+
+
+def test_post_auto_review_api_404_on_missing_article(monkeypatch):
+    test_app = build_test_app(monkeypatch)
+    try:
+        monkeypatch.setenv("GEO_MCP_TOKEN", "secret")
+        from server.app.core import config
+        config.get_settings.cache_clear()
+
+        r = test_app.client.post(
+            "/api/articles/999999/auto-review",
+            json={"decision": "approved", "decided_by": "claude-code-loop"},
+            headers={"X-MCP-Token": "secret"},
+        )
+        assert r.status_code == 404
+    finally:
+        test_app.cleanup()
+
+
 def test_submit_decision_persists(monkeypatch):
     test_app = build_test_app(monkeypatch)
     try:

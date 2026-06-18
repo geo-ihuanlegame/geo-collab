@@ -54,6 +54,7 @@ from server.app.modules.articles.router import (
     assets_router,
     chunked_assets_router,
 )
+from server.app.modules.auto_review.router import router as auto_review_router
 from server.app.modules.audit.router import router as audit_router
 from server.app.modules.hot_lists.router import router as hot_lists_router
 from server.app.modules.image_library.router import files_router as stock_files_router
@@ -190,6 +191,12 @@ def create_app() -> FastAPI:
         prefix="/api/articles",
         tags=["articles-mcp"],
         # 不挂 get_current_user — MCP token 在 endpoint 内单独校验
+    )
+    # auto_review 走 /api/articles 前缀（与现有 article 路由同前缀，由 MCP token 单独鉴权）
+    app.include_router(
+        auto_review_router,
+        prefix="/api/articles",
+        tags=["auto-review"],
     )
 
     # 注册 API 路由模块（全部需要 JWT cookie 鉴权）
