@@ -102,3 +102,53 @@ def list_prompt_templates(scope: str = "generation") -> dict[str, Any]:
         return _ok(data)
     except ApiError as exc:
         return _fail(str(exc))
+
+
+@mcp.tool()
+def list_pipelines(type_filter: str | None = None) -> dict[str, Any]:
+    """List all pipelines (智能体 / workflows).
+
+    Args:
+        type_filter: Optional pipeline type filter (e.g. "agent" / "workflow").
+    """
+    params: dict[str, Any] = {}
+    if type_filter:
+        params["type"] = type_filter
+    try:
+        data = _client().get("/api/pipelines", params=params or None)
+        return _ok(data)
+    except ApiError as exc:
+        return _fail(str(exc))
+
+
+@mcp.tool()
+def list_accounts(
+    platform_code: str | None = None,
+    distribution_enabled: bool | None = None,
+) -> dict[str, Any]:
+    """List publishing accounts.
+
+    Args:
+        platform_code: Filter by platform (e.g. "toutiao", "wechat_mp").
+        distribution_enabled: If true, only accounts available for distribution.
+    """
+    params: dict[str, Any] = {}
+    if platform_code:
+        params["platform_code"] = platform_code
+    if distribution_enabled is not None:
+        params["distribution_enabled"] = str(distribution_enabled).lower()
+    try:
+        data = _client().get("/api/accounts", params=params or None)
+        return _ok(data)
+    except ApiError as exc:
+        return _fail(str(exc))
+
+
+@mcp.tool()
+def get_article(article_id: int) -> dict[str, Any]:
+    """Get one article by id, including full content_json / content_html / plain_text."""
+    try:
+        data = _client().get(f"/api/articles/{article_id}")
+        return _ok(data)
+    except ApiError as exc:
+        return _fail(str(exc))
