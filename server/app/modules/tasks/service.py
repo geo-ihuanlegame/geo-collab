@@ -527,11 +527,17 @@ def _validated_accounts(
     user_id: int | None = None,
 ) -> list[tuple[int, Account]]:
     # API 型平台（驱动 mode='api'，如公众号）账号无 state_path，仍可经服务端 API 发布到草稿箱。
+    from server.app.modules.accounts.service import user_can_use_account
+    from server.app.modules.system.models import User
     from server.app.modules.tasks.drivers import is_api_driver
 
     platform_is_api = is_api_driver(platform_code)
     if not account_inputs:
         raise ValidationError("At least one account is required")
+
+    # 共享账号：user_id 非空（=operator，admin 走 None 不过滤）时按「可使用」判定（owner ∪ 成员），
+    # 而非旧的「仅 owner」（account.user_id == user_id）。见设计稿 §6。
+    viewer = db.get(User, user_id) if user_id is not None else None
 
     seen: set[int] = set()
     ordered_inputs: list[tuple[int, int]] = []
@@ -548,7 +554,11 @@ def _validated_accounts(
     accounts = {
         account.id: account
         for account in db.execute(
-            select(Account).where(Account.id.in_(account_ids), Account.is_deleted == False)  # noqa: E712
+            select(Account).where(
+                Account.id.in_(account_ids),
+                Account.is_deleted == False,  # noqa: E712
+                Account.merged_into.is_(None),  # 被并入行不可用于新任务（用 canonical）
+            )
         )
         .scalars()
         .all()
@@ -556,7 +566,10 @@ def _validated_accounts(
     ordered_accounts: list[tuple[int, Account]] = []
     for sort_order, account_id in ordered_inputs:
         account = accounts.get(account_id)
-        if account is None or (user_id is not None and account.user_id != user_id):
+        # user_id 非空 → operator：按「可使用」判定（owner ∪ 成员）；user_id None → admin 不过滤。
+        if account is None or (
+            viewer is not None and not user_can_use_account(db, account, viewer)
+        ):
             raise AccountError(f"Account not found: {account_id}")
         if account.platform_id != platform_id:
             raise AccountError(f"Account platform mismatch: {account_id}")

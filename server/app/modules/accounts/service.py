@@ -14,7 +14,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -141,12 +141,27 @@ def launch_options(channel: str, executable_path: str | None) -> dict[str, Any]:
     return options
 
 
-def list_accounts(db: Session, q: str | None = None) -> list[Account]:
+def list_accounts(
+    db: Session,
+    q: str | None = None,
+    *,
+    viewer_id: int | None = None,
+    role: str = "operator",
+) -> list[Account]:
     """账号列表。``q`` 为可选泛搜索关键词：对 账号名称 / 备注 / 联系方式(手机号) 三字段做
-    不区分大小写的包含匹配（任一命中即返回）。空白 q 视为不过滤。"""
+    不区分大小写的包含匹配（任一命中即返回）。空白 q 视为不过滤。
+
+    可见性（共享账号，见设计稿 §6）：
+      - 永远排除 merged_into 非空的被并入行（不出现在任何用户的列表）。
+      - admin（role == "admin"）见全部；否则只见 owner ∪ 成员账号（viewer_id 必传）。
+      - viewer_id 为 None 且非 admin 视为「无可见账号」，返回空（防御性，不应发生）。
+    """
     stmt = (
         select(Account)
-        .where(Account.is_deleted == False)  # noqa: E712
+        .where(
+            Account.is_deleted == False,  # noqa: E712
+            Account.merged_into.is_(None),
+        )
         .options(selectinload(Account.platform))
         .order_by(Account.updated_at.desc())
     )
@@ -160,6 +175,15 @@ def list_accounts(db: Session, q: str | None = None) -> list[Account]:
                 Account.contact.ilike(like),
             )
         )
+    if role != "admin":
+        if viewer_id is None:
+            return []
+        member_subq = (
+            select(AccountMember.account_id)
+            .where(AccountMember.user_id == viewer_id)
+            .scalar_subquery()
+        )
+        stmt = stmt.where(or_(Account.user_id == viewer_id, Account.id.in_(member_subq)))
     return list(db.execute(stmt).scalars().all())
 
 
@@ -350,6 +374,10 @@ def delete_account(db: Session, account: Account) -> None:
     if active:
         raise ClientError("存在未完成发布记录，无法删除账号")
 
+    # 清空成员行（共享账号软删时随之失访，见设计稿 §6「删除语义」）。账号走软删故 FK CASCADE
+    # 平时不触发，这里手动 DELETE。
+    db.execute(delete(AccountMember).where(AccountMember.account_id == account_id))
+
     account.is_deleted = True
     account.deleted_at = utcnow()
     account.platform_user_id = None
@@ -479,3 +507,195 @@ def reconcile_duplicate_into_canonical(
                 "granted_via": granted_via,
             },
         )
+
+
+# ── AccountRead 派生字段辅助（owner_name / member_count，见设计稿 §2.6）─────────
+
+
+def count_account_members(db: Session, account_id: int) -> int:
+    """该 canonical 账号的成员数（不含 owner）。"""
+    from sqlalchemy import func
+
+    return int(
+        db.execute(
+            select(func.count())
+            .select_from(AccountMember)
+            .where(AccountMember.account_id == account_id)
+        ).scalar_one()
+    )
+
+
+def member_counts_for(db: Session, account_ids: list[int]) -> dict[int, int]:
+    """批量查多个账号的成员数，避免列表 N+1。返回 {account_id: count}（缺省 0）。"""
+    if not account_ids:
+        return {}
+    from sqlalchemy import func
+
+    rows = db.execute(
+        select(AccountMember.account_id, func.count())
+        .where(AccountMember.account_id.in_(account_ids))
+        .group_by(AccountMember.account_id)
+    ).all()
+    return {int(aid): int(cnt) for aid, cnt in rows}
+
+
+def owner_names_for(db: Session, owner_ids: list[int]) -> dict[int, str | None]:
+    """批量查 owner 用户的显示名（display_name 优先，回落 username）。返回 {user_id: name}。"""
+    ids = list({int(i) for i in owner_ids})
+    if not ids:
+        return {}
+    rows = db.execute(
+        select(User.id, User.display_name, User.username).where(User.id.in_(ids))
+    ).all()
+    return {int(uid): (dn or un) for uid, dn, un in rows}
+
+
+# ── 成员管理（owner/admin 可见 + 移除，见设计稿 §6「成员管理」）──────────────
+
+
+def list_account_members(db: Session, account: Account) -> list[dict[str, Any]]:
+    """列出账号成员（含 owner 行）。owner 排首位、is_owner=True、granted_via=None。
+
+    返回纯 dict 列表，router 负责序列化成 AccountMemberRead。
+    """
+    rows: list[dict[str, Any]] = []
+
+    owner = db.get(User, account.user_id)
+    rows.append(
+        {
+            "account_id": account.id,
+            "user_id": account.user_id,
+            "username": owner.username if owner is not None else None,
+            "display_name": owner.display_name if owner is not None else None,
+            "is_owner": True,
+            "granted_via": None,
+            "created_at": account.created_at,
+        }
+    )
+
+    members = (
+        db.execute(
+            select(AccountMember)
+            .where(AccountMember.account_id == account.id)
+            .order_by(AccountMember.created_at.asc(), AccountMember.user_id.asc())
+        )
+        .scalars()
+        .all()
+    )
+    member_user_ids = [m.user_id for m in members]
+    users = (
+        {
+            u.id: u
+            for u in db.execute(select(User).where(User.id.in_(member_user_ids))).scalars().all()
+        }
+        if member_user_ids
+        else {}
+    )
+    for m in members:
+        u = users.get(m.user_id)
+        rows.append(
+            {
+                "account_id": m.account_id,
+                "user_id": m.user_id,
+                "username": u.username if u is not None else None,
+                "display_name": u.display_name if u is not None else None,
+                "is_owner": False,
+                "granted_via": m.granted_via,
+                "created_at": m.created_at,
+            }
+        )
+    return rows
+
+
+def remove_account_member(db: Session, account: Account, user_id: int) -> bool:
+    """移除一个成员（幂等）。返回是否实际删除了一行。
+
+    不允许移除 owner（owner 不在成员表，传 owner id 时静默无操作并返回 False）。
+    """
+    if user_id == account.user_id:
+        # owner 不是成员、不可经此移除；幂等地返回未变更。
+        return False
+    existing = db.execute(
+        select(AccountMember.user_id).where(
+            AccountMember.account_id == account.id,
+            AccountMember.user_id == user_id,
+        )
+    ).scalar_one_or_none()
+    if existing is None:
+        return False
+    db.execute(
+        delete(AccountMember).where(
+            AccountMember.account_id == account.id,
+            AccountMember.user_id == user_id,
+        )
+    )
+    db.flush()
+    return True
+
+
+# ── admin 批量回填 creator-ID（设计稿 §5 触发点 B）──────────────────────────
+
+
+def backfill_identity_for_accounts(db: Session) -> dict[str, int]:
+    """扫描「浏览器平台 + status==valid + platform_user_id IS NULL + merged_into IS NULL」的账号，
+    逐个驱动既有检测+抽取+决议引擎（check_account 的 B2 路径）回填 creator-ID / 合并重复。
+
+    返回汇总计数 {processed, backfilled, merged, conflicts, still_unknown, failed}。
+
+    注意：每个账号都真实开浏览器（check_account），生产仅容器内可用；测试须 monkeypatch
+    extraction/detection。本函数顺序处理、各账号独立 try/except，单个失败不拖垮整批。
+    """
+    from server.app.modules.accounts.auth import check_account
+    from server.app.modules.accounts.schemas import AccountCheckRequest
+
+    stmt = (
+        select(Account)
+        .where(
+            Account.is_deleted == False,  # noqa: E712
+            Account.merged_into.is_(None),
+            Account.status == "valid",
+            Account.platform_user_id.is_(None),
+            Account.state_path.is_not(None),
+        )
+        .options(selectinload(Account.platform))
+    )
+    candidates = list(db.execute(stmt).scalars().all())
+
+    summary = {
+        "processed": 0,
+        "backfilled": 0,
+        "merged": 0,
+        "conflicts": 0,
+        "still_unknown": 0,
+        "failed": 0,
+    }
+
+    for account in candidates:
+        # API 接入账号（无 state_path）已被上面的 state_path IS NOT NULL 过滤掉，
+        # 但浏览器平台仍可能在 check 时抛 API 限制——双保险跳过。
+        if is_api_platform_code(account.platform.code):
+            continue
+        summary["processed"] += 1
+        account_id = account.id
+        try:
+            updated = check_account(db, account, AccountCheckRequest())
+        except Exception:  # 单账号失败（浏览器/网络/DOM 漂移）不拖垮整批
+            db.rollback()
+            summary["failed"] += 1
+            continue
+
+        # check_account 返回决议后应呈现的 canonical（resolved_id），决议内部自提交。
+        # 归类（候选全部 platform_user_id IS NULL，故不会走「已有值 != X」的身份冲突分支，
+        # conflicts 恒为 0；保留该计数维持响应契约稳定）：
+        #   - resolved.id != account_id        → self 被并入既有 canonical          = merged
+        #   - resolved.id == account_id 且已写 X → self 升为 canonical               = backfilled
+        #   - 仍 NULL                          → 抽取为空 / 未登录                   = still_unknown
+        resolved = updated
+        if resolved is not None and resolved.id != account_id:
+            summary["merged"] += 1
+        elif resolved is not None and resolved.platform_user_id:
+            summary["backfilled"] += 1
+        else:
+            summary["still_unknown"] += 1
+
+    return summary

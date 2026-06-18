@@ -38,7 +38,7 @@ def resolve_distribution_accounts(
     """
     from sqlalchemy import or_, select
 
-    from server.app.modules.accounts.models import Account
+    from server.app.modules.accounts.models import Account, AccountMember
     from server.app.modules.system.models import Platform
 
     platforms = [str(p) for p in (selection.get("platforms") or [])]
@@ -55,13 +55,18 @@ def resolve_distribution_accounts(
 
     conds = [
         Account.is_deleted == False,  # noqa: E712
+        Account.merged_into.is_(None),  # 被并入行不可派号（用 canonical）
         Account.distribution_enabled == True,  # noqa: E712
         Account.status == "valid",
         or_(*selectors),
     ]
+    # 可见性（共享账号，见设计稿 §6）：operator 见 owner ∪ 成员；admin 全量。
     owner = None if role == "admin" else user_id
     if owner is not None:
-        conds.append(Account.user_id == owner)
+        member_subq = (
+            select(AccountMember.account_id).where(AccountMember.user_id == owner).scalar_subquery()
+        )
+        conds.append(or_(Account.user_id == owner, Account.id.in_(member_subq)))
 
     rows = db.execute(
         select(Account.id, Platform.code)
