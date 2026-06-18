@@ -68,9 +68,12 @@ from server.app.modules.accounts.service import (  # noqa: F401
     profile_dir_for_key,
     profile_dir_from_state_path,
     profile_key_from_state_path,
+    reconcile_duplicate_into_canonical,
     relative_to_data_dir,
     rename_account,
     state_dir_for_key,
     state_dir_from_state_path,
     state_path_for_key,
+    user_can_manage_account,
+    user_can_use_account,
 )

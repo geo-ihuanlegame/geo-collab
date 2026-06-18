@@ -32,6 +32,29 @@ class AccountRead(BaseModel):
     updated_at: datetime
 
 
+class AccountMemberRead(BaseModel):
+    """共享账号成员行（含 owner 标识 + 溯源）。供后续成员管理端点用。"""
+
+    account_id: int
+    user_id: int
+    username: str | None = None
+    display_name: str | None = None
+    is_owner: bool = False
+    granted_via: str | None = None  # owner 行无 granted_via
+    created_at: datetime | None = None
+
+
+class BackfillIdentityResult(BaseModel):
+    """admin 批量回填 creator-ID 的汇总计数。供后续批量回填端点用。"""
+
+    processed: int = 0
+    backfilled: int = 0
+    merged: int = 0
+    conflicts: int = 0
+    still_unknown: int = 0
+    failed: int = 0
+
+
 class AccountBrowserSessionRead(BaseModel):
     account: AccountRead
     platform_code: str

@@ -20,9 +20,9 @@ from sqlalchemy.orm import Session, selectinload
 
 from server.app.core.paths import get_data_dir
 from server.app.core.time import utcnow
-from server.app.modules.accounts.models import Account
+from server.app.modules.accounts.models import Account, AccountMember
 from server.app.modules.accounts.schemas import AccountUpdateRequest, ApiAccountCreate
-from server.app.modules.system.models import Platform
+from server.app.modules.system.models import Platform, User
 from server.app.modules.tasks.drivers.wechat_client import (
     TOKEN_REFRESH_SKEW_SECONDS,
     WeChatApiError,
@@ -31,7 +31,7 @@ from server.app.modules.tasks.drivers.wechat_client import (
 from server.app.modules.tasks.drivers.wechat_client import (
     fetch_access_token as wechat_fetch_access_token,
 )
-from server.app.modules.tasks.models import PublishRecord
+from server.app.modules.tasks.models import PublishRecord, PublishTaskAccount
 from server.app.shared.errors import ClientError, ConflictError, ValidationError
 
 _API_PLATFORM_LABELS = {"wechat_mp": "微信公众号"}
@@ -366,3 +366,111 @@ def _get_driver(platform_code: str):
     from server.app.modules.tasks.drivers import get_driver
 
     return get_driver(platform_code)
+
+
+# ── 共享账号鉴权判定（全模块复用，见设计稿 §6）────────────────────────────────
+
+
+def user_can_use_account(db: Session, account: Account, user: User) -> bool:
+    """该用户能否「使用」此账号：admin 或 owner 或已被授予的成员。"""
+    if user.role == "admin":
+        return True
+    if account.user_id == user.id:
+        return True
+    member = db.execute(
+        select(AccountMember.user_id).where(
+            AccountMember.account_id == account.id,
+            AccountMember.user_id == user.id,
+        )
+    ).scalar_one_or_none()
+    return member is not None
+
+
+def user_can_manage_account(account: Account, user: User) -> bool:
+    """该用户能否「管理」此账号：admin 或 owner（成员仅可见 + 使用，不可管理）。"""
+    return user.role == "admin" or account.user_id == user.id
+
+
+# ── 共享去重合并函数（§4 登录去重 / §5 回填 / admin 批量回填唯一落点，见设计稿 §4a）──────
+
+
+def reconcile_duplicate_into_canonical(
+    db: Session, dup: Account, canonical: Account, *, granted_via: str
+) -> None:
+    """把 dup 行并入 canonical：加成员 + 条件合并 dup 行 + 审计。全程幂等、可重试。
+
+    1. 加成员：dup.user_id 既非 canonical.user_id（owner）又不在 account_members → 插一行；
+       已是 owner / 已是成员 → 跳过。
+    2. 条件合并 dup 行：
+       - dup 无未软删 PublishRecord 且无任务绑定 → 软删 dup（释放身份槽位）。
+       - dup 有记录 / 任务 → 不软删，置 dup.merged_into = canonical.id。
+       - dup 已 is_deleted 或 merged_into 已指向 canonical.id → 幂等跳过合并。
+    3. 审计：写一条 account.dedup_merge。
+
+    本函数只做上述合并写，**不写 platform_user_id、不 claim X、不 commit**——commit 由
+    调用方统一收口，并发 IntegrityError 兜底也在调用方（见设计稿 §4 / §5 / §4a）。
+    """
+    from server.app.modules.audit.service import add_audit_entry
+
+    # 1) 加成员（幂等）：非 owner 且未在成员表才插
+    if dup.user_id != canonical.user_id:
+        existing = db.execute(
+            select(AccountMember.user_id).where(
+                AccountMember.account_id == canonical.id,
+                AccountMember.user_id == dup.user_id,
+            )
+        ).scalar_one_or_none()
+        if existing is None:
+            db.add(
+                AccountMember(
+                    account_id=canonical.id,
+                    user_id=dup.user_id,
+                    granted_via=granted_via,
+                )
+            )
+
+    # 2) 条件合并 dup 行（幂等跳过已终态情形）
+    already_merged = dup.is_deleted or dup.merged_into == canonical.id
+    if not already_merged:
+        has_record = (
+            db.execute(
+                select(PublishRecord.id)
+                .where(
+                    PublishRecord.account_id == dup.id,
+                    PublishRecord.is_deleted == False,  # noqa: E712
+                )
+                .limit(1)
+            ).scalar_one_or_none()
+            is not None
+        )
+        has_task = (
+            db.execute(
+                select(PublishTaskAccount.id)
+                .where(PublishTaskAccount.account_id == dup.id)
+                .limit(1)
+            ).scalar_one_or_none()
+            is not None
+        )
+        if has_record or has_task:
+            # 有历史 / 任务：保留行让未终态发布记录发完，仅标 merged_into
+            dup.merged_into = canonical.id
+        else:
+            # 干净行：软删并释放身份槽位（platform_user_id 置 NULL）
+            dup.is_deleted = True
+            dup.deleted_at = utcnow()
+            dup.platform_user_id = None
+        dup.updated_at = utcnow()
+
+    # 3) 审计（add_audit_entry 内部自吞异常、自 commit，但这里 best-effort 即可）
+    add_audit_entry(
+        db,
+        user=None,
+        action="account.dedup_merge",
+        target_type="account",
+        target_id=canonical.id,
+        payload={
+            "dup_id": dup.id,
+            "canonical_id": canonical.id,
+            "granted_via": granted_via,
+        },
+    )
