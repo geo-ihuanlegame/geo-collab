@@ -266,6 +266,10 @@ export function McpConnectWorkspace() {
                 <span style={{ marginRight: 8 }}>建议 base_url：</span>
                 <code style={inlineCode}>{status.suggested_base_url}</code>
               </div>
+              <div style={{ fontSize: 13, color: "var(--fg-2)" }}>
+                <span style={{ marginRight: 8 }}>MCP endpoint：</span>
+                <code style={inlineCode}>{status.suggested_base_url}/mcp</code>
+              </div>
               {localhostWarn ? (
                 <div
                   style={{
