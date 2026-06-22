@@ -134,7 +134,7 @@ POC 期：`server/mcp/` 跑独立 Python 进程（FastMCP stdio），把 GEO 现
   "mcpServers": {
     "geo": {
       "command": "python",
-      "args": ["-m", "server.mcp.server"],
+      "args": ["-m", "server.mcp"],
       "env": {
         "GEO_MCP_TOKEN": "<openssl rand -hex 32>",
         "GEO_API_BASE_URL": "http://127.0.0.1:8000",
@@ -153,13 +153,24 @@ POC 期：`server/mcp/` 跑独立 Python 进程（FastMCP stdio），把 GEO 现
 - MCP server 用独立 `GEO_MCP_TOKEN`（service token），跟 user JWT cookie 完全隔离
 - GEO 后端校验在 `server/app/core/mcp_auth.py:require_mcp_token` —— hmac compare_digest
 - 空 token 配置 = MCP 全禁用（所有带 token 请求 401）
-- POC 期所有 MCP-facing endpoint 走独立 sub-router（如 `articles_mcp_router`, `tasks_mcp_router`, `mcp_system_router`, `auto_review_router`, `performance_router`, `generation_mcp_router`）单独标 `dependencies=[Depends(require_mcp_token)]`，**不复用 user JWT 路径**
+- POC 期所有 MCP-facing endpoint 走独立 sub-router（如 `articles_mcp_router`, `tasks_mcp_router`, `mcp_system_router`, `auto_review_router`, `performance_router`, `generation_mcp_router`，以及跨模块只读 catalog 端点的 `mcp_catalog_router` 挂在 `/api/mcp/*`）单独标 `dependencies=[Depends(require_mcp_token)]`，**不复用 user JWT 路径**
+- **MCP 端点的未捕获异常用 `core/mcp_errors.mcp_exception_response(exc, context=...)` 包成 HTTPException**，绕过 main.py 全局 500 handler 的字符串抹平。规则：异常 `__module__` 顶级 ∈ {litellm / httpx / openai / anthropic} → 502（上游错误，Loop 可重试 / 切模型）；其它 → 500。detail 形如 `"<ExceptionClass>: <msg, ≤500 字符>"`，完整 traceback 仍由 helper 内 `logger.exception` 落日志。新增 MCP 端点写 `except Exception as exc:` 时一律走它，不要直接抛裸 Exception。
 
 ### Tool 三组（共 17 个）
 
 - **catalog**（只读 7 个）：`list_articles` / `list_question_pools` / `list_question_items` / `list_prompt_templates` / `list_pipelines` / `list_accounts` / `get_article`
-- **action**（写 6 个）：`compose_article` / `illustrate_article` / `submit_review_decision` / `set_review_status` / `create_distribute_task` / `notify_feishu`
+- **action**（写 6 个）：`save_article` / `illustrate_article` / `submit_review_decision` / `set_review_status` / `create_distribute_task` / `notify_feishu`
 - **meta**（评估 / 回流 4 个）：`score_recent_articles` / `get_template_performance` / `get_account_performance` / `record_publish_metrics`
+
+### MCP Loop 的「生文」零配置约定
+
+generation-loop 的写作环节由 **Claude Code 主对话**直接产出 markdown（host 端就是 Claude，让 GEO 后端再调 LiteLLM 是冗余）。落地接口是 `save_article(qid, tpl_id, title, markdown_content, model_label?)` → 后端 `POST /api/articles/save-from-mcp` 接管，复用 `markdown_to_tiptap` / `markdown_to_html` 转换器入库 + 置 `review_status="pending"`，**全程不调 LiteLLM**。
+
+因此：
+- **MCP loop 不需要 `GEO_AI_API_KEY`**——同事接入只要能跑 Claude Code 即可，零配置生文。
+- `GEO_AI_API_KEY` / `GEO_AI_MODEL` 仅 web UI 的「方案运行」、`ai_format`（自动排版/标题/配图选词）等路径使用；这些路径仍走 LiteLLM。
+- `score_recent_articles` tool（LiteLLM 评分）保留可调，但新 generation-loop 配方默认改成主对话自评 + 直接调 `submit_review_decision`，不再依赖该 tool——同样为了零配置。
+- 历史的 `compose_article` MCP tool + `POST /api/generation/compose-once` 端点已下线（被 `save_article` 完全替代）。
 
 ### 加新 tool 的步骤
 

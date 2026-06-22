@@ -30,7 +30,7 @@
 
 老板看到：
 - 飞书群弹出 "生文 Loop 开始" 消息
-- Claude Code 实时显示 tool_use 序列（list_question_items → compose_article → illustrate_article → score_recent_articles → submit_review_decision）
+- Claude Code 实时显示 tool_use 序列（list_question_items → 主对话写 markdown → save_article → illustrate_article → submit_review_decision）
 - 切到 GEO 前端「未审核库」tab 看到新文章出现
 - 切到 GEO 前端「文章详情」看到 AI 配图插在正文里
 - 飞书群最后收到 "生文 Loop 完成 · 产出 N/5 篇"

@@ -17,7 +17,7 @@
   "mcpServers": {
     "geo": {
       "command": "python",
-      "args": ["-m", "server.mcp.server"],
+      "args": ["-m", "server.mcp"],
       "env": {
         "GEO_MCP_TOKEN": "<32-byte hex token>",
         "GEO_API_BASE_URL": "http://127.0.0.1:8000",
@@ -35,13 +35,17 @@
 - 看 MCP server 日志：FastMCP stdio 把 server 端日志写到 stderr（Claude Code 会有面板显示）
 - 手动起 MCP server（dev 容器内验证 import 链）：
   ```bash
-  docker compose -f docker-compose.dev.yml exec -T -e GEO_MCP_TOKEN=test-abc app python -m server.mcp.server
+  docker compose -f docker-compose.dev.yml exec -T -e GEO_MCP_TOKEN=test-abc app python -m server.mcp
   ```
   （阻塞等 stdin，确认 import 路径正确；Ctrl-C 退出）
 - 列已注册 tool：
   ```bash
   docker compose -f docker-compose.dev.yml exec -T -e GEO_MCP_TOKEN=test-abc app python -c "from server.mcp.server import mcp; print(sorted(t.name for t in mcp._tool_manager._tools.values()))"
   ```
+- **不要用 `python -m server.mcp.server`**：会触发 Python `__main__` vs 包模块双实例 bug——
+  server.py 被加载两遍、`mcp = FastMCP(...)` 各建一个实例，结果 tools 注册在一个上、
+  `mcp.run()` 跑在另一个上，stdio `tools/list` 返回空。server.py `main()` 现在带兜底断言，
+  老命令会直接抛 RuntimeError 而不是静默 "no tools"。
 
 ## 验收（在 Claude Code 里）
 
@@ -55,3 +59,4 @@
 - **`network error`**：GEO 后端没起 / 端口不对 / Claude Code 跑在宿主而 GEO 跑在容器（注意 `GEO_API_BASE_URL` 用 `http://host.docker.internal:8000` 而不是 `127.0.0.1` 如果有这层 isolation）
 - **Claude Code 看不到 `geo` server**：`~/.claude.json` JSON 格式不对 / Claude Code 没重启
 - **`RuntimeError: GEO_MCP_TOKEN is empty`**：MCP server 进程启动时 env 没传入（`~/.claude.json` 里的 `env` 字段忘了配）
+- **`/mcp` 显示 `geo · connected · no tools`**：99% 是 MCP 命令配成了 `python -m server.mcp.server`（要 `python -m server.mcp`）。改完 `~/.claude.json` 重启 Claude Code 即可。
