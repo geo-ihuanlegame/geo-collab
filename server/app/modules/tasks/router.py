@@ -621,3 +621,56 @@ def retry_record_endpoint(
     )
     _start_background_execute(record.task_id)
     return to_record_read(result)
+
+
+# === MCP-facing endpoints（不走 user JWT，走 MCP token）===
+
+from server.app.core.mcp_auth import require_mcp_token  # noqa: E402
+
+tasks_mcp_router = APIRouter()
+
+
+class TaskMcpCreatePayload(BaseModel):
+    name: str
+    article_ids: list[int]
+    account_ids: list[int]
+    platform_code: str = "toutiao"
+    user_id: int  # MCP 调时传 operator user id（与 compose-once 一致）
+    stop_before_publish: bool = False
+
+
+class TaskMcpCreateResponse(BaseModel):
+    task_id: int
+
+
+@tasks_mcp_router.post(
+    "/mcp",
+    response_model=TaskMcpCreateResponse,
+    dependencies=[Depends(require_mcp_token)],
+)
+def create_task_mcp(
+    payload: TaskMcpCreatePayload,
+    db: Session = Depends(get_db),
+) -> TaskMcpCreateResponse:
+    """[MCP] Create an article_round_robin task. Reuses task service.create_task."""
+    import uuid
+
+    task = create_task(
+        db,
+        payload.user_id,
+        TaskCreate(
+            name=payload.name,
+            client_request_id=str(uuid.uuid4()),
+            task_type="article_round_robin",
+            article_ids=payload.article_ids,
+            accounts=[
+                TaskAccountInput(account_id=aid, sort_order=i)
+                for i, aid in enumerate(payload.account_ids)
+            ],
+            platform_code=payload.platform_code,
+            stop_before_publish=payload.stop_before_publish,
+        ),
+        role="admin",  # MCP 代表系统调用，跳过归属过滤
+    )
+    db.commit()
+    return TaskMcpCreateResponse(task_id=task.id)

@@ -21,7 +21,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse, RedirectResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -84,7 +84,7 @@ from server.app.modules.articles.uploader import (
 from server.app.modules.audit.service import add_audit_entry
 from server.app.modules.system.models import User
 from server.app.modules.tasks.models import PublishRecord
-from server.app.shared.errors import ClientError, ConflictError
+from server.app.shared.errors import ClientError, ConflictError, ValidationError
 
 articles_router = APIRouter()
 article_groups_router = APIRouter()
@@ -950,3 +950,202 @@ async def complete_chunked_upload(
             manager.cleanup_session(upload_id)
         except Exception:
             _logger.warning("Failed to cleanup chunked upload session %s", upload_id, exc_info=True)
+
+
+# === MCP-facing endpoints（不走 user JWT，走 MCP token）===
+# Reason: articles_router is mounted with Depends(get_current_user) globally.
+# MCP service calls have no user JWT, so we expose MCP endpoints on a separate sub-router.
+from server.app.core.mcp_auth import require_mcp_token  # noqa: E402
+from server.app.core.mcp_errors import mcp_exception_response  # noqa: E402
+from server.app.modules.image_library.hook import insert_images_for_article  # noqa: E402
+
+articles_mcp_router = APIRouter()
+
+
+class IllustratePayload(BaseModel):
+    category_ids: list[int] | None = None  # None = use article's existing stock_categories
+    image_positions: list[int] | None = None  # None = auto-detect from content
+
+
+class IllustrateResponse(BaseModel):
+    inserted_count: int
+
+
+@articles_mcp_router.post(
+    "/{article_id}/illustrate",
+    response_model=IllustrateResponse,
+    dependencies=[Depends(require_mcp_token)],
+)
+def illustrate_article_mcp(
+    article_id: int,
+    payload: IllustratePayload,
+    db: Session = Depends(get_db),
+) -> IllustrateResponse:
+    """[MCP] Insert AI-selected images into the article body.
+
+    Uses image_library/hook.py logic. POC 期：positions 默认按 content 顶层段落数自动均分。
+    """
+    article = db.query(Article).filter(Article.id == article_id).first()
+    if article is None:
+        raise HTTPException(status_code=404, detail="article not found")
+
+    # 选 category：payload > article.stock_categories (many-to-many relationship)
+    if payload.category_ids:
+        cat_ids = payload.category_ids
+    else:
+        cat_ids = [sc.id for sc in (article.stock_categories or [])]
+    if not cat_ids:
+        raise HTTPException(
+            status_code=400,
+            detail="no category_ids: either pass them or set article.stock_category_ids first",
+        )
+    category_id = cat_ids[0]
+
+    # 自动 positions：默认在 content_json 第 2、4、6 段后插
+    positions = payload.image_positions or [2, 4, 6]
+    before = (
+        len(article.content_json.get("content", []))
+        if isinstance(article.content_json, dict)
+        else 0
+    )
+    try:
+        insert_images_for_article(article_id, category_id, positions, db)
+        db.commit()
+    except HTTPException:
+        raise
+    except (ConflictError, ClientError, ValidationError):
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        raise mcp_exception_response(
+            exc,
+            context=f"illustrate_article article_id={article_id} category_id={category_id}",
+        ) from exc
+    db.refresh(article)
+    after = (
+        len(article.content_json.get("content", []))
+        if isinstance(article.content_json, dict)
+        else 0
+    )
+    return IllustrateResponse(inserted_count=max(0, after - before))
+
+
+class SaveArticleFromMcpPayload(BaseModel):
+    """主对话生成的 markdown 直接入库；不经 LiteLLM。
+
+    Loop runner（Claude Code 主对话）自己写好 markdown 后调本端点——这是 MCP loop 的
+    零配置生文路径，不需要 GEO_AI_API_KEY。
+    """
+
+    question_item_id: int
+    prompt_template_id: int
+    user_id: int
+    title: str = Field(min_length=1, max_length=300)
+    markdown_content: str = Field(min_length=1)
+    model_label: str | None = Field(default=None, max_length=120)
+
+
+class SaveArticleFromMcpResponse(BaseModel):
+    article_id: int
+
+
+@articles_mcp_router.post(
+    "/save-from-mcp",
+    response_model=SaveArticleFromMcpResponse,
+    dependencies=[Depends(require_mcp_token)],
+)
+def save_article_from_mcp(
+    payload: SaveArticleFromMcpPayload,
+    db: Session = Depends(get_db),
+) -> SaveArticleFromMcpResponse:
+    """[MCP] 把 Loop runner 主对话生成的 markdown 落到 articles 表。
+
+    流程：校验 question/template 存在 → 转 Tiptap+HTML → create_article → review_status=pending。
+    不调任何 LLM——所以 GEO 这边不需要 GEO_AI_API_KEY 也能跑通整条 generation-loop。
+    model_label 仅作 metadata 记录（写到 article.metrics['writer_model']），不影响行为。
+    """
+    import uuid
+
+    from server.app.modules.ai_generation.converter import markdown_to_html, markdown_to_tiptap
+    from server.app.modules.ai_generation.models import QuestionItem
+    from server.app.modules.articles.schemas import ArticleCreate
+    from server.app.modules.articles.service import create_article as _create_article
+    from server.app.modules.prompt_templates.models import PromptTemplate
+
+    item = db.query(QuestionItem).filter(QuestionItem.id == payload.question_item_id).first()
+    if item is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"question_item not found: id={payload.question_item_id}",
+        )
+    tpl = db.query(PromptTemplate).filter(PromptTemplate.id == payload.prompt_template_id).first()
+    if tpl is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"prompt_template not found: id={payload.prompt_template_id}",
+        )
+
+    article_payload = ArticleCreate(
+        title=payload.title,
+        content_json=markdown_to_tiptap(payload.markdown_content),
+        content_html=markdown_to_html(payload.markdown_content),
+        plain_text=payload.markdown_content,
+        word_count=len(payload.markdown_content),
+        client_request_id=str(uuid.uuid4()),
+    )
+
+    try:
+        article = _create_article(db, payload.user_id, article_payload)
+        article.review_status = "pending"
+        if payload.model_label:
+            existing = dict(article.metrics or {})
+            existing["writer_model"] = payload.model_label
+            article.metrics = existing
+        db.commit()
+    except HTTPException:
+        raise
+    except (ConflictError, ClientError, ValidationError):
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        raise mcp_exception_response(
+            exc,
+            context=(
+                f"save_article_from_mcp qid={payload.question_item_id} "
+                f"tpl={payload.prompt_template_id} user={payload.user_id}"
+            ),
+        ) from exc
+    return SaveArticleFromMcpResponse(article_id=article.id)
+
+
+class SetReviewStatusPayload(BaseModel):
+    review_status: str  # "pending" | "approved"
+
+
+class SetReviewStatusResponse(BaseModel):
+    article_id: int
+    review_status: str
+
+
+@articles_mcp_router.post(
+    "/{article_id}/set-review-status",
+    response_model=SetReviewStatusResponse,
+    dependencies=[Depends(require_mcp_token)],
+)
+def set_review_status_mcp(
+    article_id: int,
+    payload: SetReviewStatusPayload,
+    db: Session = Depends(get_db),
+) -> SetReviewStatusResponse:
+    """[MCP] Switch article.review_status between pending / approved."""
+    if payload.review_status not in ("pending", "approved"):
+        raise HTTPException(status_code=400, detail="invalid review_status")
+    article = db.query(Article).filter(Article.id == article_id).first()
+    if article is None:
+        raise HTTPException(status_code=404, detail="article not found")
+    article.review_status = payload.review_status
+    db.commit()
+    db.refresh(article)
+    return SetReviewStatusResponse(article_id=article_id, review_status=article.review_status)

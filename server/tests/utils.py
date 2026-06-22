@@ -29,11 +29,13 @@ class TestApp:
         data_dir: Path,
         session_factory: sessionmaker[Session],
         engine: Engine,
+        admin_id: int,
     ):
         self.client = client
         self.data_dir = data_dir
         self.session_factory = session_factory
         self.engine = engine
+        self.admin_id = admin_id
 
     def cleanup(self) -> None:
         # 不再 reset 数据库：下个 build_test_app 会按需 TRUNCATE / 重建，省掉一次全量 DDL。
@@ -68,6 +70,7 @@ def _model_modules() -> None:
     import server.app.modules.ai_models.models  # noqa: F401
     import server.app.modules.articles.models  # noqa: F401
     import server.app.modules.audit.models  # noqa: F401
+    import server.app.modules.auto_review.models  # noqa: F401
     import server.app.modules.image_library.models  # noqa: F401
     import server.app.modules.pipelines.models  # noqa: F401
     import server.app.modules.prompt_templates.models  # noqa: F401
@@ -220,11 +223,16 @@ def build_test_app(monkeypatch) -> TestApp:
         db.add(user)
         db.commit()
         db.refresh(user)
+        admin_user_id = user.id  # extract while session is open; avoids detached-instance issues
         token = create_access_token(user.id, user.role)
         client.cookies["access_token"] = token
 
     return TestApp(
-        client=client, data_dir=data_dir, session_factory=TestingSessionLocal, engine=engine
+        client=client,
+        data_dir=data_dir,
+        session_factory=TestingSessionLocal,
+        engine=engine,
+        admin_id=admin_user_id,
     )
 
 

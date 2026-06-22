@@ -9,9 +9,11 @@ from datetime import timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
+from pydantic import BaseModel
 from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session
 
+from server.app.core.mcp_auth import require_mcp_token
 from server.app.core.security import require_admin
 from server.app.core.time import utcnow
 from server.app.db.session import get_db
@@ -19,6 +21,7 @@ from server.app.modules.accounts import remote_browser_runtime_status
 from server.app.modules.audit.service import add_audit_entry
 from server.app.modules.system.models import User, WorkerHeartbeat
 from server.app.modules.system.schemas import SystemStatus
+from server.app.shared.feishu import send_text
 from server.app.shared.resource_metrics import collect_resource_metrics
 from server.app.shared.system_status import get_system_status
 
@@ -151,3 +154,32 @@ def read_db_pool_metrics(
 ) -> dict:
     """返回 DB 连接池状态 + 闸占用占位 + 活跃发布记录 / 过期租约计数。"""
     return collect_resource_metrics(db)
+
+
+# === MCP-facing endpoints（不走 user JWT，走 MCP token）===
+# Reason: system_router is mounted with Depends(get_current_user) globally.
+# MCP service calls have no user JWT, so we expose MCP endpoints on a separate sub-router.
+
+
+class FeishuNotifyPayload(BaseModel):
+    title: str
+    message: str
+    level: str = "info"  # info / warning / error / done
+
+
+class FeishuNotifyResponse(BaseModel):
+    sent: bool
+
+
+mcp_system_router = APIRouter()
+
+
+@mcp_system_router.post(
+    "/feishu-notify",
+    response_model=FeishuNotifyResponse,
+    dependencies=[Depends(require_mcp_token)],
+)
+def post_feishu_notify(payload: FeishuNotifyPayload) -> FeishuNotifyResponse:
+    """[MCP] Send a Feishu webhook notification with title/message/level."""
+    sent = send_text(payload.title, payload.message, payload.level)
+    return FeishuNotifyResponse(sent=sent)

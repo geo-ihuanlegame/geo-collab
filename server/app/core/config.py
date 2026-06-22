@@ -107,7 +107,9 @@ class Settings(BaseSettings):
     # [临时] 方案生文封面兜底存储桶（GEO_TEMP_COVER_BUCKET）。空字符串=禁用整段临时封面逻辑。
     temp_cover_bucket: str = "cantingyangchengji"
     # AI 生文（LangGraph 写作智能体）—— 保持 Claude
-    ai_model: str = "claude-3-5-sonnet-20241022"  # GEO_AI_MODEL
+    # NOTE: LiteLLM 1.40+ 要求 model 串显式带 provider 前缀（如 anthropic/、openai/、deepseek/），
+    # 不再自动猜。无前缀串会抛 BadRequestError: "LLM Provider NOT provided"。
+    ai_model: str = "anthropic/claude-3-5-sonnet-20241022"  # GEO_AI_MODEL
     ai_api_key: str = ""  # GEO_AI_API_KEY
     # 方案级可选 AI 引擎列表（为后续接入更多写作模型留接口）。
     # 每项 = AiEngineConfig（label 展示名 / model litellm 串 / api_key / base_url）。
@@ -145,6 +147,11 @@ class Settings(BaseSettings):
     baidu_neg_cache_seconds: int = (
         120  # GEO_BAIDU_NEG_CACHE_SECONDS 同名搜图失败的负缓存 TTL，省得本批反复打
     )
+
+    # MCP server（Claude Code 通过 stdio spawn 调用 GEO 能力）
+    # 注意：MCP server 子进程的 GEO_API_BASE_URL 由 server/mcp/config.py 直接读 os.environ，
+    # 不进 Settings——避免与服务端进程的 mcp_token 校验路径耦合。
+    mcp_token: str = ""  # GEO_MCP_TOKEN（独立 service token，与 user JWT 隔离；空=禁用 MCP）
 
     model_config = SettingsConfigDict(env_prefix="GEO_", env_file=".env", extra="ignore")
 
