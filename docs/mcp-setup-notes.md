@@ -60,3 +60,61 @@
 - **Claude Code 看不到 `geo` server**：`~/.claude.json` JSON 格式不对 / Claude Code 没重启
 - **`RuntimeError: GEO_MCP_TOKEN is empty`**：MCP server 进程启动时 env 没传入（`~/.claude.json` 里的 `env` 字段忘了配）
 - **`/mcp` 显示 `geo · connected · no tools`**：99% 是 MCP 命令配成了 `python -m server.mcp.server`（要 `python -m server.mcp`）。改完 `~/.claude.json` 重启 Claude Code 即可。
+
+## 公网部署 + 多机接入
+
+> 本节面向「GEO 已在公网服务器跑起来 + 团队多人各自装 Claude Code 接 MCP」的场景。本机单人开发不需要看这节。
+
+### 服务端（公网部署机，一次性）
+
+1. **HTTPS 反代**：Nginx/Caddy 把 `https://geo.example.com` 反代到 `127.0.0.1:8000`。必须透传 `X-Forwarded-Proto` 与 `X-Forwarded-Host`，否则前端「MCP 接入」tab 的 `suggested_base_url` 会显示成内网地址。
+   - Caddy 默认透传，无需配置
+   - Nginx 在 `location /` 块加：
+     ```nginx
+     proxy_set_header X-Forwarded-Proto $scheme;
+     proxy_set_header X-Forwarded-Host  $host;
+     proxy_set_header X-Real-IP         $remote_addr;
+     ```
+2. **uvicorn proxy headers**：FastAPI 启动加 `--proxy-headers --forwarded-allow-ips="*"`（docker-compose 里改 `command`）。
+3. **token 生成 + 注入**：
+   ```bash
+   openssl rand -hex 32  # 生成 64 字符 hex token
+   echo 'GEO_MCP_TOKEN=<token>' >> .env
+   docker compose restart app
+   ```
+4. **验证**：浏览器开 `https://geo.example.com` → 登录 → 进「MCP 接入」tab，段 ② 应显示「✓ 服务端 token 已配置」+ 建议 base_url 是公网域名。
+
+### 客户端（每台外部机器，一次性）
+
+1. **克隆 + venv**（Windows / macOS / Linux 通用）：
+   ```bash
+   git clone https://github.com/geo-ihuanlegame/geo-collab.git
+   cd geo-collab
+   python -m venv .venv
+   # PowerShell:
+   .venv\Scripts\Activate.ps1
+   # bash:
+   source .venv/bin/activate
+   ```
+
+2. **装 MCP 子集依赖**（不要装全量 requirements.txt——那里有 sqlalchemy / playwright 等不必要的重依赖）：
+   ```bash
+   pip install -r requirements-mcp.txt
+   ```
+
+3. **编辑 `~/.claude.json`**：从 GEO 前端「MCP 接入」tab 段 ③ 复制 JSON 模板，替换三处：
+   - `GEO_MCP_TOKEN` → admin 给你的 token
+   - `GEO_API_BASE_URL` → 已是公网域名（前端自动填）；若你的 Claude Code 跑在容器里则改 `host.docker.internal`
+   - `PYTHONPATH` → 你刚刚 `git clone` 出来的绝对路径，**Windows 用双反斜杠**：`C:\\Users\\<you>\\geo-collab`
+
+4. **重启 Claude Code → `/mcp`**：应看到 `geo: connected` + 工具数与 tab 段 ① 一致。
+
+### 安全须知
+
+- token 与用户密码同等敏感。**不要**在 wiki / 群聊 / commit 明文传，建议 1Password / Bitwarden / 私聊。
+- 公网部署**必须 HTTPS**。明文 HTTP 等于 token 明传，被 sniff 就完了。
+- POC 期所有客户端共享同一个 token，**任一台机器泄露即影响全员**。下一步引入 per-user token 会单独 spec。
+
+### 一键脚本（可选）
+
+仓库根 `scripts/setup-mcp-client.{sh,ps1}` 提供 clone + venv + pip install + 提示用户编辑 `~/.claude.json` 的一键化流程。本 PR 未包含该脚本——见后续 issue。
