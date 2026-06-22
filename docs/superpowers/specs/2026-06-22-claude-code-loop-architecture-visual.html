@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude Code Loop × GEO · 核心架构</title>
+<style>
+  :root {
+    --bg: #f8fafc; --card: #ffffff; --border: #e2e8f0; --text: #0f172a;
+    --muted: #64748b; --link: #1e40af;
+    --plugin: #10b981; --flow: #1e40af; --skill: #8b5cf6; --cloud: #06b6d4;
+    --loop: #6366f1; --loop-soft: rgba(99,102,241,0.08); --loop-dim: rgba(99,102,241,0.5);
+    --new-bg: #fef9c3; --new-border: #facc15; --new-text: #713f12;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+    margin: 0 auto; padding: 36px 28px 64px; background: var(--bg); color: var(--text);
+    line-height: 1.6; max-width: 1280px;
+  }
+  h1 { font-size: 26px; margin: 0 0 6px; }
+  h2 { font-size: 20px; font-weight: 800; margin: 0 0 4px; }
+  h3 { font-size: 14px; font-weight: 700; margin: 14px 0 6px; }
+  p { margin: 6px 0; }
+  code { font-family: "JetBrains Mono", Consolas, monospace; font-size: 12px; background: #eef2f7; padding: 1px 6px; border-radius: 4px; }
+  a { color: var(--link); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .doc-header { border-bottom: 2px solid var(--border); padding-bottom: 14px; margin-bottom: 10px; }
+  .doc-header .meta { color: var(--muted); font-size: 12px; }
+  .doc-header .tagline { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 1px;
+    color: var(--loop); background: var(--loop-soft); padding: 3px 10px; border-radius: 4px; margin-right: 8px; }
+  .doc-header .links { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+
+  .section-wrap { background: #fff; border: 1px solid var(--border); border-radius: 14px;
+    padding: 20px 24px; margin: 16px 0; box-shadow: 0 1px 2px rgba(15,23,42,0.04); }
+  .sec-sub { color: var(--muted); font-size: 12.5px; margin: 0 0 12px; }
+
+  /* === TL;DR === */
+  .tldr { background: linear-gradient(135deg, var(--loop-soft), #fff);
+    border: 1px solid var(--border); border-left: 5px solid var(--loop);
+    border-radius: 0 14px 14px 0; padding: 16px 22px; margin: 14px 0 4px; }
+  .tldr h2 { color: var(--loop); font-size: 15px; margin-bottom: 10px; }
+  .tldr .kpis { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 10px; }
+  .kpi { text-align: center; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: #fff; }
+  .kpi .num { font-size: 28px; font-weight: 800; color: var(--loop); line-height: 1.1; }
+  .kpi .lbl { font-size: 11px; color: var(--muted); margin-top: 4px; letter-spacing: 0.3px; }
+  .tldr .one { font-size: 13.5px; line-height: 1.65; }
+  .tldr .one b { color: var(--text); }
+
+  /* === 架构图：SVG + foreignObject，整图等比缩放 === */
+  .arch-stage { width: 100%; max-width: 1180px; margin: 4px auto 0; }
+  .arch-stage svg { display: block; width: 100%; height: auto; }
+
+  /* foreignObject 内的样式（继承文档样式） */
+  .col-box { width: 100%; height: 100%; border-radius: 14px; background: #fff;
+    border: 1px solid var(--border); padding: 14px 14px; display: flex; flex-direction: column; gap: 10px;
+    font-size: 12px; line-height: 1.5; }
+  .col-left  { border-left: 4px solid var(--plugin); }
+  .col-mid   { border-left: 4px solid var(--loop); background: linear-gradient(180deg, var(--loop-soft) 0%, #fff 50%); }
+  .col-right { border-left: 4px solid var(--cloud); }
+  .col-head { display: flex; align-items: center; gap: 10px; }
+  .col-head .ico { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center;
+    justify-content: center; font-size: 20px; flex-shrink: 0; }
+  .col-head .ttl { font-size: 14px; font-weight: 800; line-height: 1.2; }
+  .col-head .sub { font-size: 10.5px; color: var(--muted); margin-top: 2px; letter-spacing: 0.3px; }
+  .col-left .col-head .ico  { background: rgba(16,185,129,0.12);  color: var(--plugin); }
+  .col-mid  .col-head .ico  { background: var(--loop); color: #fff; }
+  .col-mid  .col-head .ttl  { color: var(--loop); }
+  .col-right .col-head .ico { background: rgba(6,182,212,0.12); color: var(--cloud); }
+
+  /* 左柱 */
+  .startup { border: 1px solid var(--border); border-radius: 10px; padding: 9px 11px; background: #f9fafb; }
+  .startup h3 { font-size: 11.5px; color: var(--text); margin: 0 0 8px; font-weight: 700; }
+  .start-row { display: flex; align-items: center; gap: 7px; padding: 7px 9px; border-radius: 8px;
+    border: 1.2px solid var(--border); background: #fff; margin-bottom: 6px; font-size: 11.5px; }
+  .start-row:last-child { margin-bottom: 0; }
+  .start-row.poc { border-color: var(--loop); }
+  .start-row.v3  { border-style: dashed; border-color: var(--loop-dim); background: rgba(99,102,241,0.03); }
+  .badge { font-size: 9px; font-weight: 800; padding: 1px 6px; border-radius: 3px; letter-spacing: 0.5px; flex-shrink: 0; }
+  .badge.poc { background: var(--loop); color: #fff; }
+  .badge.v3  { background: #fff; color: var(--loop); border: 1px dashed var(--loop); }
+  .feishu-recv { border: 1px solid var(--plugin); border-radius: 10px; padding: 9px 11px;
+    background: linear-gradient(135deg, rgba(16,185,129,0.06), #fff); margin-top: auto; }
+  .feishu-recv h3 { font-size: 11.5px; color: var(--plugin); margin: 0 0 6px; font-weight: 700; }
+  .feishu-recv ul { margin: 0; padding-left: 16px; font-size: 11.5px; line-height: 1.6; }
+
+  /* 中柱 */
+  .loops { display: flex; flex-direction: column; gap: 6px; }
+  .lp { padding: 7px 11px; border: 1px solid var(--loop); border-radius: 8px; background: #fff;
+    font-size: 11.5px; display: flex; align-items: center; gap: 8px; }
+  .lp .emo { font-size: 14px; }
+  .lp .nm  { color: var(--loop); font-weight: 700; font-size: 11.5px; }
+  .lp .desc { margin-left: auto; font-size: 11px; color: var(--muted); }
+  .five { border: 1px dashed var(--loop-dim); border-radius: 10px; padding: 9px 11px;
+    background: rgba(255,255,255,0.55); margin-top: auto; }
+  .five h3 { font-size: 11px; color: var(--loop); margin: 0 0 4px; font-weight: 700; }
+  .five-line { font-size: 11px; color: var(--text); line-height: 1.55; }
+  .five-line span { white-space: nowrap; }
+
+  /* 右柱 */
+  .sub-card { border-radius: 10px; padding: 9px 11px; border: 1px solid var(--border); }
+  .sub-card.mcp { background: linear-gradient(135deg, rgba(6,182,212,0.08), #fff); border-color: var(--cloud); }
+  .sub-card.mcp .h { color: var(--cloud); font-size: 12px; font-weight: 800; margin-bottom: 3px; display: flex; gap: 6px; align-items: center; }
+  .sub-card.mcp .h .pill { font-size: 9.5px; background: var(--cloud); color: #fff; padding: 1px 6px; border-radius: 3px; font-weight: 800; }
+  .sub-card.mcp .desc { font-size: 11px; color: var(--text); }
+  .sub-card.new { background: var(--new-bg); border: 1.4px solid var(--new-border); }
+  .sub-card.new .h { color: var(--new-text); font-size: 12px; font-weight: 800; margin-bottom: 5px; display: flex; gap: 6px; align-items: center; }
+  .sub-card.new .h .pill { font-size: 9.5px; background: var(--new-text); color: var(--new-bg);
+    padding: 1px 6px; border-radius: 3px; font-weight: 800; }
+  .sub-card.new ul { margin: 0; padding-left: 16px; font-size: 11px; line-height: 1.55; color: var(--new-text); }
+  .sub-card.exist .h { font-size: 11px; color: var(--muted); margin-bottom: 6px; font-weight: 800;
+    letter-spacing: 0.4px; text-transform: uppercase; }
+  .cap-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 5px; }
+  .cap { font-size: 10.5px; padding: 4px 7px; border-radius: 6px; font-weight: 700;
+    border: 1px solid transparent; text-align: center; line-height: 1.3; }
+  .cap.flow   { background: rgba(30,64,175,0.08);  color: var(--flow);   border-color: rgba(30,64,175,0.2); }
+  .cap.skill  { background: rgba(139,92,246,0.08); color: var(--skill);  border-color: rgba(139,92,246,0.2); }
+  .cap.plugin { background: rgba(16,185,129,0.08); color: var(--plugin); border-color: rgba(16,185,129,0.2); }
+  .cap.cloud  { background: rgba(6,182,212,0.08);  color: var(--cloud);  border-color: rgba(6,182,212,0.2); }
+
+  /* === 图例 === */
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 11.5px; color: var(--muted);
+    margin: 12px 0 0; padding: 8px 14px; background: #f8fafc; border: 1px solid var(--border);
+    border-radius: 8px; align-items: center; }
+  .legend b { color: var(--text); font-weight: 700; }
+  .lg-item { display: inline-flex; align-items: center; gap: 6px; }
+  .v3pill { font-size: 9px; font-weight: 800; color: #fff; background: var(--loop);
+    padding: 1px 5px; border-radius: 3px; letter-spacing: 0.5px; }
+
+  /* === 时序条带 === */
+  .timeline { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-top: 6px; }
+  .tl-step { border: 1px solid var(--border); border-radius: 10px; padding: 10px 11px;
+    background: #fff; position: relative; border-top: 3px solid var(--loop); }
+  .tl-step .idx { position: absolute; top: -10px; left: 11px; width: 22px; height: 22px; line-height: 22px;
+    border-radius: 50%; background: var(--loop); color: #fff; font-size: 11px; font-weight: 800; text-align: center; }
+  .tl-step .nm { font-size: 13px; font-weight: 800; margin: 7px 0 4px; }
+  .tl-step .what { font-size: 11.5px; color: var(--text); line-height: 1.5; }
+  .tl-step .mod { font-size: 10px; color: var(--muted); margin-top: 6px; padding-top: 5px; border-top: 1px dashed var(--border); }
+
+  /* === 工具三组卡 === */
+  .tools-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+  .tool-col { border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; background: #fff;
+    border-top: 3px solid; }
+  .tool-col.catalog { border-top-color: #64748b; }
+  .tool-col.action  { border-top-color: #f59e0b; }
+  .tool-col.meta    { border-top-color: #8b5cf6; }
+  .tool-col h3 { margin: 0 0 4px; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+  .tool-col h3 .pill { font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 10px;
+    color: #fff; letter-spacing: 0.4px; }
+  .tool-col.catalog h3 .pill { background: #64748b; }
+  .tool-col.action  h3 .pill { background: #f59e0b; }
+  .tool-col.meta    h3 .pill { background: #8b5cf6; }
+  .tool-col .gloss { font-size: 11.5px; color: var(--muted); margin: 2px 0 8px; line-height: 1.5; }
+  .tool-list { font-family: "JetBrains Mono", Consolas, monospace; font-size: 10.5px; color: var(--muted);
+    line-height: 1.6; word-break: break-all; }
+  .tool-list b { font-weight: 600; color: #475569; }
+  .tool-col.catalog .tool-list b { color: #475569; }
+  .tool-col.action  .tool-list b { color: #b45309; }
+  .tool-col.meta    .tool-list b { color: #6d28d9; }
+
+  /* === 路标 === */
+  .road { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+  .stage { border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; background: #fff;
+    border-top: 4px solid; position: relative; }
+  .stage.now    { border-top-color: var(--plugin); background: linear-gradient(180deg, rgba(16,185,129,0.06), #fff 60%); }
+  .stage.next   { border-top-color: var(--loop); }
+  .stage.future { border-top-color: var(--skill); border-style: dashed; }
+  .stage .emo  { font-size: 22px; }
+  .stage .ph   { font-size: 10.5px; font-weight: 800; letter-spacing: 1px; color: var(--muted); margin-top: 2px; }
+  .stage .nm   { font-size: 14.5px; font-weight: 800; margin: 2px 0 8px; }
+  .stage.now    .nm { color: var(--plugin); }
+  .stage.next   .nm { color: var(--loop); }
+  .stage.future .nm { color: var(--skill); }
+  .stage ul { margin: 0; padding-left: 16px; font-size: 12px; line-height: 1.7; color: var(--text); }
+  .stage .deadline { position: absolute; top: 10px; right: 10px; font-size: 10px;
+    background: #f1f5f9; color: var(--muted); padding: 2px 7px; border-radius: 10px; font-weight: 700; }
+
+  @media print {
+    body { background: #fff; padding: 18px 14px; max-width: none; }
+    .section-wrap { box-shadow: none; page-break-inside: avoid; }
+    .arch-stage { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<div class="doc-header">
+  <div>
+    <span class="tagline">ARCHITECTURE SNAPSHOT v0</span>
+    <span style="color:var(--muted);font-size:12px">老板演示 · 2026-06-22</span>
+  </div>
+  <h1>Claude Code 跑 Loop × GEO 当能力底座</h1>
+  <div class="meta">一句话：把"自己会迭代"的 AI 接到我们 GEO 平台上，让它夜里自己生文、自评、自分发。</div>
+  <div class="links">
+    详细稿：<a href="2026-06-18-claude-code-loop-with-geo-mcp-design.md">06-18 POC 落地稿</a>
+    &nbsp;·&nbsp;
+    背景：<a href="2026-06-17-loop-engineering-geo-integration.html">06-17 Loop Engineering 讨论稿</a>
+  </div>
+</div>
+
+<!-- ====== TL;DR ====== -->
+<div class="tldr">
+  <h2>一页摘要</h2>
+  <div class="kpis">
+    <div class="kpi"><div class="num">3</div><div class="lbl">个 LOOP · 生文 / 发文 / 周报</div></div>
+    <div class="kpi"><div class="num">17</div><div class="lbl">个工具 · GEO 暴露给 AI</div></div>
+    <div class="kpi"><div class="num">7</div><div class="lbl">天 POC · 本周跑通</div></div>
+  </div>
+  <p class="one">
+    AI"大脑"<b>不在</b> GEO 里跑，跑在 <b>Claude Code 本机</b>。GEO 只负责"<b>能力</b>"——
+    生文、配图、打分、分发、推飞书。AI 自己规划节奏、自评、自纠，做完了在飞书群里报工。
+    跑得不好下次自己改、跑得好就稳定产出，运营人只管定目标和最终点 approve。
+  </p>
+</div>
+
+<!-- ====== 核心架构图（SVG 整图缩放，永不错位） ====== -->
+<section class="section-wrap">
+  <h2>核心架构</h2>
+  <p class="sec-sub">左·运营人 → 中·AI 大脑 → 右·GEO 平台 · 三柱单向数据流 + 飞书 webhook 回报</p>
+
+  <div class="arch-stage">
+    <svg viewBox="0 0 1220 590" preserveAspectRatio="xMidYMid meet" style="overflow: visible">
+      <defs>
+        <marker id="ah-loop" markerWidth="10" markerHeight="10" refX="8" refY="4" orient="auto" markerUnits="strokeWidth">
+          <path d="M0,0 L8,4 L0,8 Z" fill="#6366f1"/>
+        </marker>
+        <marker id="ah-dim" markerWidth="10" markerHeight="10" refX="8" refY="4" orient="auto" markerUnits="strokeWidth">
+          <path d="M0,0 L8,4 L0,8 Z" fill="rgba(99,102,241,0.55)"/>
+        </marker>
+        <marker id="ah-green" markerWidth="10" markerHeight="10" refX="8" refY="4" orient="auto" markerUnits="strokeWidth">
+          <path d="M0,0 L8,4 L0,8 Z" fill="#10b981"/>
+        </marker>
+      </defs>
+
+      <!-- 三柱 foreignObject：x=10/450/890，每柱宽 320，gap 120 给箭头与 labels -->
+
+      <!-- 左柱：使用者 -->
+      <foreignObject x="10" y="10" width="320" height="500">
+        <div xmlns="http://www.w3.org/1999/xhtml" class="col-box col-left">
+          <div class="col-head">
+            <div class="ico">👤</div>
+            <div><div class="ttl">运营人</div><div class="sub">USER · 设目标 + 最终把关</div></div>
+          </div>
+          <div class="startup">
+            <h3>怎么启动 Loop？</h3>
+            <div class="start-row poc"><span class="badge poc">现在</span><span>本机终端敲 <code style="font-size:10px;padding:0 3px">/loop</code></span></div>
+            <div class="start-row v3"><span class="badge v3">v3</span><span>飞书 @bot 一句话下令</span></div>
+          </div>
+          <div class="feishu-recv">
+            <h3>💬 飞书群 · 接 Loop 回报</h3>
+            <ul>
+              <li>启动 · 心跳</li>
+              <li>跑完 · 总结</li>
+              <li>出错 · 告警</li>
+            </ul>
+          </div>
+        </div>
+      </foreignObject>
+
+      <!-- 中柱：Claude Code -->
+      <foreignObject x="450" y="10" width="320" height="500">
+        <div xmlns="http://www.w3.org/1999/xhtml" class="col-box col-mid">
+          <div class="col-head">
+            <div class="ico">🧠</div>
+            <div><div class="ttl">Claude Code · AI 大脑</div><div class="sub">本机 · 跑 Loop · 调工具</div></div>
+          </div>
+          <div class="loops">
+            <div class="lp"><span class="emo">✍️</span><span class="nm">生文 Loop</span><span class="desc">写够 5 篇就停</span></div>
+            <div class="lp"><span class="emo">📤</span><span class="nm">发文 Loop</span><span class="desc">分发到各账号</span></div>
+            <div class="lp"><span class="emo">📊</span><span class="nm">周报 Loop</span><span class="desc">每周一拉表现</span></div>
+          </div>
+          <div class="five">
+            <h3>每个 Loop 的五件套</h3>
+            <div class="five-line">
+              <span>① 目标</span> · <span>② 上下文</span> · <span>③ 工具</span> ·<br/>
+              <span>④ 自评</span> · <span>⑤ 停止条件</span>
+            </div>
+          </div>
+        </div>
+      </foreignObject>
+
+      <!-- 右柱：GEO -->
+      <foreignObject x="890" y="10" width="320" height="500">
+        <div xmlns="http://www.w3.org/1999/xhtml" class="col-box col-right">
+          <div class="col-head">
+            <div class="ico">🗄️</div>
+            <div><div class="ttl">GEO 平台</div><div class="sub">同一个仓库 · 能力底座</div></div>
+          </div>
+          <div class="sub-card mcp">
+            <div class="h"><span>对外开放接口</span><span class="pill">17 工具</span></div>
+            <div class="desc">GEO 把现有能力封装好给 AI 调，跟人用 GEO 走两条路、互不影响</div>
+          </div>
+          <div class="sub-card new">
+            <div class="h"><span>本次新做的</span><span class="pill">NEW</span></div>
+            <ul>
+              <li><b>自动审核</b>·AI 给文章打分留底</li>
+              <li><b>表现统计</b>·模板/账号 metrics</li>
+              <li><b>飞书通知</b>·统一通知出口</li>
+            </ul>
+          </div>
+          <div class="sub-card exist">
+            <div class="h">已有能力（不动）</div>
+            <div class="cap-grid">
+              <div class="cap flow">工作流</div>
+              <div class="cap flow">AI 生文</div>
+              <div class="cap skill">提示词</div>
+              <div class="cap skill">图片库</div>
+              <div class="cap skill">问题池</div>
+              <div class="cap plugin">文章/账号</div>
+              <div class="cap plugin">分发引擎</div>
+              <div class="cap cloud">热榜/审计</div>
+            </div>
+          </div>
+        </div>
+      </foreignObject>
+
+      <!-- 箭头组（gap 宽 120：left 330..450 / mid 770..890）-->
+
+      <!-- POC 启动：左→中 (y=140) -->
+      <path d="M 340 140 H 445" stroke="#6366f1" stroke-width="2.4" fill="none" marker-end="url(#ah-loop)"/>
+      <text x="390" y="132" text-anchor="middle" font-size="11" font-weight="700" fill="#6366f1">启动 Loop</text>
+      <text x="390" y="156" text-anchor="middle" font-size="10" fill="#64748b">现在 · 手工</text>
+
+      <!-- v3 启动：左→中 (y=210)，虚线 -->
+      <path d="M 340 210 H 445" stroke="rgba(99,102,241,0.55)" stroke-width="2" stroke-dasharray="6 4" fill="none" marker-end="url(#ah-dim)"/>
+      <g transform="translate(390 200)">
+        <rect x="-13" y="0" width="26" height="14" fill="#6366f1" rx="3"/>
+        <text x="0" y="11" text-anchor="middle" font-size="9.5" font-weight="800" fill="#fff">v3</text>
+      </g>
+      <text x="390" y="226" text-anchor="middle" font-size="10" fill="#64748b">飞书 @bot</text>
+
+      <!-- 中→右：调工具 (y=300)，主线粗 -->
+      <path d="M 780 300 H 885" stroke="#6366f1" stroke-width="3.2" fill="none" marker-end="url(#ah-loop)"/>
+      <text x="830" y="292" text-anchor="middle" font-size="11" font-weight="700" fill="#6366f1">调能力</text>
+      <text x="830" y="316" text-anchor="middle" font-size="10" fill="#64748b">17 工具</text>
+
+      <!-- 右→左：飞书 webhook 单向回报，U 形过底部（路径走在 box 下方 y=510..555，arrow 头落在左柱底边 y=510）-->
+      <path d="M 1050 510 V 555 H 170 V 510" stroke="#10b981" stroke-width="2.4" fill="none" marker-end="url(#ah-green)" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="610" y="572" text-anchor="middle" font-size="11" font-weight="700" fill="#10b981">飞书 webhook · 回报心跳 / 完工 / 告警</text>
+    </svg>
+  </div>
+
+  <div class="legend">
+    <b>图例：</b>
+    <span class="lg-item">
+      <svg width="32" height="6"><line x1="0" y1="3" x2="32" y2="3" stroke="#6366f1" stroke-width="2.4"/></svg>
+      <span>现在能跑（实线）</span>
+    </span>
+    <span class="lg-item">
+      <svg width="32" height="6"><line x1="0" y1="3" x2="32" y2="3" stroke="rgba(99,102,241,0.55)" stroke-width="2" stroke-dasharray="5 3"/></svg>
+      <span>v3 愿景（虚线）</span><span class="v3pill">v3</span>
+    </span>
+    <span class="lg-item">
+      <svg width="32" height="6"><line x1="0" y1="3" x2="32" y2="3" stroke="#10b981" stroke-width="2.4"/></svg>
+      <span>飞书回报（绿）</span>
+    </span>
+    <span style="margin-left:auto;color:var(--muted);font-size:11px">
+      色系：<span style="color:var(--flow);font-weight:700">蓝=流程</span> ·
+      <span style="color:var(--skill);font-weight:700">紫=素材</span> ·
+      <span style="color:var(--plugin);font-weight:700">绿=数据</span> ·
+      <span style="color:var(--cloud);font-weight:700">青=对外接口</span>
+    </span>
+  </div>
+</section>
+
+<!-- ====== 一次生文 Loop 跑了什么 ====== -->
+<section class="section-wrap">
+  <h2>一次"生文 Loop"跑了什么</h2>
+  <p class="sec-sub">6 步串起来 · 老板看个流程感 · 跑完结果直接进未审核库等人审</p>
+
+  <div class="timeline">
+    <div class="tl-step">
+      <div class="idx">1</div>
+      <div class="nm">启动</div>
+      <div class="what">运营人本机敲 <code style="font-size:10px;padding:0 3px">/loop</code></div>
+      <div class="mod">→ 飞书弹"Loop 开始"</div>
+    </div>
+    <div class="tl-step">
+      <div class="idx">2</div>
+      <div class="nm">拉资料</div>
+      <div class="what">AI 找今天可写的问题 + 可用模板</div>
+      <div class="mod">→ 从 GEO 问题池 / 提示词库读</div>
+    </div>
+    <div class="tl-step">
+      <div class="idx">3</div>
+      <div class="nm">写 + 配图</div>
+      <div class="what">一篇一篇生 · 顺手配好图</div>
+      <div class="mod">→ 沉到 GEO 草稿库</div>
+    </div>
+    <div class="tl-step">
+      <div class="idx">4</div>
+      <div class="nm">自评</div>
+      <div class="what">让另一个便宜 AI 给文章打分</div>
+      <div class="mod">→ 事实 / 可读 / 风格 / 合规 四维</div>
+    </div>
+    <div class="tl-step">
+      <div class="idx">5</div>
+      <div class="nm">决策</div>
+      <div class="what">≥70 进未审核库 · 低分自动重写或弃</div>
+      <div class="mod">→ 人审兜底，不直接发</div>
+    </div>
+    <div class="tl-step">
+      <div class="idx">6</div>
+      <div class="nm">报工</div>
+      <div class="what">飞书群"产出 N/5 篇 · 用时 X 分"</div>
+      <div class="mod">→ Loop 自己停</div>
+    </div>
+  </div>
+
+  <p style="font-size:11.5px;color:var(--muted);margin-top:12px;line-height:1.65">
+    <b style="color:var(--text)">什么时候停？</b>达到目标（5 篇通过） · 跑够轮数（≤15 轮防发散） · 超时（60 分钟）— 三选一。
+    自评只是 AI 的初筛，所有产出都要运营人最后点 approve / reject。
+  </p>
+</section>
+
+<!-- ====== 17 个工具三组速看 ====== -->
+<section class="section-wrap">
+  <h2>17 个工具 · 三组功能 · 老板看个概念</h2>
+  <p class="sec-sub">不用记名字 · 就记三类：读数据 / 干活 / 评估</p>
+
+  <div class="tools-grid">
+    <div class="tool-col catalog">
+      <h3><span class="pill">读数据</span><span style="font-size:11px;color:var(--muted);margin-left:auto">7 个</span></h3>
+      <div class="gloss">让 AI 知道现在有哪些问题、哪些模板、哪些文章、哪些账号</div>
+      <div class="tool-list">
+        <b>list_question_pools</b> · <b>list_question_items</b> · <b>list_prompt_templates</b> · <b>list_pipelines</b> · <b>list_articles</b> · <b>list_accounts</b> · <b>get_article</b>
+      </div>
+    </div>
+    <div class="tool-col action">
+      <h3><span class="pill">干活</span><span style="font-size:11px;color:var(--muted);margin-left:auto">6 个</span></h3>
+      <div class="gloss">让 AI 真的产出：生文 · 配图 · 给文章打标 · 建分发任务 · 推飞书</div>
+      <div class="tool-list">
+        <b>compose_article</b> · <b>illustrate_article</b> · <b>submit_review_decision</b> · <b>set_review_status</b> · <b>create_distribute_task</b> · <b>notify_feishu</b>
+      </div>
+    </div>
+    <div class="tool-col meta">
+      <h3><span class="pill">评估</span><span style="font-size:11px;color:var(--muted);margin-left:auto">4 个</span></h3>
+      <div class="gloss">让 AI 自评 + 看历史表现，下一轮能跑得更准</div>
+      <div class="tool-list">
+        <b>score_recent_articles</b> · <b>get_template_performance</b> · <b>get_account_performance</b> · <b>record_publish_metrics</b>
+      </div>
+    </div>
+  </div>
+
+  <p style="font-size:11.5px;color:var(--muted);margin-top:12px;line-height:1.65">
+    <b style="color:var(--text)">设计原则：</b>"一个工具一件事" — 不做万能 batch、不做单字段 setter。AI 看到工具名就知道用来干啥，不用读文档。
+  </p>
+</section>
+
+<!-- ====== 路标 ====== -->
+<section class="section-wrap">
+  <h2>路标 · 这周 → 1-2 月 → 半年</h2>
+  <p class="sec-sub">POC 跑通是分水岭 · 投不投 v2 / v3 看老板拍</p>
+
+  <div class="road">
+    <div class="stage now">
+      <div class="emo">🌱</div>
+      <div class="ph">PHASE 0 · POC</div>
+      <div class="nm">这周 · 跑通</div>
+      <span class="deadline">7 天</span>
+      <ul>
+        <li>3 个 Loop 在本机跑起来</li>
+        <li>飞书<b>单向</b>报工（不收消息）</li>
+        <li>17 个工具 + 鉴权隔离</li>
+        <li>真实数据流闭环（metrics 先 stub）</li>
+      </ul>
+    </div>
+    <div class="stage next">
+      <div class="emo">🌿</div>
+      <div class="ph">PHASE 1 · 工程化</div>
+      <div class="nm">v2 · 1–2 个月</div>
+      <span class="deadline">候选</span>
+      <ul>
+        <li>长跑服务器（夜里自己干活）</li>
+        <li>真阅读量 · 真互动数接入</li>
+        <li>多 Loop 并行 · 多账号矩阵</li>
+        <li>Skill 包装 · 配方可上架共享</li>
+      </ul>
+    </div>
+    <div class="stage future">
+      <div class="emo">🌳</div>
+      <div class="ph">PHASE 2 · 双向 IM</div>
+      <div class="nm">v3 · 3–6 个月</div>
+      <span class="deadline">愿景</span>
+      <ul>
+        <li>飞书内 <b>@bot 自然语言</b>下令</li>
+        <li>实时改参 · 查状态 · 临时叫停</li>
+        <li>选题 Loop 接热榜借势</li>
+        <li>跨游戏 · 跨矩阵复用</li>
+      </ul>
+    </div>
+  </div>
+
+  <div style="margin-top:14px;padding:11px 14px;background:#f8fafc;border:1px solid var(--border);border-radius:10px;font-size:12px;line-height:1.7">
+    <b style="color:var(--loop)">现场 5 分钟演示路径：</b>
+    ① 翻这页架构图 → ② 打开 Claude Code 看 17 工具列出来 → ③ 现场跑生文 Loop → ④ 切 GEO 前端看新文章 → ⑤ 飞书群看完工通知
+    · 详细脚本：<a href="../mcp-demo-walkthrough.md">docs/mcp-demo-walkthrough.md</a>
+  </div>
+</section>
+
+</body>
+</html>

@@ -43,26 +43,36 @@ from server.app.core.limiter import limiter
 from server.app.core.paths import ensure_data_dirs
 from server.app.core.security import get_current_user
 from server.app.modules.accounts.router import router as accounts_router
+from server.app.modules.ai_generation.router import mcp_router as generation_mcp_router
 from server.app.modules.ai_generation.router import router as generation_router
 from server.app.modules.ai_generation.scheme_router import scheme_router
 from server.app.modules.ai_models.router import router as ai_models_router
 from server.app.modules.articles.router import (
     article_groups_router,
+    articles_mcp_router,
     articles_router,
     assets_router,
     chunked_assets_router,
 )
 from server.app.modules.audit.router import router as audit_router
+from server.app.modules.auto_review.router import router as auto_review_router
 from server.app.modules.hot_lists.router import router as hot_lists_router
 from server.app.modules.image_library.router import files_router as stock_files_router
 from server.app.modules.image_library.router import router as stock_images_router
+from server.app.modules.mcp_catalog.connect_router import (
+    mcp_connect_health_router,
+    mcp_connect_user_router,
+)
+from server.app.modules.mcp_catalog.router import router as mcp_catalog_router
+from server.app.modules.performance.router import router as performance_router
 from server.app.modules.pipelines.router import router as pipelines_router
 from server.app.modules.prompt_templates.router import router as prompt_templates_router
 from server.app.modules.system.auth_router import router as auth_router
 from server.app.modules.system.models import User
+from server.app.modules.system.system_router import mcp_system_router
 from server.app.modules.system.system_router import router as system_router
 from server.app.modules.system.users_router import router as users_router
-from server.app.modules.tasks.router import publish_records_router, tasks_router
+from server.app.modules.tasks.router import publish_records_router, tasks_mcp_router, tasks_router
 from server.app.shared.errors import AccountError, ClientError, ConflictError, ValidationError
 
 # PyInstaller 打包后 sys._MEIPASS 指向解压目录
@@ -177,6 +187,53 @@ def create_app() -> FastAPI:
     app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
     app.include_router(users_router, prefix="/api/users", tags=["users"])
 
+    # MCP 服务对服务路由（MCP token 鉴权，不走 user JWT cookie）
+    # mcp_catalog：跨模块的只读 list / get 端点，路径在 /api/mcp/ 下避免与 user-JWT 路由冲突
+    app.include_router(
+        mcp_catalog_router,
+        prefix="/api/mcp",
+        tags=["mcp-catalog"],
+    )
+    # MCP 接入指引（前端「MCP 接入」tab 用）
+    # user JWT 鉴权（与 system_router 等 user-JWT 路由同一组依赖）
+    app.include_router(
+        mcp_connect_user_router,
+        prefix="/api/mcp",
+        tags=["mcp-connect"],
+        dependencies=[Depends(get_current_user)],
+    )
+    # MCP token 鉴权（router 自带 dependency）
+    app.include_router(
+        mcp_connect_health_router,
+        prefix="/api/mcp",
+        tags=["mcp-connect"],
+    )
+    app.include_router(
+        generation_mcp_router,
+        prefix="/api/generation",
+        tags=["generation-mcp"],
+    )
+    app.include_router(
+        articles_mcp_router,
+        prefix="/api/articles",
+        tags=["articles-mcp"],
+        # 不挂 get_current_user — MCP token 在 endpoint 内单独校验
+    )
+    # auto_review 走 /api/articles 前缀（与现有 article 路由同前缀，由 MCP token 单独鉴权）
+    app.include_router(
+        auto_review_router,
+        prefix="/api/articles",
+        tags=["auto-review"],
+    )
+    # performance 路由：MCP token 鉴权，不走 user JWT cookie
+    # 路由内路径绝对写出（/prompt-templates/…, /accounts/…, /publish-records/…），
+    # prefix=/api 后解析为 /api/prompt-templates/.../performance 等
+    app.include_router(
+        performance_router,
+        prefix="/api",
+        tags=["performance"],
+    )
+
     # 注册 API 路由模块（全部需要 JWT cookie 鉴权）
     app.include_router(
         accounts_router,
@@ -221,7 +278,19 @@ def create_app() -> FastAPI:
         dependencies=[Depends(get_current_user)],
     )
     app.include_router(
+        mcp_system_router,
+        prefix="/api/system",
+        tags=["system-mcp"],
+        # 不挂 get_current_user 依赖，MCP token 在 endpoint 内单独校验
+    )
+    app.include_router(
         tasks_router, prefix="/api/tasks", tags=["tasks"], dependencies=[Depends(get_current_user)]
+    )
+    app.include_router(
+        tasks_mcp_router,
+        prefix="/api/tasks",
+        tags=["tasks-mcp"],
+        # 不挂 get_current_user — MCP token 在 endpoint 内单独校验
     )
     app.include_router(
         prompt_templates_router,

@@ -41,6 +41,9 @@ const SystemWorkspace = lazy(() =>
 const HotListsWorkspace = lazy(() =>
   import("./features/hot-lists/HotListsWorkspace").then((m) => ({ default: m.HotListsWorkspace })),
 );
+const McpConnectWorkspace = lazy(() =>
+  import("./features/mcp/McpConnectWorkspace").then((m) => ({ default: m.McpConnectWorkspace })),
+);
 const UsersWorkspace = lazy(() =>
   import("./features/auth/UsersWorkspace").then((m) => ({ default: m.UsersWorkspace })),
 );
@@ -327,6 +330,15 @@ function AppShell() {
                 <ErrorBoundary title="热榜">
                   <Suspense fallback={<TabFallback />}>
                     <HotListsWorkspace />
+                  </Suspense>
+                </ErrorBoundary>
+              </ScrollPanel>
+            )}
+            {visitedTabs.has("mcp") && (
+              <ScrollPanel id="mcp" active={activeNav === "mcp"}>
+                <ErrorBoundary title="MCP 接入">
+                  <Suspense fallback={<TabFallback />}>
+                    <McpConnectWorkspace />
                   </Suspense>
                 </ErrorBoundary>
               </ScrollPanel>

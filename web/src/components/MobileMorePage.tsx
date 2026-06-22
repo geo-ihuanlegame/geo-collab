@@ -1,6 +1,6 @@
 import {
   ChevronRight, Flame, Images, LogOut, MessagesSquare, MonitorCog,
-  RadioTower, ScrollText, User, Users,
+  Plug, RadioTower, ScrollText, User, Users,
 } from "lucide-react";
 import type { NavKey } from "../types";
 
@@ -30,7 +30,13 @@ export function MobileMorePage({
         { key: "media", label: "媒体矩阵", icon: RadioTower },
       ],
     },
-    { title: "系统", rows: [{ key: "system", label: "系统状态", icon: MonitorCog }] },
+    {
+      title: "系统",
+      rows: [
+        { key: "system", label: "系统状态", icon: MonitorCog },
+        { key: "mcp", label: "MCP 接入", icon: Plug },
+      ],
+    },
     ...(isAdmin
       ? [
           {

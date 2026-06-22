@@ -230,3 +230,11 @@ def list_question_types(
         )
         for qtype, items in svc.question_types(db, pool.id)
     ]
+
+
+# 历史：曾有一个 MCP-facing POST /compose-once 端点（让 GEO 后端调 LiteLLM 帮 Loop 生文）。
+# 已下线——Loop runner（Claude Code 主对话）直接生文 + 调 articles_mcp_router 的
+# /save-from-mcp 落库，零 GEO_AI_API_KEY 依赖。该路径完全替代 compose-once。
+# 入口在 server/app/modules/articles/router.py:save_article_from_mcp。
+
+mcp_router = APIRouter()

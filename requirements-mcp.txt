@@ -1,0 +1,8 @@
+# MCP 客户端最小依赖集
+# 外部机器跑 `python -m server.mcp` 只需要 stdio 通信 + HTTP 调远端 GEO 后端，
+# 不需要 sqlalchemy / playwright / minio / litellm 等服务端重依赖。
+# 版本号与 requirements.txt 保持同步——升级时一起改。
+
+mcp[cli]>=1.0
+httpx==0.28.1
+pydantic==2.13.3

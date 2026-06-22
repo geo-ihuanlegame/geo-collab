@@ -1,0 +1,860 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Loop Engineering × GEO · 循环工程结合方案讨论稿</title>
+<style>
+  :root {
+    --bg: #f8fafc; --card: #ffffff; --border: #e2e8f0; --text: #0f172a;
+    --muted: #64748b; --brand: #10b981; --link: #1e40af; --warn: #ef4444; --pending: #f59e0b;
+    /* 四层能力色（沿用 eco-plan-full） */
+    --plugin: #10b981; --flow: #1e40af; --skill: #8b5cf6; --cloud: #06b6d4;
+    /* Loop 专属强调色 */
+    --loop: #6366f1; --loop-soft: rgba(99,102,241,0.08);
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei",
+      "Helvetica Neue", Arial, sans-serif;
+    margin: 0 auto; padding: 40px 32px 80px; background: var(--bg);
+    color: var(--text); line-height: 1.6; max-width: 1280px;
+  }
+  h1 { font-size: 28px; margin: 0 0 8px; }
+  h2 { font-size: 22px; font-weight: 800; margin: 0 0 4px; color: var(--text); }
+  h3 { font-size: 16px; font-weight: 700; margin: 18px 0 8px; }
+  h4 { font-size: 13px; font-weight: 700; color: var(--muted); margin: 0 0 10px; letter-spacing: 0.3px; }
+  p { margin: 6px 0; }
+  ul { padding-left: 20px; }
+  code { font-family: "JetBrains Mono", "Cascadia Code", Consolas, monospace; font-size: 12px; background: #eef2f7; padding: 1px 6px; border-radius: 4px; }
+  .subtitle { color: var(--muted); font-size: 13px; margin: 0 0 20px; }
+  .section-wrap { background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 28px 32px; margin: 28px 0; box-shadow: 0 1px 2px rgba(15,23,42,0.04); }
+  .toc { background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 20px 28px; margin: 20px 0 32px; }
+  .toc h2 { font-size: 14px; margin: 0 0 12px; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; }
+  .toc ol { margin: 0; padding-left: 22px; columns: 2; column-gap: 28px; font-size: 14px; line-height: 1.9; }
+  .toc a { color: var(--link); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  .doc-header { border-bottom: 2px solid var(--border); padding-bottom: 18px; margin-bottom: 8px; }
+  .doc-header .meta { color: var(--muted); font-size: 13px; }
+  .doc-header .tagline { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 1px; color: var(--loop); background: var(--loop-soft); padding: 3px 10px; border-radius: 4px; margin-right: 8px; }
+  .panel { border: 1px solid var(--border); border-radius: 10px; padding: 16px 20px; background: #fff; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+  .tag { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 1px; padding: 2px 8px; border-radius: 4px; }
+
+  /* TL;DR 顶部摘要卡（老板一页） */
+  .tldr { background: linear-gradient(135deg, var(--loop-soft), #fff); border: 1px solid var(--border); border-left: 5px solid var(--loop); border-radius: 0 14px 14px 0; padding: 22px 28px; margin: 20px 0 0; }
+  .tldr h2 { color: var(--loop); font-size: 18px; margin-bottom: 12px; }
+  .tldr .row { display: grid; grid-template-columns: 130px 1fr; gap: 12px; padding: 8px 0; border-bottom: 1px dashed var(--border); align-items: start; }
+  .tldr .row:last-child { border-bottom: none; }
+  .tldr .row .k { font-size: 12px; font-weight: 700; color: var(--loop); letter-spacing: 0.5px; padding-top: 2px; }
+  .tldr .row .v { font-size: 13.5px; line-height: 1.6; }
+  .tldr .row .v b { color: var(--text); }
+</style>
+</head>
+<body>
+
+<div class="doc-header">
+  <div><span class="tagline">DISCUSSION DRAFT v0</span><span style="color:var(--muted);font-size:12px">面向老板 + 技术 leader 的双层讨论稿 · 2026-06-17</span></div>
+  <h1>Loop Engineering × GEO · 循环工程结合方案</h1>
+  <div class="meta">把 Agent 从「一次性听指令」升级为「自迭代闭环」——给 GEO 装上"夜里自己干活、自己评估、自己再来"的循环系统</div>
+</div>
+
+<div class="tldr">
+  <h2>一页摘要</h2>
+  <div class="row"><div class="k">这是什么</div><div class="v"><b>Loop Engineering</b>（循环工程）是 2026 年 6 月在 AI 工程圈被 Addy Osmani / Boris Cherny 集中提出的新范式：不再坐在 Agent 旁边喂 prompt，而是给它一个外循环——<b>目标 / 上下文 / 工具 / 评估 / 停止条件</b>五件套，让它自己跑到达标为止。Anthropic 自家 Claude Code 已内置 <code>/loop</code> <code>/goal</code> <code>/batch</code> 命令。</div></div>
+  <div class="row"><div class="k">和 GEO 关系</div><div class="v">GEO 的 pipeline 节点注册表 / 驱动注册表 / 问题池 / 方案池 / worker 状态机 / 飞书 + 热榜集成已经覆盖了 <b>70% 的 Loop 基础设施</b>，缺的是<b>评估器 + 反馈回流 + 回路 DAG</b> 三块拼图。</div></div>
+  <div class="row"><div class="k">最痛的痛点</div><div class="v">当前 GEO 上游选题/选词是<b>人工录飞书文档</b>，实时性差、准确度无客观评价——这恰好是 Loop Engineering 教科书级的落点。</div></div>
+  <div class="row"><div class="k">双轨方案</div><div class="v"><b>方案 A（1-2 个月跑通）</b>：三段挂载 Loop——选题 / 评审 / 回流，<b>立刻能讲数字</b>；<b>方案 C（3-6 个月愿景）</b>：升级为 Agent Town，<b>运营只设目标和预算</b>，行业最前沿叙事。</div></div>
+  <div class="row"><div class="k">要拍板的事</div><div class="v">这周拍板：是否同意花 <b>2 周 × 1 个工程师</b> 做一个"选题 Loop POC"，把热门词从手工录飞书 → Agent 自动抓 + 自评 + 写回。这是把 Loop 引入 GEO 的最小可信切入点。</div></div>
+</div>
+
+<nav class="toc">
+  <h2>目录</h2>
+  <ol>
+    <li><a href="#s1">什么是 Loop Engineering · 五件套</a></li>
+    <li><a href="#s2">GEO 的 Loop 友好度体检</a></li>
+    <li><a href="#s3">三段链路 · 现状 vs Loop 化</a></li>
+    <li><a href="#s4">方案 A · 三段挂载 Loop（推荐起步）</a></li>
+    <li><a href="#s5">方案 C · Agent Town 愿景</a></li>
+    <li><a href="#s6">方案 B · A → C 的自然演进桥梁</a></li>
+    <li><a href="#s7">外部生态对接 · Ralph / MCP / OpenClaw / Skill</a></li>
+    <li><a href="#s8">落地节奏 · 甘特与里程碑</a></li>
+    <li><a href="#s9">决策点与开放问题</a></li>
+  </ol>
+</nav>
+
+<!-- ====================== Section 1 ====================== -->
+<section class="section-wrap" id="s1">
+<h2>Section 1 / 9 · 什么是 Loop Engineering：五件套</h2>
+<p class="subtitle">从「会写 prompt」升级为「会设计 Loop」——这是 2026 年 AI 工程圈的新分水岭</p>
+
+<style>
+  .s1-pain { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin: 6px 0 18px; }
+  .s1-p { border: 1px solid var(--border); border-top: 3px solid var(--warn); border-radius: 10px; padding: 12px 15px; background: linear-gradient(135deg, rgba(239,68,68,0.04), #fff); }
+  .s1-p .t { font-size: 13px; font-weight: 800; color: #991b1b; margin-bottom: 5px; }
+  .s1-p .d { font-size: 12px; color: var(--text); line-height: 1.5; }
+  .s1-five { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin: 14px 0; }
+  .s1-fcard { background: linear-gradient(135deg, var(--loop-soft), #fff); border: 1px solid var(--border); border-top: 4px solid var(--loop); border-radius: 10px; padding: 14px 12px; text-align: center; }
+  .s1-fcard .num { font-size: 10px; font-weight: 700; color: var(--loop); letter-spacing: 1px; }
+  .s1-fcard .n { font-size: 14px; font-weight: 800; margin: 4px 0 6px; }
+  .s1-fcard .d { font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+  .s1-loop-ring { display: flex; align-items: center; justify-content: center; padding: 24px 0 12px; }
+  .s1-ring { width: 540px; height: 260px; position: relative; }
+  .s1-ring svg { position: absolute; top: 0; left: 0; }
+  .s1-ring .center { position: absolute; top: 130px; left: 270px; transform: translate(-50%, -50%); width: 96px; height: 96px; border-radius: 50%; background: var(--loop); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; letter-spacing: 1px; text-align: center; line-height: 1.25; box-shadow: 0 4px 14px rgba(99,102,241,0.35); }
+  .s1-ring .node { position: absolute; transform: translate(-50%, -50%); padding: 7px 14px; background: #fff; border: 2px solid var(--loop); border-radius: 18px; font-size: 12px; font-weight: 700; color: var(--loop); white-space: nowrap; box-shadow: 0 2px 6px rgba(99,102,241,0.18); }
+  .s1-ring .node .idx { display: inline-block; width: 16px; height: 16px; line-height: 16px; text-align: center; background: var(--loop); color: #fff; border-radius: 50%; font-size: 10px; font-weight: 800; margin-right: 6px; vertical-align: 1px; }
+  /* 五节点按 72° 等分布于椭圆 cx=270 cy=130 rx=190 ry=90 之上 */
+  .s1-ring .n1 { top: 40px;  left: 270px; }   /* 顶 · 明确目标 */
+  .s1-ring .n2 { top: 102px; left: 451px; }   /* 右上 · 上下文管理 */
+  .s1-ring .n3 { top: 203px; left: 382px; }   /* 右下 · 可调用工具 */
+  .s1-ring .n4 { top: 203px; left: 158px; }   /* 左下 · 产出评估 */
+  .s1-ring .n5 { top: 102px; left: 89px;  }   /* 左上 · 停止条件 */
+  .s1-ring-cap { text-align: center; font-size: 11.5px; color: var(--muted); margin-top: -4px; }
+  .s1-ring-cap b { color: var(--loop); font-weight: 700; }
+  .s1-vs { display: grid; grid-template-columns: 1fr auto 1fr; gap: 16px; align-items: stretch; margin: 18px 0 4px; }
+  .s1-side { border: 1px solid var(--border); border-radius: 12px; padding: 14px 18px; }
+  .s1-side.old { border-left: 4px solid var(--muted); background: linear-gradient(135deg, #f8fafc, #fff); }
+  .s1-side.new { border-left: 4px solid var(--loop); background: linear-gradient(135deg, var(--loop-soft), #fff); }
+  .s1-side h4 { font-size: 13px; margin: 0 0 8px; }
+  .s1-side.old h4 { color: var(--muted); }
+  .s1-side.new h4 { color: var(--loop); }
+  .s1-side ul { margin: 0; padding-left: 18px; font-size: 12.5px; line-height: 1.65; }
+  .s1-arrow { display: flex; align-items: center; font-size: 24px; color: var(--loop); font-weight: 800; }
+  .s1-bench { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin: 18px 0 4px; }
+  .s1-b { border: 1px solid var(--border); border-left: 4px solid var(--loop); border-radius: 8px; padding: 12px 16px; background: #fff; }
+  .s1-b .who { font-size: 12px; font-weight: 800; }
+  .s1-b .what { font-size: 11.5px; color: var(--text); line-height: 1.5; margin-top: 4px; }
+  .s1-b .src { font-size: 10px; color: var(--muted); margin-top: 4px; font-style: italic; }
+</style>
+
+<h3>一、Prompt Engineering 时代留下来的三个痛</h3>
+<div class="s1-pain">
+  <div class="s1-p"><div class="t">prompt 全靠人</div><div class="d">同一个需求一个人改五版、一个不改也能用，质量没标准、不可复制。</div></div>
+  <div class="s1-p"><div class="t">Agent 干一次就停</div><div class="d">错了要人发现、人纠正、再让它重来——人始终在循环里。</div></div>
+  <div class="s1-p"><div class="t">上下文越聊越脏</div><div class="d">同一个对话窗越走越偏，最后只能开新窗——浪费 token、丢失进度。</div></div>
+</div>
+
+<h3>二、Loop Engineering 的五件套（缺一不可）</h3>
+<div class="s1-five">
+  <div class="s1-fcard"><div class="num">01</div><div class="n">明确目标</div><div class="d">"今天产 50 篇过审"<br>"找出 20 个高潜选题"</div></div>
+  <div class="s1-fcard"><div class="num">02</div><div class="n">上下文管理</div><div class="d">每轮重置，用磁盘 / DB 保留状态，不靠对话窗</div></div>
+  <div class="s1-fcard"><div class="num">03</div><div class="n">可调用工具</div><div class="d">LLM 能调的 API、MCP、写文件——Agent 的"手"</div></div>
+  <div class="s1-fcard"><div class="num">04</div><div class="n">产出评估</div><div class="d">能"说不"的机制：测试 / 评分 / 人审</div></div>
+  <div class="s1-fcard"><div class="num">05</div><div class="n">停止条件</div><div class="d">达标 / 超预算 / 超时——三选一就停</div></div>
+</div>
+
+<div class="s1-loop-ring">
+  <div class="s1-ring">
+    <svg width="540" height="260" viewBox="0 0 540 260">
+      <ellipse cx="270" cy="130" rx="190" ry="90" fill="none" stroke="#6366f1" stroke-width="2" stroke-dasharray="6,4"/>
+      <!-- 顺时针方向指示：椭圆最右点 (460,130) 切线朝下 -->
+      <polygon points="460,145 452,132 468,132" fill="#6366f1"/>
+    </svg>
+    <div class="center">LOOP<br>自迭代</div>
+    <div class="node n1"><span class="idx">1</span>明确目标</div>
+    <div class="node n2"><span class="idx">2</span>上下文管理</div>
+    <div class="node n3"><span class="idx">3</span>可调用工具</div>
+    <div class="node n4"><span class="idx">4</span>产出评估</div>
+    <div class="node n5"><span class="idx">5</span>停止条件</div>
+  </div>
+</div>
+<p class="s1-ring-cap">五件套缺一不可 · 顺时针环回 · <b>达标则出环</b>，否则回到 ① 重新跑下一轮</p>
+
+<h3>三、Prompt Engineering vs Loop Engineering</h3>
+<div class="s1-vs">
+  <div class="s1-side old">
+    <h4>Prompt Engineering 时代</h4>
+    <ul>
+      <li>人是 Agent 的<b>司机</b>——每步都打方向盘</li>
+      <li>一次调用产一个结果，错了人来纠</li>
+      <li>prompt 是<b>核心资产</b>，分散在人手里</li>
+      <li>Agent 越长跑越偏，最后只能重启</li>
+    </ul>
+  </div>
+  <div class="s1-arrow">→</div>
+  <div class="s1-side new">
+    <h4>Loop Engineering 时代</h4>
+    <ul>
+      <li>人是<b>系统设计者</b>——设目标、定刹车、看结果</li>
+      <li>Loop 跑到达标为止，Agent 自评自纠</li>
+      <li>Loop 配方是<b>核心资产</b>，沉淀在系统里</li>
+      <li>每轮重置上下文，状态留在 DB / 磁盘</li>
+    </ul>
+  </div>
+</div>
+<p style="font-size:12px;color:var(--muted);margin-top:14px"><b>关键澄清：</b>Loop 不是替代 Prompt，而是<b>上层抽象</b>——一个 Loop 里有多个 Prompt，prompt 烂照样产烂活、只是产得更快。这就是"从 Prompt Engineer 升级为 Meta-Prompt Engineer"的含义。</p>
+
+<h3>四、行业风口 · 竞品视角</h3>
+<div class="s1-bench">
+  <div class="s1-b">
+    <div class="who">Anthropic 官方</div>
+    <div class="what">Claude Code 内置 <code>/loop</code> <code>/goal</code> <code>/batch</code>；ralph-wiggum 已成官方插件；过去一年内部 Agent 从"连续运行 20 分钟易出错"做到"连续运行几天稳定"。</div>
+    <div class="src">— claude.com docs, 2026</div>
+  </div>
+  <div class="s1-b">
+    <div class="who">Geoffrey Huntley（Ralph Loop 发明者）</div>
+    <div class="what">一个人用 Ralph Loop 在 3 个月里花 297 美元 API 费造了一门叫 CURSED 的编程语言——Loop 把单人产能上限拉高。</div>
+    <div class="src">— Dev Interrupted 访谈, 2026</div>
+  </div>
+  <div class="s1-b">
+    <div class="who">Steve Yegge / 明略 Octo</div>
+    <div class="what">多 Agent 协作平台 Gas Town / Octo：声称跑近 3000 个 Agent，"Kubernetes for agents"为下一抽象层。</div>
+    <div class="src">— 网易科技, 2026</div>
+  </div>
+</div>
+<p style="font-size:12px;color:var(--muted);margin-top:14px"><b>路口判断：</b>选题 / 写作 / 分发这类"结构化任务 + 明确成败指标"的运营工作流，是 Loop Engineering 第二波重点落地场景（第一波是写代码）。<b>现在切入是合适窗口。</b></p>
+</section>
+
+<!-- ====================== Section 2 ====================== -->
+<section class="section-wrap" id="s2">
+<h2>Section 2 / 9 · GEO 的 Loop 友好度体检</h2>
+<p class="subtitle">一句话结论：<b>GEO 离 Loop 化只差三块拼图，不是推倒重来</b></p>
+
+<style>
+  .s2-have { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin: 12px 0 18px; }
+  .s2-h { border: 1px solid var(--border); border-left: 4px solid var(--plugin); border-radius: 8px; padding: 11px 14px; background: linear-gradient(135deg, rgba(16,185,129,0.04), #fff); }
+  .s2-h .nm { font-size: 13px; font-weight: 700; }
+  .s2-h .role { font-size: 11px; color: var(--muted); line-height: 1.45; margin-top: 3px; }
+  .s2-h .code { font-family: "JetBrains Mono", monospace; font-size: 10.5px; background: #ecfdf5; color: #065f46; padding: 1px 5px; border-radius: 3px; margin-top: 4px; display: inline-block; }
+  .s2-gap { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin: 12px 0 14px; }
+  .s2-g { border: 1px solid #fecaca; border-left: 4px solid var(--warn); border-radius: 10px; padding: 14px 18px; background: linear-gradient(135deg, #fef2f2, #fff); }
+  .s2-g .nm { font-size: 14px; font-weight: 800; color: #991b1b; }
+  .s2-g .ic { font-size: 22px; }
+  .s2-g .what { font-size: 12px; color: var(--text); margin-top: 6px; line-height: 1.55; }
+  .s2-g .where { font-size: 11px; color: var(--muted); margin-top: 6px; }
+  .s2-bar { display: flex; height: 38px; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); margin: 14px 0 6px; }
+  .s2-bar .seg { display: flex; align-items: center; justify-content: center; color: #fff; font-size: 12px; font-weight: 800; letter-spacing: 0.5px; }
+  .s2-bar .seg.ok { background: linear-gradient(90deg, var(--plugin), #34d399); flex: 7; }
+  .s2-bar .seg.gap { background: linear-gradient(90deg, var(--warn), #f87171); flex: 3; }
+  .s2-bar-cap { display: grid; grid-template-columns: 7fr 3fr; font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .s2-bar-cap > div:last-child { text-align: right; }
+  .s2-core { background: linear-gradient(135deg, var(--loop-soft), #fff); border: 1px solid var(--border); border-left: 5px solid var(--loop); border-radius: 0 12px 12px 0; padding: 14px 20px; margin-top: 14px; font-size: 13px; }
+  .s2-core b { color: var(--loop); }
+</style>
+
+<h3>一、可视化总览：70% 已具备 · 30% 是缺口</h3>
+<div class="s2-bar">
+  <div class="seg ok">✅ Loop 基础设施已就位 · 70%</div>
+  <div class="seg gap">❌ 三块拼图待补 · 30%</div>
+</div>
+<div class="s2-bar-cap">
+  <div>持久化 / 注册表 / 并发 / 提示词 / 多模型 / 飞书+热榜集成</div>
+  <div>评估器 · 反馈回流 · 回路 DAG</div>
+</div>
+
+<h3>二、GEO 已经具备的 Loop 基础设施（绿区）</h3>
+<div class="s2-have">
+  <div class="s2-h"><div class="nm">⬢ Pipeline 节点注册表</div><div class="role">加 Loop 节点 = 写 handler + <code>register()</code>，1 天工作量</div><div class="code">nodes/base.py</div></div>
+  <div class="s2-h"><div class="nm">⬢ Driver 注册表</div><div class="role">Agent 的"嘴"——发哪个平台调哪个 driver</div><div class="code">drivers/__init__.py</div></div>
+  <div class="s2-h"><div class="nm">⬢ 问题池 + 飞书同步</div><div class="role">选题 Loop 的"目标池"</div><div class="code">question_bank.py</div></div>
+  <div class="s2-h"><div class="nm">⬢ Scheme Executor 并发生文</div><div class="role">已是 Loop 内核形态，差一个评估闸</div><div class="code">scheme_executor.py</div></div>
+  <div class="s2-h"><div class="nm">⬢ Hot Lists 反代 DailyHotApi</div><div class="role">选题 Loop 的"原料抓取"——60+ 源直接能用</div><div class="code">hot_lists/</div></div>
+  <div class="s2-h"><div class="nm">⬢ Worker 状态机 + 租约</div><div class="role">Loop 的"调度底盘"——多 Loop 并发抢工作安全</div><div class="code">worker/executor.py</div></div>
+  <div class="s2-h"><div class="nm">⬢ 提示词模板</div><div class="role">Loop 自迭代时换 prompt 的"基因池"</div><div class="code">prompt_templates/</div></div>
+  <div class="s2-h"><div class="nm">⬢ AI Engine 切换</div><div class="role">Loop 自迭代时换模型的"基因池"</div><div class="code">GEO_AI_ENGINES</div></div>
+  <div class="s2-h"><div class="nm">⬢ 审计日志</div><div class="role">Loop 的"行为黑匣子"，可观测性已具备</div><div class="code">audit/</div></div>
+</div>
+
+<h3>三、缺的三块拼图（红区，本次方案的核心增量）</h3>
+<div class="s2-gap">
+  <div class="s2-g">
+    <div class="ic">🚦</div>
+    <div class="nm">评估器</div>
+    <div class="what">目前全链路只有"人工审核"一个闸，AI 自己说不出"这篇不好、要重写"。Loop 的"评估"靠它。</div>
+    <div class="where">落点：新增 <code>evaluator</code> 节点 + 评分模型 + 评估 prompt</div>
+  </div>
+  <div class="s2-g">
+    <div class="ic">🔄</div>
+    <div class="nm">反馈回流</div>
+    <div class="what">文章发布后阅读 / 互动数据没自动拉回；提示词模板和写作模型谁好谁差靠拍脑袋。</div>
+    <div class="where">落点：新增 <code>metrics_collector</code> 节点 + 各平台分析 API 接入 + Article.metrics</div>
+  </div>
+  <div class="s2-g">
+    <div class="ic">↩️</div>
+    <div class="nm">回路 DAG</div>
+    <div class="what">Pipeline 当前严格线性（<code>node_index</code> 递增），没有"评估不达标 → 回上节点重试"的环。</div>
+    <div class="where">落点：<code>flow_meta</code> 扩展 <code>loop_back_to</code> + 最大轮次 / 超时防发散 + UI 编辑器画环</div>
+  </div>
+</div>
+
+<div class="s2-core">
+  <b>核心判断</b>：补齐这三块拼图，GEO 就从「自动化平台」升级成「<b>自迭代平台</b>」。<b>不需要推倒重来，每块拼图都有现成抓手。</b>
+</div>
+</section>
+
+<!-- ====================== Section 3 ====================== -->
+<section class="section-wrap" id="s3">
+<h2>Section 3 / 9 · 三段链路 · 现状 vs Loop 化</h2>
+<p class="subtitle">围绕「选题 → 生文+审核 → 分发+复盘」三段链路，逐段对比"今天怎么干"和"Loop 化后怎么干"</p>
+
+<style>
+  .s3-stage { border: 1px solid var(--border); border-radius: 12px; margin: 14px 0; overflow: hidden; }
+  .s3-stage .head { padding: 12px 18px; font-size: 14px; font-weight: 800; color: #fff; display: flex; justify-content: space-between; align-items: center; }
+  .s3-stage.topic .head { background: var(--plugin); }
+  .s3-stage.write .head { background: var(--flow); }
+  .s3-stage.dist .head { background: var(--skill); }
+  .s3-stage .head .badge { font-size: 10px; font-weight: 700; background: rgba(255,255,255,0.25); padding: 2px 8px; border-radius: 10px; letter-spacing: 1px; }
+  .s3-stage .body { padding: 16px 20px; }
+  .s3-stage .row { display: grid; grid-template-columns: 110px 1fr 1fr; gap: 12px; padding: 8px 0; border-bottom: 1px dashed var(--border); align-items: start; font-size: 12.5px; }
+  .s3-stage .row:last-child { border-bottom: none; }
+  .s3-stage .row .dim { font-size: 11px; font-weight: 700; color: var(--muted); letter-spacing: 0.5px; padding-top: 2px; }
+  .s3-stage .row .old { color: #6b7280; }
+  .s3-stage .row .new { color: var(--text); position: relative; padding-left: 18px; }
+  .s3-stage .row .new::before { content: "✦"; position: absolute; left: 0; color: var(--loop); font-weight: 800; }
+  .s3-stage .row .new b { color: var(--loop); }
+  .s3-head-row { display: grid; grid-template-columns: 110px 1fr 1fr; gap: 12px; padding: 6px 0 10px; border-bottom: 2px solid var(--border); margin-bottom: 4px; font-size: 10.5px; font-weight: 800; letter-spacing: 1px; color: var(--muted); }
+</style>
+
+<div class="s3-stage topic">
+  <div class="head"><span>① 选题环节 · 最关心的瓶颈</span><span class="badge">SELECTION LOOP</span></div>
+  <div class="body">
+    <div class="s3-head-row"><div></div><div>现状</div><div>Loop 化之后</div></div>
+    <div class="row"><div class="dim">谁发现热词</div><div class="old">运营每天手工逛网 + 飞书文档录入</div><div class="new">选题 Agent 每小时从 <b>60+ 热榜源 + 历史命中文章</b> 自动抓</div></div>
+    <div class="row"><div class="dim">怎么判断好坏</div><div class="old">凭经验，主观</div><div class="new">评估器按 <b>热度趋势 + 同主题历史过审率 + 同主题阅读量</b> 三维打分</div></div>
+    <div class="row"><div class="dim">什么时候更新</div><div class="old">看人有没有时间</div><div class="new"><b>每小时跑一次</b>、不达标自动跑下一轮</div></div>
+    <div class="row"><div class="dim">评价准不准</div><div class="old">没人评价</div><div class="new">每个选中的词关联到后续文章 → 效果数据回流，<b>评估器自学习</b></div></div>
+    <div class="row"><div class="dim">输出去哪</div><div class="old">飞书文档</div><div class="new">飞书多维表问题池（GEO 已在用），方案 / pipeline 直接接走</div></div>
+  </div>
+</div>
+
+<div class="s3-stage write">
+  <div class="head"><span>② 生文 + 审核环节</span><span class="badge">REVIEW LOOP</span></div>
+  <div class="body">
+    <div class="s3-head-row"><div></div><div>现状</div><div>Loop 化之后</div></div>
+    <div class="row"><div class="dim">迭代几次</div><div class="old">1 次（生成完直接送审）</div><div class="new"><b>N 次</b>（评估 < 阈值就自动 refiner 重写一遍，最多 3 轮）</div></div>
+    <div class="row"><div class="dim">人审做什么</div><div class="old">看每一篇</div><div class="new"><b>抽审</b>——AI 高分样本抽 10%，低分全审</div></div>
+    <div class="row"><div class="dim">失败模板的命运</div><div class="old">还在那里被反复选用</div><div class="new">自动 down-rank，连续 N 次低分 <b>从可选列表移除</b></div></div>
+    <div class="row"><div class="dim">质量靠什么保</div><div class="old">人审 + 经验</div><div class="new">事实性 / 可读性 / 风格匹配 / 政策风险 <b>四维评分 + 人审兜底</b></div></div>
+  </div>
+</div>
+
+<div class="s3-stage dist">
+  <div class="head"><span>③ 分发 + 复盘环节</span><span class="badge">METRICS LOOP</span></div>
+  <div class="body">
+    <div class="s3-head-row"><div></div><div>现状</div><div>Loop 化之后</div></div>
+    <div class="row"><div class="dim">分发完之后</div><div class="old">流程结束</div><div class="new">启动回流 Loop：<b>24h / 7d 拉回阅读 + 互动</b></div></div>
+    <div class="row"><div class="dim">哪个平台数据好</div><div class="old">凭感觉</div><div class="new">每个 driver 自动产出 <b>"账号 × 模板 × 模型 × 选题"四维归因表</b></div></div>
+    <div class="row"><div class="dim">谁优化谁淘汰</div><div class="old">运营开会决定</div><div class="new">Loop 自动调整：差的下线、好的加权、<b>新平台沙盒账号小流量探索</b></div></div>
+    <div class="row"><div class="dim">老板看什么</div><div class="old">没有统一看板</div><div class="new">每周一封自动邮件：四维归因表 + 本周复盘 + 下周建议</div></div>
+  </div>
+</div>
+</section>
+
+<!-- ====================== Section 4 ====================== -->
+<section class="section-wrap" id="s4">
+<h2>Section 4 / 9 · 方案 A · 三段挂载 Loop（推荐起步）</h2>
+<p class="subtitle">不动现有 pipeline 架构，在三段链路外侧分别挂一段独立 Loop，每段都是独立项目可独立上线</p>
+
+<style>
+  .s4-overview { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin: 12px 0; }
+  .s4-loop { border: 1px solid var(--border); border-top: 4px solid var(--c); border-radius: 10px; padding: 14px 16px; background: linear-gradient(135deg, var(--bgc), #fff); }
+  .s4-loop.topic { --c: var(--plugin); --bgc: rgba(16,185,129,0.05); }
+  .s4-loop.review { --c: var(--flow); --bgc: rgba(30,64,175,0.05); }
+  .s4-loop.metrics { --c: var(--skill); --bgc: rgba(139,92,246,0.05); }
+  .s4-loop .nm { font-size: 14px; font-weight: 800; color: var(--c); }
+  .s4-loop .nm .priority { font-size: 9.5px; background: var(--c); color: #fff; padding: 1px 6px; border-radius: 3px; margin-left: 6px; letter-spacing: 0.5px; }
+  .s4-loop .goal { font-size: 11.5px; color: var(--muted); margin: 6px 0 8px; line-height: 1.5; }
+  .s4-loop .promise { font-size: 11.5px; line-height: 1.5; padding: 8px 10px; background: rgba(255,255,255,0.7); border-radius: 6px; border-left: 3px solid var(--c); }
+  .s4-loop .promise b { color: var(--c); }
+
+  /* 选题 Loop 主图 */
+  .s4-flow { border: 2px solid var(--plugin); border-radius: 12px; padding: 20px; margin: 18px 0; background: linear-gradient(135deg, rgba(16,185,129,0.03), #fff); position: relative; }
+  .s4-flow .title { font-size: 13px; font-weight: 800; color: #065f46; letter-spacing: 1px; margin-bottom: 16px; text-align: center; }
+  .s4-flow .pipeline { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; align-items: center; gap: 0; }
+  .s4-flow .step { background: #fff; border: 1.5px solid var(--plugin); border-radius: 10px; padding: 14px 12px; text-align: center; }
+  .s4-flow .step .nm { font-size: 13px; font-weight: 800; color: #065f46; }
+  .s4-flow .step .what { font-size: 10.5px; color: var(--muted); margin-top: 4px; line-height: 1.4; }
+  .s4-flow .step .src { font-size: 9.5px; color: var(--plugin); margin-top: 4px; font-family: monospace; }
+  .s4-flow .arr { color: var(--plugin); font-weight: 800; font-size: 22px; text-align: center; }
+  .s4-flow .feedback { margin-top: 18px; padding: 10px 14px; background: rgba(99,102,241,0.06); border: 1px dashed var(--loop); border-radius: 8px; font-size: 11.5px; text-align: center; color: var(--loop); font-weight: 700; }
+  .s4-flow .feedback span { font-size: 14px; margin-right: 8px; }
+
+  .s4-budget { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px; margin: 14px 0; }
+  .s4-bcell { border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; text-align: center; background: #fff; }
+  .s4-bcell .v { font-size: 22px; font-weight: 800; color: var(--loop); }
+  .s4-bcell .l { font-size: 11px; color: var(--muted); margin-top: 4px; letter-spacing: 0.5px; }
+  .s4-bcell.total { background: linear-gradient(135deg, var(--loop-soft), #fff); border-left: 4px solid var(--loop); }
+  .s4-risk { background: linear-gradient(135deg, rgba(16,185,129,0.04), #fff); border: 1px solid var(--border); border-left: 4px solid var(--plugin); border-radius: 0 10px 10px 0; padding: 14px 20px; margin-top: 14px; font-size: 12.5px; }
+  .s4-risk b { color: #065f46; }
+</style>
+
+<h3>一、方案 A 总览：三段 Loop · 三段收益</h3>
+<div class="s4-overview">
+  <div class="s4-loop topic">
+    <div class="nm">选题 Loop<span class="priority">POC 首选</span></div>
+    <div class="goal">解决"热门词靠手工录飞书"的痛点；2 周可出 POC</div>
+    <div class="promise"><b>目标</b>：2 周后飞书选题池 80% 来自 Agent；1 个月后有"选题命中率"基线数字；2 个月后基线 +10%（评估器自学习起效）</div>
+  </div>
+  <div class="s4-loop review">
+    <div class="nm">评审 Loop<span class="priority">A.2</span></div>
+    <div class="goal">在 to_review 前插 evaluator + refiner 两个新节点；不达标自动重写最多 3 轮</div>
+    <div class="promise"><b>目标</b>：由人工审核，改为loop自动审核；失败模板自动降权</div>
+  </div>
+  <div class="s4-loop metrics">
+    <div class="nm">回流 Loop<span class="priority">A.3</span></div>
+    <div class="goal">分发后 24h / 7d 拉回阅读 + 互动数据；写回 Article.metrics + 提示词模板得分</div>
+    <div class="promise"><b>目标</b>：第一份"账号 × 模板 × 模型 × 选题"<b>四维归因表</b>；每周一封自动邮件</div>
+  </div>
+</div>
+
+<h3>二、选题 Loop 主图（POC 首选 · 1-2 周）</h3>
+<div class="s4-flow">
+  <div class="title">⟳ TOPIC LOOP · 每小时一次 · 复用现有 pipeline scheduler</div>
+  <div class="pipeline">
+    <div class="step">
+      <div class="nm">① 抓</div>
+      <div class="what">60+ 热榜源 +<br>历史命中文章</div>
+      <div class="src">hot_lists 反代</div>
+    </div>
+    <div class="arr">→</div>
+    <div class="step">
+      <div class="nm">② 评</div>
+      <div class="what">评估 Agent 按<br>三维打分</div>
+      <div class="src">topic_evaluator</div>
+    </div>
+    <div class="arr">→</div>
+    <div class="step">
+      <div class="nm">③ 写回</div>
+      <div class="what">达标进池 /<br>不达标进观察池</div>
+      <div class="src">question_bank</div>
+    </div>
+  </div>
+  <div class="feedback">
+    <span>↻</span> 评估器自学习参数 · 基于后续文章效果数据回流（与回流 Loop 闭环）
+  </div>
+</div>
+
+<h3>三、投入产出账</h3>
+<div class="s4-budget">
+  <div class="s4-bcell"><div class="v">2 周</div><div class="l">选题 LOOP POC</div></div>
+  <div class="s4-bcell"><div class="v">3-4 周</div><div class="l">评审 LOOP</div></div>
+  <div class="s4-bcell"><div class="v">4-6 周</div><div class="l">回流 LOOP</div></div>
+  <div class="s4-bcell total"><div class="v">2-3 人月</div><div class="l">总投入</div></div>
+</div>
+<p style="font-size:12px;color:var(--muted)">三段都是"外挂"，独立上线、独立可关。每段都是<b>独立 PR、独立 Demo、独立可讲数字</b>。</p>
+
+<div class="s4-risk">
+  <b>风险评估：低</b>。三段都不动现有发布流程；POC 跑不动随时下掉，不影响主链路。<b>选题 Loop 即使 POC 失败，也已经验证"AI 评分 + 飞书写回"链路是否走通——这本身是后续 Agent Town 的预热。</b>
+</div>
+</section>
+
+<!-- ====================== Section 5 ====================== -->
+<section class="section-wrap" id="s5">
+<h2>Section 5 / 9 · 方案 C · Agent Town 愿景</h2>
+<p class="subtitle">把 pipeline 从「执行步骤」升级成「任务规格」——运营只声明目标，一组常驻 Agent 自己分工跑</p>
+
+<style>
+  .s5-narrative { background: linear-gradient(135deg, var(--loop-soft), #fff); border: 1px solid var(--border); border-left: 5px solid var(--loop); border-radius: 0 12px 12px 0; padding: 16px 22px; margin: 8px 0 18px; }
+  .s5-narrative .quote { font-size: 14px; font-style: italic; color: var(--text); line-height: 1.7; }
+  .s5-narrative .quote b { color: var(--loop); font-style: normal; }
+  .s5-narrative .src { font-size: 11px; color: var(--muted); margin-top: 8px; }
+  /* 角色矩阵 */
+  .s5-town { border: 2px solid var(--loop); border-radius: 14px; padding: 22px; background: linear-gradient(135deg, var(--loop-soft), #fff); margin: 14px 0; }
+  .s5-town .ttl { text-align: center; font-size: 14px; font-weight: 800; color: var(--loop); letter-spacing: 1px; margin-bottom: 18px; }
+  .s5-town .agents { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .s5-agent { background: #fff; border: 1.5px solid var(--c); border-radius: 10px; padding: 14px 12px; text-align: center; position: relative; }
+  .s5-agent.topic { --c: var(--plugin); }
+  .s5-agent.write { --c: var(--flow); }
+  .s5-agent.review { --c: #f59e0b; }
+  .s5-agent.image { --c: #ec4899; }
+  .s5-agent.dist { --c: var(--skill); }
+  .s5-agent.recap { --c: var(--cloud); }
+  .s5-agent .role { font-size: 12.5px; font-weight: 800; color: var(--c); }
+  .s5-agent .what { font-size: 10.5px; color: var(--muted); margin-top: 4px; line-height: 1.4; }
+  .s5-agent .loop { font-size: 9.5px; color: var(--c); font-weight: 700; margin-top: 6px; letter-spacing: 1px; }
+  .s5-town .bus { margin-top: 16px; padding: 12px 16px; background: #fff; border: 1.5px dashed var(--loop); border-radius: 10px; text-align: center; font-size: 12px; font-weight: 700; color: var(--loop); }
+  .s5-town .bus .core { font-size: 13px; margin-bottom: 4px; }
+  .s5-town .bus .sub { font-size: 11px; color: var(--muted); font-weight: 500; }
+  .s5-eco { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 16px 0; }
+  .s5-erow { padding: 12px 16px; border: 1px solid var(--border); border-radius: 8px; background: #fff; font-size: 12.5px; line-height: 1.5; }
+  .s5-erow b { color: var(--loop); }
+  .s5-erow .lab { display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 3px; background: var(--loop-soft); color: var(--loop); margin-right: 6px; letter-spacing: 0.5px; }
+  /* 刹车机制 */
+  .s5-brake { background: linear-gradient(135deg, #fef2f2, #fff); border: 1px solid #fecaca; border-left: 4px solid var(--warn); border-radius: 0 10px 10px 0; padding: 14px 20px; margin: 14px 0; }
+  .s5-brake h4 { color: #991b1b; margin: 0 0 8px; font-size: 13px; }
+  .s5-brake ul { margin: 0; padding-left: 16px; font-size: 12px; line-height: 1.65; }
+  .s5-brake ul li b { color: #b91c1c; }
+</style>
+
+<div class="s5-narrative">
+  <div class="quote">"运营成本从 <b>每人盯 3 个账号</b>，降到 <b>每人定 30 个账号的策略</b>"——这是 Agent Town 给老板的内部叙事，也是对外（融资 / 客户）的故事主轴。</div>
+  <div class="src">— 本方案的业务承诺；行业对标：明略 Octo / Steve Yegge Gas Town</div>
+</div>
+
+<h3>一、运营的工作变成什么样</h3>
+<p style="font-size:12.5px;line-height:1.65">每周一在 GEO 后台设目标：<b>「这周产 300 篇过审 + 分发到这 12 个账号，预算 500 元 API 费用」</b>；设几个人工 checkpoint（"发布前必须我点确认" 或者全自动）；周五看一份系统自动产出的<b>「本周复盘 + 下周建议」</b>。</p>
+
+<h3>二、角色矩阵：六个常驻 Loop Agent</h3>
+<div class="s5-town">
+  <div class="ttl">⛵ AGENT TOWN · 每个 Agent 自带独立 Loop</div>
+  <div class="agents">
+    <div class="s5-agent topic"><div class="role">选题 Agent</div><div class="what">抓热榜 + 抓竞品 + 抓搜索引擎</div><div class="loop">⟳ LOOP</div></div>
+    <div class="s5-agent write"><div class="role">写作 Agent</div><div class="what">领选题 → 生文 → 自评 → 重写</div><div class="loop">⟳ LOOP</div></div>
+    <div class="s5-agent review"><div class="role">评审 Agent</div><div class="what">事实 / 可读 / 风格 / 合规打分</div><div class="loop">⟳ LOOP</div></div>
+    <div class="s5-agent image"><div class="role">配图 Agent</div><div class="what">智能选图 + 封面生成 + 排版</div><div class="loop">⟳ LOOP</div></div>
+    <div class="s5-agent dist"><div class="role">分发 Agent</div><div class="what">轮询账号 + 平台适配 + 重试</div><div class="loop">⟳ LOOP</div></div>
+    <div class="s5-agent recap"><div class="role">复盘 Agent</div><div class="what">拉回数据 + 归因 + 学习回灌</div><div class="loop">⟳ LOOP</div></div>
+  </div>
+  <div class="bus">
+    <div class="core">共享任务池 + 状态机 + 预算闸 + 人工 checkpoint</div>
+    <div class="sub">GEO 现有 worker + 乐观锁 + 租约 = 这一层的底盘</div>
+  </div>
+</div>
+
+<h3>三、Agent Town 跟现有生态的关系（团队对齐用）</h3>
+<div class="s5-eco">
+  <div class="s5-erow"><span class="lab">UI</span><b>智能体管理（pipeline UI）</b>升级成"角色 + 目标 + 预算"的声明式 UI；pipeline 仍存在但被降级为"Agent 的脚本之一"。</div>
+  <div class="s5-erow"><span class="lab">SKILL</span><b>Skill 层激活</b>（目前 <code>/api/skills</code> 已下线休眠）：作为各 Agent 的能力包——写作 skill、评估 skill、归因 skill。</div>
+  <div class="s5-erow"><span class="lab">MCP</span><b>MCP 作为对外接口</b>：MCP server 暴露飞书 / 热榜 / 平台数据；MCP client 让 GEO Agent 复用外部能力。</div>
+  <div class="s5-erow"><span class="lab">OPENCLAW</span><b>OpenClaw 可选嵌入</b>：长寿命任务（如"持续跟踪一个账号一周"）跑在 OpenClaw 内；主调度仍在 Agent Town。</div>
+</div>
+
+<div class="s5-brake">
+  <h4>必须配的「刹车」机制（缺一不可）</h4>
+  <ul>
+    <li><b>预算闸</b>：每个 Agent 每天 API 花费有上限，超了自动停。</li>
+    <li><b>强制人工 checkpoint</b>：发布 / 删账号 / 调主流量分发策略 = 必须人工二次确认。</li>
+    <li><b>行为黑匣子</b>：所有 Agent 决策走 <code>AuditLog</code>，随时回溯。</li>
+    <li><b>沙盒账号优先</b>：探索新平台先用沙盒账号小流量跑，达标才动主账号。</li>
+  </ul>
+</div>
+</section>
+
+<!-- ====================== Section 6 ====================== -->
+<section class="section-wrap" id="s6">
+<h2>Section 6 / 9 · 方案 B · A → C 的自然演进桥梁</h2>
+<p class="subtitle">不需要独立立项——方案 A 的评审 Loop 落地形态，本身就是 B</p>
+
+<style>
+  .s6-path { display: grid; grid-template-columns: 1fr 50px 1fr 50px 1fr; gap: 0; align-items: center; margin: 16px 0; }
+  .s6-stage { border: 1.5px solid var(--c); border-radius: 12px; padding: 16px 18px; background: linear-gradient(135deg, var(--bgc), #fff); position: relative; }
+  .s6-stage.a { --c: var(--plugin); --bgc: rgba(16,185,129,0.05); }
+  .s6-stage.b { --c: var(--flow); --bgc: rgba(30,64,175,0.05); }
+  .s6-stage.c { --c: var(--loop); --bgc: var(--loop-soft); }
+  .s6-stage .label { font-size: 11px; font-weight: 800; color: var(--c); letter-spacing: 1px; }
+  .s6-stage .nm { font-size: 14px; font-weight: 800; margin: 4px 0 8px; }
+  .s6-stage .what { font-size: 12px; line-height: 1.5; }
+  .s6-stage .when { font-size: 10.5px; color: var(--muted); margin-top: 8px; font-style: italic; }
+  .s6-arr { text-align: center; color: var(--muted); font-size: 28px; font-weight: 800; }
+  .s6-checklist { border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; margin: 12px 0; background: #fff; }
+  .s6-checklist h4 { margin: 0 0 10px; font-size: 13px; color: var(--text); }
+  .s6-checklist ul { margin: 0; padding-left: 0; list-style: none; }
+  .s6-checklist li { padding: 6px 0 6px 26px; position: relative; font-size: 12px; line-height: 1.5; border-bottom: 1px dashed var(--border); }
+  .s6-checklist li:last-child { border-bottom: none; }
+  .s6-checklist li::before { content: "✓"; position: absolute; left: 4px; top: 6px; color: var(--plugin); font-weight: 800; font-size: 14px; }
+  .s6-checklist li b { color: var(--loop); }
+</style>
+
+<h3>一、A → B → C 的演进自然态</h3>
+<div class="s6-path">
+  <div class="s6-stage a">
+    <div class="label">方案 A · 起步</div>
+    <div class="nm">三段挂载 Loop</div>
+    <div class="what">外挂 3 段 Loop 不动核心架构 · 评审 Loop 引入 <code>evaluator</code> + <code>refiner</code> 节点</div>
+    <div class="when">2-3 个月</div>
+  </div>
+  <div class="s6-arr">→</div>
+  <div class="s6-stage b">
+    <div class="label">方案 B · 桥梁</div>
+    <div class="nm">Loop 一等公民化</div>
+    <div class="what">回路 DAG 进入 pipeline 编辑器 · 4 个 Loop 节点（evaluator / refiner / stop_condition / metrics_collector）成为标准库 · UI 能画环</div>
+    <div class="when">A 跑通后自然落</div>
+  </div>
+  <div class="s6-arr">→</div>
+  <div class="s6-stage c">
+    <div class="label">方案 C · 愿景</div>
+    <div class="nm">Agent Town</div>
+    <div class="what">pipeline 降级为 "Agent 脚本" · 任务池 + 状态机抽象 · 运营声明目标 / 预算 · 多 Agent 自调度</div>
+    <div class="when">3-6 个月后立项</div>
+  </div>
+</div>
+
+<h3>二、要让 A 不挡 B 的"扩展空间"清单</h3>
+<div class="s6-checklist">
+  <h4>实现方案 A 时，必须留好下面这些口子（成本极低、不留就要回头改）：</h4>
+  <ul>
+    <li>评审 Loop 的 evaluator / refiner 用 <b>pipeline 节点形态</b>而不是硬编码，注册到 <code>nodes/__init__.py</code></li>
+    <li><code>flow_meta</code> 字段预留 <b><code>loop_back_to: node_id</code></b> 配置（用不上时空着），不要写死成线性</li>
+    <li>评估器的<b>评分维度配置化</b>（事实 / 可读 / 风格 / 合规 + 用户可加），不要硬编码 4 维</li>
+    <li>所有 Loop 节点都<b>带 <code>max_iterations</code> 和 <code>timeout</code></b>——为了 A 不发散，也为了 B/C 时不需要重写</li>
+    <li>metrics_collector 写入的 <b>Article.metrics 用 JSON 字段</b>，未来加新指标不写迁移</li>
+    <li>评审 / 回流 Loop 的<b>状态机 schema 跟 PublishRecord 对齐</b>（success / failed / cancelled / waiting），方便 C 阶段统一抽象</li>
+  </ul>
+</div>
+
+<p style="font-size:12.5px;color:var(--muted);margin-top:10px"><b>方案 B 不需要单独立项</b>——只要 A 实现时遵守上面 6 条，B 就是 A 上线后的自然形态。讨论稿对老板讲 A + C 即可。</p>
+</section>
+
+<!-- ====================== Section 7 ====================== -->
+<section class="section-wrap" id="s7">
+<h2>Section 7 / 9 · 外部生态对接：跟 Ralph / MCP / OpenClaw / Skill 的关系</h2>
+<p class="subtitle">给技术 leader 看的对照表——避免每个外部范式都要重新解释</p>
+
+<style>
+  .s7-tbl { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 12.5px; }
+  .s7-tbl th { background: #f8fafc; padding: 10px 12px; text-align: left; font-size: 11px; font-weight: 800; color: var(--muted); letter-spacing: 1px; border-bottom: 2px solid var(--border); }
+  .s7-tbl td { padding: 12px; border-bottom: 1px solid var(--border); vertical-align: top; line-height: 1.55; }
+  .s7-tbl tr:last-child td { border-bottom: none; }
+  .s7-tbl .who { font-weight: 700; }
+  .s7-tbl .who code { font-family: "JetBrains Mono", monospace; background: #eef2f7; padding: 1px 5px; border-radius: 4px; font-size: 11px; }
+  .s7-tbl .judge { font-weight: 700; }
+  .s7-tbl .judge.use { color: #065f46; }
+  .s7-tbl .judge.option { color: #b45309; }
+  .s7-tbl .judge.skip { color: #6b7280; }
+  .s7-tbl tr:nth-child(even) td { background: #fafbfc; }
+  .s7-quote { background: linear-gradient(135deg, var(--loop-soft), #fff); border: 1px solid var(--border); border-left: 4px solid var(--loop); border-radius: 0 10px 10px 0; padding: 12px 18px; margin: 14px 0; font-size: 12px; font-style: italic; color: var(--text); line-height: 1.6; }
+  .s7-quote b { color: var(--loop); font-style: normal; }
+</style>
+
+<div class="s7-quote">
+  Loop 之外的关键对照：<b>Ralph 保活世界、移动 Agent</b>（每轮 fresh 上下文，状态留在文件/git）； <b>OpenClaw 保活 Agent、移动世界</b>（Agent 长寿命常驻，世界状态推过去）。GEO 方案 A 偏 Ralph 风格，方案 C 是两者混用。
+</div>
+
+<table class="s7-tbl">
+  <thead>
+    <tr>
+      <th style="width:18%">外部范式</th>
+      <th style="width:32%">是什么</th>
+      <th style="width:36%">跟 GEO 的关系</th>
+      <th style="width:14%">我们的判断</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="who">Ralph Loop<br><code>Huntley</code></td>
+      <td>极简单 Agent 自迭代：<code>while true; do agent; done</code>，状态留在磁盘/git。适合"目标明确 + 自动验证"的场景。</td>
+      <td>方案 A 的选题 Loop <b>本质就是一个 Ralph</b>——目标 = 填满问题池；验证 = 评估器打分；状态 = 飞书表 + DB。</td>
+      <td class="judge use">直接套用</td>
+    </tr>
+    <tr>
+      <td class="who">Gas Town / Octo<br><code>Yegge / 明略</code></td>
+      <td>多 Agent 协作平台：任务池 + 状态机 + "分子粒度任务"（MEOW）。号称"Kubernetes for agents"。</td>
+      <td>方案 C 的内核形态参考；但<b>不要 100% 抄</b>——内容运营场景没必要分到分子粒度，过度拆分反而成本上升。</td>
+      <td class="judge option">部分参考</td>
+    </tr>
+    <tr>
+      <td class="who">OpenClaw<br><code>长寿命 Agent</code></td>
+      <td>"保活 Agent、移动世界" 范式：Agent 长寿命常驻，环境/世界状态推送过去。</td>
+      <td>方案 C 里<b>可选嵌入</b>——用于"持续跟踪一个账号一周"这种长任务。主调度仍在 Agent Town。</td>
+      <td class="judge option">可选项</td>
+    </tr>
+    <tr>
+      <td class="who">MCP<br><code>Anthropic 协议</code></td>
+      <td>Model Context Protocol——LLM 与外部工具/数据源的开放标准，"AI 世界的 USB-C"。</td>
+      <td>方案 C 的对外接口层：暴露 GEO 能力给外部 Agent / Claude / Cursor；同时把外部 MCP server（搜索引擎 / 数据库 / 分析工具）当工具接入。<br><b>方案 A 不需要 MCP</b>——先把内部 Loop 跑通。</td>
+      <td class="judge option">C 阶段引入</td>
+    </tr>
+    <tr>
+      <td class="who">Skill 层<br><code>GEO 自有</code></td>
+      <td>GEO 自己的 <code>/api/skills</code> 模块，目前<b>已下线休眠</b>。</td>
+      <td>方案 C 的"Agent 能力包"载体——写作 skill / 评估 skill / 归因 skill。需要重新激活模块路由 + 重新设计 skill 元信息 schema。</td>
+      <td class="judge use">C 阶段激活</td>
+    </tr>
+    <tr>
+      <td class="who">Claude Code <code>/loop</code></td>
+      <td>Anthropic 官方 CLI 内置的 Loop 命令：<code>/loop</code> 持续跑、<code>/goal</code> 跑到达标、<code>/batch</code> 批处理。</td>
+      <td><b>团队研发提效用</b>——内部开发用 Claude Code 改 GEO 本身就是 Loop Engineering 实践，但不直接进 GEO 架构。</td>
+      <td class="judge skip">研发自用</td>
+    </tr>
+    <tr>
+      <td class="who">LangGraph<br><code>GEO 已有依赖</code></td>
+      <td>Graph 化 Agent 编排库，GEO 当前 <code>ai_generation/pipeline.py</code> 已基于它实现旧问题池流水线。</td>
+      <td>方案 A 评审 Loop 直接复用——已有依赖，<b>不引入新栈</b>。LangGraph 的 cycle / conditional edge 天然支持回路 DAG。</td>
+      <td class="judge use">直接复用</td>
+    </tr>
+  </tbody>
+</table>
+</section>
+
+<!-- ====================== Section 8 ====================== -->
+<section class="section-wrap" id="s8">
+<h2>Section 8 / 9 · 落地节奏：甘特与里程碑</h2>
+<p class="subtitle">2 个月内三段 Loop 全部上线、有数字可讲；3-6 个月窗口里决定是否启动 Agent Town</p>
+
+<style>
+  .s8-gantt { border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; margin: 14px 0; background: #fff; overflow-x: auto; }
+  .s8-gantt h4 { margin: 0 0 14px; font-size: 13px; }
+  .s8-row { display: grid; grid-template-columns: 130px 1fr; gap: 12px; align-items: center; margin: 8px 0; }
+  .s8-row .nm { font-size: 12px; font-weight: 700; }
+  .s8-row .nm .sub { font-size: 10px; color: var(--muted); display: block; font-weight: 500; margin-top: 2px; }
+  .s8-row .bar-wrap { position: relative; height: 26px; background: #f8fafc; border-radius: 4px; }
+  .s8-row .bar { position: absolute; height: 100%; border-radius: 4px; display: flex; align-items: center; padding: 0 8px; color: #fff; font-size: 10.5px; font-weight: 700; letter-spacing: 0.5px; }
+  .s8-row .bar.topic { background: var(--plugin); }
+  .s8-row .bar.review { background: var(--flow); }
+  .s8-row .bar.metrics { background: var(--skill); }
+  .s8-row .bar.recap { background: #f59e0b; }
+  .s8-row .bar.town { background: var(--loop); background-image: repeating-linear-gradient(45deg, transparent, transparent 6px, rgba(255,255,255,0.15) 6px, rgba(255,255,255,0.15) 12px); }
+  .s8-axis { display: grid; grid-template-columns: 130px 1fr; gap: 12px; margin-bottom: 4px; }
+  .s8-axis .ticks { display: grid; grid-template-columns: repeat(12, 1fr); font-size: 10px; color: var(--muted); text-align: center; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  .s8-axis .ticks span { border-left: 1px dashed var(--border); padding: 0 2px; }
+  .s8-axis .ticks span:first-child { border-left: none; }
+  .s8-legend { display: flex; gap: 14px; font-size: 11px; color: var(--muted); margin-top: 12px; }
+  .s8-legend .dot { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 5px; vertical-align: middle; }
+
+  .s8-ms { margin: 16px 0 8px; }
+  .s8-msgrid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px; }
+  .s8-msbox { border: 1px solid var(--border); border-top: 4px solid var(--c); border-radius: 8px; padding: 12px 14px; background: linear-gradient(135deg, var(--bgc), #fff); }
+  .s8-msbox.w2 { --c: var(--plugin); --bgc: rgba(16,185,129,0.05); }
+  .s8-msbox.w6 { --c: var(--flow); --bgc: rgba(30,64,175,0.05); }
+  .s8-msbox.w9 { --c: var(--skill); --bgc: rgba(139,92,246,0.05); }
+  .s8-msbox.w12 { --c: var(--loop); --bgc: var(--loop-soft); }
+  .s8-msbox .when { font-size: 10.5px; font-weight: 800; letter-spacing: 1px; color: var(--c); }
+  .s8-msbox .what { font-size: 12px; font-weight: 700; margin-top: 5px; line-height: 1.4; }
+  .s8-msbox .metric { font-size: 11px; color: var(--text); margin-top: 6px; line-height: 1.5; border-top: 1px dashed var(--border); padding-top: 6px; }
+  .s8-msbox .metric b { color: var(--c); }
+</style>
+
+<div class="s8-gantt">
+  <h4>方案 A 三段 Loop · 周次甘特图（W1-W12）</h4>
+  <div class="s8-axis">
+    <div></div>
+    <div class="ticks"><span>W1</span><span>W2</span><span>W3</span><span>W4</span><span>W5</span><span>W6</span><span>W7</span><span>W8</span><span>W9</span><span>W10</span><span>W11</span><span>W12</span></div>
+  </div>
+  <div class="s8-row">
+    <div class="nm">选题 Loop<span class="sub">POC 首选</span></div>
+    <div class="bar-wrap"><div class="bar topic" style="left:0%;width:16.66%">2 周 POC</div></div>
+  </div>
+  <div class="s8-row">
+    <div class="nm">选题 Loop<span class="sub">迭代 + 自学习</span></div>
+    <div class="bar-wrap"><div class="bar topic" style="left:16.66%;width:50%;opacity:0.6">持续优化（评估器自学习）</div></div>
+  </div>
+  <div class="s8-row">
+    <div class="nm">评审 Loop<span class="sub">evaluator + refiner</span></div>
+    <div class="bar-wrap"><div class="bar review" style="left:16.66%;width:33.33%">3-4 周</div></div>
+  </div>
+  <div class="s8-row">
+    <div class="nm">回流 Loop<span class="sub">数据回流 + 归因</span></div>
+    <div class="bar-wrap"><div class="bar metrics" style="left:33.33%;width:41.66%">4-6 周（依赖平台 API）</div></div>
+  </div>
+  <div class="s8-row">
+    <div class="nm">内部复盘<span class="sub">Go/No-Go 决策</span></div>
+    <div class="bar-wrap"><div class="bar recap" style="left:66.66%;width:8.33%">复盘</div></div>
+  </div>
+  <div class="s8-row">
+    <div class="nm">Agent Town<span class="sub">方案 C 预研</span></div>
+    <div class="bar-wrap"><div class="bar town" style="left:75%;width:25%">预研 / 立项窗口</div></div>
+  </div>
+  <div class="s8-legend">
+    <span><span class="dot" style="background:var(--plugin)"></span>选题 Loop</span>
+    <span><span class="dot" style="background:var(--flow)"></span>评审 Loop</span>
+    <span><span class="dot" style="background:var(--skill)"></span>回流 Loop</span>
+    <span><span class="dot" style="background:#f59e0b"></span>复盘节点</span>
+    <span><span class="dot" style="background:var(--loop)"></span>方案 C 预研</span>
+  </div>
+</div>
+
+<h3>四个关键里程碑</h3>
+<div class="s8-ms">
+  <div class="s8-msgrid">
+    <div class="s8-msbox w2">
+      <div class="when">W2 · 第一桶金</div>
+      <div class="what">选题 Loop POC 上线</div>
+      <div class="metric">飞书选题池 <b>80% 条目来自 Agent</b>；每条带 0-100 评分</div>
+    </div>
+    <div class="s8-msbox w6">
+      <div class="when">W6 · 第一个数字</div>
+      <div class="what">评审 Loop 上线 · 第一份过审率数据</div>
+      <div class="metric">人工过审率 <b>↑ 15-25%</b>（业内同类经验值）</div>
+    </div>
+    <div class="s8-msbox w9">
+      <div class="when">W9 · 老板第一封邮件</div>
+      <div class="what">四维归因表上线 · 老板每周一封自动邮件</div>
+      <div class="metric"><b>账号 × 模板 × 模型 × 选题</b> 四维归因表</div>
+    </div>
+    <div class="s8-msbox w12">
+      <div class="when">W12 · 决策窗口</div>
+      <div class="what">Agent Town 立项 or 继续优化 A</div>
+      <div class="metric">基于 W6/W9 数据决定：<b>启动 C / 延伸 B / 巩固 A</b></div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ====================== Section 9 ====================== -->
+<section class="section-wrap" id="s9">
+<h2>Section 9 / 9 · 决策点与开放问题</h2>
+<p class="subtitle">老板要拍板的事 · 内部要对齐的事 · 留给后续讨论的事</p>
+
+<style>
+  .s9-dec { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 12px 0; }
+  .s9-card { border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; background: #fff; }
+  .s9-card.now { border-left: 4px solid var(--loop); background: linear-gradient(135deg, var(--loop-soft), #fff); }
+  .s9-card.align { border-left: 4px solid var(--flow); background: linear-gradient(135deg, rgba(30,64,175,0.04), #fff); }
+  .s9-card.open { border-left: 4px solid var(--pending); background: linear-gradient(135deg, rgba(245,158,11,0.05), #fff); }
+  .s9-card.poc { border-left: 4px solid var(--plugin); background: linear-gradient(135deg, rgba(16,185,129,0.04), #fff); }
+  .s9-card h4 { font-size: 13px; color: var(--text); margin: 0 0 10px; }
+  .s9-card.now h4 { color: var(--loop); }
+  .s9-card.align h4 { color: var(--flow); }
+  .s9-card.open h4 { color: #b45309; }
+  .s9-card.poc h4 { color: #065f46; }
+  .s9-card ul { margin: 0; padding-left: 0; list-style: none; }
+  .s9-card li { padding: 7px 0 7px 26px; position: relative; font-size: 12px; line-height: 1.5; border-bottom: 1px dashed var(--border); }
+  .s9-card li:last-child { border-bottom: none; }
+  .s9-card li::before { position: absolute; left: 4px; top: 7px; font-weight: 800; font-size: 13px; }
+  .s9-card.now li::before { content: "▸"; color: var(--loop); }
+  .s9-card.align li::before { content: "◆"; color: var(--flow); }
+  .s9-card.open li::before { content: "?"; color: #b45309; }
+  .s9-card.poc li::before { content: "✓"; color: var(--plugin); }
+  .s9-card li b { color: var(--text); }
+  .s9-finale { background: linear-gradient(135deg, var(--loop), #4f46e5); color: #fff; border-radius: 14px; padding: 22px 28px; margin: 18px 0 0; text-align: center; }
+  .s9-finale .t { font-size: 18px; font-weight: 800; margin-bottom: 8px; }
+  .s9-finale .d { font-size: 13px; opacity: 0.92; line-height: 1.6; max-width: 720px; margin: 0 auto; }
+</style>
+
+<h3>一、立刻能做的（这周或下周）</h3>
+<div class="s9-dec">
+  <div class="s9-card now">
+    <h4>需要拍板的事</h4>
+    <ul>
+      <li>是否同意 <b>方案 A 起步 + 方案 C 作为愿景</b> 的双轨路线</li>
+      <li>是否同意花 <b>2 周 × 1 个工程师</b> 做选题 Loop POC</li>
+      <li>Agent 的 <b>API 月度预算</b> 上限是多少（直接决定 Loop 并发 + 最大轮次）</li>
+      <li>方案A 到 C 的规划方向是否ok？</li>
+    </ul>
+  </div>
+  <div class="s9-card align">
+    <h4>需要内部对齐的事</h4>
+    <ul>
+      <li>已有同事在做选题这块——<b>并入方案 A 还是双轨独立</b>？需要先同步</li>
+      <li>评估器的"打分维度 + 评分模型 + 提示词初稿"——需要 <b>专家参与定义</b>，不是纯技术活</li>
+      <li>方案 A 全套 2-3 人月，现有团队能挤出来吗？是否需要 <b>新招 1 人专门做 Agent / Loop 方向</b></li>
+      <li>Loop 评分模型用 GEO_AI_FORMAT_MODEL (deepseek 系列) 还是单独配？影响成本 5-10x</li>
+    </ul>
+  </div>
+</div>
+
+<h3>二、POC 验收标准（2 周后这样验收）</h3>
+<div class="s9-card poc">
+  <h4>选题 Loop POC · Definition of Done</h4>
+  <ul>
+    <li>选题 Loop 每小时自动跑一次，不需要人工触发</li>
+    <li>飞书问题池里 <b>至少 80% 新增条目来自 Agent 自动抓取 + 评分</b></li>
+    <li>每条新增条目带 <b>0-100 评分 + 评分理由文本</b></li>
+    <li>运营可以在飞书表里"否决 / 通过"，<b>反馈写回 Loop 让评估器调整权重</b></li>
+    <li>上线 1 周后产出第一份"自动选题命中率"报表（被采用的词 / 总抓取数）</li>
+    <li>所有 Agent 决策走 <code>audit_logs</code>，运营随时回溯</li>
+  </ul>
+</div>
+
+<h3>三、留给后续讨论的开放问题</h3>
+<div class="s9-card open">
+  <h4>这些问题不影响 POC 启动，但 W6-W9 期间需要回答</h4>
+  <ul>
+    <li>评审 Loop 的 evaluator 是否要支持<b>多模型投票</b>（同一篇文章用 3 个模型评分取均值）——质量更稳但成本 ×3</li>
+    <li>回流 Loop 的<b>平台数据源</b>哪些是 API 直接拉、哪些是半自动飞书表录入？头条统计 / 公众号 stat / 抖音开放平台分别是什么权限要求</li>
+    <li>Agent Town 阶段的<b>消息总线 / 任务池</b>用什么实现——直接复用现在的 worker + DB 乐观锁？还是引入 Redis Stream / RabbitMQ？</li>
+    <li>Skill 层激活时，<b>是否同时引入 MCP</b> 作为内外统一接口？还是 Skill 走内部、MCP 仅对外</li>
+    <li>Agent Town 的 UI 是改造现有"智能体管理" tab 还是<b>新建 tab</b>？这影响前端工作量估算</li>
+  </ul>
+</div>
+
+<div class="s9-finale">
+  <div class="t">⟳ 起步建议：2 周 + 1 个工程师 + 选题 Loop POC</div>
+  <div class="d">所有论证都不如一个能跑起来的 demo——这是把 Loop Engineering 引入 GEO 的最小可信切入点。POC 验收通过则继续 A.2 / A.3；POC 失败也已经验证了"AI 评分 + 飞书写回"链路，本身是 Agent Town 的预热。<b>低成本、高信息密度、不可逆性低。</b></div>
+</div>
+</section>
+
+</body>
+</html>
