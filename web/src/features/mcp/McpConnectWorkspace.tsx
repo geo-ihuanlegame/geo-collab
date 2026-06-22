@@ -15,7 +15,21 @@ import { useToast } from "../../components/Toast";
 
 const LOCALHOST_PATTERN = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/;
 
-function buildConfigJson(suggestedBaseUrl: string): string {
+function buildHttpConfigJson(suggestedBaseUrl: string): string {
+  const base = suggestedBaseUrl || "http://127.0.0.1:8000";
+  const template = {
+    mcpServers: {
+      geo: {
+        transport: "http",
+        url: `${base}/mcp`,
+        headers: { "X-MCP-Token": "<PASTE_YOUR_TOKEN_HERE>" },
+      },
+    },
+  };
+  return JSON.stringify(template, null, 2);
+}
+
+function buildStdioConfigJson(suggestedBaseUrl: string): string {
   const template = {
     mcpServers: {
       geo: {
@@ -51,6 +65,9 @@ export function McpConnectWorkspace() {
   // Section ③ — copy state
   const [copied, setCopied] = useState(false);
 
+  // Section ③ — transport (HTTP 推荐 / stdio 可选)
+  const [transport, setTransport] = useState<"http" | "stdio">("http");
+
   // Section ④ — test connection
   const [token, setToken] = useState("");
   const [tokenVisible, setTokenVisible] = useState(false);
@@ -76,7 +93,13 @@ export function McpConnectWorkspace() {
   }, [refreshStatus]);
 
   const suggestedBaseUrl = status?.suggested_base_url ?? "http://127.0.0.1:8000";
-  const configJson = useMemo(() => buildConfigJson(suggestedBaseUrl), [suggestedBaseUrl]);
+  const configJson = useMemo(
+    () =>
+      transport === "http"
+        ? buildHttpConfigJson(suggestedBaseUrl)
+        : buildStdioConfigJson(suggestedBaseUrl),
+    [suggestedBaseUrl, transport],
+  );
 
   const onCopy = useCallback(async () => {
     try {
