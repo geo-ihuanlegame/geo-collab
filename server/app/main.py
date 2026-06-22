@@ -59,6 +59,10 @@ from server.app.modules.auto_review.router import router as auto_review_router
 from server.app.modules.hot_lists.router import router as hot_lists_router
 from server.app.modules.image_library.router import files_router as stock_files_router
 from server.app.modules.image_library.router import router as stock_images_router
+from server.app.modules.mcp_catalog.connect_router import (
+    mcp_connect_health_router,
+    mcp_connect_user_router,
+)
 from server.app.modules.mcp_catalog.router import router as mcp_catalog_router
 from server.app.modules.performance.router import router as performance_router
 from server.app.modules.pipelines.router import router as pipelines_router
@@ -189,6 +193,20 @@ def create_app() -> FastAPI:
         mcp_catalog_router,
         prefix="/api/mcp",
         tags=["mcp-catalog"],
+    )
+    # MCP 接入指引（前端「MCP 接入」tab 用）
+    # user JWT 鉴权（与 system_router 等 user-JWT 路由同一组依赖）
+    app.include_router(
+        mcp_connect_user_router,
+        prefix="/api/mcp",
+        tags=["mcp-connect"],
+        dependencies=[Depends(get_current_user)],
+    )
+    # MCP token 鉴权（router 自带 dependency）
+    app.include_router(
+        mcp_connect_health_router,
+        prefix="/api/mcp",
+        tags=["mcp-connect"],
     )
     app.include_router(
         generation_mcp_router,
