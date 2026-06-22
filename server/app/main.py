@@ -59,6 +59,7 @@ from server.app.modules.auto_review.router import router as auto_review_router
 from server.app.modules.hot_lists.router import router as hot_lists_router
 from server.app.modules.image_library.router import files_router as stock_files_router
 from server.app.modules.image_library.router import router as stock_images_router
+from server.app.modules.mcp_catalog.router import router as mcp_catalog_router
 from server.app.modules.performance.router import router as performance_router
 from server.app.modules.pipelines.router import router as pipelines_router
 from server.app.modules.prompt_templates.router import router as prompt_templates_router
@@ -183,6 +184,12 @@ def create_app() -> FastAPI:
     app.include_router(users_router, prefix="/api/users", tags=["users"])
 
     # MCP 服务对服务路由（MCP token 鉴权，不走 user JWT cookie）
+    # mcp_catalog：跨模块的只读 list / get 端点，路径在 /api/mcp/ 下避免与 user-JWT 路由冲突
+    app.include_router(
+        mcp_catalog_router,
+        prefix="/api/mcp",
+        tags=["mcp-catalog"],
+    )
     app.include_router(
         generation_mcp_router,
         prefix="/api/generation",

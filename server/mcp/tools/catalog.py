@@ -50,7 +50,7 @@ def list_articles(
     if review_status:
         params["review_status"] = review_status
     try:
-        data = _client().get("/api/articles", params=params)
+        data = _client().get("/api/mcp/articles", params=params)
         return _ok(data)
     except ApiError as exc:
         return _fail(str(exc))
@@ -60,7 +60,7 @@ def list_articles(
 def list_question_pools() -> dict[str, Any]:
     """List all question pools (Feishu-synced topic libraries)."""
     try:
-        data = _client().get("/api/generation/question-pools")
+        data = _client().get("/api/mcp/question-pools")
         return _ok(data)
     except ApiError as exc:
         return _fail(str(exc))
@@ -83,7 +83,7 @@ def list_question_items(
     if category:
         params["category"] = category
     try:
-        data = _client().get(f"/api/generation/question-pools/{pool_id}/items", params=params)
+        data = _client().get(f"/api/mcp/question-pools/{pool_id}/items", params=params)
         return _ok(data)
     except ApiError as exc:
         return _fail(str(exc))
@@ -98,7 +98,7 @@ def list_prompt_templates(scope: str = "generation") -> dict[str, Any]:
                "generation" = article writing prompts (most common for Loops).
     """
     try:
-        data = _client().get("/api/prompt-templates", params={"scope": scope})
+        data = _client().get("/api/mcp/prompt-templates", params={"scope": scope})
         return _ok(data)
     except ApiError as exc:
         return _fail(str(exc))
@@ -115,7 +115,7 @@ def list_pipelines(type_filter: str | None = None) -> dict[str, Any]:
     if type_filter:
         params["type"] = type_filter
     try:
-        data = _client().get("/api/pipelines", params=params or None)
+        data = _client().get("/api/mcp/pipelines", params=params or None)
         return _ok(data)
     except ApiError as exc:
         return _fail(str(exc))
@@ -138,7 +138,7 @@ def list_accounts(
     if distribution_enabled is not None:
         params["distribution_enabled"] = str(distribution_enabled).lower()
     try:
-        data = _client().get("/api/accounts", params=params or None)
+        data = _client().get("/api/mcp/accounts", params=params or None)
         return _ok(data)
     except ApiError as exc:
         return _fail(str(exc))
@@ -148,7 +148,7 @@ def list_accounts(
 def get_article(article_id: int) -> dict[str, Any]:
     """Get one article by id, including full content_json / content_html / plain_text."""
     try:
-        data = _client().get(f"/api/articles/{article_id}")
+        data = _client().get(f"/api/mcp/articles/{article_id}")
         return _ok(data)
     except ApiError as exc:
         return _fail(str(exc))

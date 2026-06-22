@@ -27,7 +27,19 @@ from server.mcp.tools import meta as _meta  # noqa: F401,E402
 
 
 def main() -> None:
-    """stdio 模式入口（被 Claude Code spawn 时用）。"""
+    """stdio 模式入口（被 Claude Code spawn 时用）。
+
+    **必须通过 `python -m server.mcp` 调起**，不要 `python -m server.mcp.server`：
+    后者会让 server.py 同时作为 __main__ 和 server.mcp.server 被加载两次、产生两个
+    FastMCP 实例，tools 注册在第二个实例上、run 跑第一个，导致 tools/list 返回空。
+    入口在 server/mcp/__main__.py，下面这条断言是兜底，防止有人改回老命令时静默失败。
+    """
+    if len(mcp._tool_manager._tools) == 0:
+        raise RuntimeError(
+            "MCP started with 0 registered tools — likely invoked as "
+            "`python -m server.mcp.server` which triggers the __main__ vs package "
+            "dual-import bug. Use `python -m server.mcp` instead."
+        )
     mcp.run(transport="stdio")
 
 
