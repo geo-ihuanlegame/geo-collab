@@ -30,7 +30,39 @@ COMPOSE_FILE = REPO_ROOT / "docker-compose.dev.yml"
 
 
 def _docker_available() -> bool:
-    return shutil.which("docker") is not None and COMPOSE_FILE.exists()
+    """Returns True only when the dev compose stack's `app` service is currently up.
+
+    Just having a docker binary + the compose file isn't enough — CI runners
+    have docker installed but don't bring up our dev stack, so `docker compose
+    exec app ...` fails with missing-env errors (MYSQL_ROOT_PASSWORD, etc.).
+    We confirm the actual `app` container is running before trying to exec.
+    """
+    if shutil.which("docker") is None:
+        return False
+    if not COMPOSE_FILE.exists():
+        return False
+    try:
+        result = subprocess.run(
+            [
+                "docker",
+                "compose",
+                "-f",
+                str(COMPOSE_FILE),
+                "ps",
+                "--status=running",
+                "--services",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return False
+    if result.returncode != 0:
+        return False
+    running_services = set(result.stdout.split())
+    return "app" in running_services
 
 
 @pytest.mark.mysql

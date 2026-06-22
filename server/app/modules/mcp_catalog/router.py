@@ -60,17 +60,16 @@ def mcp_list_articles(
     if not articles:
         return []
     article_ids = [a.id for a in articles]
-    published_counts: dict[int, int] = dict(
-        db.execute(
-            select(PublishRecord.article_id, func.count().label("cnt"))
-            .where(
-                PublishRecord.article_id.in_(article_ids),
-                PublishRecord.status == "succeeded",
-                PublishRecord.is_deleted == False,  # noqa: E712
-            )
-            .group_by(PublishRecord.article_id)
-        ).all()
-    )
+    rows = db.execute(
+        select(PublishRecord.article_id, func.count().label("cnt"))
+        .where(
+            PublishRecord.article_id.in_(article_ids),
+            PublishRecord.status == "succeeded",
+            PublishRecord.is_deleted == False,  # noqa: E712
+        )
+        .group_by(PublishRecord.article_id)
+    ).all()
+    published_counts: dict[int, int] = {aid: cnt for (aid, cnt) in rows}
     return [
         ArticleListRead(
             id=a.id,
