@@ -49,3 +49,23 @@ def require_mcp_token(
     ok, detail = verify_mcp_token(x_mcp_token)
     if not ok:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=detail)
+
+
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+
+
+class McpTokenMiddleware(BaseHTTPMiddleware):
+    """检 X-MCP-Token header,失败直接 401,不进入下游 ASGI app。
+
+    用在 mount 的 sub-app 上(starlette ASGI 中间件),给 FastMCP 的 streamable HTTP app 套鉴权。
+    与 require_mcp_token(FastAPI Depends) 共享 verify_mcp_token helper。
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        sent = request.headers.get("X-MCP-Token", "")
+        ok, detail = verify_mcp_token(sent)
+        if not ok:
+            return JSONResponse({"detail": detail}, status_code=401)
+        return await call_next(request)
