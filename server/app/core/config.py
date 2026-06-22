@@ -107,7 +107,9 @@ class Settings(BaseSettings):
     # [临时] 方案生文封面兜底存储桶（GEO_TEMP_COVER_BUCKET）。空字符串=禁用整段临时封面逻辑。
     temp_cover_bucket: str = "cantingyangchengji"
     # AI 生文（LangGraph 写作智能体）—— 保持 Claude
-    ai_model: str = "claude-3-5-sonnet-20241022"  # GEO_AI_MODEL
+    # NOTE: LiteLLM 1.40+ 要求 model 串显式带 provider 前缀（如 anthropic/、openai/、deepseek/），
+    # 不再自动猜。无前缀串会抛 BadRequestError: "LLM Provider NOT provided"。
+    ai_model: str = "anthropic/claude-3-5-sonnet-20241022"  # GEO_AI_MODEL
     ai_api_key: str = ""  # GEO_AI_API_KEY
     # 方案级可选 AI 引擎列表（为后续接入更多写作模型留接口）。
     # 每项 = AiEngineConfig（label 展示名 / model litellm 串 / api_key / base_url）。

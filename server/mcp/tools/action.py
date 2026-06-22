@@ -32,20 +32,36 @@ _OPERATOR_USER_ID = int(os.environ.get("GEO_MCP_OPERATOR_USER_ID", "1"))
 
 
 @mcp.tool()
-def compose_article(
+def save_article(
     question_item_id: int,
     prompt_template_id: int,
-    model: str | None = None,
+    title: str,
+    markdown_content: str,
+    model_label: str | None = None,
 ) -> dict[str, Any]:
-    """Compose a single article from a question item and a prompt template.
+    """Save a Claude Code-generated article (markdown) into GEO.
 
-    Bypasses pipeline/scheme orchestration — calls article_writer directly. The article
-    is saved with `review_status="pending"` (enters review queue).
+    This is the **zero-config generation path**: you (the calling Claude Code conversation)
+    write the article markdown yourself, then call this tool to persist it. No GEO-side
+    LLM call is made—so the host does NOT need GEO_AI_API_KEY configured.
+
+    Workflow for the generation loop:
+        1. Call list_question_items / list_prompt_templates to pick a question + template.
+        2. Compose the article markdown yourself in this conversation.
+        3. Call save_article(question_item_id, prompt_template_id, title, markdown_content).
+        4. Then illustrate_article + submit_review_decision as usual.
 
     Args:
         question_item_id: From list_question_items.
-        prompt_template_id: From list_prompt_templates(scope="generation").
-        model: Optional litellm model override; None = use system default writing model.
+        prompt_template_id: From list_prompt_templates(scope="generation"). The template
+            content is what guided your writing—pass its id for traceability.
+        title: Article title (1–300 chars). Pass explicitly; do NOT also put a leading
+            `# Title` heading in markdown_content (the body should start from the first
+            paragraph).
+        markdown_content: Full article body in Markdown. Use ## / ### for sub-headings,
+            standard MD for lists / bold / etc. Converted to Tiptap JSON + HTML on save.
+        model_label: Optional identifier of the writer (e.g. "claude-opus-4-7"). Stored
+            in article.metrics['writer_model'] for later analytics.
 
     Returns:
         {"ok": True, "data": {"article_id": N}, "error": None}
@@ -54,11 +70,13 @@ def compose_article(
         "question_item_id": question_item_id,
         "prompt_template_id": prompt_template_id,
         "user_id": _OPERATOR_USER_ID,
+        "title": title,
+        "markdown_content": markdown_content,
     }
-    if model:
-        payload["model"] = model
+    if model_label:
+        payload["model_label"] = model_label
     try:
-        data = _client().post("/api/generation/compose-once", json=payload)
+        data = _client().post("/api/articles/save-from-mcp", json=payload)
         return _ok(data)
     except ApiError as exc:
         return _fail(str(exc))
