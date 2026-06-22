@@ -127,24 +127,25 @@ POC 期：`server/mcp/` 跑独立 Python 进程（FastMCP stdio），把 GEO 现
 
 ### 启动方式
 
-由 Claude Code 通过 `~/.claude.json` 的 `mcpServers.geo` 自动 spawn：
+POC 期 MCP server 跟 GEO FastAPI **同进程 mount** 在 `/mcp` 路径（不再是 stdio 独立进程）：
+
+`~/.claude.json`:
 
 ```json
 {
   "mcpServers": {
     "geo": {
-      "command": "python",
-      "args": ["-m", "server.mcp"],
-      "env": {
-        "GEO_MCP_TOKEN": "<openssl rand -hex 32>",
-        "GEO_API_BASE_URL": "http://127.0.0.1:8000",
-        "GEO_MCP_OPERATOR_USER_ID": "1",
-        "PYTHONPATH": "/path/to/geo-collab"
-      }
+      "transport": "http",
+      "url": "https://geo.example.com/mcp",
+      "headers": { "X-MCP-Token": "<token>" }
     }
   }
 }
 ```
+
+mount 由 `server.app.main:create_app()` 在 SPA fallback 之前完成。鉴权走 `server.app.core.mcp_auth.McpTokenMiddleware`（复用 `verify_mcp_token` 与 `require_mcp_token` 共享一套 hmac compare_digest）。
+
+stdio 入口（`python -m server.mcp`）**保留**作为本机 dev / air-gap 路径，token assert 在 `main()` 内，与 HTTP 路径解耦。
 
 详细配置见 `docs/mcp-setup-notes.md`。
 
@@ -155,6 +156,7 @@ POC 期：`server/mcp/` 跑独立 Python 进程（FastMCP stdio），把 GEO 现
 - 空 token 配置 = MCP 全禁用（所有带 token 请求 401）
 - POC 期所有 MCP-facing endpoint 走独立 sub-router（如 `articles_mcp_router`, `tasks_mcp_router`, `mcp_system_router`, `auto_review_router`, `performance_router`, `generation_mcp_router`，以及跨模块只读 catalog 端点的 `mcp_catalog_router` 挂在 `/api/mcp/*`）单独标 `dependencies=[Depends(require_mcp_token)]`，**不复用 user JWT 路径**
 - **MCP 端点的未捕获异常用 `core/mcp_errors.mcp_exception_response(exc, context=...)` 包成 HTTPException**，绕过 main.py 全局 500 handler 的字符串抹平。规则：异常 `__module__` 顶级 ∈ {litellm / httpx / openai / anthropic} → 502（上游错误，Loop 可重试 / 切模型）；其它 → 500。detail 形如 `"<ExceptionClass>: <msg, ≤500 字符>"`，完整 traceback 仍由 helper 内 `logger.exception` 落日志。新增 MCP 端点写 `except Exception as exc:` 时一律走它，不要直接抛裸 Exception。
+- 同进程 mount 的 FastMCP HTTP sub-app（`/mcp`）不走 sub-router、用 `McpTokenMiddleware` 实现等价鉴权，语义与 `require_mcp_token` 一致（共享 `verify_mcp_token` helper）。
 
 ### Tool 三组（共 17 个）
 
@@ -177,7 +179,7 @@ generation-loop 的写作环节由 **Claude Code 主对话**直接产出 markdow
 1. 在 GEO 后端加对应 API（带 `Depends(require_mcp_token)`，必要时新建 sub-router 挂在 main.py 不带 user JWT）
 2. 在 `server/mcp/tools/<group>.py` 用 `@mcp.tool()` 装饰新函数，签名直接做 LLM-facing schema
 3. `server.py` 已经 `from server.mcp.tools import <group>` 触发注册——新 tool 自动出现
-4. 重启 Claude Code → `/mcp` 验证
+4. 重启 GEO 后端进程（新 tool 注册在后端） → 重启 Claude Code → `/mcp` 验证
 
 ### 加新 Loop 配方
 
