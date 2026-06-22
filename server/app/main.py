@@ -410,6 +410,24 @@ def create_app() -> FastAPI:
 
         _logging.getLogger(__name__).warning("ai_models seed skipped", exc_info=True)
 
+    # ── MCP HTTP transport mount ────────────────────────────────────────────
+    # FastMCP 的 streamable_http_app() mount 到 /mcp,用户端 ~/.claude.json 只需配 url + token,
+    # 无须本地装 Python / clone 仓库 / 设 PYTHONPATH。鉴权走 McpTokenMiddleware (复用
+    # require_mcp_token 的 hmac compare_digest 逻辑)。
+    # **必须**挂在 SPA fallback `@app.get("/{full_path:path}")` 之前 —— 否则非 /api/ 路径
+    # 全部被 fallback 兜住,/mcp 永远 404。
+    try:
+        from server.app.core.mcp_auth import McpTokenMiddleware
+        from server.mcp.server import build_http_app
+
+        mcp_app = build_http_app()
+        mcp_app.add_middleware(McpTokenMiddleware)
+        app.mount("/mcp", mcp_app)
+    except Exception:
+        import logging as _logging
+
+        _logging.getLogger(__name__).exception("MCP HTTP mount failed — /mcp endpoint disabled")
+
     try:
         # 挂载前端静态文件（Vite 构建产物）
         app.mount("/assets", StaticFiles(directory=f"{WEB_DIST_DIR}/assets"), name="web-assets")

@@ -15,6 +15,9 @@ from __future__ import annotations
 import hmac
 
 from fastapi import Header, HTTPException, status
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from server.app.core.config import get_settings
 
@@ -49,11 +52,6 @@ def require_mcp_token(
     ok, detail = verify_mcp_token(x_mcp_token)
     if not ok:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=detail)
-
-
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
-from starlette.responses import JSONResponse
 
 
 class McpTokenMiddleware(BaseHTTPMiddleware):
