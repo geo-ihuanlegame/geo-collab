@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import pytest
 
+pytestmark = pytest.mark.mysql
+
 
 def _seed_question_and_template(test_app):
     from server.app.modules.ai_generation.models import QuestionItem, QuestionPool
