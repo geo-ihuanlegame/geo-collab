@@ -92,15 +92,25 @@ def list_ai_engines(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Any:
-    """写作模型下拉（方案编辑器 / Pipeline 用）：DB 注册表 scope=generation 的启用行；
-    DB 为空时回落 settings.ai_engines，保证下拉永不空。密钥不下发。"""
+    """写作模型下拉（方案编辑器 / Pipeline 用）。
+
+    DB 注册表行优先；同时把 GEO_AI_ENGINES 中尚未被 DB 行接管的 env-only 模型并入下拉。
+    这点很关键：带内联 api_key 的旧 env 模型不会播种进 DB，否则会丢失 per-engine key，
+    但它们仍可由 resolve_writing_engine -> config.resolve_engine 在运行时正确解析。
+    密钥 / base_url 永不下发。
+    """
     from server.app.core.config import get_settings
     from server.app.modules.ai_models.service import list_models
 
-    rows = list_models(db, scope="generation", enabled_only=True)
-    if rows:
-        return [AiEngineRead(label=r.label, model=r.model) for r in rows]
-    return [AiEngineRead(label=e.label, model=e.model) for e in get_settings().ai_engines]
+    all_db_rows = list_models(db, scope="generation", enabled_only=False)
+    taken_models = {r.model for r in all_db_rows}
+    out = [AiEngineRead(label=r.label, model=r.model) for r in all_db_rows if r.is_enabled]
+    for engine in get_settings().ai_engines:
+        if engine.model in taken_models:
+            continue
+        out.append(AiEngineRead(label=engine.label, model=engine.model))
+        taken_models.add(engine.model)
+    return out
 
 
 @scheme_router.get("/format-engines", response_model=list[AiEngineRead])

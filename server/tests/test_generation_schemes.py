@@ -397,9 +397,37 @@ def test_ai_engines_endpoint_returns_configured_list(monkeypatch):
                 "scope": "generation",
             },
         )
+        monkeypatch.setenv(
+            "GEO_AI_ENGINES",
+            json.dumps(
+                [
+                    {
+                        "label": "Kimi",
+                        "model": "moonshot/kimi-k2.5",
+                        "api_key": "KIMI-SECRET-should-not-leak",
+                        "base_url": "https://api.moonshot.cn/v1",
+                    },
+                    {
+                        "label": "豆包",
+                        "model": "volcengine/ep-m-test",
+                        "api_key": "DOUBAO-SECRET-should-not-leak",
+                    },
+                ]
+            ),
+        )
+        get_settings.cache_clear()
         data = app.client.get("/api/generation/ai-engines").json()
-        assert any(e["model"] == "anthropic/claude-opus-4-8" for e in data)
+        models = {e["model"]: e["label"] for e in data}
+        assert models["anthropic/claude-opus-4-8"] == "我的写作模型"
+        # DB 里新增 Claude 后，env-only 旧模型仍要留在 AI 创作/方案下拉里。
+        # 这类模型带内联 api_key，不能播种进 DB，否则运行时会丢 per-engine key。
+        assert models["moonshot/kimi-k2.5"] == "Kimi"
+        assert models["volcengine/ep-m-test"] == "豆包"
         assert all(set(e.keys()) <= {"label", "model"} for e in data)
+        text = app.client.get("/api/generation/ai-engines").text
+        assert "KIMI-SECRET-should-not-leak" not in text
+        assert "DOUBAO-SECRET-should-not-leak" not in text
+        assert "https://api.moonshot.cn/v1" not in text
 
         # DB 无 generation 行 → 回落 settings.ai_engines（带内联密钥），仍永不泄漏 key/base_url
         with app.session_factory() as db:
