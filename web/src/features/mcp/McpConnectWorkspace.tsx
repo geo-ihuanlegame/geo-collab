@@ -210,6 +210,35 @@ export function McpConnectWorkspace() {
                   </span>
                 )}
               </div>
+              {!status.configured ? (
+                <div
+                  style={{
+                    color: "var(--yellow)",
+                    background: "var(--yellow-soft)",
+                    border: "1px solid rgba(251,191,36,0.3)",
+                    padding: "10px 14px",
+                    borderRadius: 10,
+                    fontSize: 13,
+                    lineHeight: 1.75,
+                  }}
+                >
+                  <div style={{ fontWeight: 600, marginBottom: 4 }}>Admin 配置指引</div>
+                  <ol style={{ paddingLeft: 20, margin: 0 }}>
+                    <li>
+                      生成 token：<code style={inlineCode}>openssl rand -hex 32</code>
+                      （PowerShell 等价命令见 docs/mcp-setup-notes.md）
+                    </li>
+                    <li>
+                      SSH 到部署机，写到 <code style={inlineCode}>.env</code>：
+                      <code style={inlineCode}>{"GEO_MCP_TOKEN=<生成值>"}</code>
+                    </li>
+                    <li>
+                      重启后端：<code style={inlineCode}>docker compose restart app</code>
+                      ，回本页刷新
+                    </li>
+                  </ol>
+                </div>
+              ) : null}
               <div style={{ fontSize: 13, color: "var(--fg-2)" }}>
                 <span style={{ marginRight: 8 }}>建议 base_url：</span>
                 <code style={inlineCode}>{status.suggested_base_url}</code>
