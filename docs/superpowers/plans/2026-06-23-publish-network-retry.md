@@ -1241,20 +1241,29 @@ def _click_publish_and_wait(page, stop_before_publish=False, commit_guard=None):
 >
 > **⚠️ 已知残留与待决（实现者/需求方注意）**：点击成功**之后**、轮询期间网络中断 → 现有「treating as success」会把它判成 succeeded（既有行为，本改动**不触碰**）。若需求方要求「轮询期断网也判 uncertain」，需另做决定：把 945-948 的乐观兜底从 `return page.url` 改为 `raise ToutiaoPublishError("发布后无法确认结果")` 并**把轮询也纳入守卫**——代价是每次「慢但成功」的头条发布都会变成 `commit_uncertain` 需人工核对，噪声较大。**本计划默认不改**（保守=不引入行为回归）；此决定已在交付时单独抛给需求方。
 
-- [ ] **Step 3b: `_do_publish` 透传** — `toutiao.py:1036` 的 `_do_publish(page, context, payload, stop_before_publish)` 加 `commit_guard=None, retry_policy=None`；调用处 `publish_url = _click_publish_and_wait(page, stop_before_publish)` 改为 `_click_publish_and_wait(page, stop_before_publish, commit_guard=commit_guard)`。发布页 goto（若 `_do_publish` 内有 `page.goto(TOUTIAO_PUBLISH_URL, ...)`）包重试：
+- [ ] **Step 3b: `_do_publish` 透传 + 发布页 goto 重试** — `toutiao.py:1036` 的 `def _do_publish(page, context, payload, stop_before_publish)` 加 `commit_guard=None, retry_policy=None`；点发布调用处（`:1069`）`publish_url = _click_publish_and_wait(page, stop_before_publish)` 改为 `_click_publish_and_wait(page, stop_before_publish, commit_guard=commit_guard)`。
+
+发布页 goto 重试——**必须替换 `:1046-1047` 既有的那一块**（不是新增一块），且**原样保留 `wait_until="domcontentloaded"`**（丢了它=改导航语义=对头条的行为回归）。现有：
 
 ```python
-        from server.app.shared.resilience import RetryPolicy, retry_call
-
-        policy = retry_policy or RetryPolicy()
-        with publish_step("open publish page"):
-            retry_call(
-                lambda: page.goto(TOUTIAO_PUBLISH_URL, timeout=60000),
-                policy=policy,
-            )
+    with publish_step("open Toutiao publish page", page=page):
+        page.goto(TOUTIAO_PUBLISH_URL, wait_until="domcontentloaded", timeout=60000)
 ```
 
-> 用默认 `default_is_transient`（识别 playwright `TimeoutError`）。导航是幂等的，重放安全。
+改为：
+
+```python
+    from server.app.shared.resilience import RetryPolicy, retry_call
+
+    _policy = retry_policy or RetryPolicy()
+    with publish_step("open Toutiao publish page", page=page):
+        retry_call(
+            lambda: page.goto(TOUTIAO_PUBLISH_URL, wait_until="domcontentloaded", timeout=60000),
+            policy=_policy,
+        )
+```
+
+> 用默认 `default_is_transient`（识别 playwright `TimeoutError`）。导航幂等、重放安全。`import` 置于函数内或文件顶部均可（toutiao.py 顶部已有大量 import，加到顶部更整洁）。
 
 - [ ] **Step 3c: `publish()` 透传** — `toutiao.py:1097` 的 `def publish(self, *, page, context, payload, stop_before_publish, commit_guard=None, retry_policy=None):`（Task 5 已扩签名）函数体：`return _do_publish(page, context, payload, stop_before_publish, commit_guard=commit_guard, retry_policy=retry_policy)`。
 
@@ -1577,7 +1586,7 @@ git commit -m "feat(tasks): recover 不重跑 commit_uncertain + retry 默认拦
 
 **Files:**
 - Modify: `server/app/modules/tasks/schemas.py:67-82`（`PublishRecordRead` 加 `failure_kind`）+ `:176-193`（`to_record_read` 映射）
-- Modify: `web/src/api/tasks.ts`（`PublishRecord` 类型加 `failure_kind`）
+- Modify: `web/src/types.ts:359`（`PublishRecord` type 加 `failure_kind`）+ `web/src/api/tasks.ts:54`（`retryRecord` 加可选 `{ force }`）
 - Modify: `web/src/features/tasks/*`（发布记录行：`failure_kind==='commit_uncertain'` 时显示告警条 + 禁用「重试」按钮，提供「核对后强制重发」入口调 `?force=true`）
 - Test: 后端 `server/tests/test_tasks_api.py` 追加断言 `failure_kind` 出现在记录响应；前端无单测框架 → `pnpm --filter @geo/web typecheck` + `build` 作门禁
 
@@ -1612,7 +1621,7 @@ Expected: FAIL（schema 无 `failure_kind`）
         failure_kind=getattr(record, "failure_kind", None),
 ```
 
-- [ ] **Step 3b: 前端类型 + UI** — `web/src/api/tasks.ts` 的 `PublishRecord` 接口加 `failure_kind?: string | null`。发布记录组件里：
+- [ ] **Step 3b: 前端类型 + UI** — `web/src/types.ts:359` 的 `PublishRecord` type 加 `failure_kind?: string | null`（`tasks.ts` 仅 import 该 type，不在 `tasks.ts` 加字段）。发布记录 UI 在 `web/src/features/tasks/TasksWorkspace.tsx`（重试按钮约 `:676`）：
 
 ```tsx
 {record.failure_kind === 'commit_uncertain' ? (
@@ -1661,5 +1670,8 @@ git commit -m "feat(web): 发布记录暴露 failure_kind + commit_uncertain 告
 - **Spec 覆盖**：①resilience=Task1/2 ②CommitGuard/CommitUncertainError=Task3 ③标记列+迁移=Task4 ④API 驱动接入=Task5/6 ⑤浏览器驱动=Task5/7 ⑥executor 分流=Task8 ⑦记录层 recover/retry 护栏=Task9 ⑧配置=Task2 ⑨观测(on_retry 诊断)=见下「已知缩减」 ⑩前端=Task10。
 - **已知缩减（YAGNI）**：spec §7 的 `on_retry`→`PublishDiagnosticEvent` 观测埋点未单列 Task。`retry_call` 已暴露 `on_retry` 钩子；接入诊断流（`capture_publish_diagnostics`）作为 Task6/7 内的可选增强（驱动调 `retry_call(on_retry=...)` 时塞一条 warn 日志即可），不阻塞主链路。若需独立验收，另起小 Task。`failure_kind` 仅用 `commit_uncertain`/`None`（spec 已注明列可容纳更多值）。
 - **头条提交边界的范围裁剪（待需求方确认）**：Task 7 守卫**只包「确认发布」点击**，点击后的轮询检测（含「30s 未跳转→乐观判成功」）保持现状不动。即「点击成功后、轮询期网络中断」仍按既有行为判 succeeded（不引入回归）。若需求方要求轮询期断网也判 uncertain，按 Task 7「⚠️ 已知残留与待决」调整——代价是慢但成功的头条发布会变 `commit_uncertain`。**此决定在交付时单独抛给需求方**，默认保守不改。
-- **迁移依赖**：Task 4 迁移须在并行加密 spec 的 accounts 迁移落 main 后再生成（`down_revision` 指向当时 head），见 Global Constraints。
+- **迁移依赖**：Task 4 迁移须在并行加密 spec 的 accounts 迁移落 main 后再生成（`down_revision` 指向当时 head），见 Global Constraints。**实现期重新核对彼时真实 head**，勿照抄某个版本号——独立审查确认两 feature 当前 head 同为 `0048`，若各自独立 `down_revision=0048` 先后合入会瞬时双 head，靠「加密先落」约定串行化规避。
+- **微信上传步重试的副作用（独立审查 m1）**：`upload_thumb` 走 `/cgi-bin/material/add_material?type=thumb`=**永久素材**（有配额）。`ReadTimeout` 后重传会产生重复永久素材、耗配额。**不威胁 at-most-once 发布正确性**（草稿仅由守卫保护的 `add_draft` 创建），仅资源卫生，且现状本就每发必传不去重，重试只是边际放大。正文图走 `media/uploadimg` 返回 URL、不占永久配额，近乎无副作用。spec §4「无副作用」宜读作「无发布副作用」。
+- **per-step vs 聚合重试预算（独立审查 m2）**：Task 6 给每个上传步传同一个 `max_elapsed` 的 policy（per-step）。最坏 = `max_elapsed×(1+图片数)`，多图+持续抖动时可逼近单记录执行预算（默认 420s），watchdog 会先杀。后果可控（杀→recover 正确归类，非 at-most-once 违背）。如需收紧：可在 Task 6 按剩余图片数动态缩 `max_elapsed`，或给整个 `_publish_api` 包一个聚合时限。**本计划默认不收紧**（默认参数下 N 较小时不触发）。
+- **API 驱动重试与 watchdog 交互（独立审查 m5）**：微信驱动也受 `_record_execution_budget()` watchdog 监控；退避 `time.sleep` 期间 watchdog 超时会触发超时处理（API 驱动无浏览器会话，`_close_record_browser` 为 no-op、`future.cancel()` 对运行中 future 无效，线程睡醒后自然结束）。既有架构如此、后果可控（终标 failed），列为覆盖说明而非缺陷。
 - **类型一致性**：`commit_guard.committing()`、`retry_call(fn, *, policy, is_transient=...)`、`_mark_record_failed(..., failure_kind=...)`、`retry_record(db, record, *, force=False)` 全计划一致。
