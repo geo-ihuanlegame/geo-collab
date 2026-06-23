@@ -38,7 +38,10 @@ def test_permanent_not_retried():
 
 
 def test_exhausts_and_raises_last():
+    calls = {"n": 0}
+
     def fn():
+        calls["n"] += 1
         raise httpx.ConnectError("down")
 
     with pytest.raises(httpx.ConnectError):
@@ -48,12 +51,15 @@ def test_exhausts_and_raises_last():
             sleeper=lambda d: None,
             monotonic=lambda: 0.0,
         )
+    assert calls["n"] == 2
 
 
 def test_max_elapsed_cuts_off_before_sleeping():
     clock = {"t": 0.0}
+    calls = {"n": 0}
 
     def fn():
+        calls["n"] += 1
         clock["t"] += 40.0  # 每次调用推进 40s
         raise httpx.ReadTimeout("slow")
 
@@ -64,6 +70,8 @@ def test_max_elapsed_cuts_off_before_sleeping():
             sleeper=lambda d: None,
             monotonic=lambda: clock["t"],
         )
+    # attempt1 后 elapsed=40, 40+1<60 继续; attempt2 后 elapsed=80, 80+2>60 截止
+    assert calls["n"] == 2
 
 
 def test_disabled_policy_calls_once():
@@ -89,3 +97,13 @@ def test_classifier_httpx_and_playwright():
     _FakePwTimeout.__module__ = "playwright._impl._errors"
     _FakePwTimeout.__name__ = "TimeoutError"
     assert default_is_transient(_FakePwTimeout()) is True
+
+    request = httpx.Request("GET", "http://x")
+    err_5xx = httpx.HTTPStatusError(
+        "x", request=request, response=httpx.Response(502, request=request)
+    )
+    assert default_is_transient(err_5xx) is True
+    err_4xx = httpx.HTTPStatusError(
+        "x", request=request, response=httpx.Response(404, request=request)
+    )
+    assert default_is_transient(err_4xx) is False
