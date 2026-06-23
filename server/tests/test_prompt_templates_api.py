@@ -308,7 +308,8 @@ class TestUpdatePromptTemplate:
         finally:
             test_app.cleanup()
 
-    def test_operator_cannot_update_system_template(self, monkeypatch):
+    def test_operator_can_update_system_template(self, monkeypatch):
+        # 新策略：系统/共享模板（如「基础」AI格式提示词）全员可编辑内容。
         test_app = build_test_app(monkeypatch)
         admin_client = test_app.client
         try:
@@ -318,7 +319,29 @@ class TestUpdatePromptTemplate:
             op_client, _ = _make_operator_client(test_app)
             resp = op_client.put(
                 f"/api/prompt-templates/{system_t['id']}",
-                json={"name": "想改系统", "content": "c"},
+                json={"name": "运营改的系统模板", "content": "新内容"},
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["name"] == "运营改的系统模板"
+            assert data["content"] == "新内容"
+            # is_system 未传 → 保持系统模板属性，不被降级
+            assert data["is_system"] is True
+        finally:
+            test_app.cleanup()
+
+    def test_operator_cannot_demote_system_template(self, monkeypatch):
+        # is_system 标记的变更仍收归 admin：运营把系统模板降级为个人模板 → 403。
+        test_app = build_test_app(monkeypatch)
+        admin_client = test_app.client
+        try:
+            system_t = _create_template(
+                admin_client, name="系统模板", content="c", is_system=True
+            ).json()
+            op_client, _ = _make_operator_client(test_app)
+            resp = op_client.put(
+                f"/api/prompt-templates/{system_t['id']}",
+                json={"name": "想降级", "content": "c", "is_system": False},
             )
             assert resp.status_code == 403
         finally:
@@ -434,7 +457,8 @@ class TestPatchPromptTemplate:
         finally:
             test_app.cleanup()
 
-    def test_operator_cannot_patch_system_template(self, monkeypatch):
+    def test_operator_can_patch_system_template_toggle(self, monkeypatch):
+        # 新策略：系统/共享模板的启用/停用开关全员可操作。
         test_app = build_test_app(monkeypatch)
         admin_client = test_app.client
         try:
@@ -446,7 +470,10 @@ class TestPatchPromptTemplate:
                 f"/api/prompt-templates/{system_t['id']}",
                 json={"is_enabled": False},
             )
-            assert resp.status_code == 403
+            assert resp.status_code == 200
+            assert resp.json()["is_enabled"] is False
+            # 透传 is_system=True（不变）应被放行
+            assert resp.json()["is_system"] is True
         finally:
             test_app.cleanup()
 
