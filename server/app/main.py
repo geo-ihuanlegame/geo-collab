@@ -386,6 +386,17 @@ def create_app() -> FastAPI:
 
         _logging.getLogger(__name__).exception("start_pipeline_scheduler failed")
 
+    # TapTap cookie 体检：GEO_TAPTAP_COOKIE_CHECK_ENABLED=true 时启动后台线程，纯 HTTP 探
+    # account-profile/v1/me，失效则置 expired + 飞书喊人重登（不自动登录）。失败只记日志、不致命。
+    try:
+        from server.app.modules.tasks.taptap_health import start_cookie_check
+
+        start_cookie_check(SessionLocal)
+    except Exception:
+        import logging as _logging
+
+        _logging.getLogger(__name__).exception("start_cookie_check failed")
+
     # 资源指标周期采样（Task 3，封堵 #10）：后台守护线程每 N 秒采池/run 快照打点 +
     # checked_out/max 超阈值升 WARNING（走 resource_metrics.emit_resource_alert 统一告警 hook，
     # Task 5 后续接同一通道）。开关 GEO_RESOURCE_METRICS_SAMPLING_ENABLED 默认开、可关。

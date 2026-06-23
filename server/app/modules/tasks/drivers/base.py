@@ -35,10 +35,15 @@ class PublishPayload:
 
 @dataclass(frozen=True)
 class ApiPublishPayload:
-    """API 型平台驱动的发布载荷：纯数据，含已就绪的 access_token，不含 secret。
+    """API 型平台驱动的发布载荷：纯数据，不含 secret。
 
-    与 PublishPayload 的区别：无 state_path/account_key（无浏览器态）；cover_path 可空
-    （驱动内回落正文首图）；token 由 runner_api 从 DB 缓存解析后注入。
+    与 PublishPayload 的区别：无 state_path/account_key；cover_path 可空（驱动内回落正文首图）。
+
+    两种鉴权形态，由驱动 ``auth`` 决定、runner_api 注入对应字段（驱动只读纯数据，不碰 ORM）：
+      - ``auth='token'``（默认，公众号）：``access_token`` 由 DB 缓存解析后注入。
+      - ``auth='cookie'``（TapTap）：``state`` = 解密后的 storage_state（含 cookie 罐）；
+        ``forum`` = ``api_credentials``（如 ``{app_id, group_id, x_ua}``）；``content_json`` =
+        Tiptap 文档（全保真转换用）；``image_paths`` = 图片节点 key→本地文件路径（含图库临时文件）。
     """
 
     title: str
@@ -46,8 +51,13 @@ class ApiPublishPayload:
     cover_path: Path | None
     display_name: str
     platform_code: str
-    access_token: str
+    access_token: str = ""
     temp_files: tuple[Path, ...] = ()
+    # ── cookie-session 形态（TapTap）专用，token 形态留空 ──────────────────
+    state: dict | None = None
+    forum: dict | None = None
+    content_json: dict | None = None
+    image_paths: dict[str, Path] | None = None
 
 
 @dataclass(frozen=True)

@@ -21,7 +21,11 @@ from sqlalchemy.orm import Session, selectinload
 from server.app.core.paths import get_data_dir
 from server.app.core.time import utcnow
 from server.app.modules.accounts.models import Account, AccountMember
-from server.app.modules.accounts.schemas import AccountUpdateRequest, ApiAccountCreate
+from server.app.modules.accounts.schemas import (
+    AccountUpdateRequest,
+    ApiAccountCreate,
+    TaptapForumIn,
+)
 from server.app.modules.system.models import Platform, User
 from server.app.modules.tasks.drivers.wechat_client import (
     TOKEN_REFRESH_SKEW_SECONDS,
@@ -197,9 +201,22 @@ def get_account(db: Session, account_id: int) -> Account | None:
 
 
 def is_api_platform_code(code: str) -> bool:
-    from server.app.modules.tasks.drivers import is_api_driver
+    """是否"凭据直填"型平台（前端据此走 AppID/Secret 直填、而非浏览器扫码登录）。
 
-    return code in _API_PLATFORM_CODES or is_api_driver(code)
+    注意与 is_api_driver 的区别：is_api_driver 说的是**发布**走服务端 API（不起浏览器）；
+    本函数说的是**建号/登录**走凭据直填。二者多数情况一致（公众号），但 cookie-session 型
+    API 驱动（TapTap：API 发布但靠浏览器登录拿 cookie）发布=api、登录=browser，故排除之。
+    """
+    from server.app.modules.tasks.drivers import get_driver, is_api_driver
+
+    if code in _API_PLATFORM_CODES:
+        return True
+    if not is_api_driver(code):
+        return False
+    try:
+        return getattr(get_driver(code), "auth", "token") != "cookie"
+    except Exception:
+        return True
 
 
 def api_platform_options() -> list[dict[str, str]]:
@@ -293,6 +310,24 @@ def update_account_fields(db: Session, account: Account, payload: AccountUpdateR
         account.api_token_cache = None
         account.status = "unknown"
         account.last_checked_at = None
+    account.updated_at = utcnow()
+    db.flush()
+    return get_account(db, account.id) or account
+
+
+def set_taptap_forum(db: Session, account: Account, payload: TaptapForumIn) -> Account:
+    """设置 TapTap 账号论坛绑定（app_id/group_id/x_ua）。x_ua 未传则保留原值（不清空）。
+
+    与 wechat 凭据路径分开：TapTap 无 app_secret、走 cookie 登录，api_credentials 语义不同。
+    """
+    if account.platform.code != "taptap":
+        raise ValidationError("仅 TapTap 账号支持论坛绑定配置")
+    creds = dict(account.api_credentials or {})
+    creds["app_id"] = payload.app_id
+    creds["group_id"] = payload.group_id
+    if payload.x_ua is not None:
+        creds["x_ua"] = payload.x_ua
+    account.api_credentials = creds
     account.updated_at = utcnow()
     db.flush()
     return get_account(db, account.id) or account

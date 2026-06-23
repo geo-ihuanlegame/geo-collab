@@ -9,9 +9,17 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+from server.app.core.paths import get_data_dir
 from server.app.modules.accounts.models import Account
+from server.app.modules.accounts.secret_files import read_state
 from server.app.modules.articles.models import Article
-from server.app.modules.articles.parser import BodySegment, parse_body_segments
+from server.app.modules.articles.parser import (
+    BodySegment,
+    extract_body_image_nodes,
+    extract_body_stock_image_nodes,
+    loads_content_json,
+    parse_body_segments,
+)
 from server.app.modules.articles.store import resolve_asset_path
 from server.app.modules.tasks.drivers.base import ApiPublishPayload, PublishError, PublishResult
 from server.app.modules.tasks.drivers.wechat_client import (
@@ -120,6 +128,88 @@ def _build_api_payload(
         raise
 
 
+def _build_cookie_payload(
+    article: Article, account: Account, platform_code: str
+) -> ApiPublishPayload:
+    """cookie-session 驱动（TapTap）payload：读解密 storage_state + 论坛配置 + content_json 图片→本地路径。
+
+    驱动不碰 ORM：这里把登录态（cookie 罐）/ 论坛配置 / 图片本地路径全解析成纯数据注入。
+    图片 key 用 asset_id 或 ``stock:<id>``，与转换器 image_node_key 一致（按 key 查、不依赖顺序）。
+    """
+    from server.app.modules.tasks.runner import (
+        _cleanup_temp_files,
+        _resolve_stock_image_path,
+    )
+
+    if not account.state_path:
+        raise PublishError("TapTap 账号缺登录态（storage_state），请先在媒体矩阵登录")
+    abs_state = get_data_dir() / account.state_path
+    if not abs_state.exists():
+        raise PublishError(f"TapTap 登录态文件不存在: {account.state_path}，请重新登录")
+    state = read_state(abs_state)
+    forum = dict(account.api_credentials or {})
+    # x_ua 未显式配置时，从 platform_user_id(VID) 合成（VID 由登录 / cookie 体检回填）。
+    if not forum.get("x_ua") and account.platform_user_id:
+        from server.app.modules.tasks.drivers.taptap_client import build_x_ua
+
+        forum["x_ua"] = build_x_ua(account.platform_user_id)
+
+    content_json = loads_content_json(article.content_json)
+    if not content_json:
+        body = (article.plain_text or "").strip()
+        content_json = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": ([{"type": "text", "text": body}] if body else []),
+                }
+            ],
+        }
+
+    image_paths: dict[str, Path] = {}
+    temp_files: list[Path] = []
+    try:
+        for asset_id, _node_id in extract_body_image_nodes(content_json):
+            if asset_id in image_paths:
+                continue
+            asset_link = next(
+                (
+                    link
+                    for link in article.body_assets
+                    if link.asset_id == asset_id and link.asset is not None
+                ),
+                None,
+            )
+            if asset_link is None:
+                raise PublishError(f"正文图片资源不存在或未加载: {asset_id}")
+            image_paths[asset_id] = resolve_asset_path(asset_link.asset)
+        for stock_id in extract_body_stock_image_nodes(content_json):
+            key = f"stock:{stock_id}"
+            if key in image_paths:
+                continue
+            image_path = _resolve_stock_image_path(stock_id, missing_ok=True)
+            if image_path is None:
+                continue  # 图库图已删除：跳过该图，照常发布（#36）
+            temp_files.append(image_path)
+            image_paths[key] = image_path
+        return ApiPublishPayload(
+            title=article.title,
+            body_segments=[],
+            cover_path=None,
+            display_name=account.display_name,
+            platform_code=platform_code,
+            state=state,
+            forum=forum,
+            content_json=content_json,
+            image_paths=image_paths,
+            temp_files=tuple(temp_files),
+        )
+    except Exception:
+        _cleanup_temp_files(temp_files)
+        raise
+
+
 def run_publish_api(
     *,
     article: Article,
@@ -129,12 +219,13 @@ def run_publish_api(
     commit_guard=None,
     retry_policy=None,
 ) -> PublishResult:
-    """API 平台发布：token 解析 → payload 构建 → driver.publish_api。
+    """API 平台发布：按 driver.auth 解析鉴权 → payload 构建 → driver.publish_api。
 
     platform_code 由 build_publish_runner_for_record 传入（=record.platform.code），避免在发布线程里
     懒加载已 detached 的 account.platform（见 #90）。
-    stop_before_publish 对草稿箱终点是 no-op（草稿箱本身就是「停在发布前」），故无此参数。
-    commit_guard/retry_policy 可选：默认 NOOP_COMMIT_GUARD/None，Task 6 接入弹性。
+    auth='token'（公众号）拉 access_token；auth='cookie'（TapTap）读 storage_state + 论坛配置。
+    stop_before_publish 对终点是 no-op（草稿箱 / 公开发布即终点），故无此参数。
+    commit_guard/retry_policy 可选：默认 NOOP_COMMIT_GUARD/None，跨提交点弹性（#133）。
     """
     from server.app.modules.tasks.drivers.base import NOOP_COMMIT_GUARD
     from server.app.modules.tasks.runner import _cleanup_temp_files
@@ -145,9 +236,13 @@ def run_publish_api(
     if not article.title or not article.title.strip():
         raise PublishError("标题不能为空")
 
-    with publish_step("resolve api access token"):
-        access_token = _resolve_access_token(account.id)
-    payload = _build_api_payload(article, account, access_token, platform_code)
+    auth = getattr(driver, "auth", "token")
+    if auth == "cookie":
+        payload = _build_cookie_payload(article, account, platform_code)
+    else:
+        with publish_step("resolve api access token"):
+            access_token = _resolve_access_token(account.id)
+        payload = _build_api_payload(article, account, access_token, platform_code)
     try:
         with publish_step("api driver publish flow"):
             return driver.publish_api(
