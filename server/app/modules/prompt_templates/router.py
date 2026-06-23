@@ -44,9 +44,7 @@ def _ensure_can_delete(template: Any, current_user: User) -> None:
     if current_user.role == "admin":
         return
     if template.is_system or template.user_id != current_user.id:
-        raise HTTPException(
-            status_code=403, detail="Only admin can delete system prompt templates"
-        )
+        raise HTTPException(status_code=403, detail="Only admin can delete system prompt templates")
 
 
 def _ensure_system_change_allowed(
