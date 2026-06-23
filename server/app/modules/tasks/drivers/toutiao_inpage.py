@@ -17,6 +17,7 @@ from typing import Any
 
 from server.app.modules.tasks.drivers import register_variant
 from server.app.modules.tasks.drivers.base import (
+    NOOP_COMMIT_GUARD,
     PublishError,
     PublishPayload,
     PublishResult,
@@ -27,6 +28,7 @@ from server.app.modules.tasks.drivers.toutiao_html import (
     ImageRef,
     body_segments_to_toutiao_html,
 )
+from server.app.shared.resilience import RetryPolicy, retry_call
 
 logger = logging.getLogger(__name__)
 
@@ -279,6 +281,8 @@ class ToutiaoInPageDriver:
         context: Any,
         payload: PublishPayload,
         stop_before_publish: bool,
+        commit_guard=None,
+        retry_policy=None,
     ) -> PublishResult:
         """通过页内适配器发布（或保存草稿）文章。
 
@@ -292,8 +296,14 @@ class ToutiaoInPageDriver:
         注意：让 manual-confirm 真正重新发布已保存草稿（设计 §10 option A/B）是
         M2 之后的任务；当前只保存草稿。
         """
+        guard = commit_guard or NOOP_COMMIT_GUARD
+        policy = retry_policy or RetryPolicy()
         content_html, image_order = body_segments_to_toutiao_html(payload.body_segments)
-        page.goto(PUBLISH_URL, wait_until="domcontentloaded", timeout=60000)
+        # 打开发布页是幂等的导航，可对瞬时网络/超时退避重试（保留 domcontentloaded）。
+        retry_call(
+            lambda: page.goto(PUBLISH_URL, wait_until="domcontentloaded", timeout=60000),
+            policy=policy,
+        )
         if not _wait_editor_ready(page):
             raise UserInputRequired(
                 "头条账号未登录或登录态失效，需要人工接管",
@@ -306,7 +316,14 @@ class ToutiaoInPageDriver:
         if save == 1 and payload.cover_asset_path is None:
             raise PublishError("头条发布需要封面图片")
         arg = _build_evaluate_arg(payload, content_html, image_order, save)
-        result = page.evaluate(_ADAPTER_JS, arg)
+        if save == 1:
+            # 终点真实发布：不可逆提交边界，包进 commit_guard——进入时落 commit_attempted_at，
+            # 退出按异常性质分流为干净失败 or CommitUncertainError（at-most-once）。
+            with guard.committing():
+                result = page.evaluate(_ADAPTER_JS, arg)
+        else:
+            # save=0 是「停在发布前」的草稿，不是提交边界，不包守卫。
+            result = page.evaluate(_ADAPTER_JS, arg)
         if isinstance(result, dict):
             logger.info(
                 "toutiao in-page publish: uploads=%s publish.raw=%s",

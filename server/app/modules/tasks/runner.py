@@ -292,8 +292,18 @@ def run_publish(
     channel: str = "chromium",
     executable_path: str | None = None,
     stop_before_publish: bool = False,
+    commit_guard=None,
+    retry_policy=None,
 ) -> PublishResult:
-    """通用发布入口：按账号平台找驱动，复用或启动远程会话，然后执行 driver.publish。"""
+    """通用发布入口：按账号平台找驱动，复用或启动远程会话，然后执行 driver.publish。
+
+    commit_guard/retry_policy 可选：默认 NOOP_COMMIT_GUARD/None，Task 7 接入弹性。
+    """
+    if commit_guard is None:
+        from server.app.modules.tasks.drivers.base import NOOP_COMMIT_GUARD
+
+        commit_guard = NOOP_COMMIT_GUARD
+
     if not article.title or not article.title.strip():
         raise PublishError("标题不能为空")
     if article.cover_asset is None:
@@ -377,6 +387,8 @@ def run_publish(
                 context=context,
                 payload=payload,
                 stop_before_publish=stop_before_publish,
+                commit_guard=commit_guard,
+                retry_policy=retry_policy,
             )
             if stop_before_publish:
                 _keep_browser = True

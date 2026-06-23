@@ -371,6 +371,7 @@ export type PublishRecord = {
   finished_at: string | null;
   remote_browser_session_id: string | null;
   novnc_url: string | null;
+  failure_kind?: string | null;
 };
 
 export type TaskLog = {
