@@ -27,6 +27,7 @@ from server.app.modules.tasks.service import (  # noqa: F401
     preview_task_assignment,
     recover_stuck_records,
     recover_stuck_task_claims,
+    reopen_orphaned_terminal_tasks,
     resolve_user_input_record,
     retry_record,
 )
