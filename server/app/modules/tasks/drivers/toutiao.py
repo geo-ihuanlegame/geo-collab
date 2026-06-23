@@ -1102,6 +1102,8 @@ class ToutiaoDriver:
         context: Any,
         payload: PublishPayload,
         stop_before_publish: bool,
+        commit_guard=None,
+        retry_policy=None,
     ) -> PublishResult:
         return _do_publish(page, context, payload, stop_before_publish)
 

@@ -71,11 +71,16 @@ class WeChatMpDriver:
     async def extract_platform_user_id_async(self, *, page) -> str | None:  # pragma: no cover
         return None  # API 平台不抽取浏览器侧 creator-ID（platform_user_id 即 AppID）
 
-    def publish(self, *, page, context, payload, stop_before_publish):  # pragma: no cover
+    def publish(self, *, page, context, payload, stop_before_publish, commit_guard=None, retry_policy=None):  # pragma: no cover
         raise PublishError("微信公众号为 API 接入，不支持浏览器发布路径")
 
     def publish_api(
-        self, *, payload: ApiPublishPayload, client: httpx.Client | None = None
+        self,
+        *,
+        payload: ApiPublishPayload,
+        client: httpx.Client | None = None,
+        commit_guard=None,
+        retry_policy=None,
     ) -> PublishResult:
         owns_client = client is None
         if client is None:

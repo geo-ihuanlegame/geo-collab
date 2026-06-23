@@ -34,7 +34,7 @@ from sqlalchemy import update as sa_update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, selectinload
 
-from server.app.core.config import get_settings
+from server.app.core.config import get_publish_retry_policy, get_settings
 from server.app.core.time import utcnow
 from server.app.modules.accounts.browser import (
     associate_record_with_session,
@@ -1022,6 +1022,31 @@ def _store_failure_screenshot(
     return stored.asset.id
 
 
+def _make_commit_guard(record_id: int) -> "CommitGuard":
+    """构造该记录的提交守卫：mark_pending 自开 session 落 commit_attempted_at（发布线程内，
+    入参均 detached，不复用外部 session；与 runner_api._resolve_access_token 同模式）。"""
+    from server.app.modules.tasks.drivers.base import CommitGuard
+
+    def _mark_pending() -> None:
+        from server.app.db.session import SessionLocal
+
+        db = SessionLocal()
+        try:
+            db.execute(
+                sa_update(PublishRecord)
+                .where(
+                    PublishRecord.id == record_id,
+                    PublishRecord.is_deleted == False,  # noqa: E712
+                )
+                .values(commit_attempted_at=utcnow())
+            )
+            db.commit()
+        finally:
+            db.close()
+
+    return CommitGuard(mark_pending=_mark_pending)
+
+
 def build_publish_runner_for_record(record: PublishRecord):
     """构造该记录的发布闭包：预绑 record_id + 浏览器 channel/可执行路径，返回 (article, account) → PublishResult。
 
@@ -1046,6 +1071,10 @@ def build_publish_runner_for_record(record: PublishRecord):
             "请确认进程已 import server.app.modules.tasks.drivers.bootstrap"
         )
 
+    # 两分支共用：构造 guard + policy（默认 no-op，不改现有行为；Task 6/7 接入弹性）
+    commit_guard = _make_commit_guard(record.id)
+    retry_policy = get_publish_retry_policy()
+
     if platform_code and is_api_driver(platform_code):
         from server.app.modules.tasks.runner_api import run_publish_api
 
@@ -1054,7 +1083,12 @@ def build_publish_runner_for_record(record: PublishRecord):
         def _api_runner(article, account, *, stop_before_publish=False):
             # platform_code（=record.platform.code）显式传入，避免发布线程懒加载 detached account.platform（#90）
             return run_publish_api(
-                article=article, account=account, driver=driver, platform_code=platform_code
+                article=article,
+                account=account,
+                driver=driver,
+                platform_code=platform_code,
+                commit_guard=commit_guard,
+                retry_policy=retry_policy,
             )
 
         return _api_runner
@@ -1074,6 +1108,8 @@ def build_publish_runner_for_record(record: PublishRecord):
             channel=channel,
             executable_path=executable_path,
             stop_before_publish=stop_before_publish,
+            commit_guard=commit_guard,
+            retry_policy=retry_policy,
         )
 
     return _runner

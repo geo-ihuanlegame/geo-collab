@@ -279,6 +279,8 @@ class ToutiaoInPageDriver:
         context: Any,
         payload: PublishPayload,
         stop_before_publish: bool,
+        commit_guard=None,
+        retry_policy=None,
     ) -> PublishResult:
         """通过页内适配器发布（或保存草稿）文章。
 
