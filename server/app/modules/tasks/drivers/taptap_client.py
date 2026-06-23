@@ -32,6 +32,9 @@ class TapTapApiError(Exception):
         super().__init__(message)
         self.status = status
         self.code = code
+        # 有 HTTP 响应（status 非空）即视为「服务端已应答、未受理」→ 暴露 errcode 供 CommitGuard
+        # 判为干净失败（post 必未发出），不被误包成 CommitUncertainError 而挡掉合理重试（#133）。
+        self.errcode = code if code is not None else status
 
 
 class TapTapAuthError(TapTapApiError):

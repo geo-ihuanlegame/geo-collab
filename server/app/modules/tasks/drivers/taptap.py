@@ -16,7 +16,12 @@ import logging
 import httpx
 
 from server.app.modules.tasks.drivers import register
-from server.app.modules.tasks.drivers.base import ApiPublishPayload, PublishError, PublishResult
+from server.app.modules.tasks.drivers.base import (
+    NOOP_COMMIT_GUARD,
+    ApiPublishPayload,
+    PublishError,
+    PublishResult,
+)
 from server.app.modules.tasks.drivers.taptap_client import (
     TapTapApiError,
     build_forum_bindings,
@@ -27,6 +32,7 @@ from server.app.modules.tasks.drivers.taptap_client import (
     upload_image_to_qiniu,
 )
 from server.app.modules.tasks.drivers.taptap_contents import tiptap_to_contents
+from server.app.shared.resilience import RetryPolicy, default_is_transient, retry_call
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +95,9 @@ class TapTapDriver:
             logger.warning("TapTap VID 抽取失败（best-effort，忽略）", exc_info=True)
             return None
 
-    def publish(self, *, page, context, payload, stop_before_publish):  # pragma: no cover
+    def publish(
+        self, *, page, context, payload, stop_before_publish, commit_guard=None, retry_policy=None
+    ):  # pragma: no cover
         raise PublishError("TapTap 为 cookie-session API 接入，不支持浏览器发布路径")
 
     def publish_api(
@@ -97,8 +105,18 @@ class TapTapDriver:
         *,
         payload: ApiPublishPayload,
         transport: httpx.BaseTransport | None = None,
+        commit_guard=None,
+        retry_policy=None,
     ) -> PublishResult:
-        """transport 仅供测试注入 MockTransport（同一 transport 按 host 路由 taptap + 七牛）。"""
+        """transport 仅供测试注入 MockTransport（同一 transport 按 host 路由 taptap + 七牛）。
+
+        commit_guard/retry_policy（#133）：传图/取 token 等幂等步走 retry_call；不可逆的
+        publish-topic（公开）包进 commit_guard.committing()——网络中断后受理未知则升
+        CommitUncertainError（不自动重发），业务/鉴权拒绝(带 errcode)则为干净失败可重试。
+        """
+        if commit_guard is None:
+            commit_guard = NOOP_COMMIT_GUARD
+        policy = retry_policy or RetryPolicy()
         forum = payload.forum or {}
         app_id = forum.get("app_id")
         group_id = forum.get("group_id")
@@ -122,29 +140,39 @@ class TapTapDriver:
         )
         try:
             url_map, image_infos = self._upload_images(
-                client, qiniu_client, x_ua=x_ua, image_paths=payload.image_paths or {}
+                client,
+                qiniu_client,
+                x_ua=x_ua,
+                image_paths=payload.image_paths or {},
+                policy=policy,
             )
             contents = tiptap_to_contents(payload.content_json or {}, url_map)
             if not contents:
                 raise PublishError("正文为空，无法发布 TapTap 长帖")
             forum_bindings = build_forum_bindings(group_id)
-            draft_id = create_topic(
-                client,
-                x_ua=x_ua,
-                title=payload.title,
-                contents=contents,
-                forum_bindings=forum_bindings,
-                image_infos=image_infos,
+            # 草稿（私有、可重复）走 retry_call；publish-topic（公开、不可逆）只进 commit_guard。
+            draft_id = retry_call(
+                lambda: create_topic(
+                    client,
+                    x_ua=x_ua,
+                    title=payload.title,
+                    contents=contents,
+                    forum_bindings=forum_bindings,
+                    image_infos=image_infos,
+                ),
+                policy=policy,
+                is_transient=default_is_transient,
             )
-            moment_id = publish_topic(
-                client,
-                x_ua=x_ua,
-                draft_id=draft_id,
-                title=payload.title,
-                contents=contents,
-                forum_bindings=forum_bindings,
-                image_infos=image_infos,
-            )
+            with commit_guard.committing():
+                moment_id = publish_topic(
+                    client,
+                    x_ua=x_ua,
+                    draft_id=draft_id,
+                    title=payload.title,
+                    contents=contents,
+                    forum_bindings=forum_bindings,
+                    image_infos=image_infos,
+                )
         except TapTapApiError as exc:
             raise PublishError(str(exc)) from exc
         finally:
@@ -156,14 +184,28 @@ class TapTapDriver:
         return PublishResult(url=url, title=payload.title, message=f"TapTap 长帖已发布 {url}")
 
     @staticmethod
-    def _upload_images(client, qiniu_client, *, x_ua, image_paths):
-        """逐张传七牛，返回 (key→url 映射, image_infos 列表)。key 缺图（删了）的不在 paths 里、自然跳过。"""
+    def _upload_images(client, qiniu_client, *, x_ua, image_paths, policy=None):
+        """逐张传七牛，返回 (key→url 映射, image_infos 列表)。取 token / 上传均幂等，走 retry_call。
+
+        key 缺图（删了）的不在 paths 里、自然跳过（上游 runner 已过滤）。
+        """
+        policy = policy or RetryPolicy()
         url_map: dict[str, str] = {}
         image_infos: list[dict] = []
         for key, path in image_paths.items():
             data = path.read_bytes()
-            token = get_image_upload_token(client, x_ua=x_ua)
-            result = upload_image_to_qiniu(token, data, path.name, client=qiniu_client)
+            token = retry_call(
+                lambda: get_image_upload_token(client, x_ua=x_ua),
+                policy=policy,
+                is_transient=default_is_transient,
+            )
+            result = retry_call(
+                lambda t=token, d=data, p=path: upload_image_to_qiniu(
+                    t, d, p.name, client=qiniu_client
+                ),
+                policy=policy,
+                is_transient=default_is_transient,
+            )
             url_map[key] = result["url"]
             image_infos.append({"url": result["url"], "info": result["info"]})
         return url_map, image_infos

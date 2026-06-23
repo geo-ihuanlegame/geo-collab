@@ -33,8 +33,11 @@ class PlatformDriver(Protocol):
         context: BrowserContext,
         payload: PublishPayload,
         stop_before_publish: bool,
+        commit_guard=None,
+        retry_policy=None,
     ) -> PublishResult:
-        """填写表单、上传资源并点击发布；不负责浏览器生命周期。"""
+        """填写表单、上传资源并点击发布；不负责浏览器生命周期。
+        commit_guard/retry_policy 可选：不接入弹性的驱动忽略即可。"""
 
     # ── 平台侧用户 ID 抽取（查重 / 共享账号，见设计稿 §3）────────────────────────
     #

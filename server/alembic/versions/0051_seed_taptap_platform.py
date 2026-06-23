@@ -1,7 +1,7 @@
 """种入 TapTap 平台（cookie-session API 账号；API 账号列已由 0044 加好，本迁移只插 platforms 行）
 
-修订 ID: 0050
-上一修订: 0049
+修订 ID: 0051
+上一修订: 0050（与 #133 的 0050_publish_record_commit_markers 串行，避免双 head）
 创建日期: 2026-06-23
 """
 
@@ -13,8 +13,8 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision: str = "0050"
-down_revision: str | None = "0049"
+revision: str = "0051"
+down_revision: str | None = "0050"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

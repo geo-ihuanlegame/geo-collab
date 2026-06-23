@@ -293,17 +293,24 @@ def resolve_user_input_record(db: Session, record: PublishRecord) -> PublishReco
     return record
 
 
-def retry_record(db: Session, record: PublishRecord) -> PublishRecord:
+def retry_record(db: Session, record: PublishRecord, *, force: bool = False) -> PublishRecord:
     """对失败记录建一条新的 retry 记录（retry_of_record_id 指向原记录），并把 task 拨回 running。
 
     只允许原始 failed 记录重试；重试记录本身不能再重试（见 CLAUDE.md「重试只对原始记录生效」）。
     防重：同一原记录已有 retry、或同 文章/账号 仍有活跃/成功记录时拒绝（避免重复发布）。
+    commit_uncertain 记录默认拦截（至少核对平台），force=True 时放行。
     """
     if record.status != "failed":
         raise ClientError(f"Only failed records can be retried: {record.status}")
     if record.retry_of_record_id is not None:
         raise ClientError(
             "Retry records cannot be retried again; create a new task after checking the platform result"
+        )
+    if not force and (
+        record.failure_kind == "commit_uncertain" or record.commit_attempted_at is not None
+    ):
+        raise ClientError(
+            "该记录已尝试提交，结果未知，请先到平台核对是否已发布；确认未发布后再用强制重发（force=true）"
         )
 
     existing_retry = db.execute(
@@ -374,16 +381,31 @@ def recover_stuck_records(db: Session) -> None:
         .all()
     )
     for record in records:
-        record.status = "pending"
-        record.lease_until = None
-        db.add(
-            TaskLog(
-                task_id=record.task_id,
-                record_id=record.id,
-                level="warn",
-                message="进程重启：记录在上次运行中意外中断，已重置为等待状态",
+        if record.commit_attempted_at is not None:
+            # 死在提交中途：无法安全自动重跑，锁为「结果未知」等人工核对
+            record.status = "failed"
+            record.failure_kind = "commit_uncertain"
+            record.finished_at = utcnow()
+            record.lease_until = None
+            db.add(
+                TaskLog(
+                    task_id=record.task_id,
+                    record_id=record.id,
+                    level="warn",
+                    message="进程重启：记录已跨提交点，结果未知，请人工核对平台后再决定是否重发",
+                )
             )
-        )
+        else:
+            record.status = "pending"
+            record.lease_until = None
+            db.add(
+                TaskLog(
+                    task_id=record.task_id,
+                    record_id=record.id,
+                    level="warn",
+                    message="进程重启：记录在上次运行中意外中断，已重置为等待状态",
+                )
+            )
     if records:
         _logger.warning("Recovered %d stuck records: %s", len(records), [r.id for r in records])
         db.commit()
