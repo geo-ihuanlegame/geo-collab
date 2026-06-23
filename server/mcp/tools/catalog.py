@@ -3,11 +3,19 @@
 每个 tool 走 `@mcp.tool` 装饰，签名直接做 LLM-facing schema:
 - 参数有默认值则在 LLM prompt 里可省
 - 返回 dict 顶层 `{ok, data, error}` —— 失败时 data=None, error=str
+
+tool 一律声明为 `async def`：FastMCP 对同步 tool 是在事件循环里 inline 跑的
+(func_metadata.call_fn_with_arg_validation 的同步分支 `return fn(...)`)。HTTP-mount 下
+self-call 打的是同进程同一个单 worker uvicorn(127.0.0.1:8000)，同步阻塞会把事件循环
+锁死、self-call 永远等不到处理 → 死锁直到超时。改 async + 把阻塞 HTTP 调用经
+`anyio.to_thread.run_sync` 丢线程池，事件循环就空出来服务 self-call。详见 _aget。
 """
 
 from __future__ import annotations
 
 from typing import Any
+
+import anyio
 
 from server.mcp.config import get_config
 from server.mcp.http_client import ApiError, GeoApiClient
@@ -31,8 +39,20 @@ def _fail(error: str) -> dict[str, Any]:
     return {"ok": False, "data": None, "error": error}
 
 
+async def _aget(path: str, *, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    """同步 GET 丢线程池跑，避免阻塞事件循环（见模块 docstring 的自调用死锁说明）。"""
+
+    def _impl() -> dict[str, Any]:
+        try:
+            return _ok(_client().get(path, params=params))
+        except ApiError as exc:
+            return _fail(str(exc))
+
+    return await anyio.to_thread.run_sync(_impl)
+
+
 @mcp.tool()
-def list_articles(
+async def list_articles(
     status: str | None = None,
     review_status: str | None = None,
     limit: int = 20,
@@ -53,25 +73,17 @@ def list_articles(
         params["status"] = status
     if review_status:
         params["review_status"] = review_status
-    try:
-        data = _client().get("/api/mcp/articles", params=params)
-        return _ok(data)
-    except ApiError as exc:
-        return _fail(str(exc))
+    return await _aget("/api/mcp/articles", params=params)
 
 
 @mcp.tool()
-def list_question_pools() -> dict[str, Any]:
+async def list_question_pools() -> dict[str, Any]:
     """List all question pools (Feishu-synced topic libraries)."""
-    try:
-        data = _client().get("/api/mcp/question-pools")
-        return _ok(data)
-    except ApiError as exc:
-        return _fail(str(exc))
+    return await _aget("/api/mcp/question-pools")
 
 
 @mcp.tool()
-def list_question_items(
+async def list_question_items(
     pool_id: int,
     limit: int = 20,
     category: str | None = None,
@@ -86,30 +98,22 @@ def list_question_items(
     params: dict[str, Any] = {"limit": max(1, min(100, limit))}
     if category:
         params["category"] = category
-    try:
-        data = _client().get(f"/api/mcp/question-pools/{pool_id}/items", params=params)
-        return _ok(data)
-    except ApiError as exc:
-        return _fail(str(exc))
+    return await _aget(f"/api/mcp/question-pools/{pool_id}/items", params=params)
 
 
 @mcp.tool()
-def list_prompt_templates(scope: str = "generation") -> dict[str, Any]:
+async def list_prompt_templates(scope: str = "generation") -> dict[str, Any]:
     """List prompt templates filtered by scope.
 
     Args:
         scope: One of "generation", "ai_format", "image_search", "image_companion".
                "generation" = article writing prompts (most common for Loops).
     """
-    try:
-        data = _client().get("/api/mcp/prompt-templates", params={"scope": scope})
-        return _ok(data)
-    except ApiError as exc:
-        return _fail(str(exc))
+    return await _aget("/api/mcp/prompt-templates", params={"scope": scope})
 
 
 @mcp.tool()
-def list_pipelines(type_filter: str | None = None) -> dict[str, Any]:
+async def list_pipelines(type_filter: str | None = None) -> dict[str, Any]:
     """List all pipelines (智能体 / workflows).
 
     Args:
@@ -118,15 +122,11 @@ def list_pipelines(type_filter: str | None = None) -> dict[str, Any]:
     params: dict[str, Any] = {}
     if type_filter:
         params["type"] = type_filter
-    try:
-        data = _client().get("/api/mcp/pipelines", params=params or None)
-        return _ok(data)
-    except ApiError as exc:
-        return _fail(str(exc))
+    return await _aget("/api/mcp/pipelines", params=params or None)
 
 
 @mcp.tool()
-def list_accounts(
+async def list_accounts(
     platform_code: str | None = None,
     distribution_enabled: bool | None = None,
 ) -> dict[str, Any]:
@@ -141,18 +141,10 @@ def list_accounts(
         params["platform_code"] = platform_code
     if distribution_enabled is not None:
         params["distribution_enabled"] = str(distribution_enabled).lower()
-    try:
-        data = _client().get("/api/mcp/accounts", params=params or None)
-        return _ok(data)
-    except ApiError as exc:
-        return _fail(str(exc))
+    return await _aget("/api/mcp/accounts", params=params or None)
 
 
 @mcp.tool()
-def get_article(article_id: int) -> dict[str, Any]:
+async def get_article(article_id: int) -> dict[str, Any]:
     """Get one article by id, including full content_json / content_html / plain_text."""
-    try:
-        data = _client().get(f"/api/mcp/articles/{article_id}")
-        return _ok(data)
-    except ApiError as exc:
-        return _fail(str(exc))
+    return await _aget(f"/api/mcp/articles/{article_id}")
