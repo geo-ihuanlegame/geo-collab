@@ -193,7 +193,19 @@ failure_kind: Mapped[str | None]               # commit_uncertain / transient_ex
 | `server/app/modules/tasks/executor.py` | `_finish_record_future` 加 `CommitUncertainError` 分流 + `failure_kind` |
 | `server/app/modules/tasks/service.py` | `recover_stuck_records` / `retry_record` 加 `commit_attempted_at` 护栏 + `force` |
 | `server/app/modules/tasks/models.py` | `PublishRecord` 加 `commit_attempted_at` / `failure_kind` |
-| `server/alembic/versions/*` | 追加式迁移（两列，不改 CHECK） |
+| `server/alembic/versions/*` | 追加式迁移（两列，不改 CHECK）。**排序:本迁移后于加密 spec 的 accounts 迁移**——见 §11 |
 | `server/app/core/config.py` | 5 个 `GEO_PUBLISH_RETRY_*` 设置 |
 | `web/`（小） | 发布记录页按 `failure_kind=commit_uncertain` 渲染告警 + 禁用一键重试 |
 | `server/tests/test_*` | resilience 纯单测 + 驱动/executor/service 护栏测 |
+
+## 11. 与并行设计（账号凭据加密）的协调
+
+并行在途：`docs/superpowers/specs/2026-06-23-secret-encryption-design.md`（账号敏感凭据静态加密）。两者**无设计冲突、可并行推进**，但有三个机械对接点（非语义冲突）：
+
+1. **Alembic 迁移顺序（已拍板：加密先、本设计后）** — 两边各加一条迁移，改的是不同表（加密改 `accounts` 列 JSON→TEXT；本设计给 `publish_records` 加两列），**无数据冲突**。约定：**加密迁移先落 main**，本设计的迁移 `down_revision` 指向加密迁移的 head（即本迁移在加密迁移之后生成）。实施期：在加密迁移合入 main 后再 `alembic revision`，自然链在其后，避免迁移 DAG 分叉 / 双 head。
+
+2. **`server/app/core/config.py`** — 两边都往 `Settings` 追加新字段（加密：`secret_key`/`secret_keys`；本设计：5 个 `GEO_PUBLISH_RETRY_*`）。语义独立，顶多同区域 textual merge，手动并排即可。
+
+3. **`server/app/modules/tasks/drivers/toutiao.py`** — 加密改 `:1072` 发布后存 storage_state（`write_state`）；本设计改导航重试 + 点发布提交守卫。**不同段落、不同职责**，顺序执行不嵌套；先后合并留意别 textual 擦碰。
+
+**正向交互**：加密 spec 的 `EncryptedJSON` 是 ORM 层透明加解密，本设计在 `runner_api._resolve_access_token` 读 `account.api_credentials` 时拿到的已是解密 dict，`fetch_access_token` 包进 `retry_call` **零耦合、零改动**。
