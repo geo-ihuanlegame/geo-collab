@@ -121,15 +121,26 @@ def _build_api_payload(
 
 
 def run_publish_api(
-    *, article: Article, account: Account, driver, platform_code: str
+    *,
+    article: Article,
+    account: Account,
+    driver,
+    platform_code: str,
+    commit_guard=None,
+    retry_policy=None,
 ) -> PublishResult:
     """API 平台发布：token 解析 → payload 构建 → driver.publish_api。
 
     platform_code 由 build_publish_runner_for_record 传入（=record.platform.code），避免在发布线程里
     懒加载已 detached 的 account.platform（见 #90）。
     stop_before_publish 对草稿箱终点是 no-op（草稿箱本身就是「停在发布前」），故无此参数。
+    commit_guard/retry_policy 可选：默认 NOOP_COMMIT_GUARD/None，Task 6 接入弹性。
     """
+    from server.app.modules.tasks.drivers.base import NOOP_COMMIT_GUARD
     from server.app.modules.tasks.runner import _cleanup_temp_files
+
+    if commit_guard is None:
+        commit_guard = NOOP_COMMIT_GUARD
 
     if not article.title or not article.title.strip():
         raise PublishError("标题不能为空")
@@ -139,6 +150,8 @@ def run_publish_api(
     payload = _build_api_payload(article, account, access_token, platform_code)
     try:
         with publish_step("api driver publish flow"):
-            return driver.publish_api(payload=payload)
+            return driver.publish_api(
+                payload=payload, commit_guard=commit_guard, retry_policy=retry_policy
+            )
     finally:
         _cleanup_temp_files(payload.temp_files)

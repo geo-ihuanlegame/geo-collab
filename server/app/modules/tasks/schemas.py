@@ -80,6 +80,7 @@ class PublishRecordRead(BaseModel):
     lease_until: datetime | None = None
     remote_browser_session_id: str | None = None
     novnc_url: str | None = None
+    failure_kind: str | None = None
 
 
 class TaskStatusRead(BaseModel):
@@ -194,6 +195,7 @@ def to_record_read(record: "PublishRecord") -> PublishRecordRead:
         lease_until=record.lease_until,
         remote_browser_session_id=session.id if session else None,
         novnc_url=session.novnc_url if session else None,
+        failure_kind=getattr(record, "failure_kind", None),
     )
 
 

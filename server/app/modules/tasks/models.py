@@ -119,6 +119,9 @@ class PublishRecord(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     lease_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # 断网/弱网发布重试：跨提交点前置时间戳 + 失败归类（见 2026-06-23 spec）
+    commit_attempted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    failure_kind: Mapped[str | None] = mapped_column(String(40), nullable=True)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0", index=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
