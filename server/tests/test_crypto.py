@@ -74,9 +74,19 @@ def test_multifernet_rotation(monkeypatch):
     assert crypto.decrypt_str(token) == "rotate-me"
 
 
+def test_decrypt_bytes_encrypted_without_key_raises(monkeypatch):
+    _set_key(monkeypatch, Fernet.generate_key().decode("ascii"))
+    blob = crypto.encrypt_bytes(b"secret")
+    _clear_keys(monkeypatch)
+    with pytest.raises(RuntimeError):
+        crypto.decrypt_bytes(blob)
+
+
 def test_is_encrypted(monkeypatch):
     _set_key(monkeypatch, Fernet.generate_key().decode("ascii"))
     assert crypto.is_encrypted(crypto.encrypt_str("x")) is True
     assert crypto.is_encrypted("plain") is False
     assert crypto.is_encrypted(crypto.encrypt_bytes(b"x")) is True
     assert crypto.is_encrypted(b"plain") is False
+    assert crypto.is_encrypted(bytearray(crypto.encrypt_bytes(b"x"))) is True
+    assert crypto.is_encrypted(bytearray(b"plain")) is False
