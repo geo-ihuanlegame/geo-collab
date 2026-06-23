@@ -298,10 +298,10 @@ if __name__ == "__main__":
 Run: `python -m server.scripts.gen_secret_key`
 Expected: 输出一行 44 字符 base64 串（结尾 `=`），且 `python -c "from cryptography.fernet import Fernet; Fernet('<上面输出>'.encode())"` 不报错。
 
-- [ ] **Step 8: 显式声明依赖** — 编辑 `requirements.txt`，在 `python-jose[cryptography]==3.4.0` 附近加一行（pin 到已装版本）：
+- [ ] **Step 8: 显式声明依赖** — 编辑 `requirements.txt`，在 `python-jose[cryptography]==3.4.0` 附近加一行（pin 到项目 env `geo_xzpt` 已装版本）：
 
 ```
-cryptography==45.0.7
+cryptography==48.0.0
 ```
 
 - [ ] **Step 9: 门禁 + 提交**
@@ -594,48 +594,43 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 import pytest
 from sqlalchemy import text as sa_text
 
-from server.app.modules.accounts.models import Account
-
 
 @pytest.mark.mysql
 def test_api_credentials_encrypted_at_rest(monkeypatch):
     monkeypatch.setenv("GEO_SECRET_KEY", Fernet.generate_key().decode("ascii"))
     get_settings.cache_clear()
     crypto.get_cipher.cache_clear()
-    from server.tests.conftest import build_test_app  # 既有 helper
+    from server.app.modules.system.models import Platform
+    from server.tests.utils import build_test_app
 
     test_app = build_test_app(monkeypatch)
     try:
-        db = test_app.SessionLocal()
-        try:
-            platform = test_app.seed_platform("wechat_mp")  # 既有 helper（若名不同按实际改）
-            acc = Account(
-                user_id=test_app.admin_user_id,
-                platform_id=platform.id,
-                display_name="加密测试号",
-                platform_user_id="wxappid",
-                status="unknown",
-                api_credentials={"app_id": "wxappid", "app_secret": "shh"},
-            )
-            db.add(acc)
-            db.commit()
-            acc_id = acc.id
-            # ORM 读出是明文 dict
-            db.expire_all()
-            assert db.get(Account, acc_id).api_credentials["app_secret"] == "shh"
-            # 原始 DB cell 是密文
-            raw = db.execute(
-                sa_text("SELECT api_credentials FROM accounts WHERE id = :i"), {"i": acc_id}
-            ).scalar_one()
-            assert raw.startswith("enc:v1:")
-            assert "shh" not in raw
-        finally:
-            db.close()
+        with test_app.session_factory() as db:
+            if db.query(Platform).filter(Platform.code == "wechat_mp").first() is None:
+                db.add(Platform(code="wechat_mp", name="微信公众号",
+                                base_url="https://mp.weixin.qq.com", enabled=True))
+                db.commit()
+        # 经真实 API 建号 → 走 ORM 加密写入路径
+        resp = test_app.client.post("/api/accounts", json={
+            "platform_code": "wechat_mp",
+            "display_name": "加密测试号",
+            "api_credentials": {"app_id": "wxappid123456", "app_secret": "shh-secret"},
+        })
+        assert resp.status_code == 200, resp.text
+        # API 回包不含 secret 原文，只回尾 4 位
+        assert resp.json()["app_secret_tail"] == "cret"
+        # 原始 DB cell 是密文
+        with test_app.session_factory() as db:
+            raw = db.execute(sa_text(
+                "SELECT api_credentials FROM accounts WHERE platform_user_id = 'wxappid123456'"
+            )).scalar_one()
+        assert raw.startswith("enc:v1:")
+        assert "shh-secret" not in raw
     finally:
         test_app.cleanup()
 ```
 
-> 实施注意：`build_test_app` 的具体 seed helper 名称（`seed_platform` / `admin_user_id`）以 `server/tests/conftest.py` 实际为准；若没有现成 platform seeder，用 `get_or_create_platform` 或直接插一行 `Platform`。`build_test_app` 用 `create_all` 建表，列类型直接取 models 定义（已是 TEXT），故本测试不依赖 Alembic 迁移。
+> `build_test_app`（在 `server/tests/utils.py`）用 `create_all` 建表，列类型取 models 定义（已是 TEXT），故本测试不依赖 Alembic 迁移。`test_app.session_factory()` 是 session 上下文管理器、`test_app.client` 是带 admin JWT 的测试客户端（接口参照 `test_accounts_api_wechat.py`）。`GEO_SECRET_KEY` 在 `build_test_app` 前 setenv 并清 cache，确保写入即加密。
 
 - [ ] **Step 2: 跑测试确认失败**
 
@@ -792,7 +787,7 @@ def test_export_plaintext_import_reencrypts(monkeypatch):
     monkeypatch.setenv("GEO_SECRET_KEY", Fernet.generate_key().decode("ascii"))
     get_settings.cache_clear()
     crypto.get_cipher.cache_clear()
-    from server.tests.conftest import build_test_app
+    from server.tests.utils import build_test_app
 
     test_app = build_test_app(monkeypatch)
     try:
@@ -1007,35 +1002,42 @@ def test_backfill_files_idempotent(monkeypatch, tmp_path):
 @pytest.mark.mysql
 def test_backfill_db_idempotent(monkeypatch):
     _set_key(monkeypatch)
-    from server.tests.conftest import build_test_app
+    from server.app.modules.system.models import Platform
+    from server.tests.utils import build_test_app
 
     test_app = build_test_app(monkeypatch)
     try:
-        db = test_app.SessionLocal()
-        try:
-            # 直接插一行「明文」api_credentials（绕过 ORM 加密：原始 SQL 写 TEXT 列）
-            platform = test_app.seed_platform("wechat_mp")
+        with test_app.session_factory() as db:
+            if db.query(Platform).filter(Platform.code == "wechat_mp").first() is None:
+                db.add(Platform(code="wechat_mp", name="微信公众号",
+                                base_url="https://mp.weixin.qq.com", enabled=True))
+                db.commit()
+        # 经 API 建号（ORM 已加密），再用原始 SQL 改回明文，模拟迁移前的遗留明文行
+        resp = test_app.client.post("/api/accounts", json={
+            "platform_code": "wechat_mp",
+            "display_name": "回填测试号",
+            "api_credentials": {"app_id": "wxbackfill01", "app_secret": "plain-secret"},
+        })
+        assert resp.status_code == 200, resp.text
+        with test_app.session_factory() as db:
             db.execute(
-                sa_text(
-                    "INSERT INTO accounts (user_id, platform_id, display_name, "
-                    "platform_user_id, status, api_credentials, distribution_enabled, "
-                    "is_deleted, created_at, updated_at) VALUES "
-                    "(:u, :p, 'n', 'wx', 'unknown', :c, 1, 0, NOW(), NOW())"
-                ),
-                {"u": test_app.admin_user_id, "p": platform.id,
-                 "c": json.dumps({"app_id": "wx", "app_secret": "plain-secret"})},
+                sa_text("UPDATE accounts SET api_credentials = :c "
+                        "WHERE platform_user_id = 'wxbackfill01'"),
+                {"c": json.dumps({"app_id": "wxbackfill01", "app_secret": "plain-secret"})},
             )
             db.commit()
 
-            changed1 = encrypt_secrets.backfill_db(db)
-            assert changed1 == 1
-            raw = db.execute(sa_text("SELECT api_credentials FROM accounts")).scalar_one()
-            assert raw.startswith("enc:v1:")
-            assert "plain-secret" not in raw
-            # 幂等
+        with test_app.session_factory() as db:
+            assert encrypt_secrets.backfill_db(db) == 1
+        with test_app.session_factory() as db:
+            raw = db.execute(sa_text(
+                "SELECT api_credentials FROM accounts WHERE platform_user_id = 'wxbackfill01'"
+            )).scalar_one()
+        assert raw.startswith("enc:v1:")
+        assert "plain-secret" not in raw
+        # 幂等：再跑 0 改动
+        with test_app.session_factory() as db:
             assert encrypt_secrets.backfill_db(db) == 0
-        finally:
-            db.close()
     finally:
         test_app.cleanup()
 ```
@@ -1247,6 +1249,6 @@ git push origin feat/secret-encryption
 - §8 风险（丢钥 / profile / ALTER / 幂等 / ZIP / 混存）→ Task 7 文档 + Task 6 幂等测试 ✓
 - §9 迁移协调（本迁移先落）→ Task 4 迁移注释 + Task 8 PR 描述 ✓
 
-**Placeholder scan：** Task 5 Step 1 的测试含 `...` 脚手架占位——**已显式标注**为「按本文件既有 helper 补全」并列出四条不可省断言；其余步骤均为可执行真代码。Task 4 / Task 6 的 conftest helper 名（`seed_platform` / `admin_user_id` / `SessionLocal`）标注「以 conftest.py 实际为准」。
+**Placeholder scan：** Task 5 Step 1 的测试含 `...` 脚手架占位——**已显式标注**为「按 `test_accounts_import_export.py` 既有 helper 补全」并列出四条不可省断言；其余步骤均为可执行真代码。测试接口已对齐 `server/tests/utils.py`：`build_test_app(monkeypatch)` / `test_app.session_factory()`（session 上下文管理器）/ `test_app.client`（带 admin JWT），参照 `test_accounts_api_wechat.py`。
 
 **Type consistency：** `read_state(Path)->dict` / `write_state(Path, dict)->None` 在 Task 3 定义、Task 5 一致使用；`encrypt_str/decrypt_str/encrypt_bytes/decrypt_bytes/is_encrypted` 在 Task 1 定义、Task 2/3/6 一致引用；`backfill_db(session)->int` / `backfill_files(Path)->int` 在 Task 6 定义并被其测试一致调用；`get_cipher`/`get_settings` 的 `cache_clear()` 在所有改 env 的测试中成对出现。
