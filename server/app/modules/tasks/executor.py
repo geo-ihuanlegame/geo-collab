@@ -996,7 +996,13 @@ def _record_crossed_commit(db: Session, record_id: int) -> bool:
     commit_attempted_at 由发布线程的**独立** SessionLocal 写入，主线程 db 的 identity map
     里可能缓存着尚未刷新的旧实例（stale）。这里用直查标量 SELECT 绕开 identity map，
     取数据库里已提交的最新值，避免 watchdog 误判未跨提交点而漏标 commit_uncertain。
+
+    best-effort：这只是 layer 1（标注）。db 为空（如纯逻辑测试不提供 session）时返回
+    False、绝不让超时处理器崩；at-most-once 的气密保证由 layer 2（retry_record 按
+    commit_attempted_at 兜底）兜住，标注缺失不削弱它。
     """
+    if db is None:
+        return False
     committed = db.execute(
         select(PublishRecord.commit_attempted_at).where(PublishRecord.id == record_id)
     ).scalar_one_or_none()

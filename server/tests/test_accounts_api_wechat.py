@@ -507,7 +507,7 @@ def test_run_publish_api_with_detached_account_resolves_platform(monkeypatch):
         )
         captured: dict = {}
 
-        def fake_publish_api(self, *, payload, client=None):
+        def fake_publish_api(self, *, payload, client=None, commit_guard=None, retry_policy=None):
             captured["platform_code"] = payload.platform_code
             return PublishResult(url=None, title=payload.title, message="draft-ok")
 
