@@ -107,3 +107,15 @@ def test_classifier_httpx_and_playwright():
         "x", request=request, response=httpx.Response(404, request=request)
     )
     assert default_is_transient(err_4xx) is False
+
+
+def test_get_publish_retry_policy_reads_settings(monkeypatch):
+    from server.app.core.config import get_publish_retry_policy, get_settings
+
+    monkeypatch.setenv("GEO_PUBLISH_RETRY_MAX_ATTEMPTS", "5")
+    monkeypatch.setenv("GEO_PUBLISH_RETRY_BASE_DELAY_SECONDS", "2.5")
+    get_settings.cache_clear()
+    policy = get_publish_retry_policy()
+    assert policy.max_attempts == 5
+    assert policy.base_delay == 2.5
+    get_settings.cache_clear()
