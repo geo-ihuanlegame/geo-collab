@@ -46,20 +46,31 @@ def test_backfill_db_idempotent(monkeypatch):
     try:
         with test_app.session_factory() as db:
             if db.query(Platform).filter(Platform.code == "wechat_mp").first() is None:
-                db.add(Platform(code="wechat_mp", name="微信公众号",
-                                base_url="https://mp.weixin.qq.com", enabled=True))
+                db.add(
+                    Platform(
+                        code="wechat_mp",
+                        name="微信公众号",
+                        base_url="https://mp.weixin.qq.com",
+                        enabled=True,
+                    )
+                )
                 db.commit()
         # 经 API 建号（ORM 已加密），再用原始 SQL 改回明文，模拟迁移前的遗留明文行
-        resp = test_app.client.post("/api/accounts", json={
-            "platform_code": "wechat_mp",
-            "display_name": "回填测试号",
-            "api_credentials": {"app_id": "wxbackfill01", "app_secret": "plain-secret"},
-        })
+        resp = test_app.client.post(
+            "/api/accounts",
+            json={
+                "platform_code": "wechat_mp",
+                "display_name": "回填测试号",
+                "api_credentials": {"app_id": "wxbackfill01", "app_secret": "plain-secret"},
+            },
+        )
         assert resp.status_code == 200, resp.text
         with test_app.session_factory() as db:
             db.execute(
-                sa_text("UPDATE accounts SET api_credentials = :c "
-                        "WHERE platform_user_id = 'wxbackfill01'"),
+                sa_text(
+                    "UPDATE accounts SET api_credentials = :c "
+                    "WHERE platform_user_id = 'wxbackfill01'"
+                ),
                 {"c": json.dumps({"app_id": "wxbackfill01", "app_secret": "plain-secret"})},
             )
             db.commit()
@@ -67,9 +78,11 @@ def test_backfill_db_idempotent(monkeypatch):
         with test_app.session_factory() as db:
             assert encrypt_secrets.backfill_db(db) == 1
         with test_app.session_factory() as db:
-            raw = db.execute(sa_text(
-                "SELECT api_credentials FROM accounts WHERE platform_user_id = 'wxbackfill01'"
-            )).scalar_one()
+            raw = db.execute(
+                sa_text(
+                    "SELECT api_credentials FROM accounts WHERE platform_user_id = 'wxbackfill01'"
+                )
+            ).scalar_one()
         assert raw.startswith("enc:v1:")
         assert "plain-secret" not in raw
         # 幂等：再跑 0 改动

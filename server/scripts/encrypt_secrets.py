@@ -10,8 +10,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from sqlalchemy import text as sa_text  # noqa: E402
-from sqlalchemy.orm import Session  # noqa: E402
+from sqlalchemy import text as sa_text
+from sqlalchemy.orm import Session
 
 # 独立运行需导入全部 models 触发 mapper 配置（同 seed_users.py）
 import server.app.modules.accounts.models  # noqa: F401,E402
@@ -22,10 +22,10 @@ import server.app.modules.image_library.models  # noqa: F401,E402
 import server.app.modules.prompt_templates.models  # noqa: F401,E402
 import server.app.modules.skills.models  # noqa: F401,E402
 import server.app.modules.tasks.models  # noqa: F401,E402
-from server.app.core.crypto import encrypt_str, is_encrypted  # noqa: E402
-from server.app.core.paths import get_data_dir  # noqa: E402
-from server.app.db.session import SessionLocal  # noqa: E402
-from server.app.modules.accounts.secret_files import write_state  # noqa: E402
+from server.app.core.crypto import encrypt_str, is_encrypted
+from server.app.core.paths import get_data_dir
+from server.app.db.session import SessionLocal
+from server.app.modules.accounts.secret_files import write_state
 
 _COLUMNS = ("api_credentials", "api_token_cache")
 
@@ -37,13 +37,8 @@ def backfill_db(session: Session) -> int:
     changed = 0
     for row in rows:
         sets: dict[str, str] = {}
-        # Try named access first (SQLAlchemy 2.x Row supports both named and positional)
-        try:
-            cred_val = row.api_credentials
-            cache_val = row.api_token_cache
-        except AttributeError:
-            cred_val = row[1]
-            cache_val = row[2]
+        cred_val = row.api_credentials
+        cache_val = row.api_token_cache
         for col, raw in zip(_COLUMNS, (cred_val, cache_val), strict=False):
             if raw and not is_encrypted(raw):
                 sets[col] = encrypt_str(raw)
