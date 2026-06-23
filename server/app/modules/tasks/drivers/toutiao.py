@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from server.app.modules.accounts.secret_files import write_state
 from server.app.modules.articles.parser import BodySegment
 from server.app.modules.tasks.drivers.base import (
     PublishError,
@@ -1069,7 +1070,7 @@ def _do_publish(
         publish_url = _click_publish_and_wait(page, stop_before_publish)
     try:
         with publish_step("save storage state"):
-            context.storage_state(path=str(payload.state_path))
+            write_state(Path(payload.state_path), context.storage_state())
     except Exception:
         logger.warning("Failed to save storage state after publish", exc_info=True)
     message = "已进入发布预览，等待手动确认" if stop_before_publish else f"发布成功: {publish_url}"

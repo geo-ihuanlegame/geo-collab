@@ -555,9 +555,10 @@ def test_export_accounts_auth_package_contains_manifest_and_state(monkeypatch):
 
             account_payload = json.loads(archive.read(f"{account_dir}/account.json"))
             assert account_payload["display_name"] == "export-demo"
-            assert (
-                archive.read(f"{account_dir}/storage_state.json") == b'{"cookies":[],"origins":[]}'
-            )
+            assert json.loads(archive.read(f"{account_dir}/storage_state.json")) == {
+                "cookies": [],
+                "origins": [],
+            }
     finally:
         test_app.cleanup()
 

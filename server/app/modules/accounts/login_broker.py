@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from server.app.modules.accounts.secret_files import write_state
 from server.app.shared.errors import ClientError
 
 _logger = logging.getLogger(__name__)
@@ -125,7 +126,8 @@ async def _pw_read(context: Any, page: Any) -> tuple[str, str, str]:
 
 
 async def _pw_storage_state(context: Any, state_path: Path) -> None:
-    await context.storage_state(path=str(state_path))
+    state = await context.storage_state()
+    write_state(state_path, state)
 
 
 async def _pw_close(pw: Any, context: Any) -> None:

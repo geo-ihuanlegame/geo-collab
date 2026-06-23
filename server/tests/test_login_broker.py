@@ -67,6 +67,7 @@ class _FakeContext:
         self.saved_path = path
         if path:
             Path(path).write_text("{}", encoding="utf-8")
+        return {"cookies": [], "origins": []}
 
     async def close(self):
         self.closed = True
@@ -195,6 +196,9 @@ def test_read_login_state_detects_and_saves(broker, tmp_path):
     assert result.title == "TITLE"
     assert seen["body"] == "BODY"
     assert state_path.exists()
+    from server.app.modules.accounts import secret_files
+
+    assert secret_files.read_state(state_path) == {"cookies": [], "origins": []}
 
 
 def test_close_is_idempotent_and_frees_slot(broker):
