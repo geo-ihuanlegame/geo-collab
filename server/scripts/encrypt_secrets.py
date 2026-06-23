@@ -24,8 +24,10 @@ import server.app.modules.skills.models  # noqa: F401,E402
 import server.app.modules.tasks.models  # noqa: F401,E402
 from server.app.core.crypto import encrypt_str, is_encrypted
 from server.app.core.paths import get_data_dir
-from server.app.db.session import SessionLocal
 from server.app.modules.accounts.secret_files import write_state
+
+# NOTE: server.app.db.session 在 import 时即建引擎、需 DB 配置——放到 main() 里惰性导入，
+# 否则 pytest collection 期（无 GEO_DATABASE_URL）import 本模块会 RuntimeError 拖垮整个 shard。
 
 _COLUMNS = ("api_credentials", "api_token_cache")
 
@@ -70,6 +72,8 @@ def backfill_files(data_dir: Path) -> int:
 
 
 def main() -> None:
+    from server.app.db.session import SessionLocal
+
     with SessionLocal() as session:
         db_changed = backfill_db(session)
     file_changed = backfill_files(get_data_dir())
