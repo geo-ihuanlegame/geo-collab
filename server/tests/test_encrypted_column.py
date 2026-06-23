@@ -48,6 +48,20 @@ def test_encrypted_text_roundtrip(monkeypatch):
     assert col.process_result_value(stored, dialect=None) == "token-123"
 
 
+def test_encrypted_text_none_passthrough(monkeypatch):
+    _set_key(monkeypatch)
+    col = EncryptedText()
+    assert col.process_bind_param(None, dialect=None) is None
+    assert col.process_result_value(None, dialect=None) is None
+
+
+def test_encrypted_text_reads_legacy_plaintext(monkeypatch):
+    _set_key(monkeypatch)
+    col = EncryptedText()
+    # 迁移前的明文文本（无 enc: 前缀）应能直接返回
+    assert col.process_result_value("some-plain-token", dialect=None) == "some-plain-token"
+
+
 @pytest.mark.mysql
 def test_api_credentials_encrypted_at_rest(monkeypatch):
     monkeypatch.setenv("GEO_SECRET_KEY", Fernet.generate_key().decode("ascii"))

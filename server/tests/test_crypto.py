@@ -82,6 +82,13 @@ def test_decrypt_bytes_encrypted_without_key_raises(monkeypatch):
         crypto.decrypt_bytes(blob)
 
 
+def test_encryption_enabled(monkeypatch):
+    _set_key(monkeypatch, Fernet.generate_key().decode("ascii"))
+    assert crypto.encryption_enabled() is True
+    _clear_keys(monkeypatch)
+    assert crypto.encryption_enabled() is False
+
+
 def test_is_encrypted(monkeypatch):
     _set_key(monkeypatch, Fernet.generate_key().decode("ascii"))
     assert crypto.is_encrypted(crypto.encrypt_str("x")) is True

@@ -142,6 +142,19 @@ def create_app() -> FastAPI:
                 "Startup recovery failed — stuck records may not have been reset"
             )
 
+    # 启动时记录加密密钥配置状态（spec §4.1）
+    import logging as _logging
+
+    from server.app.core.crypto import encryption_enabled
+
+    _startup_logger = _logging.getLogger(__name__)
+    if encryption_enabled():
+        _startup_logger.info("敏感凭据静态加密已启用（GEO_SECRET_KEY 已配置）")
+    else:
+        _startup_logger.warning(
+            "敏感凭据静态加密未启用：未配置 GEO_SECRET_KEY/GEO_SECRET_KEYS，账号凭据将以明文存储"
+        )
+
     # 全局异常处理：子类先注册，父类后注册，确保子类不被父类处理器吃掉
     # ConflictError → 409（子类，先注册）
     @app.exception_handler(ConflictError)

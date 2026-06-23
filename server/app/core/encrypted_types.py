@@ -26,6 +26,7 @@ class EncryptedJSON(TypeDecorator):
         return encrypt_str(json.dumps(value, ensure_ascii=False))
 
     def process_result_value(self, value: Any, dialect: Any) -> Any:
+        # 空串/NULL 一律视作无值；空串不是合法 JSON，return None 避免 json.loads("") 崩溃
         if not value:
             return None
         return json.loads(decrypt_str(value))

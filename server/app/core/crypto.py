@@ -74,6 +74,11 @@ def get_cipher() -> Cipher:
     return Cipher(MultiFernet([Fernet(k.encode("ascii")) for k in keys]))
 
 
+def encryption_enabled() -> bool:
+    """True when a key is configured (GEO_SECRET_KEY / GEO_SECRET_KEYS), else False (NullCipher passthrough)."""
+    return bool(_configured_keys())
+
+
 def encrypt_str(plain: str) -> str:
     return get_cipher().encrypt_str(plain)
 
