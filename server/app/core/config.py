@@ -153,6 +153,12 @@ class Settings(BaseSettings):
     # 不进 Settings——避免与服务端进程的 mcp_token 校验路径耦合。
     mcp_token: str = ""  # GEO_MCP_TOKEN（独立 service token，与 user JWT 隔离；空=禁用 MCP）
 
+    # 敏感凭据静态加密（app_secret / token / storage_state）。
+    # 空 = NullCipher 透传（本地/测试零配置）；prod 设密钥才真加密。
+    # 密钥 = Fernet urlsafe-base64 32 字节，用 `python -m server.scripts.gen_secret_key` 生成。
+    secret_key: str = ""        # GEO_SECRET_KEY，单密钥
+    secret_keys: str = ""       # GEO_SECRET_KEYS，逗号分隔多密钥（轮换；非空时优先于 secret_key）
+
     model_config = SettingsConfigDict(env_prefix="GEO_", env_file=".env", extra="ignore")
 
 
