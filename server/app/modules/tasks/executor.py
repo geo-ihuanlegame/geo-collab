@@ -47,7 +47,12 @@ from server.app.modules.accounts.browser import (
 from server.app.modules.accounts.models import Account
 from server.app.modules.articles.models import Article, ArticleBodyAsset
 from server.app.modules.articles.parser import has_publishable_body
-from server.app.modules.tasks.drivers.base import PublishError, PublishResult, UserInputRequired
+from server.app.modules.tasks.drivers.base import (
+    CommitUncertainError,
+    PublishError,
+    PublishResult,
+    UserInputRequired,
+)
 from server.app.modules.tasks.models import PublishRecord, PublishTask
 from server.app.modules.tasks.service import (
     PAUSED_RECORD_STATUSES,
@@ -817,6 +822,32 @@ def _finish_record_future(db: Session, task: PublishTask, record_id: int, future
                 "Record %d: error handling UserInputRequired: %s", record_id, _inner, exc_info=True
             )
             _mark_record_failed(db, task.id, record_id, f"Error handling user input: {_inner}")
+    except CommitUncertainError as exc:
+        try:
+            _add_publish_diagnostics(
+                db, task.id, record_id, _diagnostics_from_exception(exc), task.user_id
+            )
+            screenshot_asset_id = _store_failure_screenshot(
+                db, task.id, record_id, exc.screenshot, task.user_id
+            )
+            _mark_record_failed(
+                db,
+                task.id,
+                record_id,
+                f"[结果未知·已提交，请人工核对平台] {exc}\n{traceback.format_exc()}",
+                screenshot_asset_id=screenshot_asset_id,
+                failure_kind="commit_uncertain",
+            )
+            _stop_record_session(record_id)
+            _logger.error("Record %d commit-uncertain: %s", record_id, exc)
+        except Exception as _inner:
+            _logger.error(
+                "Record %d: error handling CommitUncertain: %s", record_id, _inner, exc_info=True
+            )
+            _mark_record_failed(
+                db, task.id, record_id, f"Error handling commit-uncertain: {_inner}"
+            )
+            _stop_record_session(record_id)
     except PublishError as exc:
         try:
             _add_publish_diagnostics(
@@ -952,6 +983,7 @@ def _mark_record_failed(
     record_id: int,
     error_message: str,
     screenshot_asset_id: str | None = None,
+    failure_kind: str | None = None,
 ) -> None:
     stmt = (
         sa_update(PublishRecord)
@@ -963,6 +995,7 @@ def _mark_record_failed(
         .values(
             status="failed",
             error_message=error_message,
+            failure_kind=failure_kind,
             finished_at=utcnow(),
             lease_until=None,
             queue_reason=None,
