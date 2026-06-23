@@ -428,7 +428,7 @@ export function TasksWorkspace({ isActive }: { isActive?: boolean } = {}) {
         );
         await refreshDetail(selectedTaskId);
       }
-      toast("重试已启动", "success");
+      toast(opts?.force ? "已强制重发" : "重试已启动", "success");
     } catch (error) {
       toast(error instanceof Error ? error.message : "重试失败", "error");
     } finally {
