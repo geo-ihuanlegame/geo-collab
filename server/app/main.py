@@ -107,7 +107,7 @@ def create_app() -> FastAPI:
         allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
         allow_credentials=False,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
-        allow_headers=["Content-Type", "X-Geo-Token"],
+        allow_headers=["Content-Type", "X-Geo-Token", "X-MCP-Token"],
     )
     # 速率限制
     from slowapi import _rate_limit_exceeded_handler
@@ -438,6 +438,9 @@ def create_app() -> FastAPI:
             async with _mcp_session_manager.run():
                 yield
 
+        # 注意：这是一次性赋值，会覆盖任何已设置的 lifespan。如果后续要再加 startup hook,
+        # 不要再赋值 lifespan_context —— 改为在这里用 contextlib.AsyncExitStack 合并多个 lifespan,
+        # 否则会静默丢掉 MCP session_manager 的 task group, 认证后请求会 500。
         app.router.lifespan_context = _lifespan_with_mcp
 
     except Exception:
