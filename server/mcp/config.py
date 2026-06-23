@@ -13,6 +13,13 @@ class McpConfig:
     def __init__(self) -> None:
         self.token = os.environ.get("GEO_MCP_TOKEN", "")
         self.api_base_url = os.environ.get("GEO_API_BASE_URL", "http://127.0.0.1:8000")
+        # 同进程 mount 时 tool handler self-call 用的 base url。
+        # 不 fallback 到 api_base_url —— 生产环境 api_base_url 是公网域名,
+        # self-call 绕公网一圈浪费,缺失时强制走 127.0.0.1:8000。
+        self.internal_api_url = os.environ.get(
+            "GEO_MCP_INTERNAL_API_URL",
+            "http://127.0.0.1:8000",
+        )
         self.timeout_seconds = float(os.environ.get("GEO_MCP_TIMEOUT_SECONDS", "30"))
 
     def assert_ready(self) -> None:

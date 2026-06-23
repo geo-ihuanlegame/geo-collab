@@ -56,3 +56,25 @@ def test_post_json_body_and_header(monkeypatch):
         or '"article_ids":[1,2]' in captured["body"]
     )
     assert "application/json" in captured["content_type"]
+
+
+def test_mcp_config_internal_api_url_defaults_to_localhost(monkeypatch):
+    """internal_api_url 缺失时回退到 127.0.0.1:8000，不复用 api_base_url。"""
+    from server.mcp.config import McpConfig
+
+    monkeypatch.setenv("GEO_MCP_TOKEN", "dummy-token-for-test")
+    monkeypatch.setenv("GEO_API_BASE_URL", "https://geo.example.com")
+    monkeypatch.delenv("GEO_MCP_INTERNAL_API_URL", raising=False)
+    cfg = McpConfig()
+    assert cfg.api_base_url == "https://geo.example.com"
+    assert cfg.internal_api_url == "http://127.0.0.1:8000"
+
+
+def test_mcp_config_internal_api_url_respects_env(monkeypatch):
+    """显式设 GEO_MCP_INTERNAL_API_URL 时尊重该值。"""
+    from server.mcp.config import McpConfig
+
+    monkeypatch.setenv("GEO_MCP_TOKEN", "dummy-token-for-test")
+    monkeypatch.setenv("GEO_MCP_INTERNAL_API_URL", "http://localhost:8123")
+    cfg = McpConfig()
+    assert cfg.internal_api_url == "http://localhost:8123"

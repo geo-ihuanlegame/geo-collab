@@ -15,7 +15,11 @@ from server.mcp.server import mcp
 
 def _client() -> GeoApiClient:
     cfg = get_config()
-    return GeoApiClient(base_url=cfg.api_base_url, token=cfg.token, timeout=cfg.timeout_seconds)
+    return GeoApiClient(
+        base_url=cfg.internal_api_url,
+        token=cfg.token,
+        timeout=cfg.timeout_seconds,
+    )
 
 
 def _ok(data: Any) -> dict[str, Any]:

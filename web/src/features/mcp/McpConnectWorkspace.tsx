@@ -15,7 +15,21 @@ import { useToast } from "../../components/Toast";
 
 const LOCALHOST_PATTERN = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/;
 
-function buildConfigJson(suggestedBaseUrl: string): string {
+function buildHttpConfigJson(suggestedBaseUrl: string): string {
+  const base = suggestedBaseUrl || "http://127.0.0.1:8000";
+  const template = {
+    mcpServers: {
+      geo: {
+        transport: "http",
+        url: `${base}/mcp`,
+        headers: { "X-MCP-Token": "<PASTE_YOUR_TOKEN_HERE>" },
+      },
+    },
+  };
+  return JSON.stringify(template, null, 2);
+}
+
+function buildStdioConfigJson(suggestedBaseUrl: string): string {
   const template = {
     mcpServers: {
       geo: {
@@ -51,6 +65,9 @@ export function McpConnectWorkspace() {
   // Section ③ — copy state
   const [copied, setCopied] = useState(false);
 
+  // Section ③ — transport (HTTP 推荐 / stdio 可选)
+  const [transport, setTransport] = useState<"http" | "stdio">("http");
+
   // Section ④ — test connection
   const [token, setToken] = useState("");
   const [tokenVisible, setTokenVisible] = useState(false);
@@ -76,7 +93,13 @@ export function McpConnectWorkspace() {
   }, [refreshStatus]);
 
   const suggestedBaseUrl = status?.suggested_base_url ?? "http://127.0.0.1:8000";
-  const configJson = useMemo(() => buildConfigJson(suggestedBaseUrl), [suggestedBaseUrl]);
+  const configJson = useMemo(
+    () =>
+      transport === "http"
+        ? buildHttpConfigJson(suggestedBaseUrl)
+        : buildStdioConfigJson(suggestedBaseUrl),
+    [suggestedBaseUrl, transport],
+  );
 
   const onCopy = useCallback(async () => {
     try {
@@ -243,6 +266,10 @@ export function McpConnectWorkspace() {
                 <span style={{ marginRight: 8 }}>建议 base_url：</span>
                 <code style={inlineCode}>{status.suggested_base_url}</code>
               </div>
+              <div style={{ fontSize: 13, color: "var(--fg-2)" }}>
+                <span style={{ marginRight: 8 }}>MCP endpoint：</span>
+                <code style={inlineCode}>{status.suggested_base_url}/mcp</code>
+              </div>
               {localhostWarn ? (
                 <div
                   style={{
@@ -281,26 +308,62 @@ export function McpConnectWorkspace() {
             }}
           >
             <h2 style={{ margin: 0 }}>客户端配置</h2>
-            <button
-              type="button"
-              className="secondaryButton"
-              onClick={() => void onCopy()}
-              disabled={!status}
-            >
-              {copied ? (
-                <>
-                  <CheckCircle2 size={14} /> 已复制
-                </>
-              ) : (
-                <>
-                  <Copy size={14} /> 复制 JSON
-                </>
-              )}
-            </button>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <div style={{ display: "inline-flex", borderRadius: 8, background: "var(--bg-2)", padding: 2 }}>
+                <button
+                  type="button"
+                  onClick={() => setTransport("http")}
+                  style={{
+                    padding: "4px 10px",
+                    fontSize: 12,
+                    borderRadius: 6,
+                    border: "none",
+                    background: transport === "http" ? "var(--accent)" : "transparent",
+                    color: transport === "http" ? "var(--bg)" : "var(--fg-2)",
+                    cursor: "pointer",
+                  }}
+                >
+                  HTTP（推荐）
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTransport("stdio")}
+                  style={{
+                    padding: "4px 10px",
+                    fontSize: 12,
+                    borderRadius: 6,
+                    border: "none",
+                    background: transport === "stdio" ? "var(--accent)" : "transparent",
+                    color: transport === "stdio" ? "var(--bg)" : "var(--fg-2)",
+                    cursor: "pointer",
+                  }}
+                >
+                  stdio（本地 dev）
+                </button>
+              </div>
+              <button
+                type="button"
+                className="secondaryButton"
+                onClick={() => void onCopy()}
+                disabled={!status}
+              >
+                {copied ? (
+                  <>
+                    <CheckCircle2 size={14} /> 已复制
+                  </>
+                ) : (
+                  <>
+                    <Copy size={14} /> 复制 JSON
+                  </>
+                )}
+              </button>
+            </div>
           </div>
 
           <p style={{ color: "var(--fg-2)", fontSize: 13, marginBottom: 10 }}>
-            在你的机器上编辑 <code style={inlineCode}>~/.claude.json</code>，粘贴以下片段：
+            {transport === "http"
+              ? "在你的机器上编辑 ~/.claude.json，粘贴以下片段（无需本机装 Python）："
+              : "在你的机器上编辑 ~/.claude.json，粘贴以下片段（需要本机装 Python + clone 仓库）："}
           </p>
 
           <pre style={codeBlock}>
@@ -309,21 +372,58 @@ export function McpConnectWorkspace() {
             </code>
           </pre>
 
-          <ul style={{ marginTop: 14, paddingLeft: 20, listStyle: "disc", lineHeight: 1.9, fontSize: 13, color: "var(--fg-2)" }}>
-            <li>
-              <code style={inlineCode}>GEO_MCP_TOKEN</code>：找 admin 获取。
-            </li>
-            <li>
-              <code style={inlineCode}>GEO_API_BASE_URL</code>：默认填你浏览器看到的域名；如果
-              Claude Code 跑在容器里访问宿主，改成{" "}
-              <code style={inlineCode}>http://host.docker.internal:8000</code>。
-            </li>
-            <li>
-              <code style={inlineCode}>PYTHONPATH</code>：在自己机器上{" "}
-              <code style={inlineCode}>git clone https://github.com/geo-ihuanlegame/geo-collab.git</code>{" "}
-              后填克隆出来的绝对路径；Windows 注意双反斜杠。
-            </li>
-          </ul>
+          {transport === "http" ? (
+            <ul style={{ marginTop: 14, paddingLeft: 20, listStyle: "disc", lineHeight: 1.9, fontSize: 13, color: "var(--fg-2)" }}>
+              <li>
+                <code style={inlineCode}>url</code>:自动填了你浏览器看到的域名;Claude Code
+                跑在容器里时把域名换成 <code style={inlineCode}>http://host.docker.internal:8000</code>。
+              </li>
+              <li>
+                <code style={inlineCode}>X-MCP-Token</code>:找 admin 获取。
+              </li>
+              <li>
+                需要 Nginx 反代时,<code style={inlineCode}>location /mcp</code> 块必须加{" "}
+                <code style={inlineCode}>proxy_buffering off; proxy_request_buffering off;</code>
+                (streamable HTTP 依赖 chunked,默认 buffering 会卡住 stream)。
+              </li>
+            </ul>
+          ) : (
+            <>
+              <div
+                style={{
+                  marginTop: 12,
+                  color: "var(--red)",
+                  background: "var(--red-soft)",
+                  border: "1px solid rgba(248,113,113,0.3)",
+                  padding: "10px 14px",
+                  borderRadius: 10,
+                  fontSize: 13,
+                  lineHeight: 1.7,
+                }}
+              >
+                <AlertTriangle size={14} style={{ verticalAlign: "-2px", marginRight: 6 }} />
+                stdio 模式需要你的机器有 Python + clone 仓库,仅推荐本机开发 / air-gap 场景。
+                日常使用请切回 HTTP。
+              </div>
+              <ul style={{ marginTop: 14, paddingLeft: 20, listStyle: "disc", lineHeight: 1.9, fontSize: 13, color: "var(--fg-2)" }}>
+                <li>
+                  <code style={inlineCode}>GEO_MCP_TOKEN</code>:找 admin 获取。
+                </li>
+                <li>
+                  <code style={inlineCode}>GEO_API_BASE_URL</code>:默认填你浏览器看到的域名;Claude Code
+                  跑在容器里访问宿主时改成{" "}
+                  <code style={inlineCode}>http://host.docker.internal:8000</code>。
+                </li>
+                <li>
+                  <code style={inlineCode}>PYTHONPATH</code>:在自己机器上{" "}
+                  <code style={inlineCode}>
+                    git clone https://github.com/geo-ihuanlegame/geo-collab.git
+                  </code>{" "}
+                  后填克隆出来的绝对路径;Windows 注意双反斜杠。
+                </li>
+              </ul>
+            </>
+          )}
         </section>
 
         {/* Section ④ 测试连接 ─────────────────────────────────────────── */}
