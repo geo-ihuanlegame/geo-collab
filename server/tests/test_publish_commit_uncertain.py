@@ -18,7 +18,9 @@ def _seed_record(db, *, status="pending", username="op_cu"):
     user.set_password("pw-123456")
     db.add(user)
     db.flush()
-    platform = Platform(code="toutiao", name="头条号", base_url="https://mp.toutiao.com", enabled=True)
+    platform = Platform(
+        code="toutiao", name="头条号", base_url="https://mp.toutiao.com", enabled=True
+    )
     db.add(platform)
     db.flush()
     account = Account(
@@ -35,14 +37,20 @@ def _seed_record(db, *, status="pending", username="op_cu"):
     db.add(article)
     db.flush()
     task = PublishTask(
-        user_id=user.id, name="task", task_type="single",
-        platform_id=platform.id, article_id=article.id,
+        user_id=user.id,
+        name="task",
+        task_type="single",
+        platform_id=platform.id,
+        article_id=article.id,
     )
     db.add(task)
     db.flush()
     record = PublishRecord(
-        task_id=task.id, article_id=article.id,
-        platform_id=platform.id, account_id=account.id, status=status,
+        task_id=task.id,
+        article_id=article.id,
+        platform_id=platform.id,
+        account_id=account.id,
+        status=status,
     )
     db.add(record)
     db.flush()
@@ -58,7 +66,9 @@ def test_commit_uncertain_marks_failure_kind(monkeypatch):
     test_app = build_test_app(monkeypatch)
     try:
         with test_app.session_factory() as db:
-            task, rec = _seed_record(db, status="running")  # _mark_record_failed 条件 UPDATE 要求 running
+            task, rec = _seed_record(
+                db, status="running"
+            )  # _mark_record_failed 条件 UPDATE 要求 running
             db.commit()
             rid = rec.id
 
@@ -70,5 +80,68 @@ def test_commit_uncertain_marks_failure_kind(monkeypatch):
             refreshed = db.get(PublishRecord, rid)
             assert refreshed.status == "failed"
             assert refreshed.failure_kind == "commit_uncertain"
+    finally:
+        test_app.cleanup()
+
+
+class _TimeoutFuture:
+    """最小桩：.result() 抛 FutureTimeoutError，驱动 _finish_record_future 的超时分支。"""
+
+    def result(self, *_args, **_kwargs):
+        from concurrent.futures import TimeoutError as FutureTimeoutError
+
+        raise FutureTimeoutError()
+
+
+def test_finish_timeout_after_commit_marks_uncertain(monkeypatch):
+    """C1 Layer 1：watchdog 超时分支若读到 commit_attempted_at 已置（发布线程独立 session 写入），
+    落 failed 时必须打 failure_kind='commit_uncertain'，而非 None（否则逃逸两层守卫）。"""
+    from server.app.modules.tasks import executor as ex
+    from server.app.modules.tasks.executor import _finish_record_future
+    from server.app.modules.tasks.models import PublishRecord
+
+    monkeypatch.setattr(ex, "_stop_record_session", lambda _rid: None)
+
+    test_app = build_test_app(monkeypatch)
+    try:
+        with test_app.session_factory() as db:
+            from server.app.core.time import utcnow
+
+            task, rec = _seed_record(db, status="running")
+            rec.commit_attempted_at = utcnow()  # 已跨提交点
+            db.commit()
+            rid = rec.id
+
+            _finish_record_future(db, task, rid, _TimeoutFuture())
+            db.commit()
+
+            refreshed = db.get(PublishRecord, rid)
+            assert refreshed.status == "failed"
+            assert refreshed.failure_kind == "commit_uncertain"
+    finally:
+        test_app.cleanup()
+
+
+def test_finish_timeout_without_commit_stays_unlabeled(monkeypatch):
+    """对照：未跨提交点的超时仍是 failure_kind=None（可一键重试），不被误升级。"""
+    from server.app.modules.tasks import executor as ex
+    from server.app.modules.tasks.executor import _finish_record_future
+    from server.app.modules.tasks.models import PublishRecord
+
+    monkeypatch.setattr(ex, "_stop_record_session", lambda _rid: None)
+
+    test_app = build_test_app(monkeypatch)
+    try:
+        with test_app.session_factory() as db:
+            task, rec = _seed_record(db, status="running")  # commit_attempted_at 留空
+            db.commit()
+            rid = rec.id
+
+            _finish_record_future(db, task, rid, _TimeoutFuture())
+            db.commit()
+
+            refreshed = db.get(PublishRecord, rid)
+            assert refreshed.status == "failed"
+            assert refreshed.failure_kind is None
     finally:
         test_app.cleanup()

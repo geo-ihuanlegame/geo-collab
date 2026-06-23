@@ -560,11 +560,16 @@ def _handle_timed_out_record(
 
     返回线程是否已确认终止。
     """
+    # watchdog 超时若已跨提交点（发布线程已写 commit_attempted_at），不能当干净失败放行
+    # 一键重发——锁为「结果未知」等人工核对（at-most-once，C1 Layer 1）。
+    crossed = _record_crossed_commit(db, running_record.record_id)
+    timeout_msg = f"Timeout: record execution exceeded {int(_record_execution_budget())}s"
     _mark_record_failed(
         db,
         task_id,
         running_record.record_id,
-        f"Timeout: record execution exceeded {int(_record_execution_budget())}s",
+        (f"[结果未知·已提交，请人工核对平台] {timeout_msg}" if crossed else timeout_msg),
+        failure_kind="commit_uncertain" if crossed else None,
     )
     # 关 Chromium context（让 Playwright 线程收到 TargetClosedError 终止）+ 清会话映射；
     # profile 锁先不放，等下方确认线程终止。
@@ -785,11 +790,15 @@ def _finish_record_future(db: Session, task: PublishTask, record_id: int, future
         else:
             result = outcome
     except FutureTimeoutError:
+        # 已跨提交点的超时锁为「结果未知」，避免一键重发导致重复发布（at-most-once，C1 Layer 1）。
+        crossed = _record_crossed_commit(db, record_id)
+        timeout_msg = f"Timeout: record execution exceeded {int(_record_execution_budget())}s"
         _mark_record_failed(
             db,
             task.id,
             record_id,
-            f"Timeout: record execution exceeded {int(_record_execution_budget())}s",
+            (f"[结果未知·已提交，请人工核对平台] {timeout_msg}" if crossed else timeout_msg),
+            failure_kind="commit_uncertain" if crossed else None,
         )
         _stop_record_session(record_id)
         _logger.warning("Record %d timed out", record_id)
@@ -975,6 +984,19 @@ def _add_publish_diagnostics(
             f"[publish diagnostic] {event.message}",
             screenshot_asset_id=screenshot_asset_id,
         )
+
+
+def _record_crossed_commit(db: Session, record_id: int) -> bool:
+    """记录是否已跨提交点（commit_attempted_at 非空）。
+
+    commit_attempted_at 由发布线程的**独立** SessionLocal 写入，主线程 db 的 identity map
+    里可能缓存着尚未刷新的旧实例（stale）。这里用直查标量 SELECT 绕开 identity map，
+    取数据库里已提交的最新值，避免 watchdog 误判未跨提交点而漏标 commit_uncertain。
+    """
+    committed = db.execute(
+        select(PublishRecord.commit_attempted_at).where(PublishRecord.id == record_id)
+    ).scalar_one_or_none()
+    return committed is not None
 
 
 def _mark_record_failed(

@@ -306,9 +306,11 @@ def retry_record(db: Session, record: PublishRecord, *, force: bool = False) -> 
         raise ClientError(
             "Retry records cannot be retried again; create a new task after checking the platform result"
         )
-    if record.failure_kind == "commit_uncertain" and not force:
+    if not force and (
+        record.failure_kind == "commit_uncertain" or record.commit_attempted_at is not None
+    ):
         raise ClientError(
-            "该记录已提交但结果未知，请先到平台核对是否已发布；确认未发布后再用强制重发（force=true）"
+            "该记录已尝试提交，结果未知，请先到平台核对是否已发布；确认未发布后再用强制重发（force=true）"
         )
 
     existing_retry = db.execute(
