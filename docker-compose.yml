@@ -14,6 +14,9 @@ services:
 
   mysql:
     image: mysql:8.0
+    # MySQL 8 默认 max_connections=151；提到 200 给 app/worker 连接池 + SSE 长连接留余量
+    # （连接池耗尽事故的生产缓解，配合后端调大 pool/pool_timeout）。
+    command: ["--max-connections=200"]
     restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?required}
@@ -56,6 +59,10 @@ services:
       GEO_DATA_DIR: /app/data
       GEO_NGINX_ACCEL: "1"
       GEO_HOTLIST_API_URL: http://dailyhot-api:6688
+      # MCP HTTP-mount(/mcp 网关与 /api/mcp/* 同进程同容器)时 tool handler 的自调用地址。
+      # 钉死回环、不依赖 .env：若 .env 误把它写成公网域名，容器向自己的公网域名发请求，
+      # 阿里云 ECS 默认不支持发卡回环(hairpin NAT) → 30s 超时。environment 优先级高于 env_file。
+      GEO_MCP_INTERNAL_API_URL: http://127.0.0.1:8000
     volumes:
       - app_data:/app/data
 

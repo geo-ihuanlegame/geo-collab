@@ -118,13 +118,14 @@ def create_app() -> FastAPI:
     # 启动时恢复卡住的记录（上次运行时崩溃导致 status='running' 的记录）
     # 多实例部署时只允许一个实例执行恢复，其他实例设 GEO_RUN_STARTUP_RECOVERY=false
     from server.app.db.session import SessionLocal
-    from server.app.modules.tasks import recover_stuck_records
+    from server.app.modules.tasks import recover_stuck_records, reopen_orphaned_terminal_tasks
 
     if get_settings().run_startup_recovery:
         try:
             recover_db = SessionLocal()
             try:
                 recover_stuck_records(recover_db)
+                reopen_orphaned_terminal_tasks(recover_db)
                 from server.app.modules.pipelines.recovery import recover_stuck_pipeline_runs
 
                 recover_stuck_pipeline_runs(recover_db)
@@ -385,6 +386,17 @@ def create_app() -> FastAPI:
         import logging as _logging
 
         _logging.getLogger(__name__).exception("start_pipeline_scheduler failed")
+
+    # TapTap cookie 体检：GEO_TAPTAP_COOKIE_CHECK_ENABLED=true 时启动后台线程，纯 HTTP 探
+    # account-profile/v1/me，失效则置 expired + 飞书喊人重登（不自动登录）。失败只记日志、不致命。
+    try:
+        from server.app.modules.tasks.taptap_health import start_cookie_check
+
+        start_cookie_check(SessionLocal)
+    except Exception:
+        import logging as _logging
+
+        _logging.getLogger(__name__).exception("start_cookie_check failed")
 
     # 资源指标周期采样（Task 3，封堵 #10）：后台守护线程每 N 秒采池/run 快照打点 +
     # checked_out/max 超阈值升 WARNING（走 resource_metrics.emit_resource_alert 统一告警 hook，

@@ -12,6 +12,7 @@ Web 应用（``server/app/main.py:create_app()``）和发布 worker
 
 from __future__ import annotations
 
+import server.app.modules.tasks.drivers.taptap  # noqa: F401  TapTap cookie-session API 驱动
 import server.app.modules.tasks.drivers.toutiao  # noqa: F401  默认 DOM 驱动
 import server.app.modules.tasks.drivers.toutiao_inpage  # noqa: F401  页内 API 变体
 import server.app.modules.tasks.drivers.wechat_mp  # noqa: F401  微信公众号 API 驱动

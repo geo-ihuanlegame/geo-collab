@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -33,10 +35,15 @@ class PublishPayload:
 
 @dataclass(frozen=True)
 class ApiPublishPayload:
-    """API 型平台驱动的发布载荷：纯数据，含已就绪的 access_token，不含 secret。
+    """API 型平台驱动的发布载荷：纯数据，不含 secret。
 
-    与 PublishPayload 的区别：无 state_path/account_key（无浏览器态）；cover_path 可空
-    （驱动内回落正文首图）；token 由 runner_api 从 DB 缓存解析后注入。
+    与 PublishPayload 的区别：无 state_path/account_key；cover_path 可空（驱动内回落正文首图）。
+
+    两种鉴权形态，由驱动 ``auth`` 决定、runner_api 注入对应字段（驱动只读纯数据，不碰 ORM）：
+      - ``auth='token'``（默认，公众号）：``access_token`` 由 DB 缓存解析后注入。
+      - ``auth='cookie'``（TapTap）：``state`` = 解密后的 storage_state（含 cookie 罐）；
+        ``forum`` = ``api_credentials``（如 ``{app_id, group_id, x_ua}``）；``content_json`` =
+        Tiptap 文档（全保真转换用）；``image_paths`` = 图片节点 key→本地文件路径（含图库临时文件）。
     """
 
     title: str
@@ -44,8 +51,13 @@ class ApiPublishPayload:
     cover_path: Path | None
     display_name: str
     platform_code: str
-    access_token: str
+    access_token: str = ""
     temp_files: tuple[Path, ...] = ()
+    # ── cookie-session 形态（TapTap）专用，token 形态留空 ──────────────────
+    state: dict | None = None
+    forum: dict | None = None
+    content_json: dict | None = None
+    image_paths: dict[str, Path] | None = None
 
 
 @dataclass(frozen=True)
@@ -82,3 +94,67 @@ class UserInputRequired(PublishError):
         self.session_id = session_id
         self.novnc_url = novnc_url
         self.error_type = error_type
+
+
+class CommitUncertainError(PublishError):
+    """跨提交点后发生网络失败：请求已发出、平台是否受理未知。绝不自动重发（at-most-once）。"""
+
+
+def _walk_exc(exc: BaseException) -> Iterator[BaseException]:
+    seen: set[int] = set()
+    cur: BaseException | None = exc
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        yield cur
+        cur = cur.__cause__ or cur.__context__
+
+
+def _commit_is_clean_failure(exc: BaseException) -> bool:
+    """True = 有正面证据平台未受理（干净失败，原异常透出，可安全重试）。
+    False = 结果未知，包成 CommitUncertainError。at-most-once 默认保守取 False。"""
+    # 业务级拒绝：服务端回了非空错误码 → 必定未建记录
+    if getattr(exc, "errcode", None) is not None:
+        return True
+    for e in _walk_exc(exc):
+        mod = type(e).__module__ or ""
+        name = type(e).__name__
+        if mod.startswith("httpx"):
+            if name in {"ConnectError", "ConnectTimeout"}:
+                return True  # 连接从未建立 → 请求从未发出
+            if name in {
+                "ReadTimeout",
+                "WriteTimeout",
+                "PoolTimeout",
+                "RemoteProtocolError",
+                "ReadError",
+                "WriteError",
+                "NetworkError",
+            }:
+                return False  # 已发出或可能已发出 → 未知
+    return False
+
+
+class CommitGuard:
+    """把不可逆提交包进 committing()。进入时落 commit_attempted_at（经 runner 注入的回调，
+    驱动不碰 ORM）；退出时按异常性质分流为干净失败 or CommitUncertainError。"""
+
+    def __init__(self, mark_pending: Callable[[], None]):
+        self._mark_pending = mark_pending
+
+    @contextmanager
+    def committing(self) -> Iterator[None]:
+        self._mark_pending()
+        try:
+            yield
+        except CommitUncertainError:
+            raise
+        except BaseException as exc:  # noqa: BLE001
+            if _commit_is_clean_failure(exc):
+                raise
+            raise CommitUncertainError(
+                f"提交后网络中断，平台受理结果未知: {exc}",
+                screenshot=getattr(exc, "screenshot", None),
+            ) from exc
+
+
+NOOP_COMMIT_GUARD = CommitGuard(mark_pending=lambda: None)

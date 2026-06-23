@@ -180,7 +180,16 @@ def test_run_publish_routes_by_platform_code(monkeypatch, tmp_path):
         def detect_logged_in(self, *, url, title, body):
             return True
 
-        def publish(self, *, page, context, payload, stop_before_publish):
+        def publish(
+            self,
+            *,
+            page,
+            context,
+            payload,
+            stop_before_publish,
+            commit_guard=None,
+            retry_policy=None,
+        ):
             publish_called.append(True)
             return expected_result
 
@@ -223,7 +232,16 @@ def test_run_publish_keeps_session_on_user_input_required(monkeypatch, tmp_path)
         def detect_logged_in(self, *, url, title, body):
             return True
 
-        def publish(self, *, page, context, payload, stop_before_publish):
+        def publish(
+            self,
+            *,
+            page,
+            context,
+            payload,
+            stop_before_publish,
+            commit_guard=None,
+            retry_policy=None,
+        ):
             raise ToutiaoUserInputRequired("needs login")
 
     stub_driver = _StubDriver()
@@ -275,7 +293,16 @@ def test_run_publish_stops_session_after_auto_publish(monkeypatch, tmp_path):
         def detect_logged_in(self, *, url, title, body):
             return True
 
-        def publish(self, *, page, context, payload, stop_before_publish):
+        def publish(
+            self,
+            *,
+            page,
+            context,
+            payload,
+            stop_before_publish,
+            commit_guard=None,
+            retry_policy=None,
+        ):
             return PublishResult(
                 url="https://example.com/article/1", title=payload.title, message="ok"
             )
@@ -320,7 +347,16 @@ def test_run_publish_keeps_session_for_manual_publish(monkeypatch, tmp_path):
         def detect_logged_in(self, *, url, title, body):
             return True
 
-        def publish(self, *, page, context, payload, stop_before_publish):
+        def publish(
+            self,
+            *,
+            page,
+            context,
+            payload,
+            stop_before_publish,
+            commit_guard=None,
+            retry_policy=None,
+        ):
             return PublishResult(url=None, title=payload.title, message="waiting")
 
     stopped = []

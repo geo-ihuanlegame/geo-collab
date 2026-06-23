@@ -20,9 +20,13 @@
 
 from functools import lru_cache
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+if TYPE_CHECKING:
+    from server.app.shared.resilience import RetryPolicy
 
 
 class AiEngineConfig(BaseModel):
@@ -52,6 +56,12 @@ class Settings(BaseSettings):
     jwt_secret: str = ""
     publish_max_concurrent_records: int = 5
     publish_record_timeout_seconds: int = 300
+    # 断网/弱网发布重试（见 docs/superpowers/specs/2026-06-23-publish-network-retry-design.md）
+    publish_retry_enabled: bool = True  # GEO_PUBLISH_RETRY_ENABLED
+    publish_retry_max_attempts: int = 3  # GEO_PUBLISH_RETRY_MAX_ATTEMPTS（含首次）
+    publish_retry_base_delay_seconds: float = 1.0  # GEO_PUBLISH_RETRY_BASE_DELAY_SECONDS
+    publish_retry_max_delay_seconds: float = 15.0  # GEO_PUBLISH_RETRY_MAX_DELAY_SECONDS
+    publish_retry_max_elapsed_seconds: float = 60.0  # GEO_PUBLISH_RETRY_MAX_ELAPSED_SECONDS
     # 发布前随机延迟（错峰防封）。enabled 默认开启；每条发布在调用驱动发文前
     # sleep random.uniform(min, max) 秒。stop_before_publish 的人工确认流程不延迟。
     publish_pre_delay_enabled: bool = True  # GEO_PUBLISH_PRE_DELAY_ENABLED
@@ -83,6 +93,11 @@ class Settings(BaseSettings):
     pipeline_scheduler_enabled: bool = False  # GEO_PIPELINE_SCHEDULER_ENABLED
     pipeline_scheduler_interval_seconds: int = 60  # GEO_PIPELINE_SCHEDULER_INTERVAL_SECONDS
     scheduler_tz: str = "Asia/Shanghai"  # GEO_SCHEDULER_TZ
+    # TapTap cookie 体检（应用内后台线程，纯 HTTP 探测 account-profile/v1/me）。默认关闭。
+    taptap_cookie_check_enabled: bool = False  # GEO_TAPTAP_COOKIE_CHECK_ENABLED
+    taptap_cookie_check_interval_seconds: int = (
+        43200  # GEO_TAPTAP_COOKIE_CHECK_INTERVAL_SECONDS（12 小时）
+    )
     run_startup_recovery: bool = True  # GEO_RUN_STARTUP_RECOVERY；多实例只在单一实例开启
     # 资源指标周期采样（Task 3，封堵 #10）。后台守护线程每 N 秒采一份池/run 快照打点到日志，
     # checked_out/max 超阈值升 WARNING。默认开启、可关闭；采样纯内存读 + 轻量 COUNT，不改并发。
@@ -165,6 +180,21 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def get_publish_retry_policy() -> "RetryPolicy":
+    """由 Settings 构建发布重试策略。注意：max_elapsed 必须 < 单记录执行预算
+    （publish_record_timeout_seconds），否则 watchdog 会先于重试杀掉记录。"""
+    from server.app.shared.resilience import RetryPolicy
+
+    s = get_settings()
+    return RetryPolicy(
+        enabled=s.publish_retry_enabled,
+        max_attempts=s.publish_retry_max_attempts,
+        base_delay=s.publish_retry_base_delay_seconds,
+        max_delay=s.publish_retry_max_delay_seconds,
+        max_elapsed=s.publish_retry_max_elapsed_seconds,
+    )
 
 
 def resolve_engine(selected: str | None) -> tuple[str, str, str | None]:

@@ -27,6 +27,10 @@ from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from dataclasses import dataclass
 from datetime import timedelta
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from server.app.modules.tasks.drivers.base import CommitGuard
 
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy import select
@@ -34,7 +38,7 @@ from sqlalchemy import update as sa_update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, selectinload
 
-from server.app.core.config import get_settings
+from server.app.core.config import get_publish_retry_policy, get_settings
 from server.app.core.time import utcnow
 from server.app.modules.accounts.browser import (
     associate_record_with_session,
@@ -47,7 +51,12 @@ from server.app.modules.accounts.browser import (
 from server.app.modules.accounts.models import Account
 from server.app.modules.articles.models import Article, ArticleBodyAsset
 from server.app.modules.articles.parser import has_publishable_body
-from server.app.modules.tasks.drivers.base import PublishError, PublishResult, UserInputRequired
+from server.app.modules.tasks.drivers.base import (
+    CommitUncertainError,
+    PublishError,
+    PublishResult,
+    UserInputRequired,
+)
 from server.app.modules.tasks.models import PublishRecord, PublishTask
 from server.app.modules.tasks.service import (
     PAUSED_RECORD_STATUSES,
@@ -555,11 +564,16 @@ def _handle_timed_out_record(
 
     返回线程是否已确认终止。
     """
+    # watchdog 超时若已跨提交点（发布线程已写 commit_attempted_at），不能当干净失败放行
+    # 一键重发——锁为「结果未知」等人工核对（at-most-once，C1 Layer 1）。
+    crossed = _record_crossed_commit(db, running_record.record_id)
+    timeout_msg = f"Timeout: record execution exceeded {int(_record_execution_budget())}s"
     _mark_record_failed(
         db,
         task_id,
         running_record.record_id,
-        f"Timeout: record execution exceeded {int(_record_execution_budget())}s",
+        (f"[结果未知·已提交，请人工核对平台] {timeout_msg}" if crossed else timeout_msg),
+        failure_kind="commit_uncertain" if crossed else None,
     )
     # 关 Chromium context（让 Playwright 线程收到 TargetClosedError 终止）+ 清会话映射；
     # profile 锁先不放，等下方确认线程终止。
@@ -780,11 +794,15 @@ def _finish_record_future(db: Session, task: PublishTask, record_id: int, future
         else:
             result = outcome
     except FutureTimeoutError:
+        # 已跨提交点的超时锁为「结果未知」，避免一键重发导致重复发布（at-most-once，C1 Layer 1）。
+        crossed = _record_crossed_commit(db, record_id)
+        timeout_msg = f"Timeout: record execution exceeded {int(_record_execution_budget())}s"
         _mark_record_failed(
             db,
             task.id,
             record_id,
-            f"Timeout: record execution exceeded {int(_record_execution_budget())}s",
+            (f"[结果未知·已提交，请人工核对平台] {timeout_msg}" if crossed else timeout_msg),
+            failure_kind="commit_uncertain" if crossed else None,
         )
         _stop_record_session(record_id)
         _logger.warning("Record %d timed out", record_id)
@@ -817,6 +835,32 @@ def _finish_record_future(db: Session, task: PublishTask, record_id: int, future
                 "Record %d: error handling UserInputRequired: %s", record_id, _inner, exc_info=True
             )
             _mark_record_failed(db, task.id, record_id, f"Error handling user input: {_inner}")
+    except CommitUncertainError as exc:
+        try:
+            _add_publish_diagnostics(
+                db, task.id, record_id, _diagnostics_from_exception(exc), task.user_id
+            )
+            screenshot_asset_id = _store_failure_screenshot(
+                db, task.id, record_id, exc.screenshot, task.user_id
+            )
+            _mark_record_failed(
+                db,
+                task.id,
+                record_id,
+                f"[结果未知·已提交，请人工核对平台] {exc}\n{traceback.format_exc()}",
+                screenshot_asset_id=screenshot_asset_id,
+                failure_kind="commit_uncertain",
+            )
+            _stop_record_session(record_id)
+            _logger.error("Record %d commit-uncertain: %s", record_id, exc)
+        except Exception as _inner:
+            _logger.error(
+                "Record %d: error handling CommitUncertain: %s", record_id, _inner, exc_info=True
+            )
+            _mark_record_failed(
+                db, task.id, record_id, f"Error handling commit-uncertain: {_inner}"
+            )
+            _stop_record_session(record_id)
     except PublishError as exc:
         try:
             _add_publish_diagnostics(
@@ -946,12 +990,32 @@ def _add_publish_diagnostics(
         )
 
 
+def _record_crossed_commit(db: Session, record_id: int) -> bool:
+    """记录是否已跨提交点（commit_attempted_at 非空）。
+
+    commit_attempted_at 由发布线程的**独立** SessionLocal 写入，主线程 db 的 identity map
+    里可能缓存着尚未刷新的旧实例（stale）。这里用直查标量 SELECT 绕开 identity map，
+    取数据库里已提交的最新值，避免 watchdog 误判未跨提交点而漏标 commit_uncertain。
+
+    best-effort：这只是 layer 1（标注）。db 为空（如纯逻辑测试不提供 session）时返回
+    False、绝不让超时处理器崩；at-most-once 的气密保证由 layer 2（retry_record 按
+    commit_attempted_at 兜底）兜住，标注缺失不削弱它。
+    """
+    if db is None:
+        return False
+    committed = db.execute(
+        select(PublishRecord.commit_attempted_at).where(PublishRecord.id == record_id)
+    ).scalar_one_or_none()
+    return committed is not None
+
+
 def _mark_record_failed(
     db: Session,
     task_id: int,
     record_id: int,
     error_message: str,
     screenshot_asset_id: str | None = None,
+    failure_kind: str | None = None,
 ) -> None:
     stmt = (
         sa_update(PublishRecord)
@@ -963,6 +1027,7 @@ def _mark_record_failed(
         .values(
             status="failed",
             error_message=error_message,
+            failure_kind=failure_kind,
             finished_at=utcnow(),
             lease_until=None,
             queue_reason=None,
@@ -1022,6 +1087,31 @@ def _store_failure_screenshot(
     return stored.asset.id
 
 
+def _make_commit_guard(record_id: int) -> CommitGuard:
+    """构造该记录的提交守卫：mark_pending 自开 session 落 commit_attempted_at（发布线程内，
+    入参均 detached，不复用外部 session；与 runner_api._resolve_access_token 同模式）。"""
+    from server.app.modules.tasks.drivers.base import CommitGuard
+
+    def _mark_pending() -> None:
+        from server.app.db.session import SessionLocal
+
+        db = SessionLocal()
+        try:
+            db.execute(
+                sa_update(PublishRecord)
+                .where(
+                    PublishRecord.id == record_id,
+                    PublishRecord.is_deleted == False,  # noqa: E712
+                )
+                .values(commit_attempted_at=utcnow())
+            )
+            db.commit()
+        finally:
+            db.close()
+
+    return CommitGuard(mark_pending=_mark_pending)
+
+
 def build_publish_runner_for_record(record: PublishRecord):
     """构造该记录的发布闭包：预绑 record_id + 浏览器 channel/可执行路径，返回 (article, account) → PublishResult。
 
@@ -1046,6 +1136,10 @@ def build_publish_runner_for_record(record: PublishRecord):
             "请确认进程已 import server.app.modules.tasks.drivers.bootstrap"
         )
 
+    # 两分支共用：构造 guard + policy（默认 no-op，不改现有行为；Task 6/7 接入弹性）
+    commit_guard = _make_commit_guard(record.id)
+    retry_policy = get_publish_retry_policy()
+
     if platform_code and is_api_driver(platform_code):
         from server.app.modules.tasks.runner_api import run_publish_api
 
@@ -1054,7 +1148,12 @@ def build_publish_runner_for_record(record: PublishRecord):
         def _api_runner(article, account, *, stop_before_publish=False):
             # platform_code（=record.platform.code）显式传入，避免发布线程懒加载 detached account.platform（#90）
             return run_publish_api(
-                article=article, account=account, driver=driver, platform_code=platform_code
+                article=article,
+                account=account,
+                driver=driver,
+                platform_code=platform_code,
+                commit_guard=commit_guard,
+                retry_policy=retry_policy,
             )
 
         return _api_runner
@@ -1074,6 +1173,8 @@ def build_publish_runner_for_record(record: PublishRecord):
             channel=channel,
             executable_path=executable_path,
             stop_before_publish=stop_before_publish,
+            commit_guard=commit_guard,
+            retry_policy=retry_policy,
         )
 
     return _runner

@@ -885,8 +885,14 @@ def _dismiss_cover_candidate_side_effect(page: Any) -> None:
         logger.debug("Failed to dismiss failed cover entry side effect", exc_info=True)
 
 
-def _click_publish_and_wait(page: Any, stop_before_publish: bool = False) -> str | None:
-    """两步发布：先点"预览并发布"，再点"确认发布"。"""
+def _click_publish_and_wait(
+    page: Any, stop_before_publish: bool = False, commit_guard=None
+) -> str | None:
+    """两步发布：先点"预览并发布"，再点"确认发布"。「确认发布」点击=提交边界。"""
+    from server.app.modules.tasks.drivers.base import NOOP_COMMIT_GUARD
+
+    if commit_guard is None:
+        commit_guard = NOOP_COMMIT_GUARD
     before_url = page.url
 
     try:
@@ -901,17 +907,20 @@ def _click_publish_and_wait(page: Any, stop_before_publish: bool = False) -> str
     if stop_before_publish:
         return None
 
-    try:
-        confirm_btn = page.get_by_role("button", name="确认发布")
-        confirm_btn.wait_for(state="visible", timeout=30000)
-        confirm_btn.click()
-    except Exception as exc:
-        body_hint = _body_text_hint(page)
-        screenshot = _screenshot(page)
-        raise ToutiaoPublishError(
-            f"无法点击「确认发布」按钮: {exc}\n页面内容摘要: {body_hint}", screenshot
-        ) from exc
+    # ── 提交边界：仅「确认发布」点击。点击因网络失败=可能已提交→结果未知 ──
+    with commit_guard.committing():
+        try:
+            confirm_btn = page.get_by_role("button", name="确认发布")
+            confirm_btn.wait_for(state="visible", timeout=30000)
+            confirm_btn.click()
+        except Exception as exc:
+            body_hint = _body_text_hint(page)
+            screenshot = _screenshot(page)
+            raise ToutiaoPublishError(
+                f"无法点击「确认发布」按钮: {exc}\n页面内容摘要: {body_hint}", screenshot
+            ) from exc
 
+    # ── 守卫之外：发布后轮询检测（原样保留，不改一字）──
     page.wait_for_timeout(500)
 
     # 发布后轮询：每轮先关闭后置弹窗（作品同步授权、加入创作者计划等），
@@ -1034,7 +1043,12 @@ def _install_draft_cleanup_script(page: Any) -> None:
 
 
 def _do_publish(
-    page: Any, context: Any, payload: PublishPayload, stop_before_publish: bool
+    page: Any,
+    context: Any,
+    payload: PublishPayload,
+    stop_before_publish: bool,
+    commit_guard=None,
+    retry_policy=None,
 ) -> PublishResult:
     """
     核心发布逻辑。
@@ -1042,10 +1056,16 @@ def _do_publish(
     步骤：
       1. 打开头条发布页 → 2. 填标题 → 3. 上传封面 → 4. 填正文 → 5. 等待图片就绪 → 6. 点击发布
     """
+    from server.app.shared.resilience import RetryPolicy, retry_call
+
+    _policy = retry_policy or RetryPolicy()
     # 在页面脚本执行前注入草稿清理代码，防止头条编辑器自动恢复上次的草稿内容
     _install_draft_cleanup_script(page)
     with publish_step("open Toutiao publish page", page=page):
-        page.goto(TOUTIAO_PUBLISH_URL, wait_until="domcontentloaded", timeout=60000)
+        retry_call(
+            lambda: page.goto(TOUTIAO_PUBLISH_URL, wait_until="domcontentloaded", timeout=60000),
+            policy=_policy,
+        )
     try:
         page.get_by_role("textbox", name="请输入文章标题").wait_for(state="visible", timeout=20000)
     except Exception:
@@ -1067,7 +1087,7 @@ def _do_publish(
     with publish_step("wait body images ready", page=page):
         _wait_publish_images_ready(page)
     with publish_step("click publish", page=page):
-        publish_url = _click_publish_and_wait(page, stop_before_publish)
+        publish_url = _click_publish_and_wait(page, stop_before_publish, commit_guard=commit_guard)
     try:
         with publish_step("save storage state"):
             write_state(Path(payload.state_path), context.storage_state())
@@ -1102,8 +1122,17 @@ class ToutiaoDriver:
         context: Any,
         payload: PublishPayload,
         stop_before_publish: bool,
+        commit_guard=None,
+        retry_policy=None,
     ) -> PublishResult:
-        return _do_publish(page, context, payload, stop_before_publish)
+        return _do_publish(
+            page,
+            context,
+            payload,
+            stop_before_publish,
+            commit_guard=commit_guard,
+            retry_policy=retry_policy,
+        )
 
     def extract_platform_user_id_sync(self, *, page: Any) -> str | None:
         """同步 Playwright 活页上抽取头条号ID（media_id）。best-effort，失败返回 None。

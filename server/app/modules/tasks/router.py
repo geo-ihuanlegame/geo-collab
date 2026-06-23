@@ -604,11 +604,12 @@ def resolve_user_input_record_endpoint(
 def retry_record_endpoint(
     record_id: int,
     request: Request,
+    force: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> PublishRecordRead:
     record = _verify_record_ownership(get_record(db, record_id), current_user, db)
-    result = retry_record(db, record)
+    result = retry_record(db, record, force=force)
     db.commit()
     add_audit_entry(
         db,
@@ -616,7 +617,7 @@ def retry_record_endpoint(
         action="publish_record.retry",
         target_type="publish_record",
         target_id=record_id,
-        payload={"new_record_id": result.id},
+        payload={"new_record_id": result.id, "force": force},
         request=request,
     )
     _start_background_execute(record.task_id)

@@ -258,6 +258,8 @@ export type Account = {
   distribution_enabled: boolean;
   app_id: string | null;
   app_secret_tail: string | null;
+  group_id: string | null; // TapTap 论坛版块 id
+  x_ua_configured: boolean; // TapTap 是否已显式配置 x_ua
   created_at: string;
   updated_at: string;
   owner_name: string | null;
@@ -371,6 +373,7 @@ export type PublishRecord = {
   finished_at: string | null;
   remote_browser_session_id: string | null;
   novnc_url: string | null;
+  failure_kind?: string | null;
 };
 
 export type TaskLog = {
