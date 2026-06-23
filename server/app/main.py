@@ -107,7 +107,7 @@ def create_app() -> FastAPI:
         allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
         allow_credentials=False,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
-        allow_headers=["Content-Type", "X-Geo-Token"],
+        allow_headers=["Content-Type", "X-Geo-Token", "X-MCP-Token"],
     )
     # 速率限制
     from slowapi import _rate_limit_exceeded_handler
@@ -422,6 +422,44 @@ def create_app() -> FastAPI:
         import logging as _logging
 
         _logging.getLogger(__name__).warning("ai_models seed skipped", exc_info=True)
+
+    # ── MCP HTTP transport mount ────────────────────────────────────────────
+    # FastMCP 的 streamable_http_app() mount 到 /mcp,用户端 ~/.claude.json 只需配 url + token,
+    # 无须本地装 Python / clone 仓库 / 设 PYTHONPATH。鉴权走 McpTokenMiddleware (复用
+    # require_mcp_token 的 hmac compare_digest 逻辑)。
+    # **必须**挂在 SPA fallback `@app.get("/{full_path:path}")` 之前 —— 否则非 /api/ 路径
+    # 全部被 fallback 兜住,/mcp 永远 404。
+    try:
+        import contextlib
+
+        from server.app.core.mcp_auth import McpTokenMiddleware
+        from server.mcp.server import build_http_app, mcp
+
+        mcp_app = build_http_app()
+        mcp_app.add_middleware(McpTokenMiddleware)
+        app.mount("/mcp", mcp_app)
+
+        # StreamableHTTPSessionManager.handle_request() checks `_task_group is not None`
+        # unconditionally (even in stateless mode) — the task group is initialized by the
+        # session manager's own lifespan context (`session_manager.run()`). Mounted sub-apps
+        # do NOT trigger their own lifespan in FastAPI/Starlette, so we hook it into
+        # the outer FastAPI app's lifespan here instead.
+        _mcp_session_manager = mcp.session_manager
+
+        @contextlib.asynccontextmanager
+        async def _lifespan_with_mcp(application):  # type: ignore[misc]
+            async with _mcp_session_manager.run():
+                yield
+
+        # 注意：这是一次性赋值，会覆盖任何已设置的 lifespan。如果后续要再加 startup hook,
+        # 不要再赋值 lifespan_context —— 改为在这里用 contextlib.AsyncExitStack 合并多个 lifespan,
+        # 否则会静默丢掉 MCP session_manager 的 task group, 认证后请求会 500。
+        app.router.lifespan_context = _lifespan_with_mcp
+
+    except Exception:
+        import logging as _logging
+
+        _logging.getLogger(__name__).exception("MCP HTTP mount failed — /mcp endpoint disabled")
 
     try:
         # 挂载前端静态文件（Vite 构建产物）
