@@ -482,6 +482,57 @@ def aggregate_task_status(db: Session, task: PublishTask, records: list[PublishR
         )
 
 
+def reopen_orphaned_terminal_tasks(db: Session) -> int:
+    """治愈「收口竞态」遗留的孤儿 pending 记录：把已落终态、却仍挂着未软删 pending 记录的任务
+    拨回 running，让 worker 重新认领、发完那条 pending（生产 task 94 / record 383）。
+
+    多账号轮询任务收尾的瞬间对某条 failed 记录发起重试时，retry 新建的 pending 记录可能被同一轮
+    收口动作（基于插入前的记录快照）埋掉，导致任务终态、pending 记录永远没人捡。worker 认领只认
+    status∈(pending,running) 的任务，故这类孤儿不会自愈——本函数在启动 / 周期恢复时兜底拨回。
+
+    实现刻意「先只读查 id，再逐个按 id 单行 UPDATE」而非一条 `UPDATE ... WHERE EXISTS(...)`：
+    后者会让 InnoDB 按 status 索引在 publish_records 上加范围锁、可能跨任务，拖垮并发发布任务。
+    自带 commit；返回被拨回的任务数。
+    """
+    orphan_pending = (
+        select(PublishRecord.id)
+        .where(
+            PublishRecord.task_id == PublishTask.id,
+            PublishRecord.is_deleted == False,  # noqa: E712
+            PublishRecord.status == "pending",
+        )
+        .exists()
+    )
+    orphan_ids = (
+        db.execute(
+            select(PublishTask.id).where(
+                PublishTask.status.in_(tuple(TERMINAL_TASK_STATUSES)),
+                PublishTask.is_deleted == False,  # noqa: E712
+                orphan_pending,
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for task_id in orphan_ids:
+        db.execute(
+            sa_update(PublishTask)
+            .where(
+                PublishTask.id == task_id,
+                PublishTask.status.in_(tuple(TERMINAL_TASK_STATUSES)),
+                PublishTask.is_deleted == False,  # noqa: E712
+            )
+            .values(status="running", finished_at=None)
+        )
+        add_log(db, task_id, None, "warn", "Task reopened: orphaned pending record found")
+    if orphan_ids:
+        db.commit()
+        _logger.warning(
+            "Reopened %d terminal task(s) with orphaned pending records", len(orphan_ids)
+        )
+    return len(orphan_ids)
+
+
 def add_log(
     db: Session,
     task_id: int,
