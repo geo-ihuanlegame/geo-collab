@@ -118,13 +118,14 @@ def create_app() -> FastAPI:
     # 启动时恢复卡住的记录（上次运行时崩溃导致 status='running' 的记录）
     # 多实例部署时只允许一个实例执行恢复，其他实例设 GEO_RUN_STARTUP_RECOVERY=false
     from server.app.db.session import SessionLocal
-    from server.app.modules.tasks import recover_stuck_records
+    from server.app.modules.tasks import recover_stuck_records, reopen_orphaned_terminal_tasks
 
     if get_settings().run_startup_recovery:
         try:
             recover_db = SessionLocal()
             try:
                 recover_stuck_records(recover_db)
+                reopen_orphaned_terminal_tasks(recover_db)
                 from server.app.modules.pipelines.recovery import recover_stuck_pipeline_runs
 
                 recover_stuck_pipeline_runs(recover_db)
