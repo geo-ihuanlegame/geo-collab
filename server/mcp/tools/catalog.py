@@ -148,3 +148,41 @@ async def list_accounts(
 async def get_article(article_id: int) -> dict[str, Any]:
     """Get one article by id, including full content_json / content_html / plain_text."""
     return await _aget(f"/api/mcp/articles/{article_id}")
+
+
+@mcp.tool()
+async def list_today_loop_articles(
+    decided_by: str = "claude-goal-verifier",
+    decision: str = "approved",
+    since_hours: int = 24,
+    model_label: str | None = None,
+    limit: int = 50,
+) -> dict[str, Any]:
+    """Count + list articles that the /goal loop wrote and verifier decided on,
+    within a rolling time window.
+
+    Used by the /goal orchestrator as the source-of-truth stop condition,
+    independent of the writer subagent's self-report.
+
+    Args:
+        decided_by: AutoReviewDecision.decided_by filter. Default
+            "claude-goal-verifier" matches the verifier skill convention.
+        decision: AutoReviewDecision.decision filter. Default "approved".
+        since_hours: Window length in hours. Default 24, cap 168 (1 week).
+        model_label: Optional. If supplied, also filter
+            Article.metrics.writer_model == model_label.
+        limit: Max items in returned list. Default 50, cap 200.
+
+    Returns:
+        {"ok": True, "data": {"count": int, "items": [...]}, "error": None}
+        on success. items: [{article_id, title, decided_at, score_total}].
+    """
+    params: dict[str, Any] = {
+        "decided_by": decided_by,
+        "decision": decision,
+        "since_hours": max(1, min(168, since_hours)),
+        "limit": max(1, min(200, limit)),
+    }
+    if model_label:
+        params["model_label"] = model_label
+    return await _aget("/api/articles/today-loop-decisions", params=params)
