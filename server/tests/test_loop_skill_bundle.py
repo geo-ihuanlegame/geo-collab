@@ -145,3 +145,54 @@ def test_user_info_endpoint_returns_bundle_when_authed(monkeypatch):
         assert body["install_hint"]
     finally:
         test_app.cleanup()
+
+
+@pytest.mark.mysql
+def test_mcp_install_payload_endpoint_requires_mcp_token(monkeypatch):
+    """/api/mcp/loop-skill-bundle/install-payload 不带 X-MCP-Token → 401."""
+    from server.tests.utils import build_test_app
+
+    test_app = build_test_app(monkeypatch)
+    try:
+        monkeypatch.setenv("GEO_MCP_TOKEN", "secret")
+        from server.app.core import config
+
+        config.get_settings.cache_clear()
+
+        r = test_app.client.get("/api/mcp/loop-skill-bundle/install-payload")
+        assert r.status_code == 401
+    finally:
+        test_app.cleanup()
+
+
+@pytest.mark.mysql
+def test_mcp_install_payload_returns_full_files_when_authed(monkeypatch):
+    """带 MCP token → 200，返回 {ok, data:{files[{path,content,sha256,size}], ...}, error=None}."""
+    from server.tests.utils import build_test_app
+
+    test_app = build_test_app(monkeypatch)
+    try:
+        monkeypatch.setenv("GEO_MCP_TOKEN", "secret")
+        from server.app.core import config
+
+        config.get_settings.cache_clear()
+
+        r = test_app.client.get(
+            "/api/mcp/loop-skill-bundle/install-payload",
+            headers={"X-MCP-Token": "secret"},
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["ok"] is True
+        assert body["error"] is None
+        data = body["data"]
+        assert data["version"]
+        assert len(data["bundle_sha256"]) == 64
+        assert data["install_hint"]
+        assert len(data["files"]) == 5
+        # 每个文件 dict 必须含 4 个字段 + content 非空
+        for f in data["files"]:
+            assert {"path", "content", "sha256", "size"} <= set(f.keys())
+            assert f["content"]
+    finally:
+        test_app.cleanup()

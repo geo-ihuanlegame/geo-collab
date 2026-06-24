@@ -59,7 +59,12 @@ from server.app.modules.auto_review.router import router as auto_review_router
 from server.app.modules.hot_lists.router import router as hot_lists_router
 from server.app.modules.image_library.router import files_router as stock_files_router
 from server.app.modules.image_library.router import router as stock_images_router
-from server.app.modules.loop_skills.router import router as loop_skills_user_router
+from server.app.modules.loop_skills.router import (
+    mcp_router as loop_skills_mcp_router,
+)
+from server.app.modules.loop_skills.router import (
+    router as loop_skills_user_router,
+)
 from server.app.modules.mcp_catalog.connect_router import (
     mcp_connect_health_router,
     mcp_connect_user_router,
@@ -223,6 +228,12 @@ def create_app() -> FastAPI:
         prefix="/api/mcp",
         tags=["loop-skills"],
         dependencies=[Depends(get_current_user)],
+    )
+    # MCP token 鉴权 (router 自带 dependency)
+    app.include_router(
+        loop_skills_mcp_router,
+        prefix="/api/mcp",
+        tags=["loop-skills-mcp"],
     )
     # MCP token 鉴权（router 自带 dependency）
     app.include_router(

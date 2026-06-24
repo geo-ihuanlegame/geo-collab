@@ -9,10 +9,11 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import Response
 from pydantic import BaseModel
 
+from server.app.core.mcp_auth import require_mcp_token
 from server.app.modules.loop_skills.service import build_bundle, build_zip
 
 router = APIRouter()
@@ -60,3 +61,31 @@ def download_loop_skill_bundle_zip() -> Response:
             "X-Bundle-Sha256": b.bundle_sha256,
         },
     )
+
+
+# MCP token 鉴权 (router-level dependency)
+mcp_router = APIRouter(dependencies=[Depends(require_mcp_token)])
+
+
+@mcp_router.get("/loop-skill-bundle/install-payload")
+def get_loop_skill_install_payload() -> dict:
+    """[MCP] install_loop_skills 工具的后端入口 — 返回完整文件 dict。"""
+    b = build_bundle()
+    return {
+        "ok": True,
+        "data": {
+            "version": b.version,
+            "bundle_sha256": b.bundle_sha256,
+            "install_hint": (
+                "Write each file to the user's .claude/ directory, preserving "
+                "the relative path. Prefer project-level <repo>/.claude/ over "
+                "~/.claude/ when the user is currently inside a git repo. "
+                "If a file already exists, show diff and ask user before overwriting."
+            ),
+            "files": [
+                {"path": f.path, "content": f.content, "sha256": f.sha256, "size": f.size}
+                for f in b.files
+            ],
+        },
+        "error": None,
+    }
