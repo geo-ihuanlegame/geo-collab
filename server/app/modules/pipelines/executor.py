@@ -83,6 +83,7 @@ def _run_pipeline_inner(run_id: int, session_factory: SessionFactory) -> None:
         pipeline_id, user_id = run.pipeline_id, run.user_id
         pipeline = db.get(Pipeline, pipeline_id)
         ignore_exception = bool(pipeline.ignore_exception) if pipeline is not None else False
+        pipeline_name = pipeline.name if pipeline is not None else None
         if run.snapshot:
             # 优先读运行快照（创建时冻结）；旧运行无快照时回退实时节点
             node_specs = [
@@ -156,6 +157,7 @@ def _run_pipeline_inner(run_id: int, session_factory: SessionFactory) -> None:
                     config=spec["config"],
                     inputs=inputs,
                     upstream=upstream,
+                    pipeline_name=pipeline_name,
                 )
             )
             context[idx] = result.output

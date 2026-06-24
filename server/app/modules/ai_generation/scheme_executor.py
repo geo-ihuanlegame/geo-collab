@@ -148,10 +148,12 @@ def _execute_task(
     user_id: int,
     session_factory: SessionFactory,
     model_override: str | None = None,
+    agent_name: str | None = None,
 ) -> int | None:
     """执行一条任务：选模板 → 生文 → 写结果。返回 article_id 或 None（失败）。
 
     model_override 为方案级 AI 引擎（None / 空 = 用系统默认写作模型）。
+    agent_name 为生文溯源的「智能体」名（方案运行即方案名），落库供列表展示。
     """
     db = session_factory()
     try:
@@ -177,6 +179,7 @@ def _execute_task(
             )
             return None
         template_content = tpl.content
+        template_name = tpl.name
         task = db.get(GenerationSchemeRunTask, task_id)
         task.actual_prompt_template_id = tpl.id
         db.commit()
@@ -191,6 +194,8 @@ def _execute_task(
             template_content=template_content,
             question_text=question_text,
             model=model_override,
+            source_agent_name=agent_name,
+            source_template_name=template_name,
         )
     except Exception as exc:  # noqa: BLE001 — 单 task 失败隔离
         logger.exception("scheme run task %s generation failed", task_id)
@@ -275,6 +280,8 @@ def _run_scheme_inner(run_id: int, session_factory: SessionFactory) -> None:
         run.status = "running"
         user_id = run.user_id
         model_override = run.ai_engine
+        scheme = db.get(GenerationScheme, run.scheme_id)
+        scheme_name = scheme.name if scheme is not None else None
         task_ids = [
             t.id
             for t in db.query(GenerationSchemeRunTask)
@@ -289,7 +296,9 @@ def _run_scheme_inner(run_id: int, session_factory: SessionFactory) -> None:
     if task_ids:
         with ThreadPoolExecutor(max_workers=4, thread_name_prefix="scheme-run") as executor:
             futures = {
-                executor.submit(_execute_task, tid, user_id, session_factory, model_override): tid
+                executor.submit(
+                    _execute_task, tid, user_id, session_factory, model_override, scheme_name
+                ): tid
                 for tid in task_ids
             }
             for future in as_completed(futures):

@@ -6,10 +6,13 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import uuid
 from collections.abc import Callable
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 _QUESTION_PLACEHOLDER = "{{问题}}"
 
@@ -130,15 +133,23 @@ def generate_article_from_prompt(
     template_content: str,
     question_text: str,
     model: str | None = None,
+    source_agent_name: str | None = None,
+    source_template_name: str | None = None,
+    web_search: bool = False,
+    deep_thinking: bool = False,
 ) -> int:
     """组装提示词 → 调用 LLM → 取标题 → 转 Tiptap/HTML → create_article。返回 article_id。
 
     通用系统提示词（不拼 Skill）。`model` 为方案级 AI 引擎覆盖（None / 空 = 用 settings.ai_model）。
+    `source_agent_name` / `source_template_name` 为生文溯源（智能体名 / 模板名），仅落库供列表展示。
+    `web_search` / `deep_thinking` 为「模型能力」开关（默认关；ai_compose 节点按 config 开启），
+    经 model_capabilities 按 provider 映射到 litellm 调用，best-effort、不支持/失败即回退普通生文。
     异常向上抛（由调用方记任务失败）。每次调用自带独立会话。
     """
     import litellm
 
     from server.app.modules.ai_generation.converter import markdown_to_html, markdown_to_tiptap
+    from server.app.modules.ai_generation.model_capabilities import completion_with_capabilities
     from server.app.modules.ai_models.service import resolve_writing_engine
     from server.app.modules.articles.schemas import ArticleCreate
     from server.app.modules.articles.service import create_article
@@ -155,16 +166,23 @@ def generate_article_from_prompt(
         + "\n\n请开始写作。第一行必须是 `# 标题`（井号后留一个空格），"
         "不要输出任何前言、解释或 ``` 代码块标记，只输出 Markdown 正文："
     )
-    response = litellm.completion(
+    response = completion_with_capabilities(
+        completion=litellm.completion,
+        base_kwargs={
+            "model": model_str,
+            "messages": [
+                {"role": "system", "content": _GENERIC_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            "api_key": api_key or None,
+            "api_base": base_url or None,
+            "timeout": 300,
+            "max_tokens": 12000,
+        },
         model=model_str,
-        messages=[
-            {"role": "system", "content": _GENERIC_SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
-        ],
-        api_key=api_key or None,
-        api_base=base_url or None,
-        timeout=300,
-        max_tokens=12000,
+        web_search=web_search,
+        deep_thinking=deep_thinking,
+        logger=logger,
     )
     md_content = response.choices[0].message.content or ""
 
@@ -184,6 +202,9 @@ def generate_article_from_prompt(
         article = create_article(db, user_id, article_payload)
         # AI 生文一律未审：不依赖运行后的 mark_pending_and_group 翻转
         article.review_status = "pending"
+        # 生文溯源：去规范化存名字，供未审核库 / 列表卡片直接展示
+        article.source_agent_name = source_agent_name
+        article.source_template_name = source_template_name
         db.commit()
         return article.id
     except Exception:

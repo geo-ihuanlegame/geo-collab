@@ -211,6 +211,10 @@ export type ArticleSummary = {
   version: number;
   published_count: number;
   review_status: ReviewStatus;
+  /** 生成此文的「智能体」(pipeline) 名；手动/历史文章为 null */
+  source_agent_name: string | null;
+  /** 生成此文的提示词「模板」名；手动/历史文章为 null */
+  source_template_name: string | null;
   created_at: string;
   updated_at: string;
 };

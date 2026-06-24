@@ -16,7 +16,10 @@ from sqlalchemy import engine_from_config
 from alembic import context
 
 config = context.config
-config.set_main_option("sqlalchemy.url", get_database_url())
+# 转义 % → %%：alembic 把 URL 存进 ConfigParser，BasicInterpolation 会把单个 % 当插值语法
+# 报错（如密码里 URL 编码的 %21="!"）。先转义，configparser 读取时插值再还原回 %，
+# 对不含 % 的 URL 无副作用。
+config.set_main_option("sqlalchemy.url", get_database_url().replace("%", "%%"))
 
 if config.config_file_name is not None:
     # disable_existing_loggers 默认为 True，会把已存在的 logger（含应用各模块 logger）

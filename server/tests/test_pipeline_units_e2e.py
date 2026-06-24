@@ -59,7 +59,9 @@ def test_per_type_units_survive_publish_and_run(monkeypatch):
     # 记录每次生文实际拿到的模板内容，用以区分 per-type 模板 vs 兜底模板。
     used_templates: list[str] = []
 
-    def _stub_generate(*, session_factory, user_id, template_content, question_text, model=None):
+    def _stub_generate(
+        *, session_factory, user_id, template_content, question_text, model=None, **_
+    ):
         from server.app.modules.articles.schemas import ArticleCreate
         from server.app.modules.articles.service import create_article
 

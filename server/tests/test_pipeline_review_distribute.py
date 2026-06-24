@@ -92,7 +92,9 @@ def test_pipeline_run_marks_articles_pending_and_groups(monkeypatch):
     from server.app.modules.articles.service import create_article
 
     # 让 ai_generate 真造文章（默认 approved），返回其 id
-    def _fake_generate(*, session_factory, user_id, template_content, question_text, model=None):
+    def _fake_generate(
+        *, session_factory, user_id, template_content, question_text, model=None, **_
+    ):
         db = session_factory()
         try:
             art = create_article(

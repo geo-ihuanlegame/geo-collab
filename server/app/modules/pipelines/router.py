@@ -130,6 +130,24 @@ def get_node_types() -> dict:
                 "label": "AI创作",
                 "config_schema": [
                     {"key": "ai_engine", "type": "ai_engine", "label": "AI 模型"},
+                    # 模型能力开关（默认开）：透传到 litellm。联网搜索＝各家原生（Claude/OpenAI 系
+                    # 走 web_search_options，Moonshot/Kimi 走 $web_search builtin 工具循环，其它模型
+                    # 自动忽略）；深度思考＝统一 reasoning_effort（不支持的模型 drop_params 静默忽略）。
+                    # 均 best-effort：能力不支持/失败时回退普通生文，不拖垮流程。见 article_writer + model_capabilities。
+                    {
+                        "key": "web_search",
+                        "type": "toggle",
+                        "label": "联网搜索",
+                        "hint": "让模型联网检索后再写；不支持的模型自动忽略",
+                        "default": True,
+                    },
+                    {
+                        "key": "deep_thinking",
+                        "type": "toggle",
+                        "label": "深度思考",
+                        "hint": "开启模型推理/扩展思考；不支持的模型自动忽略",
+                        "default": True,
+                    },
                     {
                         "key": "prompt_template_ids",
                         "type": "prompt_templates",
@@ -193,6 +211,14 @@ def get_node_types() -> dict:
                         "label": "顺带配封面",
                         "hint": "从主推游戏图库随机取一张作封面（仅当文章还没封面）",
                         "default": True,
+                    },
+                    # AI格式提示词：选「提示词管理 · AI格式」里的模板覆盖排版/配图措辞；
+                    # 留空(preset_id 缺省/非 int)= 用内置默认提示词。见 ai_illustrate.run + ai_format._load_ai_format_prompt。
+                    {
+                        "key": "preset_id",
+                        "type": "ai_format_template",
+                        "label": "AI格式提示词（留空=内置默认）",
+                        "hint": "覆盖排版/配图的系统提示词措辞；不影响数量/间距等旋钮",
                     },
                 ],
             },

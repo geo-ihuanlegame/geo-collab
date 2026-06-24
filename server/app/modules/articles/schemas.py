@@ -106,6 +106,8 @@ class ArticleListRead(BaseModel):
     version: int
     review_status: str  # 审核状态：pending / approved
     published_count: int = 0
+    source_agent_name: str | None = None  # 生成此文的「智能体」(pipeline) 名，手动/历史为 None
+    source_template_name: str | None = None  # 生成此文的提示词「模板」名，手动/历史为 None
     created_at: datetime
     updated_at: datetime
 
@@ -128,6 +130,8 @@ class ArticleRead(BaseModel):
     stock_category_ids: list[int] = Field(default_factory=list)
     ai_checking: bool = False
     ai_format_error: str | None = None
+    source_agent_name: str | None = None
+    source_template_name: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -217,6 +221,8 @@ def to_article_read(article: "Article", published_count: int = 0) -> ArticleRead
         updated_at=article.updated_at,
         ai_checking=article.ai_checking,
         ai_format_error=article.ai_format_error,
+        source_agent_name=article.source_agent_name,
+        source_template_name=article.source_template_name,
     )
 
 
