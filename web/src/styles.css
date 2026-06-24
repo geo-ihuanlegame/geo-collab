@@ -4737,7 +4737,7 @@ option, optgroup {
 
 /* Image save dialog v2: 文件浏览式 */
 .imgSaveBrowser { display: flex; flex-direction: column; gap: 10px; min-height: 420px; }
-.imgSaveTopbar { display: flex; align-items: center; gap: 10px; }
+.imgSaveTopbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; row-gap: 8px; }
 .imgSaveNavBtn {
   display: inline-flex; align-items: center; justify-content: center;
   width: 30px; height: 30px; padding: 0;
@@ -4835,10 +4835,10 @@ option, optgroup {
 .imgSaveDescBtn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .imgSaveDescBtn:disabled { opacity: .5; cursor: not-allowed; }
 
-/* 顶部搜索条 */
+/* 顶栏搜索条（与「筛选 / 新建 / 删除」按钮同排，左侧）*/
 .imgSaveSearchBar {
-  display: flex; align-items: center; gap: 8px;
-  height: 34px; padding: 0 10px;
+  display: flex; align-items: center; gap: 6px; flex-shrink: 0;
+  width: 210px; height: 30px; padding: 0 8px;
   border: 1px solid var(--hair); border-radius: var(--r); background: var(--paper);
 }
 .imgSaveSearchBar input {
@@ -4846,28 +4846,39 @@ option, optgroup {
   font-size: 13px; color: var(--fg);
 }
 .imgSaveSearchIcon { color: var(--fg-3); flex-shrink: 0; }
-.imgSaveSearchClear {
+/* 提高特异性，盖过 .imgSaveTopActions button 基样式 */
+.imgSaveSearchBar .imgSaveSearchClear {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 22px; height: 22px; padding: 0; flex-shrink: 0;
+  width: 20px; height: 20px; padding: 0; flex-shrink: 0;
   border: none; border-radius: 50%; background: none; cursor: pointer; color: var(--fg-3);
 }
-.imgSaveSearchClear:hover { background: var(--cream); color: var(--fg); }
+.imgSaveSearchBar .imgSaveSearchClear:hover { background: var(--cream); color: var(--fg); }
 
-/* 搜索态：网格改竖排，结果按文件夹（栏目）分组 */
-.imgSaveGridList { display: block; }
-.imgSaveSearchGroup { margin-bottom: 16px; }
-.imgSaveSearchGroup:last-child { margin-bottom: 0; }
-.imgSaveSearchGroupHead {
-  display: flex; align-items: center; gap: 6px; margin-bottom: 8px;
-  font-size: 13px; font-weight: 600; color: var(--fg);
+/* 「筛选」=排序下拉 */
+.imgSaveSortWrap { position: relative; }
+.imgSaveSortBtn.active { border-color: var(--accent); color: var(--accent); }
+.imgSaveSortMenu {
+  position: absolute; top: calc(100% + 4px); right: 0; z-index: 20;
+  min-width: 210px; padding: 4px;
+  display: flex; flex-direction: column; gap: 2px;
+  border: 1px solid var(--hair); border-radius: var(--r); background: var(--paper);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .18);
 }
-.imgSaveSearchGroupName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.imgSaveSearchGroupKind {
-  font-size: 11px; font-weight: 500; color: var(--fg-3);
-  padding: 1px 7px; border-radius: 999px; background: var(--cream);
+.imgSaveSortMenu .imgSaveSortItem {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; height: 32px; padding: 0 8px;
+  border: none; border-radius: var(--r); background: none; cursor: pointer;
+  font-size: 13px; color: var(--fg-2); text-align: left;
 }
-.imgSaveSearchGroupGrid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px;
+.imgSaveSortMenu .imgSaveSortItem span { flex: 1; min-width: 0; }
+.imgSaveSortMenu .imgSaveSortItem:hover { background: var(--cream); color: var(--fg); }
+.imgSaveSortMenu .imgSaveSortItem.active { color: var(--accent); }
+.imgSaveSortCheck { flex-shrink: 0; }
+
+/* 搜索态：命中的栏目以文件夹卡片复用 .imgSaveGrid 布局，卡片底部补一行类别/匹配数 */
+.imgSaveFolderMeta {
+  font-size: 11px; color: var(--fg-3);
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
 .imgSaveFooter { display: flex; align-items: center; gap: 12px; width: 100%; }
