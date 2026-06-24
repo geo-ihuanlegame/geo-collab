@@ -130,10 +130,13 @@ def generate_article_from_prompt(
     template_content: str,
     question_text: str,
     model: str | None = None,
+    source_agent_name: str | None = None,
+    source_template_name: str | None = None,
 ) -> int:
     """组装提示词 → 调用 LLM → 取标题 → 转 Tiptap/HTML → create_article。返回 article_id。
 
     通用系统提示词（不拼 Skill）。`model` 为方案级 AI 引擎覆盖（None / 空 = 用 settings.ai_model）。
+    `source_agent_name` / `source_template_name` 为生文溯源（智能体名 / 模板名），仅落库供列表展示。
     异常向上抛（由调用方记任务失败）。每次调用自带独立会话。
     """
     import litellm
@@ -184,6 +187,9 @@ def generate_article_from_prompt(
         article = create_article(db, user_id, article_payload)
         # AI 生文一律未审：不依赖运行后的 mark_pending_and_group 翻转
         article.review_status = "pending"
+        # 生文溯源：去规范化存名字，供未审核库 / 列表卡片直接展示
+        article.source_agent_name = source_agent_name
+        article.source_template_name = source_template_name
         db.commit()
         return article.id
     except Exception:

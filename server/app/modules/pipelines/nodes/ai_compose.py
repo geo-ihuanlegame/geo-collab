@@ -87,6 +87,7 @@ def _run_units(
             if tpl is None:
                 raise ValidationError("该单元允许模板在运行时全部无效或未配置")
             template_content = tpl.content
+            template_name = tpl.name
         finally:
             db.close()
         aid = generate_article_from_prompt(
@@ -95,6 +96,8 @@ def _run_units(
             template_content=template_content,
             question_text=qtext,
             model=model,
+            source_agent_name=ctx.pipeline_name,
+            source_template_name=template_name,
         )
         stream(aid)
         return aid
@@ -163,6 +166,7 @@ def run_ai_compose(ctx: NodeRunContext) -> NodeResult:
             if tpl is None:
                 raise ValidationError("允许的提示词模板在运行时全部无效")
             template_content = tpl.content
+            template_name = tpl.name
         finally:
             db.close()
         aid = generate_article_from_prompt(
@@ -171,6 +175,8 @@ def run_ai_compose(ctx: NodeRunContext) -> NodeResult:
             template_content=template_content,
             question_text=question_text,
             model=model,
+            source_agent_name=ctx.pipeline_name,
+            source_template_name=template_name,
         )
         stream(aid)
         return aid

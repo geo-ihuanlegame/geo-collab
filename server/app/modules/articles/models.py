@@ -121,6 +121,10 @@ class Article(Base):
     )
     ai_checking_started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     ai_format_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 生文溯源（去规范化存名字，仅用于列表/卡片直接展示，不做外键、不参与查询过滤）：
+    # 由哪个「智能体」（pipeline）与哪个提示词「模板」生成。手动/历史文章为 NULL，前端显示「—」。
+    source_agent_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    source_template_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     stock_category_id: Mapped[int | None] = mapped_column(
         ForeignKey("stock_categories.id"), nullable=True
     )

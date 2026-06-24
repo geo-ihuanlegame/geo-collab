@@ -194,6 +194,14 @@ def get_node_types() -> dict:
                         "hint": "从主推游戏图库随机取一张作封面（仅当文章还没封面）",
                         "default": True,
                     },
+                    # AI格式提示词：选「提示词管理 · AI格式」里的模板覆盖排版/配图措辞；
+                    # 留空(preset_id 缺省/非 int)= 用内置默认提示词。见 ai_illustrate.run + ai_format._load_ai_format_prompt。
+                    {
+                        "key": "preset_id",
+                        "type": "ai_format_template",
+                        "label": "AI格式提示词（留空=内置默认）",
+                        "hint": "覆盖排版/配图的系统提示词措辞；不影响数量/间距等旋钮",
+                    },
                 ],
             },
             {

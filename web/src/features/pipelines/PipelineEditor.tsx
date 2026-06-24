@@ -276,6 +276,7 @@ export function PipelineEditor({ pipelineId, onChanged }:
   const [pools, setPools] = useState<QuestionPool[]>([]);
   const [engines, setEngines] = useState<AiEngine[]>([]);
   const [genTemplates, setGenTemplates] = useState<PromptTemplate[]>([]);
+  const [formatTemplates, setFormatTemplates] = useState<PromptTemplate[]>([]);
   const [mainCategories, setMainCategories] = useState<StockCategory[]>([]);
   // 每个池缓存完整问题类型(含各类问题)，供"类型多选"与"具体问题多选"联动。
   const [typesByPool, setTypesByPool] = useState<Record<number, QuestionType[]>>({});
@@ -297,6 +298,9 @@ export function PipelineEditor({ pipelineId, onChanged }:
     listAiEngines().then(setEngines).catch(() => {});
     listPromptTemplates("generation")
       .then((ts) => setGenTemplates(ts.filter((t) => t.scope === "generation" && t.is_enabled)))
+      .catch(() => {});
+    listPromptTemplates("ai_format")
+      .then((ts) => setFormatTemplates(ts.filter((t) => t.scope === "ai_format" && t.is_enabled)))
       .catch(() => {});
     listCategories("main").then(setMainCategories).catch(() => {});
   }, []);
@@ -602,6 +606,14 @@ export function PipelineEditor({ pipelineId, onChanged }:
                           { config: { ...sel.config,
                             [f.key]: Array.from(e.target.selectedOptions, (o) => Number(o.value)) } })}>
                         {genTemplates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                      </select>
+                    : f.type === "ai_format_template"
+                    ? <select value={String(sel.config[f.key] ?? "")}
+                        onChange={(e) => updateNode(selected!,
+                          { config: { ...sel.config,
+                            [f.key]: e.target.value ? Number(e.target.value) : undefined } })}>
+                        <option value="">内置默认</option>
+                        {formatTemplates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
                       </select>
                     : f.type === "article_group"
                     ? <select value={String(sel.config[f.key] ?? "")}
