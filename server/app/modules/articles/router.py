@@ -1070,24 +1070,38 @@ def ai_illustrate_article_mcp(
     """[MCP] AI 智能配图 + 自动封面，对齐 Web UI「AI 配图」pipeline 节点.
 
     复用 articles.ai_illustrate_svc.illustrate_one；与 pipeline 节点共享同一份实现.
+    illustrate_one 内部对 run_ai_format / set_random_cover 都做了 best-effort
+    包装，但上游 LiteLLM / httpx SDK 偶尔会上抛未捕获异常；用
+    mcp_exception_response 兜底，避免被 main.py 全局 500 handler 抹平消息.
     """
     from server.app.db.session import SessionLocal
 
-    result = illustrate_one(
-        article_id=article_id,
-        main_category_id=payload.main_category_id,
-        user_id=_MCP_OPERATOR_USER_ID,
-        options=IllustrateOptions(
-            include_companion=payload.include_companion,
-            web_fallback=payload.web_fallback,
-            aggressive_images=payload.aggressive_images,
-            max_images=payload.max_images,
-            min_spacing=payload.min_spacing,
-            preset_id=payload.preset_id,
-            set_cover=payload.set_cover,
-        ),
-        session_factory=SessionLocal,
-    )
+    try:
+        result = illustrate_one(
+            article_id=article_id,
+            main_category_id=payload.main_category_id,
+            user_id=_MCP_OPERATOR_USER_ID,
+            options=IllustrateOptions(
+                include_companion=payload.include_companion,
+                web_fallback=payload.web_fallback,
+                aggressive_images=payload.aggressive_images,
+                max_images=payload.max_images,
+                min_spacing=payload.min_spacing,
+                preset_id=payload.preset_id,
+                set_cover=payload.set_cover,
+            ),
+            session_factory=SessionLocal,
+        )
+    except HTTPException:
+        raise
+    except (ConflictError, ClientError, ValidationError):
+        raise
+    except Exception as exc:
+        raise mcp_exception_response(
+            exc,
+            context=f"ai_illustrate article_id={article_id} category={payload.main_category_id}",
+        ) from exc
+
     return AiIllustrateResponse(
         images_inserted=result.images_inserted,
         cover_status=result.cover_status,
