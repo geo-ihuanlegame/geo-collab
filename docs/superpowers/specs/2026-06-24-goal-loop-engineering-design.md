@@ -9,6 +9,31 @@
 
 ---
 
+## 🟡 分发模型（重要）
+
+**`.claude/` 不入 git——每位同事在自己电脑上各自维护一份。**
+
+仓库里的 `.gitignore` blanket 忽略 `.claude/`。本 PR 只把**系统层**的东西
+入库（后端 service / endpoint / MCP 工具 + 本设计稿 + 实施 plan），不入库
+slash command / SKILL.md / .claude/README.md。
+
+| 谁负责 | 干什么 | 落地 |
+|---|---|---|
+| **平台** (本 PR) | 后端 + MCP 工具 + 设计 / plan 文档 | `git push origin docs/goal-loop-engineering` |
+| **每位使用者** (本地一次性) | 把本设计稿 §5 的 3 个 SKILL.md + plan 的 slash command + README **抄到本地** `.claude/` | `git pull` 拿不到，要人工 / out-of-band 同步 |
+
+为什么这样：
+- skill 是各人偏好（写作风格、评分门槛、矩阵口味）；fork 一份在本地改最自由
+- skill 写得好坏不影响后端契约——只要 MCP 工具 + ground-truth 查询稳定，每个人的 skill 各跑各的不打架
+- 避免「skill 上游一改下游所有人被推 PR」的耦合，符合 Loop Engineering「写自己的 loop」纪律
+
+本设计稿 §5 的 SKILL.md 完整内容是**参考实现**——你可以照抄，也可以按需调整。
+plan 的 Tasks 4-9 同理。
+
+---
+
+---
+
 ## 0. 一句话
 
 把生文 Loop 从「主对话连续写 5 篇、context 越来越脏、写作者自评有 bias」改造成「`/goal "..."` 一句话启动 → 主对话只做调度 + 验收 → 每篇文章由独立 writer subagent 在全新 context 里写 → 由独立 verifier subagent（Haiku）评分 → 主对话每轮调一个新 MCP 工具查 GEO 拿净产出 ground truth 决定是否继续」。
@@ -33,16 +58,9 @@
 
 ### 2.1 文件布局
 
-```
-.claude/                                  # 项目级（新建，git track）
-├── README.md                             # 同事 onboarding 入口
-├── commands/
-│   └── goal.md                           # /goal slash command 定义
-└── skills/
-    ├── geo-goal-orchestrator/SKILL.md    # 主对话调度逻辑
-    ├── geo-article-writer/SKILL.md       # writer subagent 用
-    └── geo-article-verifier/SKILL.md     # verifier subagent 用
+**入库部分**（本 PR 提交）：
 
+```
 server/app/modules/auto_review/
 ├── service.py                            # +list_recent_decisions(...)
 └── router.py                             # +GET /api/articles/today-loop-decisions
@@ -50,10 +68,25 @@ server/app/modules/auto_review/
 server/mcp/tools/catalog.py               # +list_today_loop_articles MCP tool
 
 server/tests/
-├── test_auto_review_loop_query.py        # 新增：list_recent_decisions 单测
-└── test_goal_skill_files.py              # 新增：skill 文件 lint
+└── test_auto_review_loop_query.py        # 新增：service 单测 + endpoint 集成测试
+
+docs/superpowers/specs/2026-06-24-goal-loop-engineering-design.md   # 本设计稿
+docs/superpowers/plans/2026-06-24-goal-loop-engineering.md          # 实施 plan
 
 claude-loops/generation-loop.md           # 保留不删，作为「不走 /goal、直接 /loop」的旧路径参考
+```
+
+**本地不入库部分**（每位使用者各自维护，`.claude/` 已被 `.gitignore` blanket 忽略）：
+
+```
+.claude/                                  # 本地存在但 git 不追踪
+├── README.md                             # 同事 onboarding 入口（参考 §4）
+├── commands/
+│   └── goal.md                           # /goal slash command 定义（参考 plan Task 8）
+└── skills/
+    ├── geo-goal-orchestrator/SKILL.md    # 主对话调度（参考 §5.1）
+    ├── geo-article-writer/SKILL.md       # writer subagent（参考 §5.2）
+    └── geo-article-verifier/SKILL.md     # verifier subagent（参考 §5.3）
 ```
 
 ### 2.2 组件协作图
@@ -98,7 +131,7 @@ claude-loops/generation-loop.md           # 保留不删，作为「不走 /goal
 
 ### 2.3 关键设计点
 
-1. **Skill 装载位置**：`.claude/skills/` 项目级目录，跟 git 走。同事 `git pull` 之后第一次 `/goal` 即可用，不需要单独 install。
+1. **Skill 装载位置**：`.claude/skills/` 项目级目录。**`.claude/` 被 `.gitignore` blanket 忽略**，每位使用者在本地各自维护一份；新同事按 §4.2 onboarding 流程从本 spec / plan 抄一份到本地。
 2. **Subagent 类型**：用 `Agent` 工具的 `general-purpose` 类型；每个调用的 prompt 第一行是 `Read .claude/skills/<name>/SKILL.md and follow it strictly`，把 skill 当作 subagent 的「playbook」装载。
 3. **Verifier 模型独立**：orchestrator 在 Opus 主对话里跑（最强模型做规划 + 验收），writer subagent 默认继承（Opus），verifier subagent 显式 `model: haiku`——Loop Engineering「writer ≠ verifier」的结构性隔离落到模型层。
 4. **净产出是唯一权威**：主对话不信 writer/verifier 的自报，每轮开头调 `list_today_loop_articles` 查 GEO 数据库拿 ground truth。
@@ -264,7 +297,8 @@ while True:
 ```
 # 在 geo-collab 仓库里使用 /goal（5 步）
 
-1. git pull                              # 拿最新 .claude/ 目录
+1. 把本设计稿 §5 的 3 个 SKILL.md + plan Task 8/9 的 slash command + README
+   **抄到本地** .claude/（仓库不追踪此目录；你也可以从已配好的同事那拿一份 zip）
 2. 一次性配置（每台机器一次）
    - 打开 ~/.claude.json，加 mcpServers.geo 段（参考 docs/mcp-setup-notes.md）
    - 把后端管理员发的 GEO_MCP_TOKEN 填到 headers.X-MCP-Token
@@ -717,30 +751,14 @@ def get_today_loop_decisions(
 | `model_label` JSON 过滤 | 同上 | 1 |
 | `limit` 截断但 `count` 不截 | 同上 | 1 |
 | MCP token 鉴权（无 token → 401） | 同上 | 1 |
-| Skill 文件存在 + frontmatter 有效 | `server/tests/test_goal_skill_files.py` | 3（parametrized） |
+| 端点回包正常 + since_hours 过滤 | 同上 | 2 |
 
-合计 **9 个用例 + 1 parametrized lint**。
+合计 **8 个用例**。
 
-Skill lint 示例：
-
-```python
-@pytest.mark.parametrize("skill_dir", [
-    ".claude/skills/geo-goal-orchestrator",
-    ".claude/skills/geo-article-writer",
-    ".claude/skills/geo-article-verifier",
-])
-def test_skill_file_well_formed(skill_dir):
-    """SKILL.md 存在 + 顶部 YAML frontmatter 含 name + description"""
-    path = pathlib.Path(skill_dir) / "SKILL.md"
-    assert path.exists(), f"missing {path}"
-    text = path.read_text(encoding="utf-8")
-    assert text.startswith("---\n"), "frontmatter missing"
-    fm, _, _ = text[4:].partition("\n---\n")
-    meta = yaml.safe_load(fm)
-    assert meta.get("name"), "name missing"
-    assert meta.get("description"), "description missing"
-    assert meta["description"].lower().startswith("use when"), "description should start with 'Use when'"
-```
+> **不再做 SKILL.md lint 测试**：skill 文件已改成本地不入库的分发模式
+> （见顶部「分发模型」段），`.claude/` 不在 CI checkout 范围内，写 lint
+> 测试 CI 必失败。skill 文件良构由本地用户跑 `/goal` 自检（lint 失败时
+> Claude Code 自己会报"skill 装载失败"）。
 
 ### 8.2 手工冒烟（每次发版前）
 
@@ -772,20 +790,30 @@ def test_skill_file_well_formed(skill_dir):
 
 ### 9.1 工作量
 
+**入库部分**（本 PR）：
+
 | 模块 | 改动行 | 工时 |
 |---|---|---|
-| `.claude/README.md` | +60 行 | 0.5 h |
-| `.claude/commands/goal.md` | +80 行 | 1 h |
-| `.claude/skills/geo-goal-orchestrator/SKILL.md` | +200 行 | 2 h |
-| `.claude/skills/geo-article-writer/SKILL.md` | +150 行 | 1.5 h |
-| `.claude/skills/geo-article-verifier/SKILL.md` | +120 行 | 1 h |
 | `server/app/modules/auto_review/service.py` | +30 行 | 0.5 h |
 | `server/app/modules/auto_review/router.py` | +25 行 | 0.5 h |
 | `server/mcp/tools/catalog.py` | +35 行 | 0.5 h |
-| `server/tests/test_auto_review_loop_query.py` | +120 行 | 1 h |
-| `server/tests/test_goal_skill_files.py` | +30 行 | 0.5 h |
-| 手工冒烟 + 调通 | — | 2 h |
-| **合计** | **~850 行** | **~11 h（约 1.5 天）** |
+| `server/tests/test_auto_review_loop_query.py` | +300 行 | 1.5 h |
+| 本设计稿 + 实施 plan 撰写 | +2400 行 | 3 h |
+| **小计** | **~2800 行** | **~6 h** |
+
+**本地一次性部分**（每位使用者自己抄一份）：
+
+| 模块 | 改动行 | 工时 |
+|---|---|---|
+| `.claude/README.md` | +60 行 | 0.1 h（复制） |
+| `.claude/commands/goal.md` | +30 行 | 0.1 h |
+| `.claude/skills/geo-goal-orchestrator/SKILL.md` | +160 行 | 0.1 h |
+| `.claude/skills/geo-article-writer/SKILL.md` | +75 行 | 0.1 h |
+| `.claude/skills/geo-article-verifier/SKILL.md` | +60 行 | 0.1 h |
+| 手工冒烟 + 调通 | — | 1 h |
+| **小计** | **~385 行** | **~1.5 h** |
+
+**合计**：~3200 行，~7.5 h（约 1 天）。
 
 ### 9.2 实施顺序（依赖关系）
 

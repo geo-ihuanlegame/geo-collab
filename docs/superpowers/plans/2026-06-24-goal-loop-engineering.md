@@ -14,7 +14,30 @@
 
 ---
 
+## 🟡 PR 范围调整（重要）
+
+执行过程中确定的分发模型：**`.claude/` 不入 git**，每位使用者本地各自维护一份。
+
+落到本 plan：
+
+| Task | 是否入 PR | 说明 |
+|---|---|---|
+| Tasks 1, 2, 3 | ✅ 入 PR | 后端 service / endpoint / MCP 工具 |
+| Task 4 (skill lint 测试) | ❌ 跳过 | `.claude/` 不在 CI checkout 范围内，写 lint 测 CI 必失败 |
+| Tasks 5, 6, 7 (3 个 SKILL.md body) | 📋 仅作 reference | 完整内容仍保留在本 plan 里供本地 copy；不入 git |
+| Task 8 (`/goal` slash command) | 📋 仅作 reference | 同上 |
+| Task 9 (`.claude/README.md`) | 📋 仅作 reference | 同上 |
+| Task 10 (lint + 全测 + PR) | ✅ 入 PR，但范围只覆盖后端 | 手工冒烟由使用者本地跑 |
+
+执行历史：Tasks 1-9 在 Subagent-Driven 执行下已全部 done 并 commit 过，
+随后按本新决策 `git reset --hard` 到 Task 3 之后状态，丢掉 Tasks 4-9 的
+6 个 commits。Tasks 5-9 的内容是已验证过可工作的版本，使用者照抄安全。
+
+---
+
 ## Files to Touch
+
+**入库**：
 
 | 文件 | 操作 | 责任 |
 |---|---|---|
@@ -22,12 +45,16 @@
 | `server/app/modules/auto_review/router.py` | 追加 `GET /today-loop-decisions` 端点 | HTTP 入口；走 `Depends(require_mcp_token)`；异常包 `mcp_exception_response` |
 | `server/mcp/tools/catalog.py` | 追加 `list_today_loop_articles` async 工具 | MCP 协议层薄壳，转发到 `/api/articles/today-loop-decisions` |
 | `server/tests/test_auto_review_loop_query.py` | 新建 | service 单测 + 端点鉴权测试 |
-| `server/tests/test_goal_skill_files.py` | 新建 | `.claude/skills/*/SKILL.md` 文件存在 + frontmatter 良构 lint |
-| `.claude/skills/geo-goal-orchestrator/SKILL.md` | 新建 | 主对话调度 playbook |
-| `.claude/skills/geo-article-writer/SKILL.md` | 新建 | writer subagent playbook |
-| `.claude/skills/geo-article-verifier/SKILL.md` | 新建 | verifier subagent playbook |
-| `.claude/commands/goal.md` | 新建 | `/goal` slash command 入口 |
-| `.claude/README.md` | 新建 | 同事 onboarding 入口（5 步配置 + 排障表） |
+
+**本地不入库（各使用者自维护）**：
+
+| 文件 | 操作 | 责任 |
+|---|---|---|
+| `.claude/skills/geo-goal-orchestrator/SKILL.md` | 本地新建 | 主对话调度 playbook（内容见 Task 7） |
+| `.claude/skills/geo-article-writer/SKILL.md` | 本地新建 | writer subagent playbook（内容见 Task 5） |
+| `.claude/skills/geo-article-verifier/SKILL.md` | 本地新建 | verifier subagent playbook（内容见 Task 6） |
+| `.claude/commands/goal.md` | 本地新建 | `/goal` slash command 入口（内容见 Task 8） |
+| `.claude/README.md` | 本地新建 | 同事 onboarding 入口（内容见 Task 9） |
 
 **关键边界**：
 
