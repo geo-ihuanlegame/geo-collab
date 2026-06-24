@@ -1,13 +1,16 @@
-import { useEffect, useState } from "react";
-import { ChevronLeft, Folder, FolderPlus, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Check, ChevronLeft, Folder, FolderPlus, Pencil, Search, Trash2, X } from "lucide-react";
 import {
   createCategory,
   deleteCategory,
+  deleteImage,
   listCategories,
   listImages,
+  searchImages,
+  updateImage,
   uploadImage,
 } from "../../api/image-library";
-import type { StockCategory, StockImage } from "../../types";
+import type { ImageSearchResult, StockCategory, StockImage } from "../../types";
 import { Modal } from "../Modal";
 
 const KIND_LABEL: Record<"main" | "companion", string> = {
@@ -43,6 +46,15 @@ export function ImageSaveDialog({
   const [creating, setCreating] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [folderBusy, setFolderBusy] = useState(false);
+
+  // 搜索 / 图片级管理（删除、改描述）状态
+  const [query, setQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<ImageSearchResult[] | null>(null); // null = 非搜索态
+  const [searching, setSearching] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editDescVal, setEditDescVal] = useState("");
+  const [savingDesc, setSavingDesc] = useState(false);
 
   // 切 kind：拉该类文件夹，复位下钻态
   useEffect(() => {
@@ -81,6 +93,52 @@ export function ImageSaveDialog({
       cancelled = true;
     };
   }, [currentFolder]);
+
+  // 全库跨栏目搜索（debounce 300ms），复用图片库 /search 接口
+  useEffect(() => {
+    const q = query.trim();
+    if (!q) {
+      setSearchResults(null);
+      setSearching(false);
+      return;
+    }
+    setSearching(true);
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      searchImages(q, 200)
+        .then((data) => {
+          if (!cancelled) setSearchResults(data);
+        })
+        .catch(() => {
+          if (!cancelled) setSearchResults([]);
+        })
+        .finally(() => {
+          if (!cancelled) setSearching(false);
+        });
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [query]);
+
+  // 搜索结果按所属文件夹（栏目）分组，保持「文件夹形式」展示
+  const groupedResults = useMemo(() => {
+    if (!searchResults) return [];
+    const map = new Map<
+      number,
+      { categoryId: number; categoryName: string; kind: string; items: ImageSearchResult[] }
+    >();
+    for (const r of searchResults) {
+      let g = map.get(r.category_id);
+      if (!g) {
+        g = { categoryId: r.category_id, categoryName: r.category_name, kind: r.kind, items: [] };
+        map.set(r.category_id, g);
+      }
+      g.items.push(r);
+    }
+    return Array.from(map.values());
+  }, [searchResults]);
 
   async function refreshFolders(selectId?: number) {
     const data = await listCategories(kind);
@@ -125,6 +183,131 @@ export function ImageSaveDialog({
     } finally {
       setFolderBusy(false);
     }
+  }
+
+  // 删除图片（文件夹态 / 搜索态共用，只需 id）。后端是物理删，需二次确认。
+  async function handleDeleteImage(img: { id: number; filename: string }) {
+    if (
+      !window.confirm(`确定删除图片「${img.filename}」？删除后引用它的文章会显示裂图，且无法恢复。`)
+    ) {
+      return;
+    }
+    setDeletingId(img.id);
+    setError(null);
+    try {
+      await deleteImage(img.id);
+      setImages((prev) => prev.filter((i) => i.id !== img.id));
+      setSearchResults((prev) => (prev ? prev.filter((i) => i.id !== img.id) : prev));
+      onSaved("已删除图片");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "删除失败";
+      setError(msg);
+      onError?.(msg);
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  function startEditDesc(id: number, current: string) {
+    setEditingId(id);
+    setEditDescVal(current);
+  }
+
+  async function handleSaveDesc(id: number) {
+    setSavingDesc(true);
+    setError(null);
+    try {
+      const updated = await updateImage(id, { description: editDescVal.trim() || null });
+      setImages((prev) =>
+        prev.map((i) => (i.id === id ? { ...i, description: updated.description } : i)),
+      );
+      setEditingId(null);
+      onSaved("描述已更新");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "更新失败";
+      setError(msg);
+      onError?.(msg);
+    } finally {
+      setSavingDesc(false);
+    }
+  }
+
+  // 图片卡片：hover 浮出操作（删除 + 可选编辑描述）。editable=false 时只给删除
+  // （搜索结果不带 description，无法回填，故描述编辑只在进入文件夹后提供）。
+  function renderImageCard(card: {
+    id: number;
+    url: string;
+    filename: string;
+    description?: string | null;
+    editable: boolean;
+  }) {
+    const isEditing = editingId === card.id;
+    const busy = deletingId === card.id;
+    return (
+      <div key={card.id} className="imgSaveImgCard">
+        <div className="imgSaveImgThumb">
+          <img src={card.url} alt={card.filename} loading="lazy" />
+          <div className="imgSaveImgOps">
+            {card.editable && (
+              <button
+                type="button"
+                title="编辑描述"
+                disabled={busy}
+                onClick={() => startEditDesc(card.id, card.description ?? "")}
+              >
+                <Pencil size={13} />
+              </button>
+            )}
+            <button
+              type="button"
+              className="danger"
+              title="删除图片"
+              disabled={busy}
+              onClick={() => void handleDeleteImage({ id: card.id, filename: card.filename })}
+            >
+              <Trash2 size={13} />
+            </button>
+          </div>
+        </div>
+        {isEditing ? (
+          <div className="imgSaveDescEdit">
+            <input
+              autoFocus
+              value={editDescVal}
+              placeholder="图片描述"
+              disabled={savingDesc}
+              onChange={(e) => setEditDescVal(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void handleSaveDesc(card.id);
+                if (e.key === "Escape") setEditingId(null);
+              }}
+            />
+            <button
+              type="button"
+              className="imgSaveDescBtn"
+              title="保存"
+              disabled={savingDesc}
+              onClick={() => void handleSaveDesc(card.id)}
+            >
+              <Check size={14} />
+            </button>
+            <button
+              type="button"
+              className="imgSaveDescBtn"
+              title="取消"
+              disabled={savingDesc}
+              onClick={() => setEditingId(null)}
+            >
+              <X size={14} />
+            </button>
+          </div>
+        ) : (
+          <span className="imgSaveImgName" title={card.filename}>
+            {card.filename}
+          </span>
+        )}
+      </div>
+    );
   }
 
   async function handleSave() {
@@ -261,6 +444,25 @@ export function ImageSaveDialog({
           </div>
         )}
 
+        <div className="imgSaveSearchBar">
+          <Search size={15} className="imgSaveSearchIcon" />
+          <input
+            value={query}
+            placeholder="搜索文件名 / 描述 / 标签 / 栏目（全库）"
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          {query && (
+            <button
+              type="button"
+              className="imgSaveSearchClear"
+              title="清空搜索"
+              onClick={() => setQuery("")}
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+
         <div className="imgSaveBody">
           <aside className="imgSaveSidebar">
             {(["main", "companion"] as const).map((k) => (
@@ -275,8 +477,36 @@ export function ImageSaveDialog({
             ))}
           </aside>
 
-          <div className="imgSaveGrid">
-            {currentFolder == null ? (
+          <div className={`imgSaveGrid${searchResults != null ? " imgSaveGridList" : ""}`}>
+            {searchResults != null ? (
+              searching ? (
+                <p className="emptyText">搜索中…</p>
+              ) : groupedResults.length === 0 ? (
+                <p className="emptyText">没有匹配「{query.trim()}」的图片</p>
+              ) : (
+                groupedResults.map((g) => (
+                  <section key={g.categoryId} className="imgSaveSearchGroup">
+                    <header className="imgSaveSearchGroupHead">
+                      <Folder size={14} strokeWidth={1.5} />
+                      <span className="imgSaveSearchGroupName">{g.categoryName}</span>
+                      <span className="imgSaveSearchGroupKind">
+                        {KIND_LABEL[g.kind as "main" | "companion"]}
+                      </span>
+                    </header>
+                    <div className="imgSaveSearchGroupGrid">
+                      {g.items.map((r) =>
+                        renderImageCard({
+                          id: r.id,
+                          url: r.url,
+                          filename: r.filename,
+                          editable: false,
+                        }),
+                      )}
+                    </div>
+                  </section>
+                ))
+              )
+            ) : currentFolder == null ? (
               folders.length === 0 ? (
                 <p className="emptyText">该类别下暂无文件夹，点「新建文件夹」开始</p>
               ) : (
@@ -295,14 +525,15 @@ export function ImageSaveDialog({
             ) : images.length === 0 ? (
               <p className="emptyText">这个文件夹还没有图片</p>
             ) : (
-              images.map((img) => (
-                <div key={img.id} className="imgSaveImgCard">
-                  <img src={img.url} alt={img.filename} loading="lazy" />
-                  <span className="imgSaveImgName" title={img.filename}>
-                    {img.filename}
-                  </span>
-                </div>
-              ))
+              images.map((img) =>
+                renderImageCard({
+                  id: img.id,
+                  url: img.url,
+                  filename: img.filename,
+                  description: img.description,
+                  editable: true,
+                }),
+              )
             )}
           </div>
         </div>

@@ -4794,6 +4794,7 @@ option, optgroup {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .imgSaveImgCard { display: flex; flex-direction: column; gap: 4px; }
+.imgSaveImgThumb { position: relative; line-height: 0; }
 .imgSaveImgCard img {
   width: 100%; aspect-ratio: 1; object-fit: cover;
   border-radius: var(--r); border: 1px solid var(--hair); background: var(--cream);
@@ -4801,6 +4802,72 @@ option, optgroup {
 .imgSaveImgName {
   font-size: 12px; color: var(--fg-3);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* hover 浮出的图片操作（删除 / 编辑描述）*/
+.imgSaveImgOps {
+  position: absolute; top: 6px; right: 6px;
+  display: flex; gap: 4px; opacity: 0; transition: opacity .12s ease;
+}
+.imgSaveImgThumb:hover .imgSaveImgOps,
+.imgSaveImgThumb:focus-within .imgSaveImgOps { opacity: 1; }
+.imgSaveImgOps button {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; padding: 0;
+  border: none; border-radius: var(--r); cursor: pointer;
+  background: rgba(0, 0, 0, .55); color: #fff;
+}
+.imgSaveImgOps button:hover:not(:disabled) { background: rgba(0, 0, 0, .78); }
+.imgSaveImgOps button.danger:hover:not(:disabled) { background: #dc2626; }
+.imgSaveImgOps button:disabled { opacity: .5; cursor: not-allowed; }
+
+/* 卡片内就地编辑描述 */
+.imgSaveDescEdit { display: flex; align-items: center; gap: 4px; }
+.imgSaveDescEdit input {
+  flex: 1; min-width: 0; height: 26px; padding: 0 6px; font-size: 12px;
+  border: 1px solid var(--hair); border-radius: var(--r);
+}
+.imgSaveDescBtn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; padding: 0; flex-shrink: 0;
+  border: 1px solid var(--hair); border-radius: var(--r); background: var(--paper); cursor: pointer;
+}
+.imgSaveDescBtn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.imgSaveDescBtn:disabled { opacity: .5; cursor: not-allowed; }
+
+/* 顶部搜索条 */
+.imgSaveSearchBar {
+  display: flex; align-items: center; gap: 8px;
+  height: 34px; padding: 0 10px;
+  border: 1px solid var(--hair); border-radius: var(--r); background: var(--paper);
+}
+.imgSaveSearchBar input {
+  flex: 1; min-width: 0; border: none; background: none; outline: none;
+  font-size: 13px; color: var(--fg);
+}
+.imgSaveSearchIcon { color: var(--fg-3); flex-shrink: 0; }
+.imgSaveSearchClear {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; padding: 0; flex-shrink: 0;
+  border: none; border-radius: 50%; background: none; cursor: pointer; color: var(--fg-3);
+}
+.imgSaveSearchClear:hover { background: var(--cream); color: var(--fg); }
+
+/* 搜索态：网格改竖排，结果按文件夹（栏目）分组 */
+.imgSaveGridList { display: block; }
+.imgSaveSearchGroup { margin-bottom: 16px; }
+.imgSaveSearchGroup:last-child { margin-bottom: 0; }
+.imgSaveSearchGroupHead {
+  display: flex; align-items: center; gap: 6px; margin-bottom: 8px;
+  font-size: 13px; font-weight: 600; color: var(--fg);
+}
+.imgSaveSearchGroupName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.imgSaveSearchGroupKind {
+  font-size: 11px; font-weight: 500; color: var(--fg-3);
+  padding: 1px 7px; border-radius: 999px; background: var(--cream);
+}
+.imgSaveSearchGroupGrid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px;
 }
 
 .imgSaveFooter { display: flex; align-items: center; gap: 12px; width: 100%; }
