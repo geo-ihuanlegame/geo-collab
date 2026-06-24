@@ -33,12 +33,16 @@ def _visible_query(db: Session, *, user_id: int, scope: str | None = None):
 
 
 def list_prompt_templates(db: Session, *, scope: str | None = None) -> list[PromptTemplate]:
-    """全量列出（不做可见性过滤），仅排除软删（不过滤 is_enabled）。当前无调用方——生文/校验流走 get_visible_prompt_template。"""
+    """全量列出（不做可见性过滤），仅排除软删（不过滤 is_enabled）。
+
+    调用方：MCP catalog（service token，给 loop 列全量）+ 管理列表接口的 admin 分支
+    （admin 看全量含其他用户私有模板）。系统模板排在前，与 list_visible_prompts 的排序对齐。
+    """
     _validate_scope(scope)
     query = db.query(PromptTemplate).filter(PromptTemplate.is_deleted == False)  # noqa: E712
     if scope is not None:
         query = query.filter(PromptTemplate.scope == scope)
-    return query.order_by(PromptTemplate.id).all()
+    return query.order_by(PromptTemplate.is_system.desc(), PromptTemplate.id).all()
 
 
 def list_visible_prompts(

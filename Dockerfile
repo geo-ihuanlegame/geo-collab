@@ -47,13 +47,15 @@ RUN pip install --no-cache-dir \
     -i https://pypi.tuna.tsinghua.edu.cn/simple \
     -r requirements.txt
 
-# 复制项目源码和前端构建产物
-COPY . .
-COPY --from=web-build /app/web/dist ./web/dist
-
 # 安装 Playwright 所需的 Chromium 浏览器（npmmirror 国内加速）
+# 紧跟依赖装：Chromium 版本只取决于 playwright 包版本（来自 requirements.txt），
+# 放在 COPY . . 之前 → 改代码不再让这层失效，常规发版命中缓存、不再重下 164MB。
 RUN PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright \
     playwright install chromium
+
+# 复制项目源码和前端构建产物（放最后：改代码只让这两层失效，上面的重活全命中缓存）
+COPY . .
+COPY --from=web-build /app/web/dist ./web/dist
 
 EXPOSE 8000
 
