@@ -351,6 +351,15 @@ while True:
 
 ---
 
+> **⚠️ Source-of-truth 已迁移**
+>
+> 本节的 SKILL.md 内容已经搬到 `server/app/modules/loop_skills/templates/` 入
+> git，作为服务端分发正本。本节内容仅作历史快照保留——以服务端 templates/
+> 为准。
+>
+> 分发方式见 [`2026-06-24-loop-skill-distribution-design.md`](./2026-06-24-loop-skill-distribution-design.md)。
+>
+
 ## 5. 三个 SKILL.md 骨架
 
 写法遵循 superpowers `writing-skills` 规范：YAML frontmatter `name + description`，description 用「Use when…」让 Claude Code 能自动触发。body 自描述，不假设读者读过本设计。

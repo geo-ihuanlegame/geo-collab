@@ -51,3 +51,31 @@ export async function pingMcpHealth(token: string): Promise<McpHealthResult> {
     return { ok: false, status: 0, message };
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Loop skill bundle distribution（Section ⑤ 用）
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface LoopSkillFileMeta {
+  path: string;
+  size: number;
+  sha256: string;
+}
+
+export interface LoopSkillBundleInfo {
+  version: string;
+  bundle_sha256: string;
+  files: LoopSkillFileMeta[];
+  install_hint: string;
+}
+
+export async function getLoopSkillBundleInfo(): Promise<LoopSkillBundleInfo> {
+  const res = await fetch("/api/mcp/loop-skill-bundle/info", { credentials: "include" });
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+/** ZIP 下载 URL，直接用 <a href={url} download> 触发浏览器下载（不要 fetch+blob）. */
+export const LOOP_SKILL_BUNDLE_DOWNLOAD_URL = "/api/mcp/loop-skill-bundle/download.zip";

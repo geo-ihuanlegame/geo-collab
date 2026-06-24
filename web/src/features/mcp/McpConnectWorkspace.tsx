@@ -3,14 +3,25 @@ import {
   AlertTriangle,
   CheckCircle2,
   Copy,
+  Download,
   Eye,
   EyeOff,
+  FileText,
   Loader2,
+  Package,
   Plug,
   RefreshCw,
   XCircle,
 } from "lucide-react";
-import { getMcpStatus, pingMcpHealth, type McpHealthResult, type McpStatus } from "../../api/mcp";
+import {
+  getLoopSkillBundleInfo,
+  getMcpStatus,
+  LOOP_SKILL_BUNDLE_DOWNLOAD_URL,
+  pingMcpHealth,
+  type LoopSkillBundleInfo,
+  type McpHealthResult,
+  type McpStatus,
+} from "../../api/mcp";
 import { useToast } from "../../components/Toast";
 
 const LOCALHOST_PATTERN = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/;
@@ -141,6 +152,74 @@ export function McpConnectWorkspace() {
   }, [token]);
 
   const localhostWarn = isLocalhost(suggestedBaseUrl);
+
+  // Section ⑤ — loop skill bundle
+  const [bundle, setBundle] = useState<LoopSkillBundleInfo | null>(null);
+  const [bundleError, setBundleError] = useState("");
+  const [bundleLoading, setBundleLoading] = useState(true);
+  const [bundleFilesExpanded, setBundleFilesExpanded] = useState(false);
+  const [installPromptCopied, setInstallPromptCopied] = useState(false);
+  const [bundleShaCopied, setBundleShaCopied] = useState(false);
+
+  const refreshBundle = useCallback(async () => {
+    setBundleLoading(true);
+    try {
+      const data = await getLoopSkillBundleInfo();
+      setBundle(data);
+      setBundleError("");
+    } catch (err) {
+      setBundle(null);
+      setBundleError(err instanceof Error ? err.message : "加载 skill 包元信息失败");
+    } finally {
+      setBundleLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshBundle();
+  }, [refreshBundle]);
+
+  const totalBundleBytes = useMemo(
+    () => bundle?.files.reduce((sum, f) => sum + f.size, 0) ?? 0,
+    [bundle],
+  );
+
+  const onCopyInstallPrompt = useCallback(async () => {
+    const prompt = "帮我装 geo loop skills";
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(prompt);
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = prompt;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+      setInstallPromptCopied(true);
+      toast("已复制提示语", "success");
+      setTimeout(() => setInstallPromptCopied(false), 1500);
+    } catch {
+      toast("复制失败，请手动选择文本", "error");
+    }
+  }, [toast]);
+
+  const onCopyBundleSha = useCallback(async () => {
+    if (!bundle) return;
+    try {
+      await navigator.clipboard.writeText(bundle.bundle_sha256);
+      setBundleShaCopied(true);
+      toast("已复制 SHA-256", "success");
+      setTimeout(() => setBundleShaCopied(false), 1500);
+    } catch {
+      toast("复制失败", "error");
+    }
+  }, [bundle, toast]);
+
+  const mcpConnected = testResult?.ok === true;
 
   return (
     <>
@@ -529,7 +608,229 @@ export function McpConnectWorkspace() {
           ) : null}
         </section>
 
-        {/* Section ⑤ 故障排查 ─────────────────────────────────────────── */}
+        {/* Section ⑤ 装 /goal 自动生文 Skills ─────────────────────────── */}
+        <section className="panel">
+          <h2 style={{ marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
+            <Package size={18} /> ⑤ 装 /goal 自动生文 Skills（可选）
+          </h2>
+          <p style={{ color: "var(--fg-2)", lineHeight: 1.7, marginBottom: 12 }}>
+            想用 <code style={inlineCode}>/goal</code> 一句话让 Claude 帮你跑生文 Loop？
+            需要先在本机 <code style={inlineCode}>.claude/</code> 装 5 个 skill 模板。
+            两种方式任选其一。
+          </p>
+
+          {/* 版本信息卡 */}
+          {bundleLoading && (
+            <div style={{ color: "var(--fg-2)", fontSize: 13 }}>
+              <Loader2 size={14} className="hotSpin" /> 加载 skill 包元信息中...
+            </div>
+          )}
+          {bundleError && (
+            <div
+              style={{
+                padding: 12,
+                borderRadius: 6,
+                background: "var(--bg-danger-soft, rgba(239,68,68,0.1))",
+                color: "var(--fg-danger, #ef4444)",
+                fontSize: 13,
+                marginBottom: 12,
+              }}
+            >
+              <AlertTriangle size={14} style={{ verticalAlign: "middle", marginRight: 6 }} />
+              {bundleError}
+              <button
+                type="button"
+                onClick={() => void refreshBundle()}
+                style={{
+                  marginLeft: 12,
+                  padding: "2px 8px",
+                  background: "transparent",
+                  border: "1px solid currentColor",
+                  borderRadius: 4,
+                  cursor: "pointer",
+                  color: "inherit",
+                }}
+              >
+                重试
+              </button>
+            </div>
+          )}
+          {bundle && (
+            <div
+              style={{
+                padding: 12,
+                borderRadius: 6,
+                background: "var(--bg-2)",
+                marginBottom: 16,
+                fontSize: 13,
+                lineHeight: 1.8,
+              }}
+            >
+              <div>
+                版本：<strong style={{ color: "var(--fg)" }}>{bundle.version}</strong>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span>SHA-256:</span>
+                <code style={{ ...inlineCode, fontSize: 12 }}>
+                  {bundle.bundle_sha256.slice(0, 16)}...
+                </code>
+                <button
+                  type="button"
+                  onClick={() => void onCopyBundleSha()}
+                  style={{
+                    padding: "2px 8px",
+                    background: "transparent",
+                    border: "1px solid var(--border)",
+                    borderRadius: 4,
+                    cursor: "pointer",
+                    fontSize: 12,
+                  }}
+                >
+                  {bundleShaCopied ? <CheckCircle2 size={12} /> : <Copy size={12} />}
+                  {bundleShaCopied ? " 已复制" : " 复制"}
+                </button>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span>
+                  含 <strong style={{ color: "var(--fg)" }}>{bundle.files.length}</strong> 个文件 / 总{" "}
+                  {(totalBundleBytes / 1024).toFixed(1)} KB
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setBundleFilesExpanded((v) => !v)}
+                  style={{
+                    padding: "2px 8px",
+                    background: "transparent",
+                    border: "1px solid var(--border)",
+                    borderRadius: 4,
+                    cursor: "pointer",
+                    fontSize: 12,
+                  }}
+                >
+                  <FileText size={12} /> {bundleFilesExpanded ? "收起" : "展开"}清单
+                </button>
+              </div>
+              {bundleFilesExpanded && (
+                <table style={{ marginTop: 8, fontSize: 12, width: "100%" }}>
+                  <thead>
+                    <tr style={{ textAlign: "left", color: "var(--fg-2)" }}>
+                      <th style={{ paddingRight: 12 }}>path</th>
+                      <th style={{ paddingRight: 12 }}>size</th>
+                      <th>sha256[:12]</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bundle.files.map((f) => (
+                      <tr key={f.path}>
+                        <td style={{ paddingRight: 12 }}>
+                          <code style={inlineCode}>{f.path}</code>
+                        </td>
+                        <td style={{ paddingRight: 12 }}>{f.size}</td>
+                        <td>
+                          <code style={inlineCode}>{f.sha256.slice(0, 12)}</code>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+
+          {/* 方式 A：让 Claude Code 自己装 */}
+          <div
+            style={{
+              padding: 12,
+              borderRadius: 6,
+              background: "var(--bg-2)",
+              marginBottom: 12,
+              opacity: mcpConnected ? 1 : 0.6,
+            }}
+          >
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>
+              方式 A · 让 Claude Code 自己装（推荐）
+            </div>
+            {!mcpConnected && (
+              <div style={{ fontSize: 12, color: "var(--fg-warning, #f59e0b)", marginBottom: 8 }}>
+                请先到上面 ④「测试连接」完成 MCP token 验证。
+              </div>
+            )}
+            <div style={{ fontSize: 13, color: "var(--fg-2)", marginBottom: 8 }}>
+              在 Claude Code 主对话里说：
+            </div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <code
+                style={{
+                  flex: 1,
+                  padding: "8px 12px",
+                  background: "var(--bg-1)",
+                  borderRadius: 4,
+                  fontSize: 13,
+                }}
+              >
+                帮我装 geo loop skills
+              </code>
+              <button
+                type="button"
+                onClick={() => void onCopyInstallPrompt()}
+                disabled={!mcpConnected}
+                style={{
+                  padding: "6px 10px",
+                  background: "transparent",
+                  border: "1px solid var(--border)",
+                  borderRadius: 4,
+                  cursor: mcpConnected ? "pointer" : "not-allowed",
+                }}
+              >
+                {installPromptCopied ? <CheckCircle2 size={14} /> : <Copy size={14} />}
+              </button>
+            </div>
+            <div style={{ fontSize: 12, color: "var(--fg-2)", marginTop: 8, lineHeight: 1.6 }}>
+              Claude 会调 <code style={inlineCode}>install_loop_skills</code> 工具拿到 5 个文件 +
+              询问你装到全局 <code style={inlineCode}>~/.claude/</code> 还是项目根{" "}
+              <code style={inlineCode}>.claude/</code>，然后用 Write 工具写到本地。
+            </div>
+          </div>
+
+          {/* 方式 B：下载 ZIP */}
+          <div style={{ padding: 12, borderRadius: 6, background: "var(--bg-2)" }}>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>
+              方式 B · 下载 ZIP 手动解压（无需配 MCP）
+            </div>
+            <a
+              href={LOOP_SKILL_BUNDLE_DOWNLOAD_URL}
+              download
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "8px 14px",
+                background: "var(--accent)",
+                color: "var(--bg)",
+                borderRadius: 4,
+                textDecoration: "none",
+                fontSize: 13,
+                fontWeight: 500,
+                marginBottom: 8,
+              }}
+            >
+              <Download size={14} />
+              下载 geo-loop-skills-{bundle?.version ?? "..."}.zip
+              {bundle && ` (${(totalBundleBytes / 1024).toFixed(1)} KB)`}
+            </a>
+            <div style={{ fontSize: 12, color: "var(--fg-2)", lineHeight: 1.6 }}>
+              {bundle?.install_hint ??
+                "解压到 ~/.claude/（全局）或 <repo>/.claude/（项目级）；保留 zip 里的目录结构。"}
+            </div>
+          </div>
+
+          <div style={{ marginTop: 12, fontSize: 12, color: "var(--fg-2)" }}>
+            装好以后：重启 Claude Code → 输入{" "}
+            <code style={inlineCode}>/goal 帮我产出 1 篇国风游戏文章作为冒烟</code>
+          </div>
+        </section>
+
+        {/* Section ⑥ 故障排查 ─────────────────────────────────────────── */}
         <section className="panel">
           <details>
             <summary
