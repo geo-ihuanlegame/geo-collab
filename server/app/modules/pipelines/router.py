@@ -130,6 +130,24 @@ def get_node_types() -> dict:
                 "label": "AI创作",
                 "config_schema": [
                     {"key": "ai_engine", "type": "ai_engine", "label": "AI 模型"},
+                    # 模型能力开关（默认开）：透传到 litellm。联网搜索＝各家原生（Claude/OpenAI 系
+                    # 走 web_search_options，Moonshot/Kimi 走 $web_search builtin 工具循环，其它模型
+                    # 自动忽略）；深度思考＝统一 reasoning_effort（不支持的模型 drop_params 静默忽略）。
+                    # 均 best-effort：能力不支持/失败时回退普通生文，不拖垮流程。见 article_writer + model_capabilities。
+                    {
+                        "key": "web_search",
+                        "type": "toggle",
+                        "label": "联网搜索",
+                        "hint": "让模型联网检索后再写；不支持的模型自动忽略",
+                        "default": True,
+                    },
+                    {
+                        "key": "deep_thinking",
+                        "type": "toggle",
+                        "label": "深度思考",
+                        "hint": "开启模型推理/扩展思考；不支持的模型自动忽略",
+                        "default": True,
+                    },
                     {
                         "key": "prompt_template_ids",
                         "type": "prompt_templates",

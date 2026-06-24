@@ -1,6 +1,6 @@
 // web/src/features/pipelines/PipelineEditor.tsx
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Trash2 } from "lucide-react";
+import { Brain, Globe, Trash2 } from "lucide-react";
 import { listAccounts } from "../../api/accounts";
 import { listAiEngines, listQuestionPools, listQuestionTypes } from "../../api/ai-generation";
 import { listArticleGroups } from "../../api/articles";
@@ -495,6 +495,48 @@ export function PipelineEditor({ pipelineId, onChanged }:
                   onChange={(e) => updateNode(selected!, { name: e.target.value })} />
               </label>
               {selDef.config_schema.map((f) => {
+                // ai_compose 的「模型能力」：联网搜索 + 深度思考合并为同一行并排展示。
+                // 拦在 web_search 处一次性渲染两者；deep_thinking 自身跳过（已随上者渲染）。
+                if (sel.node_type === "ai_compose" && (f.key === "web_search" || f.key === "deep_thinking")) {
+                  if (f.key === "deep_thinking") return null;
+                  const dtField = selDef.config_schema.find((x) => x.key === "deep_thinking");
+                  const webOn = "web_search" in sel.config ? !!sel.config["web_search"] : !!f.default;
+                  const dtOn =
+                    "deep_thinking" in sel.config ? !!sel.config["deep_thinking"] : !!dtField?.default;
+                  return (
+                    <div className="agentField" key="model-capabilities">
+                      <span className="agentFieldLabel">模型能力</span>
+                      <div className="peCapabilityRow">
+                        <div className="peCapabilityItem">
+                          <span className="peCapabilityLabel"><Globe size={15} />联网搜索</span>
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={webOn}
+                            className={`peToggle${webOn ? " on" : ""}`}
+                            onClick={() =>
+                              updateNode(selected!, { config: { ...sel.config, web_search: !webOn } })}
+                          >
+                            <span className="peToggleKnob" />
+                          </button>
+                        </div>
+                        <div className="peCapabilityItem">
+                          <span className="peCapabilityLabel"><Brain size={15} />深度思考</span>
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={dtOn}
+                            className={`peToggle${dtOn ? " on" : ""}`}
+                            onClick={() =>
+                              updateNode(selected!, { config: { ...sel.config, deep_thinking: !dtOn } })}
+                          >
+                            <span className="peToggleKnob" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
                 // 开关：存布尔配置（如「联网兜底」），样式为 toggle
                 if (f.type === "toggle") {
                   const on = f.key in sel.config ? !!sel.config[f.key] : !!f.default;

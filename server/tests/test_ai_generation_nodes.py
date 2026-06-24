@@ -279,6 +279,7 @@ def test_ai_compose_forwards_provenance_to_writer(monkeypatch):
         model=None,
         source_agent_name=None,
         source_template_name=None,
+        **_,
     ):
         import uuid
 
