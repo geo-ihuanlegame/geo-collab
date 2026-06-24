@@ -78,6 +78,28 @@ def _patch_cover(monkeypatch, status: str = "set", error: str | None = None) -> 
     return calls
 
 
+def _mk_stock_category(
+    test_app, *, cat_id: int, name: str = "餐厅养成记", kind: str = "main"
+) -> int:
+    """Helper: 建一个最小 StockCategory 让 category_contexts_for 能 return 非空."""
+    from server.app.modules.image_library.models import StockCategory
+
+    db = test_app.session_factory()
+    try:
+        cat = StockCategory(
+            id=cat_id,
+            name=name,
+            kind=kind,
+            bucket_name=f"bucket-{cat_id}",
+            description=f"test category {cat_id}",
+        )
+        db.add(cat)
+        db.commit()
+        return cat.id
+    finally:
+        db.close()
+
+
 @pytest.mark.mysql
 def test_illustrate_one_happy_path_returns_images_and_set_cover(monkeypatch):
     """run_ai_format 返 3 + cover set → result.images_inserted=3, cover_status=set。"""
@@ -89,6 +111,8 @@ def test_illustrate_one_happy_path_returns_images_and_set_cover(monkeypatch):
         )
 
         aid = _mk_article(test_app)
+        # 关键：seed main_category_id=42 才能让 category_contexts_for 返非空
+        _mk_stock_category(test_app, cat_id=42)
         fmt_calls = _patch_run_ai_format(monkeypatch, return_value=3)
         cover_calls = _patch_cover(monkeypatch, status="set")
 
@@ -106,7 +130,10 @@ def test_illustrate_one_happy_path_returns_images_and_set_cover(monkeypatch):
         assert result.cover_error is None
         assert result.format_error is None
         assert len(fmt_calls) == 1
-        assert fmt_calls[0]["candidate_categories"] is not None  # category_contexts_for 输出
+        # category_contexts_for 应该返我们刚 seed 的 main category
+        cats = fmt_calls[0]["candidate_categories"]
+        assert isinstance(cats, list) and len(cats) >= 1, f"expected non-empty list, got {cats!r}"
+        assert any(c.get("id") == 42 for c in cats), f"expected id=42 in {cats!r}"
         assert len(cover_calls) == 1
         assert cover_calls[0]["category_id"] == 42
     finally:

@@ -31,7 +31,11 @@ _logger = logging.getLogger(__name__)
 
 @dataclass
 class IllustrateOptions:
-    """配图旋钮，跟 pipeline ai_illustrate 节点的 cfg 字段一一对应."""
+    """配图旋钮，跟 pipeline ai_illustrate 节点的 cfg 字段一一对应.
+
+    max_images / min_spacing 的 0 等同 None（视为未设置，回退到风格默认 12/1 或 3/5）；
+    要"无上限"请用 None；想要硬上限则传正整数。
+    """
 
     include_companion: bool = True
     web_fallback: bool = False
@@ -63,6 +67,13 @@ def illustrate_one(
 
     session_factory 而非 db：开两个独立短 session（配图持锁 / 封面独立提交），
     跟节点里的 _format_one + _maybe_set_cover 等价.
+
+    异常传播：run_ai_format 内部捕获自身异常并写到 article.ai_format_error，
+    正常情况下不抛出. 但若 run_ai_format 仍意外上抛（如 SDK 级 BaseException
+    或新代码路径未覆盖的异常），本函数**不捕获**——异常会直接上抛到调用方，
+    跳过阶段 2 (封面) 和阶段 3 (回读). 因此 HTTP endpoint / MCP tool 必须自己
+    try/except 兜底，转成结构化的 IllustrateResult(format_error=str(exc)) 或
+    500 响应，避免直接把内部 traceback 暴露给 LLM-facing 客户端.
     """
     aggressive = options.aggressive_images
     builtin_variant = "aggressive" if aggressive else "conservative"
