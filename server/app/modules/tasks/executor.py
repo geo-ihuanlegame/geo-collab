@@ -261,6 +261,12 @@ def _run_pending_records(db: Session, task: PublishTask) -> None:
         while True:
             _heartbeat_task_worker(db, task.id)
             _heartbeat_running_records(db, task.id)
+            # 心跳后立即提交，释放本轮（及首轮 execute_task 未提交的 task claim）持有的
+            # publish_tasks / publish_records 行锁——否则该事务横跨下方 wait(timeout=1) 阻塞、
+            # 本轮无 future 完成时一直不提交，发布线程在提交边界写 commit_attempted_at（独立 session）
+            # 会撞这把锁、等到 innodb_lock_wait_timeout 抛 1205（#133 暴露的死锁，见
+            # test_executor_heartbeat_lock）。commit 会 expire `task`，后续非主键属性按需 lazy reload。
+            db.commit()
             cancel_requested = _task_cancel_requested(db, task.id)
             if cancel_evt and cancel_evt.is_set():
                 if not cancel_requested:
