@@ -15,6 +15,8 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+import pytest
+
 
 def test_build_bundle_lists_all_template_files():
     """build_bundle 返回的 files 包含 5 个预期 path。"""
@@ -110,3 +112,36 @@ def test_bundle_sha_is_known():
         f"Bundle sha256 = {current!r} not in KNOWN_BUNDLE_SHAS. "
         f"If you changed templates/, bump LOOP_SKILL_BUNDLE_VERSION + add this sha to KNOWN_BUNDLE_SHAS."
     )
+
+
+@pytest.mark.mysql
+def test_user_info_endpoint_requires_jwt(monkeypatch):
+    """/api/mcp/loop-skill-bundle/info 不带 cookie → 401."""
+    from server.tests.utils import build_test_app
+
+    test_app = build_test_app(monkeypatch)
+    try:
+        # 清掉 client 上自带的 admin JWT cookie，验证未鉴权请求被拒
+        test_app.client.cookies.clear()
+        r = test_app.client.get("/api/mcp/loop-skill-bundle/info")
+        assert r.status_code == 401
+    finally:
+        test_app.cleanup()
+
+
+@pytest.mark.mysql
+def test_user_info_endpoint_returns_bundle_when_authed(monkeypatch):
+    """带 JWT 请求 → 200，返回 {version, bundle_sha256, files, install_hint}."""
+    from server.tests.utils import build_test_app
+
+    test_app = build_test_app(monkeypatch)
+    try:
+        r = test_app.client.get("/api/mcp/loop-skill-bundle/info")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["version"]
+        assert len(body["bundle_sha256"]) == 64
+        assert len(body["files"]) == 5
+        assert body["install_hint"]
+    finally:
+        test_app.cleanup()
