@@ -20,8 +20,8 @@ function buildHttpConfigJson(suggestedBaseUrl: string): string {
   const template = {
     mcpServers: {
       geo: {
-        transport: "http",
-        url: `${base}/mcp`,
+        type: "http",
+        url: `${base}/mcp/`,
         headers: { "X-MCP-Token": "<PASTE_YOUR_TOKEN_HERE>" },
       },
     },
@@ -268,7 +268,7 @@ export function McpConnectWorkspace() {
               </div>
               <div style={{ fontSize: 13, color: "var(--fg-2)" }}>
                 <span style={{ marginRight: 8 }}>MCP endpoint：</span>
-                <code style={inlineCode}>{status.suggested_base_url}/mcp</code>
+                <code style={inlineCode}>{status.suggested_base_url}/mcp/</code>
               </div>
               {localhostWarn ? (
                 <div
@@ -375,16 +375,26 @@ export function McpConnectWorkspace() {
           {transport === "http" ? (
             <ul style={{ marginTop: 14, paddingLeft: 20, listStyle: "disc", lineHeight: 1.9, fontSize: 13, color: "var(--fg-2)" }}>
               <li>
+                <code style={inlineCode}>type</code>:Claude Code 现行字段名为{" "}
+                <code style={inlineCode}>type</code>(旧版叫 <code style={inlineCode}>transport</code>,
+                仍可识别但已不推荐)。
+              </li>
+              <li>
                 <code style={inlineCode}>url</code>:自动填了你浏览器看到的域名;Claude Code
                 跑在容器里时把域名换成 <code style={inlineCode}>http://host.docker.internal:8000</code>。
+                <strong>末尾的 <code style={inlineCodeDanger}>/</code> 不能省</strong>——
+                FastMCP 的 HTTP transport 路径是 <code style={inlineCode}>/mcp/</code>,
+                少了尾斜杠会被反代或框架返回 <code style={inlineCode}>405</code>。
               </li>
               <li>
                 <code style={inlineCode}>X-MCP-Token</code>:找 admin 获取。
               </li>
               <li>
-                需要 Nginx 反代时,<code style={inlineCode}>location /mcp</code> 块必须加{" "}
+                需要 Nginx 反代时,<code style={inlineCode}>location /mcp/</code> 块必须加{" "}
                 <code style={inlineCode}>proxy_buffering off; proxy_request_buffering off;</code>
-                (streamable HTTP 依赖 chunked,默认 buffering 会卡住 stream)。
+                (streamable HTTP 依赖 chunked,默认 buffering 会卡住 stream);同时
+                <code style={inlineCode}>proxy_pass</code> 末尾保留 <code style={inlineCode}>/</code>
+                以原样透传路径。
               </li>
             </ul>
           ) : (
@@ -544,12 +554,32 @@ export function McpConnectWorkspace() {
                 hint="两边 token 不一致。对照本页段 ④ 的「测试连接」验证你的 token 是否被服务端接受；不接受就让 admin 给你最新 token。"
               />
               <TroubleshootRow
-                code="geo · connected · no tools （Claude Code 看到 server 但工具列表空）"
-                hint="99% 是 ~/.claude.json 的命令配成了 python -m server.mcp.server。正确写法是 python -m server.mcp（即段 ③ 模板里的 args）。改完重启 Claude Code。"
+                code="405 Method Not Allowed"
+                hint="URL 末尾少了 / —— FastMCP 的 streamable HTTP 路径是 /mcp/，少斜杠会触发反代或框架的 method 不匹配。按段 ③ 模板把 url 改成以 /mcp/ 结尾即可；如果用 Nginx 反代，确认 location 块也是 /mcp/ 且 proxy_pass 末尾带 /。"
+              />
+              <TroubleshootRow
+                code="421 Misdirected Request"
+                hint="反代 SNI / Host header 失配。常见原因：客户端走 https 但反代后端是 http、Nginx 配置里有 server_name 路由到错的 vhost、或 CDN/WAF 强制了 HTTP/2 而后端不支持。让 admin 检查反代 server_name 是否覆盖你访问的域名，并保留 proxy_set_header Host $host;。"
+              />
+              <TroubleshootRow
+                code="502 Bad Gateway / 504 Gateway Timeout"
+                hint="后端进程没起、Nginx upstream 不通，或 streamable HTTP 被 buffering 卡住。先 docker compose ps 看 app 容器是否 running；如果 ps 正常但仍 502/504，去 nginx 的 location /mcp/ 块加 proxy_buffering off; proxy_request_buffering off; 并 reload。"
+              />
+              <TroubleshootRow
+                code="测试连接成功但 Claude Code /mcp 仍是 failed"
+                hint="本页测试只校验 token + HTTP 可达，不验证 MCP 协议握手。先确认 ~/.claude.json 用的是段 ③ 的 type 为 http 的模板（不是旧版 transport 字段），url 末尾带 /；再重启 Claude Code 让它重新发起 initialize 请求。"
               />
               <TroubleshootRow
                 code="Claude Code 完全看不到 geo server"
-                hint="JSON 格式坏（用 jq / 在线 lint 验证），或 Claude Code 没重启，或 PYTHONPATH 路径不对（路径要指向 geo-collab 仓库根，能 cd 进去看到 server/ 子目录）。"
+                hint="JSON 格式坏（用 jq 或在线 lint 验证），或 Claude Code 没重启。HTTP 模式还要确认 url / headers / type 三字段拼写正确——大小写和下划线都不能错。"
+              />
+              <TroubleshootRow
+                code="stdio 模式：geo · connected · no tools"
+                hint="99% 是 ~/.claude.json 的 command 配成了 python -m server.mcp.server。正确写法是 python -m server.mcp（即段 ③ stdio 模板里的 args）。改完重启 Claude Code。"
+              />
+              <TroubleshootRow
+                code="stdio 模式：-32000 / Failed to reconnect / ModuleNotFoundError"
+                hint="spawn 的 Python 没装 mcp[cli]，或 PYTHONPATH 没指向 geo-collab 仓库根。把 command 钉死成 python 的绝对路径，并用同一个 python 跑 pip install mcp[cli] httpx pydantic；PYTHONPATH 改成能 cd 进去看到 server/ 子目录的路径。"
               />
             </div>
           </details>
