@@ -94,7 +94,7 @@ def test_ai_illustrate_candidates_and_passthrough(monkeypatch):
             captured["min_spacing"] = min_spacing
             captured["builtin_variant"] = builtin_variant
 
-        monkeypatch.setattr("server.app.modules.pipelines.nodes.ai_illustrate.run_ai_format", _stub)
+        monkeypatch.setattr("server.app.modules.articles.ai_illustrate_svc.run_ai_format", _stub)
 
         from server.app.modules.pipelines.nodes.ai_illustrate import run_ai_illustrate
         from server.app.modules.pipelines.nodes.base import NodeRunContext
@@ -132,7 +132,7 @@ def test_ai_illustrate_companion_toggle_off(monkeypatch):
         uid = _uid(app)
         captured: dict = {}
         monkeypatch.setattr(
-            "server.app.modules.pipelines.nodes.ai_illustrate.run_ai_format",
+            "server.app.modules.articles.ai_illustrate_svc.run_ai_format",
             lambda article_id, **kw: captured.update(candidates=kw["candidate_categories"]),
         )
         from server.app.modules.pipelines.nodes.ai_illustrate import run_ai_illustrate
@@ -180,7 +180,7 @@ def test_ai_illustrate_surfaces_image_count_and_swallowed_errors(monkeypatch):
                 return 0
             return 2
 
-        monkeypatch.setattr("server.app.modules.pipelines.nodes.ai_illustrate.run_ai_format", _stub)
+        monkeypatch.setattr("server.app.modules.articles.ai_illustrate_svc.run_ai_format", _stub)
 
         from server.app.modules.pipelines.nodes.ai_illustrate import run_ai_illustrate
         from server.app.modules.pipelines.nodes.base import NodeRunContext
@@ -211,7 +211,7 @@ def test_ai_illustrate_sets_cover_by_default(monkeypatch):
         uid = _uid(app)
 
         monkeypatch.setattr(
-            "server.app.modules.pipelines.nodes.ai_illustrate.run_ai_format",
+            "server.app.modules.articles.ai_illustrate_svc.run_ai_format",
             lambda article_id, **kw: 1,
         )
         monkeypatch.setattr(
@@ -251,7 +251,7 @@ def test_ai_illustrate_set_cover_off_skips_cover(monkeypatch):
         uid = _uid(app)
 
         monkeypatch.setattr(
-            "server.app.modules.pipelines.nodes.ai_illustrate.run_ai_format",
+            "server.app.modules.articles.ai_illustrate_svc.run_ai_format",
             lambda article_id, **kw: 1,
         )
 
@@ -286,7 +286,7 @@ def _capture_knobs(monkeypatch):
     """把节点传给 run_ai_format 的关键 kwargs 抓出来，供风格/数量旋钮断言。"""
     captured: dict = {}
     monkeypatch.setattr(
-        "server.app.modules.pipelines.nodes.ai_illustrate.run_ai_format",
+        "server.app.modules.articles.ai_illustrate_svc.run_ai_format",
         lambda article_id, **kw: captured.update(kw) or 0,
     )
     return captured
