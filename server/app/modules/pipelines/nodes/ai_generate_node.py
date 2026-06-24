@@ -9,6 +9,7 @@
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from server.app.core.logging import submit_in_context
 from server.app.modules.ai_generation.article_writer import generate_article_from_prompt
 from server.app.modules.pipelines.nodes.base import NodeResult, NodeRunContext, register
 from server.app.modules.pipelines.nodes.daily_group_stream import make_group_streamer
@@ -99,7 +100,7 @@ def _run_units(ctx: NodeRunContext, cfg: dict, units, model, max_count) -> NodeR
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = [
-            pool.submit(_one, qtext, tpl_ids)
+            submit_in_context(pool, _one, qtext, tpl_ids)
             for (qtext, tpl_ids, cnt) in resolved
             for _ in range(cnt)
         ]
@@ -182,7 +183,7 @@ def run_ai_generate(ctx: NodeRunContext) -> NodeResult:
         return aid
 
     with ThreadPoolExecutor(max_workers=4) as pool:
-        futures = [pool.submit(_one) for _ in range(count)]
+        futures = [submit_in_context(pool, _one) for _ in range(count)]
         for fut in as_completed(futures):
             try:
                 article_ids.append(fut.result())

@@ -106,6 +106,7 @@ class RunLogRow(BaseModel):
     task_name: str
     level: str  # "ERROR" | "INFO"（错误 | 信息）
     message: str
+    duration_ms: int | None = None  # 该节点执行耗时（来自 node_results 富化），未记则 None
     time: datetime | None = None
 
 

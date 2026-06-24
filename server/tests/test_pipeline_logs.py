@@ -74,6 +74,30 @@ def test_build_run_log_rows_error_fallback_name_and_time():
     assert rows[0].time == datetime(2026, 6, 5, 7, 0, 0)  # completed_at 缺 → created_at
 
 
+def test_build_run_log_rows_enriched_duration_and_summary():
+    """富化：node_results 带 duration_ms / article_ids / error_type → 行带耗时、摘要、异常类型。"""
+    from server.app.modules.pipelines.run_logs import build_run_log_rows
+
+    run = SimpleNamespace(
+        id=11,
+        status="partial_failed",
+        node_results={
+            "0": {"article_ids": [1, 2, 3], "group_id": 9, "duration_ms": 4200},
+            "1": {"error": "boom", "error_type": "ValidationError", "duration_ms": 12},
+            "2": {"duration_ms": 5},  # 无业务产出 → 运行成功
+        },
+        completed_at=datetime(2026, 6, 5, 8, 0, 0),
+        created_at=datetime(2026, 6, 5, 7, 0, 0),
+    )
+    rows = build_run_log_rows(run, {0: "AI创作", 1: "配图", 2: "进未审"})
+    assert rows[0].level == "INFO"
+    assert "生成 3 篇" in rows[0].message and "进组 9" in rows[0].message
+    assert rows[0].duration_ms == 4200
+    assert rows[1].level == "ERROR" and rows[1].message == "[ValidationError] boom"
+    assert rows[1].duration_ms == 12
+    assert rows[2].message == "运行成功" and rows[2].duration_ms == 5
+
+
 def test_build_run_log_rows_empty():
     from server.app.modules.pipelines.run_logs import build_run_log_rows
 

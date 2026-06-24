@@ -40,6 +40,7 @@ from fastapi.staticfiles import StaticFiles
 
 from server.app.core.config import get_settings
 from server.app.core.limiter import limiter
+from server.app.core.logging import configure_logging
 from server.app.core.paths import ensure_data_dirs
 from server.app.core.security import get_current_user
 from server.app.modules.accounts.router import router as accounts_router
@@ -89,6 +90,8 @@ WEB_DIST_DIR = str(_BASE_DIR / "web" / "dist")
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    # 最先配置日志，确保后续启动过程（注册、恢复、后台线程）的日志都能输出
+    configure_logging()
     if not settings.jwt_secret:
         raise RuntimeError(
             "GEO_JWT_SECRET is not set. Set it to a long random string before starting the server."
