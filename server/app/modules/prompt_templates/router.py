@@ -19,6 +19,7 @@ from server.app.modules.prompt_templates.service import (
     create_prompt_template,
     delete_prompt_template,
     get_prompt_template,
+    list_prompt_templates,
     list_visible_prompts,
     patch_prompt_template,
     update_prompt_template,
@@ -69,6 +70,11 @@ def read_prompt_templates(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[Any]:
+    # admin 看全量（含其他用户私有模板），普通用户只看本人 + 系统模板。
+    # 编辑/删除权限早已是「admin 通吃」（_ensure_can_edit/_ensure_can_delete 走不过滤可见性的
+    # get_prompt_template），此前唯一缺口是列表看不到别人的私有模板、UI 上点不进去。
+    if current_user.role == "admin":
+        return list_prompt_templates(db, scope=scope)
     return list_visible_prompts(db, user_id=current_user.id, scope=scope)
 
 
