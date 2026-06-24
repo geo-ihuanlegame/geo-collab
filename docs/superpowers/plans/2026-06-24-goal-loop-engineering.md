@@ -834,6 +834,15 @@ EOF
 
 ---
 
+> **⚠️ Tasks 5-9 内容 source-of-truth 已迁移**
+>
+> 这 5 个 task 创建的 .claude/ 模板内容已经搬到
+> `server/app/modules/loop_skills/templates/` 入 git，作为服务端分发正本。
+> 本节内容仅作历史快照保留——以服务端 templates/ 为准。
+>
+> 分发方式见 [`../specs/2026-06-24-loop-skill-distribution-design.md`](../specs/2026-06-24-loop-skill-distribution-design.md)。
+>
+
 ## Task 5: 填 `geo-article-writer/SKILL.md` 完整 body
 
 **Files:**
