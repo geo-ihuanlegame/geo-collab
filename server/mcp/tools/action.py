@@ -48,6 +48,18 @@ async def _apost(path: str, *, json: dict[str, Any] | None = None) -> dict[str, 
     return await anyio.to_thread.run_sync(_impl)
 
 
+async def _aget(path: str, *, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    """同步 GET 丢线程池跑，避免阻塞事件循环（见 catalog.py 的自调用死锁说明）."""
+
+    def _impl() -> dict[str, Any]:
+        try:
+            return _ok(_client().get(path, params=params))
+        except ApiError as exc:
+            return _fail(str(exc))
+
+    return await anyio.to_thread.run_sync(_impl)
+
+
 # POC 期：调 compose_article 用一个固定 admin user_id 代表 Loop 身份。
 # 后续可在 MCP 配置里加 `GEO_MCP_OPERATOR_USER_ID`，这里读环境变量。
 _OPERATOR_USER_ID = int(os.environ.get("GEO_MCP_OPERATOR_USER_ID", "1"))
@@ -220,3 +232,40 @@ async def create_distribute_task(
         "stop_before_publish": stop_before_publish,
     }
     return await _apost("/api/tasks/mcp", json=body)
+
+
+@mcp.tool()
+async def install_loop_skills() -> dict[str, Any]:
+    """Fetch the /goal Loop skill bundle so Claude Code can install it locally.
+
+    Returns a dict containing all 5 template files (README, slash command, 3 SKILL.md).
+    The calling Claude Code session should then use its Write tool to write each
+    file to the user's `.claude/` directory.
+
+    Use this when the user asks something like "install geo loop skills" or
+    "set me up to use /goal". Before writing files, check whether the user has
+    a local `.claude/` directory (project-level or `~/.claude/`) and ask
+    which they prefer.
+
+    Returns:
+        {"ok": True, "data": {
+            "version": str,                # e.g. "2026-06-24-v1"
+            "bundle_sha256": str,
+            "install_hint": str,           # plain-English placement guidance
+            "files": [
+                {"path": str, "content": str, "sha256": str, "size": int},
+                ...
+            ],
+        }, "error": None}
+    """
+    # 后端 /install-payload 已经返回了完整 {ok, data, error} 结构，这里直接透传.
+    # _aget 默认会把 GeoApiClient.get 的返回值再 wrap 一层 _ok()，因此
+    # 实际拿到的是 {"ok": True, "data": {"ok": True, "data": {...}, "error": None}, "error": None}.
+    # 把内层剥出来，让 LLM 看到的契约干净.
+    raw = await _aget("/api/mcp/loop-skill-bundle/install-payload")
+    if not raw.get("ok"):
+        return raw  # 透传 _fail 结构
+    inner = raw.get("data") or {}
+    if isinstance(inner, dict) and "ok" in inner and "data" in inner:
+        return inner  # 后端已经返了 {ok, data, error}
+    return raw
