@@ -94,3 +94,19 @@ def test_build_zip_round_trip():
             with zf.open(f.path) as fp:
                 content = fp.read().decode("utf-8")
             assert content == f.content, f"{f.path} content mismatch after round-trip"
+
+
+def test_bundle_sha_is_known():
+    """当前 build_bundle 的 sha 必须在 KNOWN_BUNDLE_SHAS 集合里。
+
+    失败提示：改 templates/ 后必须同步把新 sha 加进 KNOWN_BUNDLE_SHAS
+    并 bump LOOP_SKILL_BUNDLE_VERSION。这是「改模板必同步 bump 版本」纪律。
+    """
+    from server.app.modules.loop_skills.service import build_bundle
+    from server.app.modules.loop_skills.version import KNOWN_BUNDLE_SHAS
+
+    current = build_bundle().bundle_sha256
+    assert current in KNOWN_BUNDLE_SHAS, (
+        f"Bundle sha256 = {current!r} not in KNOWN_BUNDLE_SHAS. "
+        f"If you changed templates/, bump LOOP_SKILL_BUNDLE_VERSION + add this sha to KNOWN_BUNDLE_SHAS."
+    )
