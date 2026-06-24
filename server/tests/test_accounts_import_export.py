@@ -2,6 +2,9 @@ import io
 import json
 import zipfile
 
+import pytest
+
+from server.app.modules.accounts import secret_files
 from server.tests.utils import build_test_app
 
 
@@ -59,7 +62,7 @@ def test_export_import_round_trip(monkeypatch):
 
         state_file = app2.data_dir / imported["state_path"]
         assert state_file.exists()
-        assert state_file.read_bytes() == b'{"cookies":[],"origins":[]}'
+        assert secret_files.read_state(state_file) == {"cookies": [], "origins": []}
     finally:
         app2.cleanup()
 
@@ -219,3 +222,89 @@ def test_assess_imported_status_invalid_json(tmp_path):
     state_file = tmp_path / "storage_state.json"
     state_file.write_text("not valid json {{{{", encoding="utf-8")
     assert _assess_imported_status(state_file) == "unknown"
+
+
+@pytest.mark.mysql
+def test_export_plaintext_import_reencrypts(monkeypatch):
+    """导出 ZIP 内 storage_state 是明文，导入后落盘是密文，read_state 仍能读回原值。"""
+    from cryptography.fernet import Fernet
+
+    from server.app.core import crypto
+
+    monkeypatch.setenv("GEO_SECRET_KEY", Fernet.generate_key().decode("ascii"))
+    from server.app.core.config import get_settings
+
+    get_settings.cache_clear()
+    crypto.get_cipher.cache_clear()
+
+    app1 = build_test_app(monkeypatch)
+    try:
+        # 1) 写带可识别 cookie 值的 state 文件（走 write_state 使落盘为密文）
+        account_key = "enc-test"
+        state_dir = app1.data_dir / "browser_states" / "toutiao" / account_key
+        state_dir.mkdir(parents=True, exist_ok=True)
+        state_file = state_dir / "storage_state.json"
+        secret_files.write_state(
+            state_file,
+            {"cookies": [{"name": "s", "value": "marker-cookie"}], "origins": []},
+        )
+
+        # 2) 建账号（use_browser=False 直接使用现有 state 文件）
+        account_resp = app1.client.post(
+            "/api/accounts/toutiao/login",
+            json={
+                "display_name": "enc-export-test",
+                "account_key": account_key,
+                "use_browser": False,
+                "note": "enc",
+            },
+        )
+        assert account_resp.status_code == 200, account_resp.text
+        account = account_resp.json()
+
+        # 3) 导出
+        export_resp = app1.client.post(
+            "/api/accounts/export", json={"account_ids": [account["id"]]}
+        )
+        assert export_resp.status_code == 200
+        zip_bytes = export_resp.content
+
+        # 断言 ①: ZIP 内 storage_state 是明文，含 marker-cookie
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
+            entry_name = next(n for n in z.namelist() if n.endswith("storage_state.json"))
+            zipped = z.read(entry_name)
+        assert b"marker-cookie" in zipped, "ZIP entry should contain plaintext cookie value"
+        assert json.loads(zipped)["cookies"][0]["value"] == "marker-cookie"
+    finally:
+        app1.cleanup()
+
+    # 4) 导入到新 app（同进程、同 GEO_SECRET_KEY）
+    app2 = build_test_app(monkeypatch)
+    try:
+        import_resp = app2.client.post(
+            "/api/accounts/import",
+            files={"file": ("export.zip", zip_bytes, "application/zip")},
+        )
+        assert import_resp.status_code == 200, import_resp.text
+        body = import_resp.json()
+        assert body["imported"] == ["enc-export-test"]
+
+        accounts2 = app2.client.get("/api/accounts").json()
+        imported = accounts2[0]
+
+        dest = app2.data_dir / imported["state_path"]
+        assert dest.exists()
+
+        # 断言 ②: 落盘文件以 enc:v1: 前缀（密文）
+        assert dest.read_bytes().startswith(b"enc:v1:"), "imported file should be encrypted"
+
+        # 断言 ③: 落盘不含 marker-cookie 明文
+        assert b"marker-cookie" not in dest.read_bytes(), "encrypted file must not expose cookie"
+
+        # 断言 ④: read_state 能解密读回原值
+        assert secret_files.read_state(dest)["cookies"][0]["value"] == "marker-cookie"
+    finally:
+        app2.cleanup()
+        # 恢复 cipher cache 避免污染其他测试
+        crypto.get_cipher.cache_clear()
+        get_settings.cache_clear()

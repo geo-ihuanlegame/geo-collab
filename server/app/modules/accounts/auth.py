@@ -41,6 +41,7 @@ from server.app.modules.accounts.schemas import (
     AccountExportRequest,
     PlatformLoginRequest,
 )
+from server.app.modules.accounts.secret_files import read_state, write_state
 from server.app.modules.accounts.service import (
     _get_driver,
     account_key_from_state_path,
@@ -1209,7 +1210,7 @@ def _check_account_in_browser(
         viewport = browser_options.pop("viewport", None)
         browser_options["headless"] = True
         browser = pw.chromium.launch(**browser_options)
-        context = browser.new_context(storage_state=str(abs_state_path), viewport=viewport)
+        context = browser.new_context(storage_state=read_state(abs_state_path), viewport=viewport)  # type: ignore[arg-type]
         page = context.new_page()
         try:
             page.goto(driver.home_url, wait_until="domcontentloaded", timeout=30000)
@@ -1236,7 +1237,7 @@ def _check_account_in_browser(
                             exc_info=True,
                         )
                         extracted = None
-            context.storage_state(path=str(abs_state_path))
+            write_state(abs_state_path, dict(context.storage_state()))
             return logged_in, extracted
         finally:
             context.close()
@@ -1295,11 +1296,14 @@ def export_accounts_auth_package(db: Session, payload: AccountExportRequest) -> 
                 try:
                     state_file = _resolve_data_file(account.state_path)
                     state_archive_path = f"{account_dir}/storage_state.json"
-                    archive.write(state_file, state_archive_path)
+                    archive.writestr(
+                        state_archive_path,
+                        json.dumps(read_state(state_file), ensure_ascii=False, indent=2),
+                    )
                     exported_files.append(state_archive_path)
-                except ClientError:
+                except (ClientError, OSError):
                     _logger.warning(
-                        "Skipping storage_state.json for account %s - file not found",
+                        "Skipping storage_state.json for account %s - file not found/unreadable",
                         account.display_name,
                     )
             else:
@@ -1326,7 +1330,7 @@ def _assess_imported_status(state_path: Path) -> str:
     import time as _time
 
     try:
-        data = json.loads(state_path.read_text(encoding="utf-8"))
+        data = read_state(state_path)
     except Exception:
         return "unknown"
 
@@ -1399,7 +1403,8 @@ def import_accounts_auth_package(
             if not dest.resolve().is_relative_to(get_data_dir().resolve()):
                 raise ClientError(f"ZIP entry path escapes data directory: {state_path_rel}")
             dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_bytes(archive.read(archive_state_path))
+            state_obj = json.loads(archive.read(archive_state_path).decode("utf-8"))
+            write_state(dest, state_obj)
 
             platform = get_or_create_platform(
                 db,

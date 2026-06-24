@@ -3,14 +3,25 @@ import {
   AlertTriangle,
   CheckCircle2,
   Copy,
+  Download,
   Eye,
   EyeOff,
+  FileText,
   Loader2,
+  Package,
   Plug,
   RefreshCw,
   XCircle,
 } from "lucide-react";
-import { getMcpStatus, pingMcpHealth, type McpHealthResult, type McpStatus } from "../../api/mcp";
+import {
+  getLoopSkillBundleInfo,
+  getMcpStatus,
+  LOOP_SKILL_BUNDLE_DOWNLOAD_URL,
+  pingMcpHealth,
+  type LoopSkillBundleInfo,
+  type McpHealthResult,
+  type McpStatus,
+} from "../../api/mcp";
 import { useToast } from "../../components/Toast";
 
 const LOCALHOST_PATTERN = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/;
@@ -20,8 +31,8 @@ function buildHttpConfigJson(suggestedBaseUrl: string): string {
   const template = {
     mcpServers: {
       geo: {
-        transport: "http",
-        url: `${base}/mcp`,
+        type: "http",
+        url: `${base}/mcp/`,
         headers: { "X-MCP-Token": "<PASTE_YOUR_TOKEN_HERE>" },
       },
     },
@@ -141,6 +152,74 @@ export function McpConnectWorkspace() {
   }, [token]);
 
   const localhostWarn = isLocalhost(suggestedBaseUrl);
+
+  // Section ⑤ — loop skill bundle
+  const [bundle, setBundle] = useState<LoopSkillBundleInfo | null>(null);
+  const [bundleError, setBundleError] = useState("");
+  const [bundleLoading, setBundleLoading] = useState(true);
+  const [bundleFilesExpanded, setBundleFilesExpanded] = useState(false);
+  const [installPromptCopied, setInstallPromptCopied] = useState(false);
+  const [bundleShaCopied, setBundleShaCopied] = useState(false);
+
+  const refreshBundle = useCallback(async () => {
+    setBundleLoading(true);
+    try {
+      const data = await getLoopSkillBundleInfo();
+      setBundle(data);
+      setBundleError("");
+    } catch (err) {
+      setBundle(null);
+      setBundleError(err instanceof Error ? err.message : "加载 skill 包元信息失败");
+    } finally {
+      setBundleLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshBundle();
+  }, [refreshBundle]);
+
+  const totalBundleBytes = useMemo(
+    () => bundle?.files.reduce((sum, f) => sum + f.size, 0) ?? 0,
+    [bundle],
+  );
+
+  const onCopyInstallPrompt = useCallback(async () => {
+    const prompt = "帮我装 geo loop skills";
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(prompt);
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = prompt;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+      setInstallPromptCopied(true);
+      toast("已复制提示语", "success");
+      setTimeout(() => setInstallPromptCopied(false), 1500);
+    } catch {
+      toast("复制失败，请手动选择文本", "error");
+    }
+  }, [toast]);
+
+  const onCopyBundleSha = useCallback(async () => {
+    if (!bundle) return;
+    try {
+      await navigator.clipboard.writeText(bundle.bundle_sha256);
+      setBundleShaCopied(true);
+      toast("已复制 SHA-256", "success");
+      setTimeout(() => setBundleShaCopied(false), 1500);
+    } catch {
+      toast("复制失败", "error");
+    }
+  }, [bundle, toast]);
+
+  const mcpConnected = testResult?.ok === true;
 
   return (
     <>
@@ -268,7 +347,7 @@ export function McpConnectWorkspace() {
               </div>
               <div style={{ fontSize: 13, color: "var(--fg-2)" }}>
                 <span style={{ marginRight: 8 }}>MCP endpoint：</span>
-                <code style={inlineCode}>{status.suggested_base_url}/mcp</code>
+                <code style={inlineCode}>{status.suggested_base_url}/mcp/</code>
               </div>
               {localhostWarn ? (
                 <div
@@ -375,16 +454,26 @@ export function McpConnectWorkspace() {
           {transport === "http" ? (
             <ul style={{ marginTop: 14, paddingLeft: 20, listStyle: "disc", lineHeight: 1.9, fontSize: 13, color: "var(--fg-2)" }}>
               <li>
+                <code style={inlineCode}>type</code>:Claude Code 现行字段名为{" "}
+                <code style={inlineCode}>type</code>(旧版叫 <code style={inlineCode}>transport</code>,
+                仍可识别但已不推荐)。
+              </li>
+              <li>
                 <code style={inlineCode}>url</code>:自动填了你浏览器看到的域名;Claude Code
                 跑在容器里时把域名换成 <code style={inlineCode}>http://host.docker.internal:8000</code>。
+                <strong>末尾的 <code style={inlineCodeDanger}>/</code> 不能省</strong>——
+                FastMCP 的 HTTP transport 路径是 <code style={inlineCode}>/mcp/</code>,
+                少了尾斜杠会被反代或框架返回 <code style={inlineCode}>405</code>。
               </li>
               <li>
                 <code style={inlineCode}>X-MCP-Token</code>:找 admin 获取。
               </li>
               <li>
-                需要 Nginx 反代时,<code style={inlineCode}>location /mcp</code> 块必须加{" "}
+                需要 Nginx 反代时,<code style={inlineCode}>location /mcp/</code> 块必须加{" "}
                 <code style={inlineCode}>proxy_buffering off; proxy_request_buffering off;</code>
-                (streamable HTTP 依赖 chunked,默认 buffering 会卡住 stream)。
+                (streamable HTTP 依赖 chunked,默认 buffering 会卡住 stream);同时
+                <code style={inlineCode}>proxy_pass</code> 末尾保留 <code style={inlineCode}>/</code>
+                以原样透传路径。
               </li>
             </ul>
           ) : (
@@ -519,7 +608,229 @@ export function McpConnectWorkspace() {
           ) : null}
         </section>
 
-        {/* Section ⑤ 故障排查 ─────────────────────────────────────────── */}
+        {/* Section ⑤ 装 /goal 自动生文 Skills ─────────────────────────── */}
+        <section className="panel">
+          <h2 style={{ marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
+            <Package size={18} /> ⑤ 装 /goal 自动生文 Skills（可选）
+          </h2>
+          <p style={{ color: "var(--fg-2)", lineHeight: 1.7, marginBottom: 12 }}>
+            想用 <code style={inlineCode}>/goal</code> 一句话让 Claude 帮你跑生文 Loop？
+            需要先在本机 <code style={inlineCode}>.claude/</code> 装 5 个 skill 模板。
+            两种方式任选其一。
+          </p>
+
+          {/* 版本信息卡 */}
+          {bundleLoading && (
+            <div style={{ color: "var(--fg-2)", fontSize: 13 }}>
+              <Loader2 size={14} className="hotSpin" /> 加载 skill 包元信息中...
+            </div>
+          )}
+          {bundleError && (
+            <div
+              style={{
+                padding: 12,
+                borderRadius: 6,
+                background: "var(--bg-danger-soft, rgba(239,68,68,0.1))",
+                color: "var(--fg-danger, #ef4444)",
+                fontSize: 13,
+                marginBottom: 12,
+              }}
+            >
+              <AlertTriangle size={14} style={{ verticalAlign: "middle", marginRight: 6 }} />
+              {bundleError}
+              <button
+                type="button"
+                onClick={() => void refreshBundle()}
+                style={{
+                  marginLeft: 12,
+                  padding: "2px 8px",
+                  background: "transparent",
+                  border: "1px solid currentColor",
+                  borderRadius: 4,
+                  cursor: "pointer",
+                  color: "inherit",
+                }}
+              >
+                重试
+              </button>
+            </div>
+          )}
+          {bundle && (
+            <div
+              style={{
+                padding: 12,
+                borderRadius: 6,
+                background: "var(--bg-2)",
+                marginBottom: 16,
+                fontSize: 13,
+                lineHeight: 1.8,
+              }}
+            >
+              <div>
+                版本：<strong style={{ color: "var(--fg)" }}>{bundle.version}</strong>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span>SHA-256:</span>
+                <code style={{ ...inlineCode, fontSize: 12 }}>
+                  {bundle.bundle_sha256.slice(0, 16)}...
+                </code>
+                <button
+                  type="button"
+                  onClick={() => void onCopyBundleSha()}
+                  style={{
+                    padding: "2px 8px",
+                    background: "transparent",
+                    border: "1px solid var(--border)",
+                    borderRadius: 4,
+                    cursor: "pointer",
+                    fontSize: 12,
+                  }}
+                >
+                  {bundleShaCopied ? <CheckCircle2 size={12} /> : <Copy size={12} />}
+                  {bundleShaCopied ? " 已复制" : " 复制"}
+                </button>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span>
+                  含 <strong style={{ color: "var(--fg)" }}>{bundle.files.length}</strong> 个文件 / 总{" "}
+                  {(totalBundleBytes / 1024).toFixed(1)} KB
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setBundleFilesExpanded((v) => !v)}
+                  style={{
+                    padding: "2px 8px",
+                    background: "transparent",
+                    border: "1px solid var(--border)",
+                    borderRadius: 4,
+                    cursor: "pointer",
+                    fontSize: 12,
+                  }}
+                >
+                  <FileText size={12} /> {bundleFilesExpanded ? "收起" : "展开"}清单
+                </button>
+              </div>
+              {bundleFilesExpanded && (
+                <table style={{ marginTop: 8, fontSize: 12, width: "100%" }}>
+                  <thead>
+                    <tr style={{ textAlign: "left", color: "var(--fg-2)" }}>
+                      <th style={{ paddingRight: 12 }}>path</th>
+                      <th style={{ paddingRight: 12 }}>size</th>
+                      <th>sha256[:12]</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bundle.files.map((f) => (
+                      <tr key={f.path}>
+                        <td style={{ paddingRight: 12 }}>
+                          <code style={inlineCode}>{f.path}</code>
+                        </td>
+                        <td style={{ paddingRight: 12 }}>{f.size}</td>
+                        <td>
+                          <code style={inlineCode}>{f.sha256.slice(0, 12)}</code>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+
+          {/* 方式 A：让 Claude Code 自己装 */}
+          <div
+            style={{
+              padding: 12,
+              borderRadius: 6,
+              background: "var(--bg-2)",
+              marginBottom: 12,
+              opacity: mcpConnected ? 1 : 0.6,
+            }}
+          >
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>
+              方式 A · 让 Claude Code 自己装（推荐）
+            </div>
+            {!mcpConnected && (
+              <div style={{ fontSize: 12, color: "var(--fg-warning, #f59e0b)", marginBottom: 8 }}>
+                请先到上面 ④「测试连接」完成 MCP token 验证。
+              </div>
+            )}
+            <div style={{ fontSize: 13, color: "var(--fg-2)", marginBottom: 8 }}>
+              在 Claude Code 主对话里说：
+            </div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <code
+                style={{
+                  flex: 1,
+                  padding: "8px 12px",
+                  background: "var(--bg-1)",
+                  borderRadius: 4,
+                  fontSize: 13,
+                }}
+              >
+                帮我装 geo loop skills
+              </code>
+              <button
+                type="button"
+                onClick={() => void onCopyInstallPrompt()}
+                disabled={!mcpConnected}
+                style={{
+                  padding: "6px 10px",
+                  background: "transparent",
+                  border: "1px solid var(--border)",
+                  borderRadius: 4,
+                  cursor: mcpConnected ? "pointer" : "not-allowed",
+                }}
+              >
+                {installPromptCopied ? <CheckCircle2 size={14} /> : <Copy size={14} />}
+              </button>
+            </div>
+            <div style={{ fontSize: 12, color: "var(--fg-2)", marginTop: 8, lineHeight: 1.6 }}>
+              Claude 会调 <code style={inlineCode}>install_loop_skills</code> 工具拿到 5 个文件 +
+              询问你装到全局 <code style={inlineCode}>~/.claude/</code> 还是项目根{" "}
+              <code style={inlineCode}>.claude/</code>，然后用 Write 工具写到本地。
+            </div>
+          </div>
+
+          {/* 方式 B：下载 ZIP */}
+          <div style={{ padding: 12, borderRadius: 6, background: "var(--bg-2)" }}>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>
+              方式 B · 下载 ZIP 手动解压（无需配 MCP）
+            </div>
+            <a
+              href={LOOP_SKILL_BUNDLE_DOWNLOAD_URL}
+              download
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "8px 14px",
+                background: "var(--accent)",
+                color: "var(--bg)",
+                borderRadius: 4,
+                textDecoration: "none",
+                fontSize: 13,
+                fontWeight: 500,
+                marginBottom: 8,
+              }}
+            >
+              <Download size={14} />
+              下载 geo-loop-skills-{bundle?.version ?? "..."}.zip
+              {bundle && ` (${(totalBundleBytes / 1024).toFixed(1)} KB)`}
+            </a>
+            <div style={{ fontSize: 12, color: "var(--fg-2)", lineHeight: 1.6 }}>
+              {bundle?.install_hint ??
+                "解压到 ~/.claude/（全局）或 <repo>/.claude/（项目级）；保留 zip 里的目录结构。"}
+            </div>
+          </div>
+
+          <div style={{ marginTop: 12, fontSize: 12, color: "var(--fg-2)" }}>
+            装好以后：重启 Claude Code → 输入{" "}
+            <code style={inlineCode}>/goal 帮我产出 1 篇国风游戏文章作为冒烟</code>
+          </div>
+        </section>
+
+        {/* Section ⑥ 故障排查 ─────────────────────────────────────────── */}
         <section className="panel">
           <details>
             <summary
@@ -544,12 +855,32 @@ export function McpConnectWorkspace() {
                 hint="两边 token 不一致。对照本页段 ④ 的「测试连接」验证你的 token 是否被服务端接受；不接受就让 admin 给你最新 token。"
               />
               <TroubleshootRow
-                code="geo · connected · no tools （Claude Code 看到 server 但工具列表空）"
-                hint="99% 是 ~/.claude.json 的命令配成了 python -m server.mcp.server。正确写法是 python -m server.mcp（即段 ③ 模板里的 args）。改完重启 Claude Code。"
+                code="405 Method Not Allowed"
+                hint="URL 末尾少了 / —— FastMCP 的 streamable HTTP 路径是 /mcp/，少斜杠会触发反代或框架的 method 不匹配。按段 ③ 模板把 url 改成以 /mcp/ 结尾即可；如果用 Nginx 反代，确认 location 块也是 /mcp/ 且 proxy_pass 末尾带 /。"
+              />
+              <TroubleshootRow
+                code="421 Misdirected Request"
+                hint="反代 SNI / Host header 失配。常见原因：客户端走 https 但反代后端是 http、Nginx 配置里有 server_name 路由到错的 vhost、或 CDN/WAF 强制了 HTTP/2 而后端不支持。让 admin 检查反代 server_name 是否覆盖你访问的域名，并保留 proxy_set_header Host $host;。"
+              />
+              <TroubleshootRow
+                code="502 Bad Gateway / 504 Gateway Timeout"
+                hint="后端进程没起、Nginx upstream 不通，或 streamable HTTP 被 buffering 卡住。先 docker compose ps 看 app 容器是否 running；如果 ps 正常但仍 502/504，去 nginx 的 location /mcp/ 块加 proxy_buffering off; proxy_request_buffering off; 并 reload。"
+              />
+              <TroubleshootRow
+                code="测试连接成功但 Claude Code /mcp 仍是 failed"
+                hint="本页测试只校验 token + HTTP 可达，不验证 MCP 协议握手。先确认 ~/.claude.json 用的是段 ③ 的 type 为 http 的模板（不是旧版 transport 字段），url 末尾带 /；再重启 Claude Code 让它重新发起 initialize 请求。"
               />
               <TroubleshootRow
                 code="Claude Code 完全看不到 geo server"
-                hint="JSON 格式坏（用 jq / 在线 lint 验证），或 Claude Code 没重启，或 PYTHONPATH 路径不对（路径要指向 geo-collab 仓库根，能 cd 进去看到 server/ 子目录）。"
+                hint="JSON 格式坏（用 jq 或在线 lint 验证），或 Claude Code 没重启。HTTP 模式还要确认 url / headers / type 三字段拼写正确——大小写和下划线都不能错。"
+              />
+              <TroubleshootRow
+                code="stdio 模式：geo · connected · no tools"
+                hint="99% 是 ~/.claude.json 的 command 配成了 python -m server.mcp.server。正确写法是 python -m server.mcp（即段 ③ stdio 模板里的 args）。改完重启 Claude Code。"
+              />
+              <TroubleshootRow
+                code="stdio 模式：-32000 / Failed to reconnect / ModuleNotFoundError"
+                hint="spawn 的 Python 没装 mcp[cli]，或 PYTHONPATH 没指向 geo-collab 仓库根。把 command 钉死成 python 的绝对路径，并用同一个 python 跑 pip install mcp[cli] httpx pydantic；PYTHONPATH 改成能 cd 进去看到 server/ 子目录的路径。"
               />
             </div>
           </details>

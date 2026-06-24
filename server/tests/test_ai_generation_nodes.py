@@ -188,7 +188,9 @@ def _make_gen_template(app, uid, content="写：", enabled=True):
 def test_ai_compose_generates_with_random_template(monkeypatch):
     calls = {"n": 0}
 
-    def _fake_generate(*, session_factory, user_id, template_content, question_text, model=None):
+    def _fake_generate(
+        *, session_factory, user_id, template_content, question_text, model=None, **_
+    ):
         import uuid
 
         from server.app.modules.articles.schemas import ArticleCreate
@@ -264,6 +266,88 @@ def test_ai_compose_generates_with_random_template(monkeypatch):
 
 
 @pytest.mark.mysql
+def test_ai_compose_forwards_provenance_to_writer(monkeypatch):
+    """溯源接线：ai_compose 必须把「智能体名(pipeline_name) + 实际所选模板名」转发给生文函数。"""
+    captured: dict = {}
+
+    def _capturing_generate(
+        *,
+        session_factory,
+        user_id,
+        template_content,
+        question_text,
+        model=None,
+        source_agent_name=None,
+        source_template_name=None,
+        **_,
+    ):
+        import uuid
+
+        from server.app.modules.articles.schemas import ArticleCreate
+        from server.app.modules.articles.service import create_article
+
+        captured["agent"] = source_agent_name
+        captured["template"] = source_template_name
+        db = session_factory()
+        try:
+            art = create_article(
+                db,
+                user_id,
+                ArticleCreate(
+                    title="A",
+                    content_json={"type": "doc", "content": []},
+                    content_html="<p>x</p>",
+                    plain_text="x",
+                    word_count=1,
+                    client_request_id=str(uuid.uuid4()),
+                ),
+            )
+            db.commit()
+            return art.id
+        finally:
+            db.close()
+
+    monkeypatch.setattr(
+        "server.app.modules.pipelines.nodes.ai_compose.generate_article_from_prompt",
+        _capturing_generate,
+    )
+    app = build_test_app(monkeypatch)
+    try:
+        from server.app.modules.pipelines.nodes.ai_compose import run_ai_compose
+        from server.app.modules.pipelines.nodes.base import NodeRunContext
+        from server.app.modules.prompt_templates.models import PromptTemplate
+        from server.app.modules.system.models import User
+
+        with app.session_factory() as db:
+            uid = db.query(User).first().id
+            tpl = PromptTemplate(
+                name="游戏榜单清单",
+                content="写：",
+                scope="generation",
+                user_id=uid,
+                is_enabled=True,
+            )
+            db.add(tpl)
+            db.commit()
+            tpl_id, tpl_name = tpl.id, tpl.name
+
+        ctx = NodeRunContext(
+            session_factory=app.session_factory,
+            user_id=uid,
+            config={"prompt_template_ids": [tpl_id], "count": 1},
+            inputs={"question_text": "1. q"},
+            upstream={},
+            pipeline_name="生文自动",
+        )
+        res = run_ai_compose(ctx)
+        assert len(res.output["article_ids"]) == 1
+        assert captured["agent"] == "生文自动", "智能体名(pipeline_name)应透传给生文函数"
+        assert captured["template"] == tpl_name == "游戏榜单清单", "实际所选模板名应透传"
+    finally:
+        app.cleanup()
+
+
+@pytest.mark.mysql
 def test_to_review_marks_pending_and_groups(monkeypatch):
     app = build_test_app(monkeypatch)
     client = app.client
@@ -319,7 +403,9 @@ def test_to_review_marks_pending_and_groups(monkeypatch):
 
 @pytest.mark.mysql
 def test_end_to_end_generate_into_review(monkeypatch):
-    def _fake_generate(*, session_factory, user_id, template_content, question_text, model=None):
+    def _fake_generate(
+        *, session_factory, user_id, template_content, question_text, model=None, **_
+    ):
         import uuid
 
         from server.app.modules.articles.schemas import ArticleCreate
@@ -412,7 +498,9 @@ def test_end_to_end_generate_into_review(monkeypatch):
 
 @pytest.mark.mysql
 def test_executor_skips_autogroup_when_to_review_present(monkeypatch):
-    def _fake_generate(*, session_factory, user_id, template_content, question_text, model=None):
+    def _fake_generate(
+        *, session_factory, user_id, template_content, question_text, model=None, **_
+    ):
         import uuid
 
         from server.app.modules.articles.schemas import ArticleCreate
@@ -509,7 +597,9 @@ def test_executor_skips_autogroup_when_to_review_present(monkeypatch):
 
 
 def _fake_generate_factory():
-    def _fake_generate(*, session_factory, user_id, template_content, question_text, model=None):
+    def _fake_generate(
+        *, session_factory, user_id, template_content, question_text, model=None, **_
+    ):
         import uuid
 
         from server.app.modules.articles.schemas import ArticleCreate

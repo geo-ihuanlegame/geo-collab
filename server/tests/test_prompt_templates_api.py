@@ -236,6 +236,50 @@ class TestListPromptTemplates:
         finally:
             test_app.cleanup()
 
+    def test_admin_sees_all_including_others_private(self, monkeypatch):
+        # admin 应看到全量：本人 + 系统 + 其他普通用户的私有模板。
+        test_app = build_test_app(monkeypatch)
+        admin_client = test_app.client
+        try:
+            admin_private = _create_template(admin_client, name="管理员私有", content="c").json()
+            system_t = _create_template(
+                admin_client, name="系统可见", content="c", is_system=True
+            ).json()
+
+            op_client, _ = _make_operator_client(test_app)
+            op_own = _create_template(op_client, name="操作员私有", content="c").json()
+
+            resp = admin_client.get("/api/prompt-templates")
+            assert resp.status_code == 200
+            ids = [t["id"] for t in resp.json()]
+            assert admin_private["id"] in ids
+            assert system_t["id"] in ids
+            assert op_own["id"] in ids  # 关键：admin 能看到别人的私有模板
+        finally:
+            test_app.cleanup()
+
+    def test_admin_sees_others_private_filtered_by_scope(self, monkeypatch):
+        # admin 全量视图仍受 scope 过滤约束（不串 scope）。
+        test_app = build_test_app(monkeypatch)
+        admin_client = test_app.client
+        try:
+            op_client, _ = _make_operator_client(test_app)
+            op_gen = _create_template(
+                op_client, name="操作员生成", content="c", scope="generation"
+            ).json()
+            op_fmt = _create_template(
+                op_client, name="操作员格式", content="c", scope="ai_format"
+            ).json()
+
+            resp = admin_client.get("/api/prompt-templates", params={"scope": "generation"})
+            assert resp.status_code == 200
+            ids = [t["id"] for t in resp.json()]
+            assert op_gen["id"] in ids
+            assert op_fmt["id"] not in ids
+            assert all(t["scope"] == "generation" for t in resp.json())
+        finally:
+            test_app.cleanup()
+
     def test_list_requires_auth(self, monkeypatch):
         test_app = build_test_app(monkeypatch)
         try:
@@ -308,7 +352,8 @@ class TestUpdatePromptTemplate:
         finally:
             test_app.cleanup()
 
-    def test_operator_cannot_update_system_template(self, monkeypatch):
+    def test_operator_can_update_system_template(self, monkeypatch):
+        # 新策略：系统/共享模板（如「基础」AI格式提示词）全员可编辑内容。
         test_app = build_test_app(monkeypatch)
         admin_client = test_app.client
         try:
@@ -318,7 +363,29 @@ class TestUpdatePromptTemplate:
             op_client, _ = _make_operator_client(test_app)
             resp = op_client.put(
                 f"/api/prompt-templates/{system_t['id']}",
-                json={"name": "想改系统", "content": "c"},
+                json={"name": "运营改的系统模板", "content": "新内容"},
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["name"] == "运营改的系统模板"
+            assert data["content"] == "新内容"
+            # is_system 未传 → 保持系统模板属性，不被降级
+            assert data["is_system"] is True
+        finally:
+            test_app.cleanup()
+
+    def test_operator_cannot_demote_system_template(self, monkeypatch):
+        # is_system 标记的变更仍收归 admin：运营把系统模板降级为个人模板 → 403。
+        test_app = build_test_app(monkeypatch)
+        admin_client = test_app.client
+        try:
+            system_t = _create_template(
+                admin_client, name="系统模板", content="c", is_system=True
+            ).json()
+            op_client, _ = _make_operator_client(test_app)
+            resp = op_client.put(
+                f"/api/prompt-templates/{system_t['id']}",
+                json={"name": "想降级", "content": "c", "is_system": False},
             )
             assert resp.status_code == 403
         finally:
@@ -434,7 +501,8 @@ class TestPatchPromptTemplate:
         finally:
             test_app.cleanup()
 
-    def test_operator_cannot_patch_system_template(self, monkeypatch):
+    def test_operator_can_patch_system_template_toggle(self, monkeypatch):
+        # 新策略：系统/共享模板的启用/停用开关全员可操作。
         test_app = build_test_app(monkeypatch)
         admin_client = test_app.client
         try:
@@ -446,7 +514,10 @@ class TestPatchPromptTemplate:
                 f"/api/prompt-templates/{system_t['id']}",
                 json={"is_enabled": False},
             )
-            assert resp.status_code == 403
+            assert resp.status_code == 200
+            assert resp.json()["is_enabled"] is False
+            # 透传 is_system=True（不变）应被放行
+            assert resp.json()["is_system"] is True
         finally:
             test_app.cleanup()
 

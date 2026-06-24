@@ -53,6 +53,11 @@ POC 期 MCP server 跟 GEO FastAPI app **同进程 mount**(路径 `/mcp`),用户
    echo 'GEO_MCP_TOKEN=<token>' >> .env
    docker compose restart app
    ```
+5. **MCP 工具自调用地址（仅 HTTP-mount 同进程部署）**: 工具执行时,tool handler 用 httpx 自调用
+   `{GEO_MCP_INTERNAL_API_URL}/api/mcp/...`(与 `GEO_API_BASE_URL` 是两个独立变量;后者只给客户端
+   `~/.claude.json`)。缺省 `http://127.0.0.1:8000`,`docker-compose.yml` 的 `app` 服务已显式钉死。
+   **切勿**把它配成公网域名——容器向自己的公网域名发请求,阿里云 ECS 默认不支持发卡回环(hairpin NAT)
+   → 30s 超时(表现为 `GET /api/mcp/...: network error: timed out`,但 `/mcp/` 网关本身 401 正常)。
 
 ### 客户端 (每台外部机器)
 

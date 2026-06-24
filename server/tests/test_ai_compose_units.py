@@ -12,7 +12,7 @@ import pytest
 from server.tests.utils import build_test_app
 
 
-def _fake_generate(*, session_factory, user_id, template_content, question_text, model=None):
+def _fake_generate(*, session_factory, user_id, template_content, question_text, model=None, **_):
     from server.app.modules.articles.schemas import ArticleCreate
     from server.app.modules.articles.service import create_article
 

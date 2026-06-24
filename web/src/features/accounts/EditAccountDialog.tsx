@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { Camera, Lock, LoaderCircle, X } from "lucide-react";
 import type { Account } from "../../types";
-import { updateAccount } from "../../api/accounts";
+import { setTaptapForum, updateAccount } from "../../api/accounts";
 import { uploadAsset } from "../../api/assets";
 import { assetSrc } from "../../api/core";
 import { useToast } from "../../components/Toast";
@@ -21,6 +21,12 @@ export function EditAccountDialog({
   const [note, setNote] = useState(account.note ?? "");
   const [distributionEnabled, setDistributionEnabled] = useState(account.distribution_enabled);
   const [saving, setSaving] = useState(false);
+
+  // TapTap 论坛绑定（app_id/group_id 必填，x_ua 选填、留空保持原值由 VID 合成）
+  const isTaptap = account.platform_code === "taptap";
+  const [forumAppId, setForumAppId] = useState(account.app_id ?? "");
+  const [forumGroupId, setForumGroupId] = useState(account.group_id ?? "");
+  const [forumXUa, setForumXUa] = useState("");
 
   const [avatarAssetId, setAvatarAssetId] = useState<string | null>(account.avatar_asset_id);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
@@ -52,6 +58,10 @@ export function EditAccountDialog({
       toast("请填写账号名称", "error");
       return;
     }
+    if (isTaptap && (forumAppId.trim() || forumGroupId.trim()) && (!forumAppId.trim() || !forumGroupId.trim())) {
+      toast("TapTap 论坛绑定需同时填写 App ID 和 Group ID", "error");
+      return;
+    }
     setSaving(true);
     try {
       // contact / note 传空串即可清空（后端 update_account_fields 对空串 != None 直接落库）。
@@ -63,6 +73,13 @@ export function EditAccountDialog({
         distribution_enabled: distributionEnabled,
         avatar_asset_id: avatarAssetId,
       });
+      if (isTaptap && forumAppId.trim() && forumGroupId.trim()) {
+        await setTaptapForum(account.id, {
+          app_id: forumAppId.trim(),
+          group_id: forumGroupId.trim(),
+          ...(forumXUa.trim() ? { x_ua: forumXUa.trim() } : {}),
+        });
+      }
       onSaved();
       toast("已保存", "success");
       onClose();
@@ -166,6 +183,40 @@ export function EditAccountDialog({
               onChange={(e) => setNote(e.target.value)}
             />
           </div>
+
+          {isTaptap && (
+            <>
+              <div className="addAuthField">
+                <div className="addAuthLabel">论坛 App ID *</div>
+                <input
+                  className="addAuthInput"
+                  placeholder="游戏 app_id，例如 43639"
+                  value={forumAppId}
+                  onChange={(e) => setForumAppId(e.target.value)}
+                />
+              </div>
+              <div className="addAuthField">
+                <div className="addAuthLabel">论坛 Group ID *</div>
+                <input
+                  className="addAuthInput"
+                  placeholder="论坛版块 id，例如 4444"
+                  value={forumGroupId}
+                  onChange={(e) => setForumGroupId(e.target.value)}
+                />
+              </div>
+              <div className="addAuthField">
+                <div className="addAuthLabel">
+                  X-UA（选填{account.x_ua_configured ? "，已配置，留空保持不变" : "，留空由 VID 自动合成"}）
+                </div>
+                <input
+                  className="addAuthInput"
+                  placeholder="登录抓包的 X-UA 原串，一般留空即可"
+                  value={forumXUa}
+                  onChange={(e) => setForumXUa(e.target.value)}
+                />
+              </div>
+            </>
+          )}
 
           <div className="addAuthToggleRow">
             <div className="addAuthToggleLeft">

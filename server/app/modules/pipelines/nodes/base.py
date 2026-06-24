@@ -18,6 +18,7 @@ class NodeRunContext:
     inputs: dict  # 经 flow_meta inputMapping 注入
     upstream: dict  # 上游累积 context（node_index -> output 的合并视图）
     # 预留：节点可直接读全量上游输出；当前内置节点只用输入
+    pipeline_name: str | None = None  # 当前工作流（「智能体」）名，供生文节点做溯源落库
 
 
 @dataclass

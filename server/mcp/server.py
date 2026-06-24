@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from server.app.modules.mcp_catalog.connect_router import MCP_TOOLS_COUNT
 
@@ -31,6 +32,11 @@ mcp = FastMCP(
     stateless_http=True,
     json_response=True,
     streamable_http_path="/",
+    # DNS rebinding 保护默认只放行 localhost/127.0.0.1；经 nginx 反代后 Host 头是外部域名
+    # (geo.example.com)，会被 FastMCP 以 421 拒掉。关掉是安全的：鉴权已由
+    # McpTokenMiddleware 在请求层做 hmac compare_digest，而 DNS rebinding 防护针对的是
+    # 浏览器发起的同源攻击，对 Claude Code 这种 server-to-server 调用没有意义。
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
 )
 
 # 触发各 tool 模块注册 (导入即调用 @mcp.tool 装饰器)

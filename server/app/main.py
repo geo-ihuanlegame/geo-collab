@@ -59,6 +59,12 @@ from server.app.modules.auto_review.router import router as auto_review_router
 from server.app.modules.hot_lists.router import router as hot_lists_router
 from server.app.modules.image_library.router import files_router as stock_files_router
 from server.app.modules.image_library.router import router as stock_images_router
+from server.app.modules.loop_skills.router import (
+    mcp_router as loop_skills_mcp_router,
+)
+from server.app.modules.loop_skills.router import (
+    router as loop_skills_user_router,
+)
 from server.app.modules.mcp_catalog.connect_router import (
     mcp_connect_health_router,
     mcp_connect_user_router,
@@ -118,13 +124,14 @@ def create_app() -> FastAPI:
     # 启动时恢复卡住的记录（上次运行时崩溃导致 status='running' 的记录）
     # 多实例部署时只允许一个实例执行恢复，其他实例设 GEO_RUN_STARTUP_RECOVERY=false
     from server.app.db.session import SessionLocal
-    from server.app.modules.tasks import recover_stuck_records
+    from server.app.modules.tasks import recover_stuck_records, reopen_orphaned_terminal_tasks
 
     if get_settings().run_startup_recovery:
         try:
             recover_db = SessionLocal()
             try:
                 recover_stuck_records(recover_db)
+                reopen_orphaned_terminal_tasks(recover_db)
                 from server.app.modules.pipelines.recovery import recover_stuck_pipeline_runs
 
                 recover_stuck_pipeline_runs(recover_db)
@@ -141,6 +148,19 @@ def create_app() -> FastAPI:
             _logging.getLogger(__name__).exception(
                 "Startup recovery failed — stuck records may not have been reset"
             )
+
+    # 启动时记录加密密钥配置状态（spec §4.1）
+    import logging as _logging
+
+    from server.app.core.crypto import encryption_enabled
+
+    _startup_logger = _logging.getLogger(__name__)
+    if encryption_enabled():
+        _startup_logger.info("敏感凭据静态加密已启用（GEO_SECRET_KEY 已配置）")
+    else:
+        _startup_logger.warning(
+            "敏感凭据静态加密未启用：未配置 GEO_SECRET_KEY/GEO_SECRET_KEYS，账号凭据将以明文存储"
+        )
 
     # 全局异常处理：子类先注册，父类后注册，确保子类不被父类处理器吃掉
     # ConflictError → 409（子类，先注册）
@@ -201,6 +221,19 @@ def create_app() -> FastAPI:
         prefix="/api/mcp",
         tags=["mcp-connect"],
         dependencies=[Depends(get_current_user)],
+    )
+    # Loop skill 包分发（Web Section ⑤ 用）—— user JWT 鉴权
+    app.include_router(
+        loop_skills_user_router,
+        prefix="/api/mcp",
+        tags=["loop-skills"],
+        dependencies=[Depends(get_current_user)],
+    )
+    # MCP token 鉴权 (router 自带 dependency)
+    app.include_router(
+        loop_skills_mcp_router,
+        prefix="/api/mcp",
+        tags=["loop-skills-mcp"],
     )
     # MCP token 鉴权（router 自带 dependency）
     app.include_router(
@@ -372,6 +405,17 @@ def create_app() -> FastAPI:
         import logging as _logging
 
         _logging.getLogger(__name__).exception("start_pipeline_scheduler failed")
+
+    # TapTap cookie 体检：GEO_TAPTAP_COOKIE_CHECK_ENABLED=true 时启动后台线程，纯 HTTP 探
+    # account-profile/v1/me，失效则置 expired + 飞书喊人重登（不自动登录）。失败只记日志、不致命。
+    try:
+        from server.app.modules.tasks.taptap_health import start_cookie_check
+
+        start_cookie_check(SessionLocal)
+    except Exception:
+        import logging as _logging
+
+        _logging.getLogger(__name__).exception("start_cookie_check failed")
 
     # 资源指标周期采样（Task 3，封堵 #10）：后台守护线程每 N 秒采池/run 快照打点 +
     # checked_out/max 超阈值升 WARNING（走 resource_metrics.emit_resource_alert 统一告警 hook，

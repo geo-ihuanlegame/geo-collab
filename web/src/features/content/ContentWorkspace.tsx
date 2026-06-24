@@ -1179,11 +1179,14 @@ export function ContentWorkspace({
                           </label>
                           <button type="button" onClick={() => void loadArticle(article)}>
                             <strong>{article.title}</strong>
-                            <span>{article.author || "未填写作者"}</span>
-                            <small>
-                              {formatDateTime(article.updated_at)}
-                              {article.published_count > 0 ? <span style={{ color: "#16a34a", marginLeft: 6 }}>· 已发布 {article.published_count} 次</span> : null}
-                            </small>
+                            <span className="articleSourceLine">智能体：{article.source_agent_name || "—"}</span>
+                            <span className="articleSourceRow">
+                              <span className="articleSourceLine">模板：{article.source_template_name || "—"}</span>
+                              <small>
+                                {formatDateTime(article.updated_at)}
+                                {article.published_count > 0 ? <span style={{ color: "#16a34a", marginLeft: 6 }}>· 已发布 {article.published_count} 次</span> : null}
+                              </small>
+                            </span>
                           </button>
                           <div className="articleItemBadge">
                             <ReviewBadge status={article.review_status} />

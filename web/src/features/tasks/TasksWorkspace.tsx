@@ -415,11 +415,11 @@ export function TasksWorkspace({ isActive }: { isActive?: boolean } = {}) {
     }
   }
 
-  async function retryRecord(recordId: number) {
+  async function retryRecord(recordId: number, opts?: { force?: boolean }) {
     setLoading(true);
     try {
       await singleFlight(`record-retry-${recordId}`, () =>
-        retryRecordRequest(recordId),
+        retryRecordRequest(recordId, opts),
       );
       if (selectedTaskId) {
         setAutoRefreshTaskIds((prev) => new Set(prev).add(selectedTaskId));
@@ -428,7 +428,7 @@ export function TasksWorkspace({ isActive }: { isActive?: boolean } = {}) {
         );
         await refreshDetail(selectedTaskId);
       }
-      toast("重试已启动", "success");
+      toast(opts?.force ? "已强制重发" : "重试已启动", "success");
     } catch (error) {
       toast(error instanceof Error ? error.message : "重试失败", "error");
     } finally {
@@ -668,16 +668,34 @@ export function TasksWorkspace({ isActive }: { isActive?: boolean } = {}) {
                     ) : null}
 
                     {record.status === "failed" && !records.some((r) => r.retry_of_record_id === record.id) ? (
-                      <button
-                        className="secondaryButton"
-                        type="button"
-                        disabled={loading}
-                        style={{ justifySelf: "start" }}
-                        onClick={() => void retryRecord(record.id)}
-                      >
-                        <RefreshCw size={13} />
-                        重试
-                      </button>
+                      record.failure_kind === "commit_uncertain" ? (
+                        <div style={{ marginTop: 4 }}>
+                          <small style={{ color: "#a16207", display: "block", marginBottom: 6 }}>
+                            已提交但结果未知，请先到平台核对是否已发布。
+                          </small>
+                          <button
+                            className="secondaryButton"
+                            type="button"
+                            disabled={loading}
+                            style={{ justifySelf: "start" }}
+                            onClick={() => void retryRecord(record.id, { force: true })}
+                          >
+                            <RefreshCw size={13} />
+                            核对后强制重发
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          className="secondaryButton"
+                          type="button"
+                          disabled={loading}
+                          style={{ justifySelf: "start" }}
+                          onClick={() => void retryRecord(record.id)}
+                        >
+                          <RefreshCw size={13} />
+                          重试
+                        </button>
+                      )
                     ) : null}
                     {record.status === "waiting_user_input" ? (
                       <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>

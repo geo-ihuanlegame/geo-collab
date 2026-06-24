@@ -21,6 +21,11 @@ from server.app.shared.errors import ValidationError
 logger = logging.getLogger(__name__)
 
 
+def _capability_flags(cfg: dict) -> tuple[bool, bool]:
+    """节点「模型能力」开关 → (web_search, deep_thinking)。缺省/旧 config 无此键时默认开（与 node-types default=True 对齐）。"""
+    return bool(cfg.get("web_search", True)), bool(cfg.get("deep_thinking", True))
+
+
 def _coerce_count(v) -> int:
     """非正/非法 → 0（用于"显式数量"判定与回退）。"""
     try:
@@ -75,6 +80,7 @@ def _run_units(
     if total > max_count:
         raise ValidationError(f"生成数量超过上限 {max_count}")
 
+    web_search, deep_thinking = _capability_flags(cfg)
     group_id, stream = make_group_streamer(ctx, cfg)
     article_ids: list[int] = []
     errors: list[str] = []
@@ -87,6 +93,7 @@ def _run_units(
             if tpl is None:
                 raise ValidationError("该单元允许模板在运行时全部无效或未配置")
             template_content = tpl.content
+            template_name = tpl.name
         finally:
             db.close()
         aid = generate_article_from_prompt(
@@ -95,6 +102,10 @@ def _run_units(
             template_content=template_content,
             question_text=qtext,
             model=model,
+            source_agent_name=ctx.pipeline_name,
+            source_template_name=template_name,
+            web_search=web_search,
+            deep_thinking=deep_thinking,
         )
         stream(aid)
         return aid
@@ -151,6 +162,7 @@ def run_ai_compose(ctx: NodeRunContext) -> NodeResult:
     if count <= 0:
         raise ValidationError("生成数量需 > 0")
 
+    web_search, deep_thinking = _capability_flags(cfg)
     group_id, stream = make_group_streamer(ctx, cfg)
     article_ids: list[int] = []
     errors: list[str] = []
@@ -163,6 +175,7 @@ def run_ai_compose(ctx: NodeRunContext) -> NodeResult:
             if tpl is None:
                 raise ValidationError("允许的提示词模板在运行时全部无效")
             template_content = tpl.content
+            template_name = tpl.name
         finally:
             db.close()
         aid = generate_article_from_prompt(
@@ -171,6 +184,10 @@ def run_ai_compose(ctx: NodeRunContext) -> NodeResult:
             template_content=template_content,
             question_text=question_text,
             model=model,
+            source_agent_name=ctx.pipeline_name,
+            source_template_name=template_name,
+            web_search=web_search,
+            deep_thinking=deep_thinking,
         )
         stream(aid)
         return aid

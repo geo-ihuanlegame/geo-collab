@@ -50,6 +50,7 @@ from server.app.modules.accounts.schemas import (
     BackfillIdentityResult,
     LoginSessionStatusRead,
     PlatformLoginRequest,
+    TaptapForumIn,
     to_account_read,
 )
 from server.app.modules.audit.service import add_audit_entry
@@ -532,6 +533,30 @@ def verify_account_credentials_endpoint(
             request=request,
         )
         raise
+
+
+@router.put("/{account_id:int}/taptap-forum", response_model=AccountRead)
+def set_taptap_forum_endpoint(
+    account_id: int,
+    payload: TaptapForumIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AccountRead:
+    """设置 TapTap 账号论坛绑定（app_id/group_id/x_ua）。属管理操作：仅 owner/admin。"""
+    account = _require_manage(db, get_account(db, account_id), current_user)
+    updated = account_service.set_taptap_forum(db, account, payload)
+    db.commit()
+    add_audit_entry(
+        db,
+        user=current_user,
+        action="account.set_taptap_forum",
+        target_type="account",
+        target_id=account_id,
+        payload={"app_id": payload.app_id, "group_id": payload.group_id},
+        request=request,
+    )
+    return _account_read(db, updated, current_user)
 
 
 @router.patch("/{account_id:int}", response_model=AccountRead)

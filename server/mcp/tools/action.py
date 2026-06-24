@@ -1,12 +1,18 @@
 """写操作 Action 类工具。
 
 compose / illustrate / submit_review / set_review_status / create_distribute / notify
+
+tool 一律声明为 `async def` + 把阻塞 HTTP 调用经 `anyio.to_thread.run_sync` 丢线程池，
+理由同 catalog.py 模块 docstring：FastMCP 对同步 tool 在事件循环里 inline 跑，而 self-call
+打的是同进程单 worker uvicorn(127.0.0.1:8000)，同步阻塞会把循环锁死 → 自调用死锁到超时。
 """
 
 from __future__ import annotations
 
 import os
 from typing import Any
+
+import anyio
 
 from server.mcp.config import get_config
 from server.mcp.http_client import ApiError, GeoApiClient
@@ -30,13 +36,37 @@ def _fail(error: str) -> dict[str, Any]:
     return {"ok": False, "data": None, "error": error}
 
 
+async def _apost(path: str, *, json: dict[str, Any] | None = None) -> dict[str, Any]:
+    """同步 POST 丢线程池跑，避免阻塞事件循环（见 catalog.py 的自调用死锁说明）。"""
+
+    def _impl() -> dict[str, Any]:
+        try:
+            return _ok(_client().post(path, json=json))
+        except ApiError as exc:
+            return _fail(str(exc))
+
+    return await anyio.to_thread.run_sync(_impl)
+
+
+async def _aget(path: str, *, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    """同步 GET 丢线程池跑，避免阻塞事件循环（见 catalog.py 的自调用死锁说明）."""
+
+    def _impl() -> dict[str, Any]:
+        try:
+            return _ok(_client().get(path, params=params))
+        except ApiError as exc:
+            return _fail(str(exc))
+
+    return await anyio.to_thread.run_sync(_impl)
+
+
 # POC 期：调 compose_article 用一个固定 admin user_id 代表 Loop 身份。
 # 后续可在 MCP 配置里加 `GEO_MCP_OPERATOR_USER_ID`，这里读环境变量。
 _OPERATOR_USER_ID = int(os.environ.get("GEO_MCP_OPERATOR_USER_ID", "1"))
 
 
 @mcp.tool()
-def save_article(
+async def save_article(
     question_item_id: int,
     prompt_template_id: int,
     title: str,
@@ -79,15 +109,11 @@ def save_article(
     }
     if model_label:
         payload["model_label"] = model_label
-    try:
-        data = _client().post("/api/articles/save-from-mcp", json=payload)
-        return _ok(data)
-    except ApiError as exc:
-        return _fail(str(exc))
+    return await _apost("/api/articles/save-from-mcp", json=payload)
 
 
 @mcp.tool()
-def illustrate_article(
+async def illustrate_article(
     article_id: int,
     category_ids: list[int] | None = None,
     image_positions: list[int] | None = None,
@@ -104,15 +130,11 @@ def illustrate_article(
         body["category_ids"] = category_ids
     if image_positions:
         body["image_positions"] = image_positions
-    try:
-        data = _client().post(f"/api/articles/{article_id}/illustrate", json=body)
-        return _ok(data)
-    except ApiError as exc:
-        return _fail(str(exc))
+    return await _apost(f"/api/articles/{article_id}/illustrate", json=body)
 
 
 @mcp.tool()
-def submit_review_decision(
+async def submit_review_decision(
     article_id: int,
     decision: str,
     score_total: int | None = None,
@@ -142,15 +164,11 @@ def submit_review_decision(
         body["score_breakdown"] = score_breakdown
     if reasoning:
         body["reasoning"] = reasoning
-    try:
-        data = _client().post(f"/api/articles/{article_id}/auto-review", json=body)
-        return _ok(data)
-    except ApiError as exc:
-        return _fail(str(exc))
+    return await _apost(f"/api/articles/{article_id}/auto-review", json=body)
 
 
 @mcp.tool()
-def notify_feishu(
+async def notify_feishu(
     title: str,
     message: str,
     level: str = "info",
@@ -164,18 +182,14 @@ def notify_feishu(
     """
     if level not in ("info", "warning", "error", "done"):
         return _fail(f"invalid level: {level}")
-    try:
-        data = _client().post(
-            "/api/system/feishu-notify",
-            json={"title": title, "message": message, "level": level},
-        )
-        return _ok(data)
-    except ApiError as exc:
-        return _fail(str(exc))
+    return await _apost(
+        "/api/system/feishu-notify",
+        json={"title": title, "message": message, "level": level},
+    )
 
 
 @mcp.tool()
-def set_review_status(article_id: int, review_status: str) -> dict[str, Any]:
+async def set_review_status(article_id: int, review_status: str) -> dict[str, Any]:
     """Update an article's review_status.
 
     Args:
@@ -186,18 +200,14 @@ def set_review_status(article_id: int, review_status: str) -> dict[str, Any]:
     """
     if review_status not in ("pending", "approved"):
         return _fail(f"invalid review_status: {review_status}")
-    try:
-        data = _client().post(
-            f"/api/articles/{article_id}/set-review-status",
-            json={"review_status": review_status},
-        )
-        return _ok(data)
-    except ApiError as exc:
-        return _fail(str(exc))
+    return await _apost(
+        f"/api/articles/{article_id}/set-review-status",
+        json={"review_status": review_status},
+    )
 
 
 @mcp.tool()
-def create_distribute_task(
+async def create_distribute_task(
     name: str,
     article_ids: list[int],
     account_ids: list[int],
@@ -221,8 +231,41 @@ def create_distribute_task(
         "user_id": _OPERATOR_USER_ID,
         "stop_before_publish": stop_before_publish,
     }
-    try:
-        data = _client().post("/api/tasks/mcp", json=body)
-        return _ok(data)
-    except ApiError as exc:
-        return _fail(str(exc))
+    return await _apost("/api/tasks/mcp", json=body)
+
+
+@mcp.tool()
+async def install_loop_skills() -> dict[str, Any]:
+    """Fetch the /goal Loop skill bundle so Claude Code can install it locally.
+
+    Returns a dict containing all 5 template files (README, slash command, 3 SKILL.md).
+    The calling Claude Code session should then use its Write tool to write each
+    file to the user's `.claude/` directory.
+
+    Use this when the user asks something like "install geo loop skills" or
+    "set me up to use /goal". Before writing files, check whether the user has
+    a local `.claude/` directory (project-level or `~/.claude/`) and ask
+    which they prefer.
+
+    Returns:
+        {"ok": True, "data": {
+            "version": str,                # e.g. "2026-06-24-v1"
+            "bundle_sha256": str,
+            "install_hint": str,           # plain-English placement guidance
+            "files": [
+                {"path": str, "content": str, "sha256": str, "size": int},
+                ...
+            ],
+        }, "error": None}
+    """
+    # 后端 /install-payload 已经返回了完整 {ok, data, error} 结构，这里直接透传.
+    # _aget 默认会把 GeoApiClient.get 的返回值再 wrap 一层 _ok()，因此
+    # 实际拿到的是 {"ok": True, "data": {"ok": True, "data": {...}, "error": None}, "error": None}.
+    # 把内层剥出来，让 LLM 看到的契约干净.
+    raw = await _aget("/api/mcp/loop-skill-bundle/install-payload")
+    if not raw.get("ok"):
+        return raw  # 透传 _fail 结构
+    inner = raw.get("data") or {}
+    if isinstance(inner, dict) and "ok" in inner and "data" in inner:
+        return inner  # 后端已经返了 {ok, data, error}
+    return raw

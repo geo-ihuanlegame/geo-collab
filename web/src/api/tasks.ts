@@ -51,6 +51,9 @@ export function manualConfirmRecord(recordId: number, payload: ManualConfirmPayl
   });
 }
 
-export function retryRecord(recordId: number): Promise<PublishRecord> {
-  return api<PublishRecord>(`/api/publish-records/${recordId}/retry`, { method: "POST" });
+export function retryRecord(recordId: number, opts?: { force?: boolean }): Promise<PublishRecord> {
+  const url = opts?.force
+    ? `/api/publish-records/${recordId}/retry?force=true`
+    : `/api/publish-records/${recordId}/retry`;
+  return api<PublishRecord>(url, { method: "POST" });
 }

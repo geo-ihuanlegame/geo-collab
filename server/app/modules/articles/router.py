@@ -185,6 +185,8 @@ def read_articles(
             version=a.version,
             review_status=a.review_status,
             published_count=count_map.get(a.id, 0),
+            source_agent_name=a.source_agent_name,
+            source_template_name=a.source_template_name,
             created_at=a.created_at,
             updated_at=a.updated_at,
         )

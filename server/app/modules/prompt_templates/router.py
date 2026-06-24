@@ -19,6 +19,7 @@ from server.app.modules.prompt_templates.service import (
     create_prompt_template,
     delete_prompt_template,
     get_prompt_template,
+    list_prompt_templates,
     list_visible_prompts,
     patch_prompt_template,
     update_prompt_template,
@@ -28,17 +29,36 @@ from server.app.modules.system.models import User
 router = APIRouter()
 
 
-def _ensure_can_modify(template: Any, current_user: User) -> None:
-    """改/删权限：admin 通吃；普通用户只能动自己的非系统模板（系统模板对其只读）。"""
+def _ensure_can_edit(template: Any, current_user: User) -> None:
+    """编辑权限：admin 通吃；普通用户可编辑系统/共享模板与自己的模板，
+    但不能编辑其他普通用户的私有模板。系统模板（如「基础」AI格式提示词）全员共享可改。"""
+    if current_user.role == "admin":
+        return
+    if template.is_system or template.user_id == current_user.id:
+        return
+    raise HTTPException(status_code=403, detail="No permission to modify this prompt template")
+
+
+def _ensure_can_delete(template: Any, current_user: User) -> None:
+    """删除权限：admin 通吃；普通用户只能删自己的非系统模板。
+    系统/共享模板的删除收归 admin（防误删全局资源）。"""
     if current_user.role == "admin":
         return
     if template.is_system or template.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="No permission to modify this prompt template")
+        raise HTTPException(status_code=403, detail="Only admin can delete system prompt templates")
 
 
-def _ensure_system_allowed(is_system: bool | None, current_user: User) -> None:
-    """仅 admin 可创建/设置系统模板；普通用户传 is_system=True 直接 403。"""
-    if is_system and current_user.role != "admin":
+def _ensure_system_change_allowed(
+    requested_is_system: bool | None, current_is_system: bool, current_user: User
+) -> None:
+    """is_system 标记的变更收归 admin：普通用户尝试改变该标记直接 403；
+    标记不变（如编辑系统模板时透传原值）则放行。requested 为 None 表示不动该字段。
+    创建场景把 current 传 False 即可复用：普通用户置 True → 403。"""
+    if current_user.role == "admin":
+        return
+    if requested_is_system is None:
+        return
+    if requested_is_system != current_is_system:
         raise HTTPException(
             status_code=403, detail="Only admin can create or manage system prompt templates"
         )
@@ -50,6 +70,11 @@ def read_prompt_templates(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[Any]:
+    # admin 看全量（含其他用户私有模板），普通用户只看本人 + 系统模板。
+    # 编辑/删除权限早已是「admin 通吃」（_ensure_can_edit/_ensure_can_delete 走不过滤可见性的
+    # get_prompt_template），此前唯一缺口是列表看不到别人的私有模板、UI 上点不进去。
+    if current_user.role == "admin":
+        return list_prompt_templates(db, scope=scope)
     return list_visible_prompts(db, user_id=current_user.id, scope=scope)
 
 
@@ -60,7 +85,7 @@ def create_prompt_template_route(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Any:
-    _ensure_system_allowed(payload.is_system, current_user)
+    _ensure_system_change_allowed(payload.is_system, False, current_user)
     template = create_prompt_template(
         db,
         name=payload.name,
@@ -92,8 +117,8 @@ def update_prompt_template_route(
     template = get_prompt_template(db, template_id)
     if template is None:
         raise HTTPException(status_code=404, detail="Prompt template not found")
-    _ensure_can_modify(template, current_user)
-    _ensure_system_allowed(payload.is_system, current_user)
+    _ensure_can_edit(template, current_user)
+    _ensure_system_change_allowed(payload.is_system, template.is_system, current_user)
     updated = update_prompt_template(
         db,
         template,
@@ -125,8 +150,8 @@ def patch_prompt_template_route(
     template = get_prompt_template(db, template_id)
     if template is None:
         raise HTTPException(status_code=404, detail="Prompt template not found")
-    _ensure_can_modify(template, current_user)
-    _ensure_system_allowed(payload.is_system, current_user)
+    _ensure_can_edit(template, current_user)
+    _ensure_system_change_allowed(payload.is_system, template.is_system, current_user)
     result = patch_prompt_template(
         db,
         template,
@@ -156,7 +181,7 @@ def delete_prompt_template_route(
     template = get_prompt_template(db, template_id)
     if template is None:
         raise HTTPException(status_code=404, detail="Prompt template not found")
-    _ensure_can_modify(template, current_user)
+    _ensure_can_delete(template, current_user)
     template_name = template.name
     delete_prompt_template(db, template)
     add_audit_entry(

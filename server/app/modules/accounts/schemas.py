@@ -26,8 +26,10 @@ class AccountRead(BaseModel):
     contact: str | None = None  # 绑定联系方式
     avatar_asset_id: str | None = None
     distribution_enabled: bool = True
-    app_id: str | None = None  # API 型账号的 AppID（明文）
+    app_id: str | None = None  # API 型账号的 AppID（明文）；TapTap = 游戏 app_id
     app_secret_tail: str | None = None  # AppSecret 尾 4 位掩码；原文永不回传
+    group_id: str | None = None  # TapTap 论坛版块 id（明文）
+    x_ua_configured: bool = False  # TapTap 是否已显式配置 x_ua（原文不回传，仅回是否已设）
     # ── 共享账号派生字段（见设计稿 §2.6）──────────────────────────────────
     owner_name: str | None = None  # owner 的显示名（display_name 优先回落 username）
     member_count: int = 0  # 该账号被授予的成员数（不含 owner）
@@ -118,6 +120,14 @@ class ApiCredentialsIn(BaseModel):
     app_secret: str = Field(min_length=1, max_length=200)
 
 
+class TaptapForumIn(BaseModel):
+    """TapTap 账号论坛绑定配置（每账号固定一个论坛；x_ua 选填，留空则由 VID 合成）。"""
+
+    app_id: str = Field(min_length=1, max_length=100)  # 游戏 app_id
+    group_id: str = Field(min_length=1, max_length=100)  # 论坛版块 id
+    x_ua: str | None = Field(default=None, max_length=500)  # 选填，捕获的 X-UA 原串
+
+
 class ApiAccountCreate(BaseModel):
     """API 型平台（如微信公众号）账号创建：凭据直填，无浏览器登录。"""
 
@@ -180,6 +190,8 @@ def to_account_read(
         distribution_enabled=account.distribution_enabled,
         app_id=creds.get("app_id"),
         app_secret_tail=secret[-4:] if secret else None,
+        group_id=creds.get("group_id"),
+        x_ua_configured=bool(creds.get("x_ua")),
         owner_name=owner_name,
         member_count=member_count,
         can_manage=can_manage,

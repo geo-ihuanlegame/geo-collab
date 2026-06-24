@@ -98,7 +98,7 @@ def test_create_run_rejects_when_active_run_exists(monkeypatch):
 
 @pytest.mark.mysql
 def test_run_all_generation_failed_is_failed_with_error_message(monkeypatch):
-    def _boom(*, session_factory, user_id, template_content, question_text, model=None):
+    def _boom(*, session_factory, user_id, template_content, question_text, model=None, **_):
         raise RuntimeError("LLM 503")
 
     monkeypatch.setattr(
@@ -217,7 +217,9 @@ def test_run_downgraded_when_grouping_fails(monkeypatch):
     from server.app.modules.articles.schemas import ArticleCreate
     from server.app.modules.articles.service import create_article
 
-    def _fake_generate(*, session_factory, user_id, template_content, question_text, model=None):
+    def _fake_generate(
+        *, session_factory, user_id, template_content, question_text, model=None, **_
+    ):
         db = session_factory()
         try:
             art = create_article(
@@ -408,7 +410,9 @@ def test_terminal_status_written_once_after_grouping(monkeypatch):
     from server.app.modules.articles.schemas import ArticleCreate
     from server.app.modules.articles.service import create_article
 
-    def _fake_generate(*, session_factory, user_id, template_content, question_text, model=None):
+    def _fake_generate(
+        *, session_factory, user_id, template_content, question_text, model=None, **_
+    ):
         db = session_factory()
         try:
             art = create_article(

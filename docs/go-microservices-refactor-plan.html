@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Geo 协作平台 · Go 微服务重构方案</title>
+<style>
+  :root{
+    --bg:#f6f8fb; --card:#ffffff; --ink:#1f2733; --muted:#647082;
+    --line:#e6ebf2; --brand:#2f6df6; --brand-soft:#eaf1ff;
+    --green:#1f9d6b; --green-soft:#e7f6ef; --amber:#c8881a; --amber-soft:#fdf3e0;
+    --red:#d6493b; --red-soft:#fdeceA; --purple:#7a52d6; --purple-soft:#f0eafb;
+    --slate:#475569;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.65; font-size:15px; -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1080px; margin:0 auto; padding:0 24px 80px}
+  header.hero{
+    background:linear-gradient(135deg,#1f3a8a 0%,#2f6df6 60%,#4a90ff 100%);
+    color:#fff; padding:54px 0 46px; margin-bottom:34px;
+  }
+  header.hero .wrap{padding-bottom:0}
+  .eyebrow{font-size:13px; letter-spacing:2px; text-transform:uppercase; opacity:.82; margin:0 0 10px}
+  header.hero h1{font-size:33px; margin:0 0 14px; font-weight:700; letter-spacing:.5px}
+  header.hero p{font-size:16px; margin:0; max-width:760px; opacity:.94}
+  .meta-row{margin-top:22px; display:flex; flex-wrap:wrap; gap:10px}
+  .chip{background:rgba(255,255,255,.16); border:1px solid rgba(255,255,255,.25);
+    padding:6px 13px; border-radius:20px; font-size:13px; backdrop-filter:blur(2px)}
+
+  section{margin:34px 0}
+  h2{font-size:21px; margin:0 0 6px; display:flex; align-items:center; gap:10px}
+  h2 .num{display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px;
+    background:var(--brand); color:#fff; border-radius:8px; font-size:14px; font-weight:700}
+  h2 + .sub{color:var(--muted); margin:0 0 18px; font-size:14px}
+  h3{font-size:16px; margin:22px 0 10px}
+
+  .card{background:var(--card); border:1px solid var(--line); border-radius:14px;
+    padding:22px 24px; box-shadow:0 1px 2px rgba(20,40,80,.04)}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+  .grid3{display:grid; grid-template-columns:repeat(3,1fr); gap:16px}
+  @media(max-width:760px){.grid2,.grid3{grid-template-columns:1fr}}
+
+  /* conclusion box */
+  .verdict{background:linear-gradient(180deg,#fff,#fafcff); border:1px solid #d6e2fb;
+    border-left:5px solid var(--brand); border-radius:14px; padding:22px 24px}
+  .verdict h2{margin-bottom:12px}
+  .verdict ul{margin:8px 0 0; padding-left:20px}
+  .verdict li{margin:7px 0}
+  .kpis{display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-top:20px}
+  @media(max-width:760px){.kpis{grid-template-columns:1fr 1fr}}
+  .kpi{background:var(--brand-soft); border:1px solid #d6e2fb; border-radius:12px; padding:16px; text-align:center}
+  .kpi .big{font-size:26px; font-weight:800; color:var(--brand); line-height:1.2}
+  .kpi .lbl{font-size:12.5px; color:var(--slate); margin-top:4px}
+
+  /* decisions */
+  .decision{display:flex; gap:14px; align-items:flex-start; padding:14px 0; border-bottom:1px dashed var(--line)}
+  .decision:last-child{border-bottom:0}
+  .decision .tag{flex:none; background:var(--green-soft); color:var(--green); font-weight:700;
+    border-radius:8px; padding:4px 10px; font-size:13px; white-space:nowrap}
+  .decision .body b{color:var(--ink)}
+  .decision .body span{color:var(--muted)}
+
+  /* arch diagram */
+  .arch{display:flex; flex-direction:column; gap:12px}
+  .layer{border:1px solid var(--line); border-radius:12px; padding:14px 16px; background:#fff}
+  .layer .ltitle{font-size:12.5px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:1px; margin-bottom:10px}
+  .nodes{display:flex; flex-wrap:wrap; gap:10px}
+  .node{border-radius:10px; padding:9px 13px; font-size:13.5px; font-weight:600; border:1px solid}
+  .node small{display:block; font-weight:400; font-size:11.5px; opacity:.75; margin-top:1px}
+  .n-go{background:var(--brand-soft); border-color:#cfe0ff; color:#214a9c}
+  .n-py{background:var(--amber-soft); border-color:#f1ddb0; color:#8a5d12}
+  .n-infra{background:#eef1f5; border-color:#dde3ec; color:#3f4a5a}
+  .arrow{text-align:center; color:#9aa6b6; font-size:18px; line-height:1}
+
+  table{width:100%; border-collapse:collapse; font-size:13.5px; background:#fff; border-radius:12px; overflow:hidden}
+  th,td{text-align:left; padding:10px 12px; border-bottom:1px solid var(--line); vertical-align:top}
+  th{background:#f1f5fb; font-weight:700; color:var(--slate); font-size:12.5px}
+  tr:last-child td{border-bottom:0}
+  .badge{display:inline-block; padding:2px 9px; border-radius:20px; font-size:12px; font-weight:600}
+  .b-go{background:var(--brand-soft); color:#214a9c}
+  .b-py{background:var(--amber-soft); color:#8a5d12}
+  .b-low{background:var(--green-soft); color:var(--green)}
+  .b-mid{background:var(--amber-soft); color:var(--amber)}
+  .b-high{background:var(--red-soft); color:var(--red)}
+
+  /* pros cons */
+  .pc{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+  @media(max-width:760px){.pc{grid-template-columns:1fr}}
+  .pc .col{border-radius:12px; padding:18px 20px}
+  .pc .pro{background:var(--green-soft); border:1px solid #c8ead8}
+  .pc .con{background:var(--amber-soft); border:1px solid #f1ddb0}
+  .pc h4{margin:0 0 10px; font-size:15px; display:flex; align-items:center; gap:7px}
+  .pc ul{margin:0; padding-left:18px}
+  .pc li{margin:6px 0; font-size:13.5px}
+
+  /* risks */
+  .risk{display:flex; gap:14px; padding:13px 0; border-bottom:1px solid var(--line)}
+  .risk:last-child{border-bottom:0}
+  .risk .lvl{flex:none; width:64px; text-align:center}
+  .risk .desc b{display:block; margin-bottom:2px}
+  .risk .desc span{color:var(--muted); font-size:13.5px}
+
+  /* timeline gantt */
+  .gantt{display:grid; grid-template-columns:160px repeat(12,1fr); gap:6px 4px; align-items:center; font-size:12.5px}
+  .gantt .hcell{font-weight:700; color:var(--muted); text-align:center; font-size:11.5px; padding-bottom:4px}
+  .gantt .mname{font-weight:600}
+  .gantt .bar{height:26px; border-radius:7px; display:flex; align-items:center; justify-content:center;
+    color:#fff; font-size:11.5px; font-weight:600; white-space:nowrap}
+  .bar-blue{background:linear-gradient(90deg,#3b7bf7,#5a93ff)}
+  .bar-green{background:linear-gradient(90deg,#1f9d6b,#37b682)}
+  .bar-amber{background:linear-gradient(90deg,#d39320,#e0a93f)}
+  .bar-purple{background:linear-gradient(90deg,#7a52d6,#9470e6)}
+  .bar-slate{background:linear-gradient(90deg,#566377,#6d7c91)}
+  @media(max-width:760px){.gantt{grid-template-columns:110px repeat(12,1fr); font-size:10px}}
+
+  .tl-note{margin-top:14px; font-size:13px; color:var(--muted)}
+  .legend{display:flex; flex-wrap:wrap; gap:14px; margin-top:14px; font-size:12.5px; color:var(--slate)}
+  .legend span{display:inline-flex; align-items:center; gap:6px}
+  .dot{width:11px; height:11px; border-radius:3px; display:inline-block}
+
+  footer{color:var(--muted); font-size:13px; text-align:center; margin-top:40px; padding-top:20px; border-top:1px solid var(--line)}
+  .pill{display:inline-block; background:#eef1f5; border-radius:6px; padding:1px 7px; font-size:12.5px; color:var(--slate)}
+  @media print{
+    body{background:#fff} .card,.layer,table{box-shadow:none}
+    header.hero{background:#2f6df6 !important; -webkit-print-color-adjust:exact; print-color-adjust:exact}
+    section{break-inside:avoid}
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <p class="eyebrow">架构演进提案 · Architecture Proposal</p>
+    <h1>Geo 协作平台 — Go 微服务重构方案</h1>
+    <p>把现有 Python 单体演进为「模块独立部署、团队各自维护、契约 + 异步事件协作」的微服务体系,统一管理后台用 ant-design-pro 重构。本文为决策层概览。</p>
+    <div class="meta-row">
+      <span class="chip">📅 2026-06-24</span>
+      <span class="chip">🎯 后端 Go 微服务</span>
+      <span class="chip">🔁 绞杀者渐进迁移</span>
+      <span class="chip">🗄 共享库软隔离起步</span>
+      <span class="chip">🐍 发文保留 Python</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- 结论先行 -->
+  <section>
+    <div class="verdict">
+      <h2><span class="num">✓</span> 结论(先看这里)</h2>
+      <p style="margin:0 0 6px">现有系统是一个功能完整、依赖关系清晰(无环)的 Python 单体。<b>具备拆分为微服务的条件,但不建议推倒重写</b>。推荐采用「绞杀者」渐进迁移:保持业务在线,新 Go 服务逐个上线接管,旧单体逐步退役,<b>全程可回滚、不中断业务</b>。</p>
+      <ul>
+        <li><b>能达成核心诉求</b>:生文、发文、编排等模块最终各自独立部署、由对应团队独立发版。</li>
+        <li><b>关键取舍</b>:发文/浏览器自动化(Playwright + 远程接管)<b>保留 Python</b>,封装成独立发布服务——重写它收益低、风险高。</li>
+        <li><b>最大价值早期可见</b>:统一管理后台 + 发文团队自治,可在迁移中段就交付,无需等到全部完成。</li>
+        <li><b>预计周期约 10–13 个月</b>(团队并行推进),按里程碑分阶段交付,每阶段独立产生价值。</li>
+      </ul>
+      <div class="kpis">
+        <div class="kpi"><div class="big">13</div><div class="lbl">目标微服务数</div></div>
+        <div class="kpi"><div class="big">6</div><div class="lbl">迁移里程碑</div></div>
+        <div class="kpi"><div class="big">~207</div><div class="lbl">现有 API 端点</div></div>
+        <div class="kpi"><div class="big">10–13<small style="font-size:13px"> 月</small></div><div class="lbl">预计周期</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 三条决策基线 -->
+  <section>
+    <h2><span class="num">1</span> 三条决策基线</h2>
+    <p class="sub">以下三个方向已确认,它们决定了整套方案的成本与风险走向。</p>
+    <div class="card">
+      <div class="decision">
+        <span class="tag">发文技术栈</span>
+        <div class="body"><b>浏览器自动化保留 Python。</b> <span>Playwright + Xvfb/noVNC 远程接管 + 各平台驱动是 Linux 重资产,封装成独立的「发布服务」,与 Go 服务通过契约/事件协作。重写风险最高、收益最低,不做。</span></div>
+      </div>
+      <div class="decision">
+        <span class="tag">数据库策略</span>
+        <div class="body"><b>先共享一个数据库、按表所有权软隔离,再逐步物理拆库。</b> <span>每张表只有一个服务可写,禁止跨服务直连。迁移平滑、回滚容易;边界验证稳定后再拆独立库。</span></div>
+      </div>
+      <div class="decision">
+        <span class="tag">迁移节奏</span>
+        <div class="body"><b>绞杀者(Strangler)渐进迁移。</b> <span>新增 API 网关作「接缝」,Go 服务一个个上线接管流量,Python 模块逐个退役。每步可独立验证、可回滚,业务不中断。</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 目标架构 -->
+  <section>
+    <h2><span class="num">2</span> 目标架构与模块划分</h2>
+    <p class="sub">统一前端 → API 网关 → 三类服务域 → 事件总线 + 共享数据层。蓝色 = Go 新建,橙色 = Python 保留,灰色 = 基础设施。</p>
+    <div class="card">
+      <div class="arch">
+        <div class="layer">
+          <div class="ltitle">接入层</div>
+          <div class="nodes">
+            <div class="node n-infra" style="flex:1">ant-design-pro 统一管理后台<small>保留 Tiptap 富文本 / 节点编辑器 / noVNC 远程桌面</small></div>
+          </div>
+        </div>
+        <div class="arrow">▼</div>
+        <div class="layer">
+          <div class="ltitle">网关层(绞杀者接缝)</div>
+          <div class="nodes">
+            <div class="node n-go" style="flex:1">API Gateway · 统一入口 / 鉴权 / 路由 / 灰度切流<small>JWT 校验 · MCP token 旁路</small></div>
+          </div>
+        </div>
+        <div class="arrow">▼</div>
+        <div class="grid3">
+          <div class="layer">
+            <div class="ltitle">核心域 (Go)</div>
+            <div class="nodes" style="flex-direction:column">
+              <div class="node n-go" style="width:100%">identity 用户/平台/鉴权</div>
+              <div class="node n-go" style="width:100%">content 内容/文章/审核态</div>
+              <div class="node n-go" style="width:100%">generation 生文/方案运行</div>
+              <div class="node n-go" style="width:100%">orchestration 工作流编排</div>
+            </div>
+          </div>
+          <div class="layer">
+            <div class="ltitle">发文域 (Python 保留)</div>
+            <div class="nodes" style="flex-direction:column">
+              <div class="node n-py" style="width:100%">publishing 发布服务<small>账号 + 驱动 + 发布 worker + 浏览器/noVNC 整体打包</small></div>
+              <div class="node n-py" style="width:100%">llm-gateway<small>封装 LiteLLM,Go 服务的 AI 出口</small></div>
+            </div>
+          </div>
+          <div class="layer">
+            <div class="ltitle">支撑域 (Go,低耦合)</div>
+            <div class="nodes" style="flex-direction:column">
+              <div class="node n-go" style="width:100%">prompt-template 提示词</div>
+              <div class="node n-go" style="width:100%">image 图片库(MinIO)</div>
+              <div class="node n-go" style="width:100%">ai-model · audit · performance</div>
+              <div class="node n-go" style="width:100%">auto-review · hotlist</div>
+            </div>
+          </div>
+        </div>
+        <div class="arrow">▼</div>
+        <div class="layer">
+          <div class="ltitle">异步契约总线</div>
+          <div class="nodes"><div class="node n-infra" style="flex:1">Event Bus · NATS JetStream（事件驱动解耦 · Outbox 可靠投递）</div></div>
+        </div>
+        <div class="layer">
+          <div class="ltitle">数据层</div>
+          <div class="nodes">
+            <div class="node n-infra" style="flex:1">MySQL（共享库 → 逐步拆分）</div>
+            <div class="node n-infra" style="flex:1">Redis（分布式锁/计数/队列）</div>
+            <div class="node n-infra" style="flex:1">MinIO（对象存储）</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 服务清单表 -->
+  <section>
+    <h2><span class="num">3</span> 服务清单与团队归属</h2>
+    <p class="sub">每个服务有明确的负责团队,可独立发版、独立扩缩。账号管理并入发布服务——它与浏览器自动化强绑,是最自然的团队边界。</p>
+    <table>
+      <thead><tr><th>服务</th><th>语言</th><th>职责</th><th>建议团队</th><th>拆分难度</th></tr></thead>
+      <tbody>
+        <tr><td>identity</td><td><span class="badge b-go">Go</span></td><td>用户 / 平台 / 鉴权 / 权限</td><td>平台基础组</td><td><span class="badge b-mid">中</span></td></tr>
+        <tr><td>content</td><td><span class="badge b-go">Go</span></td><td>文章 / 分组 / 资产 / 审核状态机</td><td>内容组</td><td><span class="badge b-high">高</span></td></tr>
+        <tr><td>generation</td><td><span class="badge b-go">Go</span></td><td>问题池 / 方案 / 方案运行(生文)</td><td>生文组</td><td><span class="badge b-high">高</span></td></tr>
+        <tr><td>orchestration</td><td><span class="badge b-go">Go</span></td><td>可视化工作流编排 / 调度</td><td>编排组</td><td><span class="badge b-high">高</span></td></tr>
+        <tr><td>publishing</td><td><span class="badge b-py">Python</span></td><td>发布任务 / 账号 / 驱动 / 浏览器 / 远程接管</td><td>发文组</td><td><span class="badge b-mid">中</span></td></tr>
+        <tr><td>prompt-template</td><td><span class="badge b-go">Go</span></td><td>提示词模板 CRUD</td><td>内容组</td><td><span class="badge b-low">低</span></td></tr>
+        <tr><td>image</td><td><span class="badge b-go">Go</span></td><td>图片库 / 智能配图(MinIO)</td><td>内容组</td><td><span class="badge b-low">低</span></td></tr>
+        <tr><td>ai-model</td><td><span class="badge b-go">Go</span></td><td>AI 模型注册表</td><td>生文组</td><td><span class="badge b-low">低</span></td></tr>
+        <tr><td>audit / performance</td><td><span class="badge b-go">Go</span></td><td>审计日志 / 效果指标聚合</td><td>平台 / 数据组</td><td><span class="badge b-low">低</span></td></tr>
+        <tr><td>auto-review / hotlist</td><td><span class="badge b-go">Go</span></td><td>自动审核 / 热榜代理</td><td>生文 / 平台组</td><td><span class="badge b-low">低</span></td></tr>
+        <tr><td>llm-gateway</td><td><span class="badge b-py">Python</span></td><td>封装 LiteLLM,统一 AI 出口</td><td>生文组</td><td><span class="badge b-low">低</span></td></tr>
+        <tr><td>api-gateway</td><td><span class="badge b-go">Go</span></td><td>统一入口 / 鉴权 / 路由</td><td>平台基础组</td><td><span class="badge b-mid">中</span></td></tr>
+      </tbody>
+    </table>
+    <p class="tl-note"><b>技术栈选型:</b> Go 框架 <span class="pill">go-zero</span>(自带代码生成、RPC、限流熔断,降低上手门槛) · 事件总线 <span class="pill">NATS JetStream</span> · 跨服务事务 <span class="pill">Saga + Outbox</span> · 分布式协调 <span class="pill">Redis</span> · 可观测性 <span class="pill">OpenTelemetry + Grafana</span>。</p>
+  </section>
+
+  <!-- 优缺点 -->
+  <section>
+    <h2><span class="num">4</span> 优势与代价</h2>
+    <p class="sub">微服务化解决"团队协作 + 独立部署",但也引入分布式系统固有的复杂度。客观权衡如下。</p>
+    <div class="pc">
+      <div class="col pro">
+        <h4>✅ 收益</h4>
+        <ul>
+          <li><b>模块独立部署、独立发版</b>:生文、发文、编排互不阻塞,团队各自掌控发布节奏。</li>
+          <li><b>团队边界清晰</b>:每个服务有明确 owner 与契约,降低协作摩擦与代码冲突。</li>
+          <li><b>按需扩缩</b>:生文/编排可水平扩展(解除现有"只能单实例"限制),发文按平台独立扩容。</li>
+          <li><b>故障隔离</b>:单服务故障不再拖垮全站;一个模块崩溃不影响其它业务。</li>
+          <li><b>技术栈灵活</b>:Go 高并发低成本承载核心域,Python 留守其最擅长的浏览器自动化与 AI 生态。</li>
+          <li><b>统一现代后台</b>:ant-design-pro 提升运营体验与可维护性。</li>
+        </ul>
+      </div>
+      <div class="col con">
+        <h4>⚠️ 代价</h4>
+        <ul>
+          <li><b>分布式复杂度上升</b>:跨服务事务由本地事务变为 Saga/事件,引入最终一致与新的失败模式。</li>
+          <li><b>运维成本增加</b>:多服务部署、链路追踪、监控告警是必备投入,不能省。</li>
+          <li><b>迁移周期较长</b>:绞杀者模式稳但慢,需长期 Go/Python 共存。</li>
+          <li><b>团队 Go 能力要求</b>:需要一定的 Go 工程储备(可用 go-zero + 低风险服务先练手)。</li>
+          <li><b>部分逻辑需重做</b>:生文/编排的并发机制依赖单进程内存,跨服务后必须改造为分布式版本。</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 风险 -->
+  <section>
+    <h2><span class="num">5</span> 关键风险与应对</h2>
+    <p class="sub">基于真实代码探查识别的主要风险,均有可落地的缓解措施。</p>
+    <div class="card">
+      <div class="risk">
+        <div class="lvl"><span class="badge b-high">高</span></div>
+        <div class="desc"><b>富文本转换器移植</b><span>文章正文存三份并行结构(编辑器/HTML/纯文本),转换逻辑复杂,Go 重写易引入内容错误。 → <b>应对:</b>初期保留 Python 转换组件作为旁路,稳定后再评估是否移植。</span></div>
+      </div>
+      <div class="risk">
+        <div class="lvl"><span class="badge b-high">高</span></div>
+        <div class="desc"><b>并发机制重做</b><span>生文/编排现依赖单进程内存锁与计数器(故只能跑单实例)。 → <b>应对:</b>集中改造为 Redis 分布式锁 + 租约/心跳机制,改造后即可多实例水平扩展。</span></div>
+      </div>
+      <div class="risk">
+        <div class="lvl"><span class="badge b-mid">中</span></div>
+        <div class="desc"><b>跨服务事务一致性</b><span>建发布任务、分发、审核状态变更原本是单库事务。 → <b>应对:</b>审核状态收归单一服务独占写入(消除多方竞争)+ Saga + 事件幂等;难点事务单独评审设计。</span></div>
+      </div>
+      <div class="risk">
+        <div class="lvl"><span class="badge b-mid">中</span></div>
+        <div class="desc"><b>发文仍受单实例约束</b><span>浏览器 profile 跨进程锁机制决定发布 worker 暂不能水平扩展。 → <b>应对:</b>接受现状,采用主备高可用;长期可加租约后再放开。</span></div>
+      </div>
+      <div class="risk">
+        <div class="lvl"><span class="badge b-mid">中</span></div>
+        <div class="desc"><b>迁移周期与团队磨合</b><span>绞杀者周期长、Go 经验需积累。 → <b>应对:</b>先用低风险支撑域服务练手跑通全流程;每阶段独立交付价值,允许长期共存。</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 时间线 -->
+  <section>
+    <h2><span class="num">6</span> 迁移路线与预计周期</h2>
+    <p class="sub">六个里程碑,每个均可独立上线、独立回滚。前端重构与后端迁移可并行推进。下图按月排布(示意,实际随团队规模微调)。</p>
+    <div class="card">
+      <div class="gantt">
+        <div></div>
+        <div class="hcell">M1</div><div class="hcell">M2</div><div class="hcell">M3</div><div class="hcell">M4</div>
+        <div class="hcell">M5</div><div class="hcell">M6</div><div class="hcell">M7</div><div class="hcell">M8</div>
+        <div class="hcell">M9</div><div class="hcell">M10</div><div class="hcell">M11</div><div class="hcell">M12+</div>
+
+        <div class="mname">M0 地基</div>
+        <div class="bar bar-blue" style="grid-column:2/4">网关+事件总线</div>
+
+        <div class="mname">前端 (并行)</div>
+        <div class="bar bar-slate" style="grid-column:2/9">ant-design-pro 重构</div>
+
+        <div class="mname">M1 支撑域</div>
+        <div class="bar bar-green" style="grid-column:3/6">7 个低耦合服务</div>
+
+        <div class="mname">M2 核心枢纽</div>
+        <div class="bar bar-blue" style="grid-column:5/9">identity + content</div>
+
+        <div class="mname">M3 发文独立</div>
+        <div class="bar bar-amber" style="grid-column:7/10">publishing 抽出自治</div>
+
+        <div class="mname">M4 生文/编排</div>
+        <div class="bar bar-purple" style="grid-column:9/12">改分布式 + 多实例</div>
+
+        <div class="mname">M5 收尾</div>
+        <div class="bar bar-slate" style="grid-column:11/14">拆库 + 旧前端下线</div>
+      </div>
+      <div class="legend">
+        <span><span class="dot" style="background:#3b7bf7"></span>地基/核心域</span>
+        <span><span class="dot" style="background:#1f9d6b"></span>支撑域</span>
+        <span><span class="dot" style="background:#d39320"></span>发文域</span>
+        <span><span class="dot" style="background:#7a52d6"></span>生文/编排</span>
+        <span><span class="dot" style="background:#566377"></span>前端/收尾</span>
+      </div>
+      <p class="tl-note"><b>阶段性交付节点:</b> <span class="pill">M0 完成</span> 流量经网关、前端启动 → <span class="pill">M1 完成</span> 团队跑通微服务全流程 → <span class="pill">M3 完成</span> 发文团队完全自治、可独立发版(中段即见大价值)→ <span class="pill">M4 完成</span> 生文/编排解除单实例限制 → <span class="pill">M5 完成</span> 单体退役、目标架构达成。</p>
+    </div>
+
+    <div class="grid2" style="margin-top:16px">
+      <div class="card">
+        <h3 style="margin-top:0">最先交付的价值(前 1/3 周期)</h3>
+        <ul style="margin:0;padding-left:18px">
+          <li>统一的 ant-design-pro 管理后台上线</li>
+          <li>API 网关 + 可观测性体系就位</li>
+          <li>支撑域服务跑通"Go + 契约 + 事件 + 灰度切流"全流程</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3 style="margin-top:0">中段里程碑(发文团队自治)</h3>
+        <ul style="margin:0;padding-left:18px">
+          <li>发布服务独立部署、独立发版</li>
+          <li>内容枢纽 Go 化,审核状态机收口</li>
+          <li>无需等全部完成即可享受协作收益</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    Geo 协作平台 · Go 微服务重构方案 · 2026-06-24 · 决策层概览版<br>
+    配套技术详案见 <span class="pill">docs/plans/2026-06-24-go-microservices-refactor-plan.md</span>
+  </footer>
+
+</div>
+</body>
+</html>

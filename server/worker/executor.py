@@ -47,6 +47,7 @@ from server.app.modules.tasks import (
     get_task,
     recover_stuck_records,
     recover_stuck_task_claims,
+    reopen_orphaned_terminal_tasks,
 )
 from server.app.modules.tasks.models import PublishRecord, PublishTask
 
@@ -238,6 +239,7 @@ def _startup(db) -> None:
     """worker 启动时执行恢复流程。"""
     recover_stuck_records(db)
     recover_stuck_task_claims(db)
+    reopen_orphaned_terminal_tasks(db)
     recover_stuck_login_sessions(db)
     _write_worker_heartbeat(db)
     _logger.info("Worker %s started", WORKER_ID)
@@ -290,6 +292,10 @@ def _periodic_recovery(db) -> None:
         recover_stuck_task_claims(db)
     except Exception:
         _logger.exception("Worker %s: periodic recover_stuck_task_claims failed", WORKER_ID)
+    try:
+        reopen_orphaned_terminal_tasks(db)
+    except Exception:
+        _logger.exception("Worker %s: periodic reopen_orphaned_terminal_tasks failed", WORKER_ID)
     try:
         _check_stuck_tasks(db)
     except Exception:

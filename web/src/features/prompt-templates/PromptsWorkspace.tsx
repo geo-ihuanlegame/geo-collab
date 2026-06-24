@@ -85,7 +85,9 @@ function PromptModal({
     if (!name.trim() || !content.trim()) return;
     setSaving(true);
     try {
-      await onSave(name.trim(), content.trim(), canCreateSystem ? isSystem : false);
+      // isSystem 初值来自 initial?.is_system，普通用户隐藏勾选框故只会透传原值：
+      // 编辑系统模板时保持 is_system=true（不降级），新建时保持 false（无法越权置真）。
+      await onSave(name.trim(), content.trim(), isSystem);
       onClose();
     } finally {
       setSaving(false);
@@ -186,7 +188,14 @@ export function PromptsWorkspace(
     [prompts, search],
   );
 
-  function canModify(prompt: PromptTemplate): boolean {
+  // 编辑/启停：admin 通吃；普通用户可改系统/共享模板（如「基础」AI格式提示词）与自己的模板，
+  // 但改不了其他普通用户的私有模板。
+  function canEdit(prompt: PromptTemplate): boolean {
+    return user?.role === "admin" || prompt.is_system || prompt.user_id === user?.id;
+  }
+
+  // 删除：系统/共享模板收归 admin，普通用户只能删自己的非系统模板。
+  function canDelete(prompt: PromptTemplate): boolean {
     return user?.role === "admin" || (!prompt.is_system && prompt.user_id === user?.id);
   }
 
@@ -281,7 +290,8 @@ export function PromptsWorkspace(
           </div>
         )}
         {filteredPrompts.map((prompt) => {
-          const editable = canModify(prompt);
+          const editable = canEdit(prompt);
+          const deletable = canDelete(prompt);
           return (
             <article key={prompt.id} className={`promptTemplateCard${prompt.is_enabled ? "" : " disabled"}`}>
               <div className="promptTemplateHeader">
@@ -303,7 +313,7 @@ export function PromptsWorkspace(
                       <Pencil size={14} />
                     </button>
                   )}
-                  {editable && (
+                  {deletable && (
                     <button
                       className="iconButton"
                       type="button"
