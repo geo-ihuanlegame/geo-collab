@@ -8,10 +8,13 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import timedelta
 
 import litellm
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from server.app.core.time import utcnow
 from server.app.modules.ai_models.service import resolve_ai_format_model
 from server.app.modules.articles.models import Article
 from server.app.modules.auto_review.models import AutoReviewDecision
@@ -149,3 +152,60 @@ def submit_decision(
     db.add(decision)
     db.flush()
     return decision
+
+
+def list_recent_decisions(
+    db: Session,
+    *,
+    decided_by: str,
+    decision: str,
+    since_hours: int,
+    model_label: str | None = None,
+    limit: int = 50,
+) -> tuple[int, list[dict]]:
+    """返回 (total_count, items[:limit])。
+
+    items: [{article_id, title, decided_at, score_total}], newest first.
+    decided_at 是 raw `datetime`（无时区 UTC），由 main.py 全局序列化器在响应层
+    统一补 "Z" 后缀；service 自己不格式化避免双 Z。
+    total_count 是滚动时间窗内全部命中行数（不被 limit 影响）。
+
+    用于 `/goal` orchestrator 的净产出验证 —— 主对话每轮调一次拿 ground truth
+    决定是否继续循环。
+
+    Args:
+        decided_by: AutoReviewDecision.decided_by 精确匹配。
+        decision: AutoReviewDecision.decision 精确匹配。
+        since_hours: 滚动时间窗（小时），从当前 UTC 时间往回数。
+        model_label: 可选，进一步要求 Article.metrics.writer_model 等于此值。
+            None 表示不过滤这个维度。
+        limit: items 数组的截断上限；count 不受影响。
+    """
+    since = utcnow() - timedelta(hours=since_hours)
+
+    q = (
+        db.query(AutoReviewDecision, Article)
+        .join(Article, Article.id == AutoReviewDecision.article_id)
+        .filter(
+            AutoReviewDecision.decided_by == decided_by,
+            AutoReviewDecision.decision == decision,
+            AutoReviewDecision.created_at >= since,
+        )
+    )
+    if model_label:
+        q = q.filter(
+            func.json_unquote(func.json_extract(Article.metrics, "$.writer_model")) == model_label
+        )
+
+    total = q.count()
+    rows = q.order_by(AutoReviewDecision.created_at.desc()).limit(limit).all()
+    items = [
+        {
+            "article_id": a.id,
+            "title": a.title,
+            "decided_at": d.created_at,
+            "score_total": d.score_total,
+        }
+        for d, a in rows
+    ]
+    return total, items

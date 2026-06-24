@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from server.app.core.mcp_auth import require_mcp_token
@@ -79,3 +79,43 @@ def post_auto_review(
     db.commit()
     db.refresh(decision)
     return AutoReviewDecisionRead.model_validate(decision)
+
+
+@router.get(
+    "/today-loop-decisions",
+    dependencies=[Depends(require_mcp_token)],
+)
+def get_today_loop_decisions(
+    decided_by: str = "claude-goal-verifier",
+    decision: str = "approved",
+    since_hours: int = Query(24, ge=1, le=168),
+    model_label: str | None = None,
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    """[MCP] /goal loop 的净产出验证查询。
+
+    返回滚动时间窗内 decided_by + decision 命中的 AutoReviewDecision 行，
+    join Article 拿 title，可选按 Article.metrics.writer_model 进一步过滤。
+
+    主要消费方：`/goal` orchestrator 每轮调用一次决定是否继续循环。
+    """
+    from server.app.modules.auto_review.service import list_recent_decisions
+
+    try:
+        count, items = list_recent_decisions(
+            db,
+            decided_by=decided_by,
+            decision=decision,
+            since_hours=since_hours,
+            model_label=model_label,
+            limit=limit,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise mcp_exception_response(
+            exc,
+            context=f"list_today_loop_articles decided_by={decided_by} decision={decision}",
+        ) from exc
+    return {"ok": True, "data": {"count": count, "items": items}, "error": None}
