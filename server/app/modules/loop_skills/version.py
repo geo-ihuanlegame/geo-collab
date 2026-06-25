@@ -15,6 +15,9 @@ KNOWN_BUNDLE_SHAS: frozenset[str] = frozenset(
         # v2 (2026-06-25): writer step 5 + 矩阵特例 + orchestrator 日志中文化
         "abd8416c51f0b591c85cee0c3635645a10a313a2cedbeb52b89953a2c41e7fea",
         # v3 (2026-06-25): writer 矩阵段 + README step 5 改为 list_stock_categories 自助路径
-        "58448672effda8290f97dc5afdfb6c4146ea9c8b7cc7c432b2d4a76274b65856",
+        # 两个 sha 是同一份内容的两种行尾：CRLF（Windows 本地装的副本）与 LF（CI / Linux）。
+        # build_bundle 读字节后直接 sha256，行尾不归一化——两边都要认。下次改归一化逻辑时再清。
+        "58448672effda8290f97dc5afdfb6c4146ea9c8b7cc7c432b2d4a76274b65856",  # CRLF
+        "515c9202f1e0880a1657e4da768954e83bb8a2a5cdfc220355a369862d2cefc6",  # LF (CI canonical)
     }
 )
