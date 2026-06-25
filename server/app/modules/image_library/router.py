@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import struct
@@ -473,8 +474,13 @@ async def upload_image(
     width, height = _guess_image_size(data)
     tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
 
+    # minio put_object 是同步阻塞调用；本路由是 async，必须丢线程池，否则 MinIO 慢 / 假死时
+    # 会冻住整个事件循环（演示前加固，配合 store._client() 的短超时）。
+    loop = asyncio.get_running_loop()
     try:
-        minio_store.upload_image(cat.bucket_name, key, data, content_type)
+        await loop.run_in_executor(
+            None, minio_store.upload_image, cat.bucket_name, key, data, content_type
+        )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"上传失败: {exc}") from exc
 
