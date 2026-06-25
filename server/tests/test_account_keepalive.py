@@ -408,3 +408,51 @@ def test_start_keepalive_runs_one_round_then_stops(monkeypatch):
         ka._stop.clear()
         ka._thread = None
     assert len(rounds) >= 1
+
+
+# ---------------------------------------------------------------------------
+# Task 8: worker integration
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.mysql
+def test_worker_main_starts_and_stops_keepalive(monkeypatch):
+    # build_test_app 先 setenv(GEO_DATABASE_URL) 再 import executor，避免 db.session 即时建引擎在隔离运行时失败
+    test_app = build_test_app(monkeypatch)
+    try:
+        from server.worker import executor as ex
+
+        started = {}
+        stopped = {}
+        monkeypatch.setattr(
+            "server.app.modules.accounts.keepalive.start_keepalive",
+            lambda sf: started.setdefault("called", True) or True,
+        )
+        monkeypatch.setattr(
+            "server.app.modules.accounts.keepalive.stop_keepalive",
+            lambda: stopped.setdefault("called", True),
+        )
+        # 让 main() 立即收敛：startup/login loop/periodic recovery/claim 全 noop，心跳触发 shutdown
+        monkeypatch.setattr(ex, "_startup", lambda db: None)
+        monkeypatch.setattr(ex, "_account_login_loop", lambda: None)
+        monkeypatch.setattr(ex, "_periodic_recovery", lambda db: None)
+        monkeypatch.setattr(ex, "_claim_next_task", lambda db: None)
+
+        def _stop_now(db):
+            ex._shutdown = True
+
+        monkeypatch.setattr(ex, "_write_worker_heartbeat", _stop_now)
+        monkeypatch.setattr(
+            "server.app.modules.accounts.login_broker.login_broker.shutdown", lambda: None
+        )
+
+        monkeypatch.setattr(ex, "_shutdown", False)
+        try:
+            ex.main()
+        finally:
+            ex._shutdown = False
+
+        assert started.get("called") is True
+        assert stopped.get("called") is True
+    finally:
+        test_app.cleanup()
