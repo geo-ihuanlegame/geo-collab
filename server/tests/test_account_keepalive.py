@@ -346,6 +346,7 @@ def test_run_once_refreshes_oldest_and_returns_gap(monkeypatch):
     monkeypatch.setattr(ka, "get_settings", lambda: _FakeKaSettings())
     monkeypatch.setattr(ka, "select_due_account_ids", lambda db, ws: [7, 8, 9])
     called = {}
+
     def _fake_refresh(sf, aid, *, check_timeout_s):
         called.setdefault("aid", aid)
         return "refreshed_valid"
