@@ -1058,6 +1058,9 @@ class AiIllustrateResponse(BaseModel):
     cover_status: str
     cover_error: str | None
     format_error: str | None
+    # warning: 0 张图但非 error（AI 决策 / 候选无图等合法分支）。MCP loop writer
+    # 必须把这里非空时也当作 illustration_warnings 上报，否则文章会无图入库且无人感知。
+    warning: str | None = None
 
 
 @articles_mcp_router.post(
@@ -1109,6 +1112,7 @@ def ai_illustrate_article_mcp(
         cover_status=result.cover_status,
         cover_error=result.cover_error,
         format_error=result.format_error,
+        warning=result.warning,
     )
 
 

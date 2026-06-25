@@ -19,9 +19,17 @@ description: Use when spawned as a writer subagent by /goal, or when manually
 3. 写 markdown body（约束见下）
 4. `save_article(question_item_id, prompt_template_id, title, markdown_content, model_label)`
 5. `ai_illustrate_article(article_id, main_category_id=<从矩阵特例段拿>)` —
-   AI 智能配图 + 自动封面，**返回值检查 `format_error` / `cover_error` 字段**；
-   有错就在最后 JSON 里加 `illustration_warnings` 透传给 orchestrator，不抛错
-6. 返回 `{"article_id": int, "title": str}` 作为**最后一条消息**，**只输出 JSON 一行**
+   AI 智能配图 + 自动封面。**必须**收集这 4 类信号进 `illustration_warnings`
+   数组（任一非空 / 命中即记录，不抛错、不阻塞返回）：
+   - `format_error` 非空 → 加 `"format_error: <值>"`
+   - `cover_error` 非空 → 加 `"cover_error: <值>"`
+   - `warning` 非空 → 加 `"warning: <值>"`（典型值：`ai_returned_no_positions` /
+     `no_match_in_categories` / `no_valid_categories` / `already_has_images`）
+   - `images_inserted == 0` → 额外加 `"images_inserted=0"`（即便上面三个都为空，
+     也要让 orchestrator 看到"AI 决定不插图"这一事实）
+6. 返回 `{"article_id": int, "title": str, "illustration_warnings": [...]}` 作为
+   **最后一条消息**，**只输出 JSON 一行**；`illustration_warnings` 字段始终存在
+   （没有 warning 时为 `[]`），让 orchestrator 可以统一解析
 
 # title vs markdown_content 约束（重要）
 
@@ -51,6 +59,11 @@ description: Use when spawned as a writer subagent by /goal, or when manually
 > 调用约定：
 > `ai_illustrate_article(article_id=<>, main_category_id=<上面那个值>)`
 > 其余 3 个布尔参数走默认即可。
+>
+> **务必**检查返回的 `format_error` / `cover_error` / `warning` / `images_inserted`
+> 四个字段，按上面 step 5 规则进 `illustration_warnings`——历史 bug：silent
+> zero（AI 返了 0 张图，服务端 warning=`ai_returned_no_positions`，writer 不报警
+> → 文章 0 图入库无人感知）。
 
 ## 加新矩阵的方法（给团队同事）
 
@@ -73,9 +86,14 @@ description: Use when spawned as a writer subagent by /goal, or when manually
 
 最后一条消息只能是单行 JSON：
 
-成功：
+成功（无配图警告）：
 ```
-{"article_id": 824, "title": "国风游戏 2026 推荐 10 选"}
+{"article_id": 824, "title": "国风游戏 2026 推荐 10 选", "illustration_warnings": []}
+```
+
+成功但配图缺失（AI 返 0 张位置）：
+```
+{"article_id": 824, "title": "国风游戏 2026 推荐 10 选", "illustration_warnings": ["warning: ai_returned_no_positions", "images_inserted=0"]}
 ```
 
 失败：
@@ -84,4 +102,5 @@ description: Use when spawned as a writer subagent by /goal, or when manually
 ```
 
 不要在 JSON 前后加任何解释 / markdown 包裹 / "我写完了" 之类的话。
-orchestrator 用正则匹配最后一行 JSON 拿结果。
+orchestrator 用正则匹配最后一行 JSON 拿结果；`illustration_warnings` 字段始终存在
+（无 warning 时为 `[]`），让 orchestrator 统一解析逻辑不用 `.get()` 兜空。

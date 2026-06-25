@@ -665,6 +665,7 @@ def _maybe_insert_images(
     image_search_query: str | None = None,
     max_images: int | None = None,
     prefetched_downloads: dict[int, list[tuple[bytes, str, Any]]] | None = None,
+    out_diagnostics: dict[str, Any] | None = None,
 ) -> tuple[dict, int]:
     """按模型给的 image_positions 插图，返回 (新文档, 实插图数)。
 
@@ -680,8 +681,15 @@ def _maybe_insert_images(
     某栏目无图需补图时，不在此处联网搜图 / 下载（那是慢 IO，已在无连接段做完），而是从队列取一张
     内存字节走 store_image_bytes 落库——保证本函数（在短 session 内）不持连接做联网下载（Task 1b）。
     None（手动排版 / 方案配图等同步路径）保持原行为：缺图时就地 _web_fallback_fill_category 联网补。
+
+    out_diagnostics（非 None 时）：本函数返 0 张图前会写入 `skip_reason` 键，值为
+    `already_has_images` / `no_valid_categories` / `ai_returned_no_positions` /
+    `no_match_in_categories` 之一，供上层把 "AI 决策为空" 与 "真的 error" 区分上报。
+    happy-path（插入 ≥ 1 张）不写入。
     """
     if has_images_in_content(content_json):
+        if out_diagnostics is not None:
+            out_diagnostics["skip_reason"] = "already_has_images"
         return content_json, 0
 
     from server.app.modules.image_library.models import StockCategory
@@ -694,10 +702,14 @@ def _maybe_insert_images(
     )
     valid_category_ids = {cat["id"] for cat in cats}
     if not valid_category_ids and not web_fallback:
+        if out_diagnostics is not None:
+            out_diagnostics["skip_reason"] = "no_valid_categories"
         return content_json, 0
 
     positions = _parse_image_positions(parsed.get("image_positions", []))
     if not positions:
+        if out_diagnostics is not None:
+            out_diagnostics["skip_reason"] = "ai_returned_no_positions"
         return content_json, 0
 
     matched_refs: list[Any] = []
@@ -742,6 +754,8 @@ def _maybe_insert_images(
             matched_positions.append(idx)
 
     if not matched_refs:
+        if out_diagnostics is not None:
+            out_diagnostics["skip_reason"] = "no_match_in_categories"
         return content_json, 0
 
     return insert_images_at_positions(content_json, matched_refs, matched_positions), len(
@@ -1041,6 +1055,7 @@ def _ai_format_write_back(
             return 0
 
         image_count = 0
+        image_diag: dict[str, Any] = {}
         if include_images:
             new_content_json, image_count = _maybe_insert_images(
                 new_content_json,
@@ -1051,6 +1066,7 @@ def _ai_format_write_back(
                 web_fallback=False,
                 image_search_query=None,
                 max_images=max_images,
+                out_diagnostics=image_diag,
             )
 
         new_html, new_text = _derive_html_and_text(new_content_json)
@@ -1062,6 +1078,17 @@ def _ai_format_write_back(
         # 写回成功的同时清锁（指纹刚校验过仍属本次），单次提交
         article.ai_checking = False
         article.ai_checking_started_at = None
+        # include_images=True 但 0 张图落库时,把 _maybe_insert_images 给出的 skip_reason
+        # 写到 ai_format_error 列,加 [illustration_skip] 前缀让 ai_illustrate_svc 区分
+        # "AI 决策为空" 与 "真的 error",最终透传给 MCP loop 让 writer 把它作为 warning 上报.
+        if include_images and image_count == 0 and image_diag.get("skip_reason"):
+            skip_reason = image_diag["skip_reason"]
+            article.ai_format_error = f"[illustration_skip] {skip_reason}"
+            logger.warning(
+                "ai_format inserted 0 images for article %s (skip_reason=%s)",
+                article_id,
+                skip_reason,
+            )
         db.commit()
         logger.info(
             "ai_format applied %d headings%s to article %s",
@@ -1359,6 +1386,7 @@ def _web_fallback_collect_and_write_back(
             logger.info("ai_format skipped stale lock before write for article %s", article_id)
             return 0
 
+        image_diag: dict[str, Any] = {}
         new_content_json_final, image_count = _maybe_insert_images(
             new_content_json,
             parsed,
@@ -1369,6 +1397,7 @@ def _web_fallback_collect_and_write_back(
             image_search_query=image_search_query,
             max_images=max_images,
             prefetched_downloads=prefetched,
+            out_diagnostics=image_diag,
         )
 
         new_html, new_text = _derive_html_and_text(new_content_json_final)
@@ -1380,6 +1409,16 @@ def _web_fallback_collect_and_write_back(
         # 写回成功的同时清锁（指纹刚校验过仍属本次），单次提交
         article.ai_checking = False
         article.ai_checking_started_at = None
+        # 与 _ai_format_write_back 对齐:0 张图落库时把 skip_reason 写到 ai_format_error 列,
+        # 加 [illustration_skip] 前缀让 ai_illustrate_svc 区分 "AI 决策为空" 与真错.
+        if image_count == 0 and image_diag.get("skip_reason"):
+            skip_reason = image_diag["skip_reason"]
+            article.ai_format_error = f"[illustration_skip] {skip_reason}"
+            logger.warning(
+                "ai_format inserted 0 images for article %s (skip_reason=%s)",
+                article_id,
+                skip_reason,
+            )
         db.commit()
         logger.info(
             "ai_format applied %d headings%s to article %s",
