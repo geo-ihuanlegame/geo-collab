@@ -54,7 +54,84 @@ def _apply_deep_thinking(kwargs: dict[str, Any], model: str) -> None:
 
 
 def _supports_native_web_search_options(provider: str) -> bool:
-    return provider in ("anthropic", "openai", "gemini", "xai")
+    return provider in ("anthropic", "openai", "gemini", "xai","doubao")
+
+
+def _api_base_of(base_kwargs: dict[str, Any]) -> str | None:
+    """取调用的 base_url（litellm 字段名 api_base，兼容 base_url）。None = 未配 = 官方直连。"""
+    return base_kwargs.get("api_base") or base_kwargs.get("base_url")
+
+
+def _extract_reasoning_text(response: Any) -> str | None:
+    """取模型这次返回的思考/推理内容。litellm 把各家思考统一归一到 message.reasoning_content；
+    另兼容 reasoning（部分版本）与 Anthropic 的 thinking_blocks。无则 None。"""
+    try:
+        msg = response.choices[0].message
+    except (AttributeError, IndexError, TypeError):
+        return None
+    text = getattr(msg, "reasoning_content", None) or getattr(msg, "reasoning", None)
+    if text:
+        return str(text)
+    blocks = getattr(msg, "thinking_blocks", None)
+    if blocks:
+        parts = [b.get("thinking", "") if isinstance(b, dict) else str(b) for b in blocks]
+        joined = "".join(p for p in parts if p)
+        return joined or None
+    return None
+
+
+def _web_search_was_used(response: Any) -> bool:
+    """best-effort：从响应里找模型「真的联网检索过」的证据——引用注解(url_citation) 或服务端工具调用
+    计数(server_tool_use.web_search_requests)。找到＝True。
+    注意：False 不等于「不支持」，模型也可能自行判定无需检索；该语义在日志文案里区分。"""
+    try:
+        msg = response.choices[0].message
+    except (AttributeError, IndexError, TypeError):
+        return False
+    for a in getattr(msg, "annotations", None) or []:
+        t = a.get("type") if isinstance(a, dict) else getattr(a, "type", None)
+        if t and "url_citation" in str(t):
+            return True
+    usage = getattr(response, "usage", None)
+    stu = getattr(usage, "server_tool_use", None) if usage else None
+    reqs = getattr(stu, "web_search_requests", None) if stu else None
+    return isinstance(reqs, int) and reqs > 0
+
+
+def _thinking_status(response: Any, deep_thinking: bool) -> str:
+    """深度思考的最终「是否使用」文案：响应带思考内容＝已使用；不带＝模型不支持/未返回(已被 drop_params 忽略)。"""
+    if not deep_thinking:
+        return "未请求"
+    reasoning = _extract_reasoning_text(response)
+    if reasoning:
+        return f"已使用（响应含思考内容 {len(reasoning)} 字）"
+    return "未使用（模型不支持或未返回思考，reasoning_effort 已被 drop_params 忽略）"
+
+
+def _log_capability_result(
+    response: Any, model: str, logger: Any, deep_thinking: bool, search_status: str
+) -> None:
+    """生文返回后打一条「实际结果」：明确告诉运营本次每个能力到底用没用。无论模型支持与否都打。"""
+    logger.info(
+        "[生文能力·结果] model=%s | 深度思考=%s | 联网搜索=%s",
+        model,
+        _thinking_status(response, deep_thinking),
+        search_status,
+    )
+
+
+def _is_anthropic_relay(provider: str, base_kwargs: dict[str, Any]) -> bool:
+    """provider 为 anthropic 且 api_base 指向官方之外（含端口/带认证前缀都归一掉）即视为中转网关。
+
+    未配 api_base = litellm 默认官方直连，不算中转。
+    """
+    if provider != "anthropic":
+        return False
+    api_base = _api_base_of(base_kwargs)
+    if not api_base:
+        return False
+    host = urlsplit(str(api_base)).netloc.lower().split("@")[-1].split(":")[0]
+    return host not in _OFFICIAL_ANTHROPIC_HOSTS
 
 
 def _api_base_of(base_kwargs: dict[str, Any]) -> str | None:
