@@ -14,16 +14,36 @@ _logger = logging.getLogger(__name__)
 
 def _client():
     # 懒导入 minio 与 settings：避免模块导入期就拉起依赖 / 读配置
+    import os
+
+    import certifi
     from minio import Minio
+    from urllib3 import PoolManager, Retry
+    from urllib3.util import Timeout
 
     from server.app.core.config import get_settings
 
     s = get_settings()
+    # minio 默认 http client 是 Timeout(connect=300, read=300) + Retry(total=5)（见
+    # minio/api.py）——MinIO 一旦假死，单次同步调用会把调用方阻塞最多 ~5 分钟；而上传
+    # 走 async 路由，会直接冻住整个事件循环。这里传入显式短超时的 PoolManager 覆盖默认值。
+    # maxsize / cert_reqs / ca_certs 照抄 minio 默认值，避免 HTTPS（secure=True）部署的 TLS 回归；
+    # retries 用 read=False 避免读超时把 20MB PUT body 整体重发。
+    http_client = PoolManager(
+        timeout=Timeout(connect=5, read=30),
+        maxsize=10,
+        cert_reqs="CERT_REQUIRED",
+        ca_certs=os.environ.get("SSL_CERT_FILE") or certifi.where(),
+        retries=Retry(
+            total=1, read=False, backoff_factor=0.2, status_forcelist=[500, 502, 503, 504]
+        ),
+    )
     return Minio(
         s.minio_endpoint,
         access_key=s.minio_access_key,
         secret_key=s.minio_secret_key,
         secure=s.minio_secure,
+        http_client=http_client,
     )
 
 

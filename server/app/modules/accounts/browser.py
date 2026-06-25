@@ -302,6 +302,33 @@ def _delete_session_from_db(session_id: str) -> None:
         _logger.debug("Could not delete session %s from DB", session_id, exc_info=True)
 
 
+def recover_stuck_browser_sessions(db, *, worker_id: str | None) -> int:
+    """Worker 启动复位残留浏览器会话：删掉所有不属于当前 worker 的 browser_sessions 行。返回删除行数。
+
+    browser_sessions 行只由 worker 进程写入、随其生命周期存活；worker 一重启，旧行对应的
+    Xvfb/x11vnc/websockify 进程已随上个容器消亡，是僵尸记录。进程内空闲清理线程只遍历内存
+    _active_sessions（重启后为空），stop_requested 又不会被自动置位，故这些孤儿行无人回收、
+    永久残留（还会虚高系统状态页的活跃会话计数）。
+
+    与发布侧 recover_stuck_records 的租约保护不同，浏览器会话无租约（浏览器随 worker 进程消亡），
+    故按 worker_id 全量复位：删 worker_id != 当前 worker 或为 NULL 的行，**绝不删当前 worker
+    自己的行**（防误杀本进程在途会话——单实例 worker 前提下，启动时除自己外的行必为上条命残留）。
+    record_browser_sessions 经 FK ON DELETE CASCADE 一并清理。自带 commit。
+    """
+    from server.app.modules.accounts.models import BrowserSession
+
+    result = db.execute(
+        sa_delete(BrowserSession).where(
+            (BrowserSession.worker_id != worker_id) | (BrowserSession.worker_id.is_(None))
+        )
+    )
+    rows = result.rowcount  # type: ignore[attr-defined]  # DML 执行返回 CursorResult
+    if rows:
+        _logger.warning("Cleared %d stale browser session row(s) on startup", rows)
+        db.commit()
+    return rows
+
+
 def _set_stop_requested_db(session_id: str) -> None:
     try:
         from sqlalchemy import update as sa_update

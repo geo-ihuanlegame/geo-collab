@@ -17,6 +17,7 @@ import threading
 import time
 from datetime import timedelta
 
+from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
 from sqlalchemy import update as sa_update
 
@@ -31,6 +32,7 @@ from server.app.db.session import SessionLocal
 from server.app.modules.accounts import (
     expire_stale_login_sessions,
     process_account_login_session_requests,
+    recover_stuck_browser_sessions,
     recover_stuck_login_sessions,
 )
 from server.app.modules.accounts.models import (
@@ -202,6 +204,20 @@ def _heartbeat_active_profile_locks(db) -> None:
         )
 
 
+def _clear_stale_worker_heartbeats(db) -> None:
+    """启动清理：删掉其它 worker_id 的心跳行，防 worker_heartbeats 随每次容器重启无限累积。
+
+    WORKER_ID=hostname-pid 每次重启都变，_write_worker_heartbeat 的 merge 退化成 insert、旧行
+    永不回收。这里删 worker_id != 当前 WORKER_ID 的全部行（**绝不删自己**）。worker_heartbeats
+    无 FK 依赖，唯一读者是系统状态页的 30s 窗口计数，删历史死 worker 的行零影响。自带 commit。
+    """
+    result = db.execute(sa_delete(WorkerHeartbeat).where(WorkerHeartbeat.worker_id != WORKER_ID))
+    rows = result.rowcount  # type: ignore[attr-defined]  # DML 执行返回 CursorResult
+    if rows:
+        _logger.warning("Cleared %d stale worker heartbeat row(s) on startup", rows)
+        db.commit()
+
+
 def _account_login_loop() -> None:
     """独立于发布任务执行，处理交互式登录命令。"""
     last_heartbeat = 0.0
@@ -241,6 +257,20 @@ def _startup(db) -> None:
     recover_stuck_task_claims(db)
     reopen_orphaned_terminal_tasks(db)
     recover_stuck_login_sessions(db)
+    # 启动期资源回收：清掉上条命残留的 browser_sessions / worker_heartbeats 孤儿行（容器重启后
+    # worker_id 全变，旧行无人回收、永久累积）。纯卫生操作，**失败绝不能拖垮 worker 启动**
+    # （restart: unless-stopped 下 boot 崩溃 = 无限重启 = 发布瘫痪），故各自 best-effort 兜异常 +
+    # rollback 还原 session，保证后续 _write_worker_heartbeat 仍可用。
+    try:
+        recover_stuck_browser_sessions(db, worker_id=WORKER_ID)
+    except Exception:
+        db.rollback()
+        _logger.exception("Worker %s: stale browser session cleanup failed", WORKER_ID)
+    try:
+        _clear_stale_worker_heartbeats(db)
+    except Exception:
+        db.rollback()
+        _logger.exception("Worker %s: stale worker heartbeat cleanup failed", WORKER_ID)
     _write_worker_heartbeat(db)
     _logger.info("Worker %s started", WORKER_ID)
 
