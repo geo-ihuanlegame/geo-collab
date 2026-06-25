@@ -2,7 +2,6 @@
 import httpx
 import pytest
 
-from server.app.modules.articles.parser import BodySegment
 from server.app.modules.tasks.drivers.base import (
     NOOP_COMMIT_GUARD,
     ApiPublishPayload,
@@ -19,7 +18,12 @@ def _payload(tmp_path):
     img.write_bytes(b"\xff\xd8\xff\xe0" + b"0" * 200)  # 最小 JPEG 头占位
     return ApiPublishPayload(
         title="t",
-        body_segments=[BodySegment(kind="text", text="hi")],
+        body_segments=[],
+        content_json={
+            "type": "doc",
+            "content": [{"type": "paragraph", "content": [{"type": "text", "text": "hi"}]}],
+        },
+        image_paths={},
         cover_path=img,
         display_name="acc",
         platform_code="wechat_mp",

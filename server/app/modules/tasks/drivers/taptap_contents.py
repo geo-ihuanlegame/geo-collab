@@ -13,26 +13,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from server.app.modules.articles.parser import (
-    _asset_id_from_image_node,
-    _stock_image_id_from_image_node,
-)
+from server.app.modules.articles.parser import image_node_key
 
 _BLOCK_TYPES = frozenset(
     {"paragraph", "heading", "bulletList", "orderedList", "image", "blockquote", "codeBlock"}
 )
-
-
-def image_node_key(node: dict[str, Any]) -> str | None:
-    """图片节点的稳定 key：asset_id 或 ``stock:<id>``。runner 与转换器共用同一函数，
-    保证 image_urls 的 key 与本模块查找一致（按 key 而非顺序，重复用图/删图都稳）。"""
-    asset_id = _asset_id_from_image_node(node)
-    if asset_id:
-        return asset_id
-    stock_id = _stock_image_id_from_image_node(node)
-    if stock_id is not None:
-        return f"stock:{stock_id}"
-    return None
 
 
 def _leaf_from_text(node: dict[str, Any]) -> tuple[dict[str, Any], bool]:

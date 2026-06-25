@@ -1,17 +1,14 @@
 """微信公众号 API 驱动：草稿箱单图文发布（mode='api'，无浏览器）。
 
 链路：封面（无则回落正文首图）压 JPG≤64KB 传 thumb → 正文图逐张压 ≤1MB 转传换
-微信 URL → body_segments 重组 HTML → draft/add。终点即草稿箱（spec：不调 freepublish）。
+微信 URL → tiptap_to_wechat_html 生成保真 HTML → draft/add。终点即草稿箱（spec：不调 freepublish）。
 驱动纯数据进出：凭据/token 由 runner_api 解析后经 payload 注入，不碰 ORM。
 """
 
 from __future__ import annotations
 
-import html as html_lib
-
 import httpx
 
-from server.app.modules.articles.parser import BodySegment
 from server.app.modules.tasks.drivers import register
 from server.app.modules.tasks.drivers.base import (
     NOOP_COMMIT_GUARD,
@@ -27,6 +24,7 @@ from server.app.modules.tasks.drivers.wechat_client import (
     upload_content_image,
     upload_thumb,
 )
+from server.app.modules.tasks.drivers.wechat_html import tiptap_to_wechat_html
 from server.app.modules.tasks.drivers.wechat_images import (
     compress_content_image,
     compress_cover_to_jpeg,
@@ -40,29 +38,6 @@ def _wechat_is_transient(exc: BaseException) -> bool:
     if isinstance(exc, WeChatApiError):
         return exc.errcode is None
     return False
-
-
-def segments_to_html(segments: list[BodySegment], image_urls: dict[int, str]) -> str:
-    """body_segments → 微信草稿 HTML。image_urls 按 segment 下标映射微信图床 URL。"""
-    parts: list[str] = []
-    for index, seg in enumerate(segments):
-        if seg.kind == "image":
-            url = image_urls.get(index)
-            if url:
-                parts.append(f'<p><img src="{url}" style="max-width:100%;"></p>')
-            continue
-        text = html_lib.escape(seg.text).replace("\n", "<br>")
-        if not text.strip():
-            continue
-        if seg.heading_level == 1:
-            parts.append(f"<h1>{text}</h1>")
-        elif seg.heading_level == 2:
-            parts.append(f"<h2>{text}</h2>")
-        elif seg.bold:
-            parts.append(f"<p><strong>{text}</strong></p>")
-        else:
-            parts.append(f"<p>{text}</p>")
-    return "".join(parts)
 
 
 class WeChatMpDriver:
@@ -114,13 +89,11 @@ class WeChatMpDriver:
         self, *, payload: ApiPublishPayload, client: httpx.Client, commit_guard, policy
     ) -> PublishResult:
         token = payload.access_token
+        image_paths = payload.image_paths or {}
 
         cover_path = payload.cover_path
         if cover_path is None:
-            cover_path = next(
-                (s.image_path for s in payload.body_segments if s.kind == "image" and s.image_path),
-                None,
-            )
+            cover_path = next(iter(image_paths.values()), None)
         if cover_path is None:
             raise PublishError("公众号草稿需要封面图（或正文至少一张图）")
 
@@ -131,22 +104,18 @@ class WeChatMpDriver:
 
         thumb_media_id = retry_call(_do_thumb, policy=policy, is_transient=_wechat_is_transient)
 
-        image_urls: dict[int, str] = {}
-        for index, seg in enumerate(payload.body_segments):
-            if seg.kind != "image" or seg.image_path is None:
-                continue
-            data, filename = compress_content_image(
-                seg.image_path.read_bytes(), seg.image_path.name
-            )
+        image_urls: dict[str, str] = {}
+        for key, path in image_paths.items():
+            data, filename = compress_content_image(path.read_bytes(), path.name)
 
             def _do_content_image(_data: bytes = data, _filename: str = filename) -> str:
                 return upload_content_image(token, _filename, _data, client=client)
 
-            image_urls[index] = retry_call(
+            image_urls[key] = retry_call(
                 _do_content_image, policy=policy, is_transient=_wechat_is_transient
             )
 
-        content_html = segments_to_html(payload.body_segments, image_urls)
+        content_html = tiptap_to_wechat_html(payload.content_json or {}, image_urls)
         if not content_html:
             raise PublishError("正文为空，无法创建公众号草稿")
         article = build_draft_article(
