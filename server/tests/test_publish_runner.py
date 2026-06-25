@@ -122,7 +122,7 @@ def _patch_common(monkeypatch, tmp_path: Path, stub_session, pw_cm, context, pag
     # get_or_create_account_session → 直接返回 stub_session
     monkeypatch.setattr(
         "server.app.modules.tasks.runner.get_or_create_account_session",
-        lambda platform_code, account_key, profile_key=None: stub_session,
+        lambda platform_code, account_key, profile_key=None, *, with_display=True: stub_session,
     )
 
     # stop_remote_browser_session → 空操作（在启动失败分支被调用）
@@ -140,7 +140,7 @@ def _patch_common(monkeypatch, tmp_path: Path, stub_session, pw_cm, context, pag
     # launch_options → 返回最小 dict，让 options["env"] 赋值能工作
     monkeypatch.setattr(
         "server.app.modules.tasks.runner.launch_options",
-        lambda channel, executable_path: {},
+        lambda channel, executable_path, **kwargs: {},
     )
 
     # attach_browser_handles → no-op
@@ -503,3 +503,125 @@ def test_resolve_stock_image_path_missing_ok_returns_none(monkeypatch):
 
     with pytest.raises(PublishError, match="图片库图片不存在"):
         publish_runner._resolve_stock_image_path(36)
+
+
+def test_run_publish_headless_displayless_and_no_display(monkeypatch, tmp_path):
+    """headless=True：会话以 with_display=False 获取，Chromium env 不含 DISPLAY。"""
+    from server.app.modules.tasks import runner as publish_runner
+    from server.app.modules.tasks.drivers.base import PublishResult
+
+    state_rel = "browser_states/testplat/k1/storage_state.json"
+    state_file = tmp_path / state_rel
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    state_file.write_text("{}")
+
+    stub_payload = _make_stub_payload(tmp_path)
+    stub_session = types.SimpleNamespace(id="sess1", display="", novnc_url="", browser_context=None)
+    captured = {"with_display": None, "launch_kw": None}
+
+    def fake_get_or_create(platform_code, account_key, profile_key=None, *, with_display=True):
+        captured["with_display"] = with_display
+        return stub_session
+
+    page = types.SimpleNamespace(on=lambda *a, **k: None)
+    context = types.SimpleNamespace(
+        set_default_navigation_timeout=lambda ms: None,
+        new_page=lambda: page,
+        close=lambda: None,
+    )
+
+    def fake_launch(user_data_dir, **kw):
+        captured["launch_kw"] = kw
+        return context
+
+    chromium = types.SimpleNamespace(launch_persistent_context=fake_launch)
+    pw = types.SimpleNamespace(chromium=chromium, stop=lambda: None)
+    pw_cm = types.SimpleNamespace(start=lambda: pw)
+
+    monkeypatch.setattr(publish_runner, "get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(publish_runner, "account_key_from_state_path", lambda sp: ("testplat", "k1"))
+    monkeypatch.setattr(publish_runner, "_build_payload", lambda *a, **k: stub_payload)
+    monkeypatch.setattr(publish_runner, "profile_key_from_state_path", lambda sp: "browser_states/testplat/k1")
+    monkeypatch.setattr(publish_runner, "profile_dir_from_state_path", lambda sp: tmp_path / "profile")
+    monkeypatch.setattr(publish_runner, "get_or_create_account_session", fake_get_or_create)
+    monkeypatch.setattr(publish_runner, "stop_remote_browser_session", lambda sid: None)
+    monkeypatch.setattr(publish_runner, "clear_profile_locks", lambda d: None)
+    monkeypatch.setattr(publish_runner, "sync_playwright", lambda: pw_cm)
+    monkeypatch.setattr(publish_runner, "launch_options", lambda channel, executable_path, **kwargs: {})
+    monkeypatch.setattr(publish_runner, "attach_browser_handles", lambda *a, **k: None)
+
+    class _Driver:
+        code = "testplat"; name = "x"; home_url = "h"; publish_url = "p"
+
+        def detect_logged_in(self, *, url, title, body):
+            return True
+
+        def publish(self, *, page, context, payload, stop_before_publish, commit_guard=None, retry_policy=None):
+            return PublishResult(url="u", title=payload.title, message="ok")
+
+    monkeypatch.setattr(publish_runner, "resolve_driver", lambda pc: _Driver())
+
+    publish_runner.run_publish(
+        article=_make_stub_article(tmp_path), account=_make_stub_account(), headless=True
+    )
+
+    assert captured["with_display"] is False
+    assert "DISPLAY" not in captured["launch_kw"].get("env", {})
+
+
+def test_run_publish_headless_user_input_does_not_keep_session(monkeypatch, tmp_path):
+    """headless 撞 UserInputRequired：不保活会话，finally 拆会话。"""
+    from server.app.modules.tasks import runner as publish_runner
+
+    state_rel = "browser_states/testplat/k1/storage_state.json"
+    state_file = tmp_path / state_rel
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    state_file.write_text("{}")
+
+    stub_payload = _make_stub_payload(tmp_path)
+    stub_session = types.SimpleNamespace(id="sess1", display="", novnc_url="", browser_context=None)
+
+    page = types.SimpleNamespace(on=lambda *a, **k: None)
+    context = types.SimpleNamespace(
+        set_default_navigation_timeout=lambda ms: None,
+        new_page=lambda: page,
+        close=lambda: None,
+    )
+    chromium = types.SimpleNamespace(launch_persistent_context=lambda user_data_dir, **kw: context)
+    pw = types.SimpleNamespace(chromium=chromium, stop=lambda: None)
+    pw_cm = types.SimpleNamespace(start=lambda: pw)
+
+    monkeypatch.setattr(publish_runner, "get_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(publish_runner, "account_key_from_state_path", lambda sp: ("testplat", "k1"))
+    monkeypatch.setattr(publish_runner, "_build_payload", lambda *a, **k: stub_payload)
+    monkeypatch.setattr(publish_runner, "profile_key_from_state_path", lambda sp: "browser_states/testplat/k1")
+    monkeypatch.setattr(publish_runner, "profile_dir_from_state_path", lambda sp: tmp_path / "profile")
+    monkeypatch.setattr(publish_runner, "get_or_create_account_session",
+                        lambda platform_code, account_key, profile_key=None, *, with_display=True: stub_session)
+    monkeypatch.setattr(publish_runner, "clear_profile_locks", lambda d: None)
+    monkeypatch.setattr(publish_runner, "sync_playwright", lambda: pw_cm)
+    monkeypatch.setattr(publish_runner, "launch_options", lambda channel, executable_path, **kwargs: {})
+    monkeypatch.setattr(publish_runner, "attach_browser_handles", lambda *a, **k: None)
+
+    kept, stopped = [], []
+    monkeypatch.setattr(publish_runner, "keep_session_alive", lambda sid: kept.append(sid))
+    monkeypatch.setattr(publish_runner, "stop_remote_browser_session", lambda sid: stopped.append(sid))
+
+    class _Driver:
+        code = "testplat"; name = "x"; home_url = "h"; publish_url = "p"
+
+        def detect_logged_in(self, *, url, title, body):
+            return True
+
+        def publish(self, *, page, context, payload, stop_before_publish, commit_guard=None, retry_policy=None):
+            raise ToutiaoUserInputRequired("needs login")
+
+    monkeypatch.setattr(publish_runner, "resolve_driver", lambda pc: _Driver())
+
+    with pytest.raises(ToutiaoUserInputRequired):
+        publish_runner.run_publish(
+            article=_make_stub_article(tmp_path), account=_make_stub_account(), headless=True
+        )
+
+    assert kept == []
+    assert stopped == [stub_session.id]
