@@ -11,6 +11,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
+from server.app.core.logging import submit_in_context
 from server.app.modules.articles.ai_illustrate_svc import (
     IllustrateOptions,
     IllustrateResult,
@@ -78,7 +79,7 @@ def run_ai_illustrate(ctx: NodeRunContext) -> NodeResult:
     cover_errors: list[str] = []
     format_errors_from_results: list[str] = []
     with ThreadPoolExecutor(max_workers=4) as pool:
-        futures = {pool.submit(_one, aid): aid for aid in article_ids}
+        futures = {submit_in_context(pool, _one, aid): aid for aid in article_ids}
         for fut in as_completed(futures):
             try:
                 result = fut.result()

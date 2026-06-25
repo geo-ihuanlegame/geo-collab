@@ -671,6 +671,7 @@ export type RunLogRow = {
   task_name: string;
   level: "INFO" | "ERROR";
   message: string;
+  duration_ms: number | null;
   time: string | null;
 };
 

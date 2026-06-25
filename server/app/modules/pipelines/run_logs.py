@@ -13,10 +13,24 @@ from server.app.modules.pipelines.schemas import RunLogRow
 _BEIJING_OFFSET = timedelta(hours=8)
 
 
+def _success_message(data: dict) -> str:
+    """成功节点的摘要消息：产文篇数 / 进组 / 建任务，无业务产出则「运行成功」。"""
+    parts: list[str] = []
+    aids = data.get("article_ids")
+    if isinstance(aids, list) and aids:
+        parts.append(f"生成 {len(aids)} 篇")
+    if data.get("group_id"):
+        parts.append(f"进组 {data['group_id']}")
+    if data.get("task_id"):
+        parts.append(f"建任务 {data['task_id']}")
+    return "；".join(parts) if parts else "运行成功"
+
+
 def build_run_log_rows(run, name_by_index: dict[int, str]) -> list[RunLogRow]:
     """把单条 PipelineRun 的 node_results 摊平成日志行（按节点下标升序）。
 
     运行对象需具备 id / status / node_results / completed_at / created_at 属性。
+    node_results 各节点项除业务输出外，执行器还富化了 duration_ms / error_type（best-effort，旧运行没有）。
     纯函数、无 DB 依赖，便于单测。
     """
     rows: list[RunLogRow] = []
@@ -24,14 +38,17 @@ def build_run_log_rows(run, name_by_index: dict[int, str]) -> list[RunLogRow]:
     for key in sorted(results, key=lambda k: int(k)):
         idx = int(key)
         data = results[key] or {}
+        duration_ms = data.get("duration_ms") if isinstance(data, dict) else None
         if "error" in data:
-            level, message = "ERROR", str(data["error"])
+            level = "ERROR"
+            etype = data.get("error_type")
+            message = f"[{etype}] {data['error']}" if etype else str(data["error"])
         elif data.get("errors"):
             level, message = "ERROR", "; ".join(str(e) for e in data["errors"])
         elif data.get("skipped"):
             level, message = "INFO", "已跳过"
         else:
-            level, message = "INFO", "运行成功"
+            level, message = "INFO", _success_message(data)
         rows.append(
             RunLogRow(
                 batch=run.id,
@@ -40,6 +57,7 @@ def build_run_log_rows(run, name_by_index: dict[int, str]) -> list[RunLogRow]:
                 task_name=name_by_index.get(idx, f"步骤 {idx}"),
                 level=level,
                 message=message,
+                duration_ms=duration_ms if isinstance(duration_ms, int) else None,
                 time=run.completed_at or run.created_at,
             )
         )

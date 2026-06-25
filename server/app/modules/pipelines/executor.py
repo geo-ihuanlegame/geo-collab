@@ -6,10 +6,12 @@ _RUN_SEMAPHORE（GEO_PIPELINE_MAX_CONCURRENT_RUNS）限制。"""
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable
 from typing import Any
 
 from server.app.core.config import get_settings as _get_settings
+from server.app.core.logging import bind_node, bind_run, clear_run_context
 from server.app.core.time import utcnow
 from server.app.modules.articles.service import mark_pending_and_group
 from server.app.modules.pipelines.flow_meta import apply_input_mapping, should_skip
@@ -21,6 +23,33 @@ from server.app.shared.errors import ConflictError
 
 logger = logging.getLogger(__name__)
 SessionFactory = Callable[[], Any]
+
+
+def _summarize_inputs(inputs: dict | None) -> str:
+    """节点输入的紧凑摘要（只记 key 与规模，不 dump 内容，避免日志爆量）。"""
+    parts = [
+        f"{k}({len(v)})" if isinstance(v, list | tuple | dict | str) else str(k)
+        for k, v in (inputs or {}).items()
+    ]
+    return "keys=[" + ",".join(parts) + "]" if parts else "无输入"
+
+
+def _summarize_output(result: Any) -> str:
+    """节点产出的紧凑摘要（产文篇数 / 成组 / 建任务 / 错误数 / 跳过）。"""
+    out = result.output or {}
+    parts: list[str] = []
+    if result.article_ids:
+        parts.append(f"产文{len(result.article_ids)}篇")
+    if out.get("group_id"):
+        parts.append(f"group_id={out['group_id']}")
+    if out.get("task_id"):
+        parts.append(f"task_id={out['task_id']}")
+    if out.get("errors"):
+        parts.append(f"errors={len(out['errors'])}")
+    if out.get("skipped"):
+        parts.append(f"skipped={out['skipped']}")
+    return " ".join(parts) if parts else "无产出"
+
 
 # 全局并发闸：限制单进程同时执行的 pipeline 运行数（与单主实例约束配合即为全局上限）。
 # ObservableGate 暴露 in_use/waiting 供 resource_metrics 上报，acquire(timeout) 不无限阻塞（#9）。
@@ -84,6 +113,7 @@ def _run_pipeline_inner(run_id: int, session_factory: SessionFactory) -> None:
         pipeline = db.get(Pipeline, pipeline_id)
         ignore_exception = bool(pipeline.ignore_exception) if pipeline is not None else False
         pipeline_name = pipeline.name if pipeline is not None else None
+        bind_run(run_id, pipeline_id)  # 补上 pipeline_id，使后续每行日志都带 [run pipe]
         if run.snapshot:
             # 优先读运行快照（创建时冻结）；旧运行无快照时回退实时节点
             node_specs = [
@@ -115,6 +145,10 @@ def _run_pipeline_inner(run_id: int, session_factory: SessionFactory) -> None:
     finally:
         db.close()
 
+    logger.info(
+        "运行开始：%s · 共 %d 个节点", pipeline_name or f"工作流{pipeline_id}", len(node_specs)
+    )
+    run_started = time.monotonic()
     context: dict[int, dict] = {}  # node_index -> output
     node_results: dict[str, Any] = {}
     article_ids: list[int] = []
@@ -127,6 +161,8 @@ def _run_pipeline_inner(run_id: int, session_factory: SessionFactory) -> None:
 
     for spec in node_specs:
         idx = spec["node_index"]
+        node_type = spec["node_type"]
+        bind_node(idx, node_type)  # 之后本节点内的所有日志都带 [node=idx:type]
         meta = spec["flow_meta"]
         # 上游视图：按 dependsOnIndex 取指定节点输出，否则合并全部已执行输出
         if meta and meta.get("dependsOnIndex") is not None:
@@ -138,18 +174,23 @@ def _run_pipeline_inner(run_id: int, session_factory: SessionFactory) -> None:
         # ignore_exception=True 时不阻断：允许"忽略异常、继续往下跑"（出错的下游自负其责）。
         dep = meta.get("dependsOnIndex") if meta else None
         if dep is not None and dep in failed_indices and not ignore_exception:
-            node_results[str(idx)] = {"error": f"上游节点 #{dep} 失败，已中止本节点"}
+            msg = f"上游节点 #{dep} 失败，已中止本节点"
+            logger.warning("节点中止：%s", msg)
+            node_results[str(idx)] = {"error": msg}
             had_failure = True
             failed_indices.add(idx)
             continue
 
         if should_skip(meta, upstream):
+            logger.info("节点跳过：condition 命中")
             node_results[str(idx)] = {"skipped": True}
             continue
 
         inputs = apply_input_mapping(meta, upstream)
+        logger.info("节点开始：type=%s %s", node_type, _summarize_inputs(inputs))
+        node_started = time.monotonic()
         try:
-            handler = get_handler(spec["node_type"])
+            handler = get_handler(node_type)
             result = handler(
                 NodeRunContext(
                     session_factory=session_factory,
@@ -160,21 +201,34 @@ def _run_pipeline_inner(run_id: int, session_factory: SessionFactory) -> None:
                     pipeline_name=pipeline_name,
                 )
             )
+            dur_ms = int((time.monotonic() - node_started) * 1000)
             context[idx] = result.output
-            node_results[str(idx)] = result.output
+            # node_results 是持久化 + UI 运行日志的来源；额外存 duration_ms（不污染 context 数据传递）
+            node_results[str(idx)] = {**result.output, "duration_ms": dur_ms}
             article_ids.extend(result.article_ids)
             if result.output.get("group_id"):
                 grouped = True
             if result.output.get("errors"):
                 had_failure = True
+                logger.warning(
+                    "节点产生错误：type=%s errors=%s", node_type, result.output["errors"]
+                )
             # 成功标记仅在真正产出业务结果时置位：
             # ai_generate 产文(result.article_ids) 或 distribute 建任务(output.task_id)。
             # input / 读取类节点(article_group_source) 不计入成功，避免零产出被误判为部分失败。
             if result.article_ids or result.output.get("task_id"):
                 had_success = True
+            logger.info(
+                "节点完成：type=%s 耗时=%dms %s", node_type, dur_ms, _summarize_output(result)
+            )
         except Exception as exc:
-            logger.exception("pipeline run %s node #%s failed", run_id, idx)
-            node_results[str(idx)] = {"error": str(exc)}
+            dur_ms = int((time.monotonic() - node_started) * 1000)
+            logger.exception("节点失败：type=%s 耗时=%dms", node_type, dur_ms)
+            node_results[str(idx)] = {
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+                "duration_ms": dur_ms,
+            }
             had_failure = True
             failed_indices.add(idx)
 
@@ -246,6 +300,14 @@ def _run_pipeline_inner(run_id: int, session_factory: SessionFactory) -> None:
     finally:
         db.close()
 
+    logger.info(
+        "运行结束：status=%s 产文=%d 节点=%d 总耗时=%dms",
+        status,
+        len(article_ids),
+        len(node_results),
+        int((time.monotonic() - run_started) * 1000),
+    )
+
 
 def run_pipeline(run_id: int, session_factory: SessionFactory) -> None:
     """后台线程入口：等到并发槽后执行运行；等槽超时或顶层异常都把 pending/running 置 failed。
@@ -257,12 +319,14 @@ def run_pipeline(run_id: int, session_factory: SessionFactory) -> None:
         logger.warning("pipeline run %s timed out waiting for a concurrency slot", run_id)
         _mark_run_failed(run_id, session_factory, "等待并发槽位超时，运行已中止")
         return
+    bind_run(run_id)  # 顶层先绑 run_id，确保等槽/崩溃日志也带上下文
     try:
         _run_pipeline_inner(run_id, session_factory)
     except Exception:
         logger.exception("pipeline run %s crashed at top level", run_id)
         _mark_run_failed(run_id, session_factory, "执行器内部异常，运行已中止")
     finally:
+        clear_run_context()  # 清空，避免污染复用线程的后续日志
         _RUN_GATE.release()
 
 

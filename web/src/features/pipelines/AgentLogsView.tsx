@@ -9,6 +9,11 @@ function fmtTime(t: string | null): string {
   return new Date(t).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false });
 }
 
+function fmtDuration(ms: number | null): string {
+  if (ms == null) return "—";
+  return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
+}
+
 const ERR = { color: "#c0392b" };
 const ERR_BOLD = { color: "#c0392b", fontWeight: 600 };
 
@@ -117,7 +122,7 @@ export function AgentLogsView({ pipelineId, onBack }:
         <table className="agentTable">
           <thead>
             <tr>
-              <th>批次</th><th>任务名称</th><th>步骤</th><th>日志等级</th><th>日志</th><th>时间</th>
+              <th>批次</th><th>任务名称</th><th>步骤</th><th>日志等级</th><th>日志</th><th>耗时</th><th>时间</th>
             </tr>
           </thead>
           <tbody>
@@ -128,6 +133,7 @@ export function AgentLogsView({ pipelineId, onBack }:
                 <td>{r.step}</td>
                 <td style={r.level === "ERROR" ? ERR_BOLD : undefined}>{r.level}</td>
                 <td style={r.level === "ERROR" ? ERR : undefined}>{r.message}</td>
+                <td>{fmtDuration(r.duration_ms)}</td>
                 <td>{fmtTime(r.time)}</td>
               </tr>
             ))}
