@@ -105,12 +105,18 @@ class Settings(BaseSettings):
     # 账号登录态夜间保活（worker 后台线程，复用检测按键无头刷新 storage_state）。默认关闭。
     # 见 docs/superpowers/specs/2026-06-25-account-login-keepalive-design.md
     account_keepalive_enabled: bool = False  # GEO_ACCOUNT_KEEPALIVE_ENABLED
-    account_keepalive_window_start: str = "23:00"  # GEO_ACCOUNT_KEEPALIVE_WINDOW_START（HH:MM，scheduler_tz）
+    account_keepalive_window_start: str = (
+        "23:00"  # GEO_ACCOUNT_KEEPALIVE_WINDOW_START（HH:MM，scheduler_tz）
+    )
     account_keepalive_window_end: str = "03:00"  # GEO_ACCOUNT_KEEPALIVE_WINDOW_END（跨午夜）
     account_keepalive_min_gap_seconds: int = 30  # GEO_ACCOUNT_KEEPALIVE_MIN_GAP_SECONDS
     account_keepalive_max_gap_seconds: int = 600  # GEO_ACCOUNT_KEEPALIVE_MAX_GAP_SECONDS（10min）
-    account_keepalive_poll_seconds: int = 120  # GEO_ACCOUNT_KEEPALIVE_POLL_SECONDS（窗口外/无待刷轮询步长）
-    account_keepalive_check_timeout_seconds: int = 120  # GEO_ACCOUNT_KEEPALIVE_CHECK_TIMEOUT_SECONDS（单账号看门狗）
+    account_keepalive_poll_seconds: int = (
+        120  # GEO_ACCOUNT_KEEPALIVE_POLL_SECONDS（窗口外/无待刷轮询步长）
+    )
+    account_keepalive_check_timeout_seconds: int = (
+        120  # GEO_ACCOUNT_KEEPALIVE_CHECK_TIMEOUT_SECONDS（单账号看门狗）
+    )
     run_startup_recovery: bool = True  # GEO_RUN_STARTUP_RECOVERY；多实例只在单一实例开启
     # 资源指标周期采样（Task 3，封堵 #10）。后台守护线程每 N 秒采一份池/run 快照打点到日志，
     # checked_out/max 超阈值升 WARNING。默认开启、可关闭；采样纯内存读 + 轻量 COUNT，不改并发。
