@@ -74,6 +74,20 @@ def _stock_image_id_from_image_node(node: dict[str, Any]) -> int | None:
     return None
 
 
+def image_node_key(node: dict[str, Any]) -> str | None:
+    """图片节点的稳定 key：asset_id 或 ``stock:<id>``。
+
+    驱动与各平台转换器共用，按 key 查找（而非顺序），重复用图 / 删图都稳。
+    """
+    asset_id = _asset_id_from_image_node(node)
+    if asset_id:
+        return asset_id
+    stock_id = _stock_image_id_from_image_node(node)
+    if stock_id is not None:
+        return f"stock:{stock_id}"
+    return None
+
+
 def loads_content_json(raw: str) -> dict[str, Any]:
     if not raw:
         return {}
