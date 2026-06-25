@@ -19,6 +19,5 @@ KNOWN_BUNDLE_SHAS: frozenset[str] = frozenset(
         # build_bundle 读字节后直接 sha256，行尾不归一化——两边都要认。下次改归一化逻辑时再清。
         "58448672effda8290f97dc5afdfb6c4146ea9c8b7cc7c432b2d4a76274b65856",  # CRLF
         "515c9202f1e0880a1657e4da768954e83bb8a2a5cdfc220355a369862d2cefc6",  # LF (CI canonical)
-        "6d1824edae49e4d6b67ac6b36000b6c5fe8b29cdbe5f62100a4b6cc4b994566f",  # mixed (worktree)
     }
 )
