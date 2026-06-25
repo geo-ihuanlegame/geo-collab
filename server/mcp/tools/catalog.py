@@ -186,3 +186,38 @@ async def list_today_loop_articles(
     if model_label:
         params["model_label"] = model_label
     return await _aget("/api/articles/today-loop-decisions", params=params)
+
+
+@mcp.tool()
+async def list_stock_categories(
+    kind: str | None = None,
+) -> dict[str, Any]:
+    """List stock image library categories (image buckets) — for /goal Loop onboarding.
+
+    Use this when the user needs to find a `main_category_id` to fill into
+    their writer SKILL.md matrix section. Show the returned list to the user
+    so they can pick the one matching their content matrix (e.g. "餐厅养成记").
+
+    Args:
+        kind: Filter by category kind. Common values:
+            - "main": 主推栏目 (one per content matrix — what writer skill picks)
+            - "companion": 陪衬栏目 (AI auto-detects across all of them)
+            - None (default): return all categories
+
+    Returns:
+        {"ok": True, "data": [
+            {
+                "id": int,
+                "name": str,           # e.g. "餐厅养成记"
+                "kind": str,           # "main" | "companion"
+                "description": str | None,
+                "official_url": str | None,
+                "image_count": int,    # total images in this bucket
+            },
+            ...
+        ], "error": None}
+    """
+    params: dict[str, Any] = {}
+    if kind:
+        params["kind"] = kind
+    return await _aget("/api/mcp/stock-categories", params=params or None)
