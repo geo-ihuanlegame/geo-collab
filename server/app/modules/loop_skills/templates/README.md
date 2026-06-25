@@ -19,18 +19,21 @@
 
 ---
 
-## 第一次用 /goal —— 5 步 onboarding
+## 第一次用 /goal —— 6 步 onboarding
 
 ```
 1. 把 spec/plan 里的 SKILL.md + command + README 内容复制到本地 .claude/
-   （或从同事那拿 zip）
+   （或从同事那拿 zip / 用 install_loop_skills MCP 工具自动装）
 2. 一次性配置（每台机器一次）
    - 打开 ~/.claude.json，加 mcpServers.geo 段
    - 把后端管理员发的 GEO_MCP_TOKEN 填到 headers.X-MCP-Token
    - 详细参考 docs/mcp-setup-notes.md
 3. 重启 Claude Code
 4. 在 Claude Code 里输入 /mcp，确认 geo server 显示 "connected"
-5. 在 Claude Code 里输入：
+5. 打开本机 .claude/skills/geo-article-writer/SKILL.md，找到「矩阵特例」段
+   `main_category_id = <REPLACE_ME>` 行；去 GEO 后台「图库管理」→ 主推栏目
+   里找你矩阵对应栏目（比如餐厅养成记），把 id 填进去（数字）。
+6. 在 Claude Code 里输入：
    /goal 帮我今天产出 5 篇关于国风游戏的文章
 
 之后 /goal 会自动跑（约 10-20 分钟）；完成后飞书群会有播报。
@@ -43,14 +46,14 @@
 干净的状态条，不会被子 agent 写作 / 评分细节污染：
 
 ```
-[orchestrator] sanity ✓ pool=问题池 N=5 matrix=default
-[round 1/15] qid=123 → writer …
-[round 1/15] writer 交稿 article_id=824, verifier …
-[round 1/15] verifier decision=approved score=82
-[netto] today approved by goal-verifier: 1/5
-[round 2/15] qid=124 → writer …
+[快检] pool=问题池 N=5 matrix=默认 通过
+[第 1/15 轮] 选题 qid=123 → 改写中 …
+[第 1/15 轮] 改写完成 article_id=824, 评审中 …
+[第 1/15 轮] 评审 决策=approved 总分=82
+[净产出] 今日通过 goal 评审的文章数: 1/5
+[第 2/15 轮] 选题 qid=124 → 改写中 …
 ...
-[done] 净产出 5/5, 共耗时 12m, 飞书已播报
+[完成] 净产出 5/5, 共耗时 12m, 飞书已播报
 ```
 
 ---

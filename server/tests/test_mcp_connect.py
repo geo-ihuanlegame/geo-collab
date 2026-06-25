@@ -23,7 +23,7 @@ def test_status_returns_configured_true_when_token_set(monkeypatch):
         assert resp.status_code == 200, resp.text
         body = resp.json()
         assert body["configured"] is True
-        assert body["tools_count"] == 19
+        assert body["tools_count"] == 20
         assert body["suggested_base_url"].startswith("http")
         assert not body["suggested_base_url"].endswith("/")
     finally:

@@ -959,7 +959,14 @@ async def complete_chunked_upload(
 # MCP service calls have no user JWT, so we expose MCP endpoints on a separate sub-router.
 from server.app.core.mcp_auth import require_mcp_token  # noqa: E402
 from server.app.core.mcp_errors import mcp_exception_response  # noqa: E402
+from server.app.modules.articles.ai_illustrate_svc import (  # noqa: E402
+    IllustrateOptions,
+    illustrate_one,
+)
 from server.app.modules.image_library.hook import insert_images_for_article  # noqa: E402
+
+# MCP 路径下没有 user JWT，跟 save_from_mcp 同款用环境变量常量
+_MCP_OPERATOR_USER_ID = int(os.environ.get("GEO_MCP_OPERATOR_USER_ID", "1"))
 
 articles_mcp_router = APIRouter()
 
@@ -1031,6 +1038,78 @@ def illustrate_article_mcp(
         else 0
     )
     return IllustrateResponse(inserted_count=max(0, after - before))
+
+
+class AiIllustratePayload(BaseModel):
+    """走 ai_illustrate 节点同款逻辑（AI 决策 + 自动封面）."""
+
+    main_category_id: int
+    include_companion: bool = True
+    web_fallback: bool = False
+    aggressive_images: bool = True
+    max_images: int | None = Field(default=None, ge=1, le=50)
+    min_spacing: int | None = Field(default=None, ge=1, le=20)
+    preset_id: int | None = None
+    set_cover: bool = True
+
+
+class AiIllustrateResponse(BaseModel):
+    images_inserted: int
+    cover_status: str
+    cover_error: str | None
+    format_error: str | None
+
+
+@articles_mcp_router.post(
+    "/{article_id}/ai-illustrate",
+    response_model=AiIllustrateResponse,
+    dependencies=[Depends(require_mcp_token)],
+)
+def ai_illustrate_article_mcp(
+    article_id: int,
+    payload: AiIllustratePayload,
+) -> AiIllustrateResponse:
+    """[MCP] AI 智能配图 + 自动封面，对齐 Web UI「AI 配图」pipeline 节点.
+
+    复用 articles.ai_illustrate_svc.illustrate_one；与 pipeline 节点共享同一份实现.
+    illustrate_one 内部对 run_ai_format / set_random_cover 都做了 best-effort
+    包装，但上游 LiteLLM / httpx SDK 偶尔会上抛未捕获异常；用
+    mcp_exception_response 兜底，避免被 main.py 全局 500 handler 抹平消息.
+    """
+    from server.app.db.session import SessionLocal
+
+    try:
+        result = illustrate_one(
+            article_id=article_id,
+            main_category_id=payload.main_category_id,
+            user_id=_MCP_OPERATOR_USER_ID,
+            options=IllustrateOptions(
+                include_companion=payload.include_companion,
+                web_fallback=payload.web_fallback,
+                aggressive_images=payload.aggressive_images,
+                max_images=payload.max_images,
+                min_spacing=payload.min_spacing,
+                preset_id=payload.preset_id,
+                set_cover=payload.set_cover,
+            ),
+            session_factory=SessionLocal,
+        )
+    except HTTPException:
+        raise
+    except (ConflictError, ClientError, ValidationError):
+        raise
+    except Exception as exc:
+        raise mcp_exception_response(
+            exc,
+            context=f"ai_illustrate article_id={article_id} category={payload.main_category_id}",
+        ) from exc
+
+    return AiIllustrateResponse(
+        images_inserted=result.images_inserted,
+        cover_status=result.cover_status,
+        cover_error=result.cover_error,
+        format_error=result.format_error,
+    )
 
 
 class SaveArticleFromMcpPayload(BaseModel):

@@ -19,7 +19,7 @@ from server.app.core.mcp_auth import require_mcp_token
 
 # 与 server/mcp/tools/ 下三个文件 (action.py / catalog.py / meta.py) 注册的 @mcp.tool
 # 数量同步。增减 MCP tool 时改这里，前端「MCP 接入」tab 段 ① 用此数字。
-MCP_TOOLS_COUNT = 19
+MCP_TOOLS_COUNT = 20
 
 
 class McpStatusResponse(BaseModel):
