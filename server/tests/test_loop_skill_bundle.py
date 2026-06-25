@@ -196,3 +196,68 @@ def test_mcp_install_payload_returns_full_files_when_authed(monkeypatch):
             assert f["content"]
     finally:
         test_app.cleanup()
+
+
+def test_orchestrator_skill_progress_log_no_english_jargon():
+    """orchestrator skill 用户可见的进度日志 + 伪码 echo / notify_feishu 字符串
+    不应再含英文 / 术语黑名单（pool= / qid= / matrix=< / goal 评审 / netto /
+    attempts ceiling / candidates 用尽 / token 预算 / MCP 连续 / [interrupted] /
+    生文 Loop / article_id= / decision= / score=）。
+
+    严格 grep 模板全文，宁错杀也要催 i18n 改完。
+    """
+    from pathlib import Path
+
+    skill = (
+        Path(__file__).resolve().parent.parent
+        / "app/modules/loop_skills/templates/skills/geo-goal-orchestrator/SKILL.md"
+    )
+    text = skill.read_text(encoding="utf-8")
+
+    # 这些 token 在面向用户的位置出现就算回退；伪码变量名（netto / qid / pool_id
+    # 等）出现在 Python 代码缩进里不在此列（黑名单针对的是字符串字面量 + 注释 /
+    # 表格 / 文档行）。判定方式：白名单允许 `target.pool_id` / `netto.count` /
+    # `qid = pick_next_qid` 这种代码读取；其它出现都视为日志/叙述用词漂移。
+    blacklist = [
+        "[快检]",  # 旧 tag，应该换成 [启动检查]
+        "pool=",  # echo 字段名应该是「问题池：」
+        "matrix=<code|默认>",  # echo 字段名应该是「矩阵：」
+        "matrix=<code|default>",  # 旧版残留
+        "goal 评审",  # 应该是「评审员」
+        "[净产出]",  # 应该是「累计通过」
+        "attempts ceiling",  # 飞书消息应该是「已达尝试轮数上限」
+        "token 预算",  # 飞书消息应该是「主对话内存预算」
+        "MCP 连续失败",  # 飞书消息应该是「接口连续失败」
+        "[interrupted]",  # 应该是「[已中断]」
+        "生文 Loop ",  # 应该是「生文流程」
+        'description=f"写一篇文章 qid=',  # subagent description 应换成「改写文章（问题 #...）」
+        'description=f"评分 article_id=',  # subagent description 应换成「评审文章 #...」
+    ]
+    hits = [token for token in blacklist if token in text]
+    assert not hits, (
+        f"orchestrator SKILL.md 仍有 i18n 漂移 token：{hits}. "
+        "改完 echo / notify_feishu / subagent description 后再跑."
+    )
+
+
+def test_orchestrator_skill_has_narration_rules_section():
+    """orchestrator skill 必须含「主对话叙述规范（强制）」段 + 关键黑名单关键词,
+    才能让 Claude 在自由叙述时不漏术语."""
+    from pathlib import Path
+
+    skill = (
+        Path(__file__).resolve().parent.parent
+        / "app/modules/loop_skills/templates/skills/geo-goal-orchestrator/SKILL.md"
+    )
+    text = skill.read_text(encoding="utf-8")
+
+    assert "# 主对话叙述规范（强制）" in text, (
+        "orchestrator skill 缺「主对话叙述规范（强制）」段；该段用于约束 Claude "
+        "在主对话自由叙述时不漏 orchestrator/netto/qid 等英文术语."
+    )
+    # 段内必须含黑名单关键词 + 反例 / 正例标签
+    for keyword in ["❌ 不要说", "✅ 改成", "**反例**", "**正例**"]:
+        assert keyword in text, f"叙述规范段缺关键标签：{keyword}"
+    # 段内必须列出关键术语黑名单
+    for term in ["orchestrator", "netto", "qid", "pool", "matrix", "goal-verifier"]:
+        assert term in text, f"叙述规范段未列入黑名单术语：{term}"

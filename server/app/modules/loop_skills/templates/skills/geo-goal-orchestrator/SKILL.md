@@ -44,23 +44,23 @@ while True:
         since_hours=24,
         model_label=target.model_label,
     ).data
-    echo(f"[净产出] 今日通过 goal 评审的文章数: {netto.count}/{target.N}")
+    echo(f"[累计通过] 今日已过审文章数：{netto.count}/{target.N} 篇")
 
     if netto.count >= target.N:
-        notify_feishu("生文 Loop 完成", f"净产出 {netto.count}/{target.N}, 共耗时 {minutes}m", "done")
+        notify_feishu("生文流程完成", f"累计通过 {netto.count}/{target.N}，共耗时 {minutes} 分钟", "done")
         return SUCCESS
 
     if attempts >= 3 * target.N:
-        notify_feishu("生文 Loop 中止", f"attempts ceiling, 净产出 {netto.count}/{target.N}", "warning")
+        notify_feishu("生文流程中止", f"已达尝试轮数上限，累计通过 {netto.count}/{target.N}", "warning")
         return ABORT
     if len(used_qids) >= len(candidates):
-        notify_feishu("生文 Loop 中止", f"候选问题用尽, 净产出 {netto.count}/{target.N}", "warning")
+        notify_feishu("生文流程中止", f"候选问题用完，累计通过 {netto.count}/{target.N}", "warning")
         return ABORT
     if estimated_main_tokens > 80_000:
-        notify_feishu("生文 Loop 中止", f"token 预算触线, 净产出 {netto.count}/{target.N}", "warning")
+        notify_feishu("生文流程中止", f"主对话内存预算触顶，累计通过 {netto.count}/{target.N}", "warning")
         return ABORT
     if consecutive_mcp_fail >= 3:
-        notify_feishu("生文 Loop 中止", "MCP 连续失败 3 次, 请检查后端/token", "error")
+        notify_feishu("生文流程中止", "接口连续失败 3 次，请检查服务连接 / 凭证", "error")
         return ABORT
 
     # === 选 next qid（避重）===
@@ -73,7 +73,7 @@ while True:
     matrix_suffix = "" if target.matrix_code == "" else "-" + target.matrix_code
     writer_result = Agent(
         subagent_type="general-purpose",
-        description=f"写一篇文章 qid={qid}",
+        description=f"改写文章（问题 #{qid}）",
         prompt=f"""Read .claude/skills/geo-article-writer{matrix_suffix}/SKILL.md and follow it strictly.
 
 Input: qid={qid}, tpl_id={tpl_id}, model_label={target.model_label}
@@ -86,19 +86,19 @@ No other text.""",
     )
     parsed = parse_last_json_line(writer_result.stdout)
     if "error" in parsed:
-        echo(f"[第 {attempts}/{3*target.N} 轮] 改写失败: {parsed.error}")
+        echo(f"[第 {attempts}/{3*target.N} 轮] 改写失败：{parsed.error}")
         if is_mcp_error(parsed.error):
             consecutive_mcp_fail += 1
         continue
     consecutive_mcp_fail = 0
     article_id = parsed["article_id"]
-    echo(f"[第 {attempts}/{3*target.N} 轮] 改写完成 article_id={article_id}, 评审中 …")
+    echo(f"[第 {attempts}/{3*target.N} 轮] 改写完成（文章 #{article_id}），评审中 …")
 
     # === Verifier subagent（fresh context, Haiku）===
     verifier_result = Agent(
         subagent_type="general-purpose",
         model="haiku",
-        description=f"评分 article_id={article_id}",
+        description=f"评审文章 #{article_id}",
         prompt=f"""Read .claude/skills/geo-article-verifier/SKILL.md and follow it strictly.
 
 Input: article_id={article_id}, qid={qid}, tpl_id={tpl_id}
@@ -109,22 +109,60 @@ No other text.""",
     )
     parsed_v = parse_last_json_line(verifier_result.stdout)
     if "error" in parsed_v:
-        echo(f"[第 {attempts}/{3*target.N} 轮] 评审失败, article {article_id} 留 pending 由人审")
+        echo(f"[第 {attempts}/{3*target.N} 轮] 评审失败，文章 #{article_id} 留待人工审核")
         continue
-    echo(f"[第 {attempts}/{3*target.N} 轮] 评审 决策={parsed_v.decision} 总分={parsed_v.score_total}")
+    echo(f"[第 {attempts}/{3*target.N} 轮] 评审结果：{parsed_v.decision}　分数 {parsed_v.score_total}")
     # 不管 decision 是什么循环都继续——netto 查询会反映真实通过数
 ```
 
 # 进度日志（必须 echo 这些短行）
 
 ```
-[快检] pool=<name> N=<N> matrix=<code|默认> 通过
-[第 k/3N 轮] 选题 qid=<id> → 改写中 …
-[第 k/3N 轮] 改写完成 article_id=<id>, 评审中 …
-[第 k/3N 轮] 评审 决策=<d> 总分=<total>
-[净产出] 今日通过 goal 评审的文章数: <count>/<N>
-[完成|中止] 净产出 <count>/<N>, 共耗时 <m>m, 原因=<...>
+[启动检查] 问题池：<name>　目标：<N> 篇　矩阵：<code|默认>　✓
+[第 k/3N 轮] 选题：问题 #<id> → 改写中 …
+[第 k/3N 轮] 改写完成（文章 #<id>），评审中 …
+[第 k/3N 轮] 评审结果：<d>　分数 <total>
+[累计通过] 今日已过审文章数：<count>/<N> 篇
+[完成|中止] 累计通过 <count>/<N>，共耗时 <m> 分钟，原因：<...>
 ```
+
+# 主对话叙述规范（强制）
+
+你向用户叙述本次 /goal 运行时，**只能用中文 + 上面进度日志的固定格式**。
+绝对不要在叙述里出现以下英文 / 内部术语（左侧错例，右侧用法）：
+
+| ❌ 不要说 | ✅ 改成 |
+|---|---|
+| orchestrator | 编排员 / 我 |
+| netto / 净产出 | 累计通过数 |
+| goal-verifier | 评审员 |
+| pool / pool_id | 问题池 |
+| qid | 问题 #编号 |
+| tpl_id | 模板 #编号 |
+| article_id | 文章 #编号 |
+| matrix / matrix_code | 矩阵 |
+| N | 目标 X 篇 |
+| writer / verifier | 改写员 / 评审员 |
+| subagent | 子助手 |
+| attempts | 已尝试轮数 |
+| 主对话内存预算（裸说 token） | 主对话内存预算 |
+
+**反例**（千万别这样说）：
+
+> 启动 orchestrator。N=5 国风。先看 netto，已知国风候选 qid=80/81/82/83。
+
+**正例**：
+
+> 开始执行 /goal：目标 5 篇国风游戏文章。先看一下累计通过数，
+> 当前候选问题：#80 / #81 / #82 / #83（共 4 条）。
+
+**例外**（这些保留原样，因为是 Claude Code 自己加的或后端契约）：
+- `Skill(...)` / `Agent(...)` / `Called geo` 前缀 — Claude Code UI 自动加
+- MCP 工具调用 `save_article(question_item_id=80, prompt_template_id=11)` — 工具签名
+- 文件路径、URL、内部命令行 — 保持原样
+
+> 这一段比技术契约更重要——使用者看不懂"netto"，但他们花 10 分钟跑 /goal 时
+> 主对话是他们唯一的进度反馈。不要让英文 / 缩写打断他们的注意力。
 
 # Helper 定义（消除歧义）
 
@@ -144,7 +182,7 @@ No other text.""",
 - candidates 用尽 → ABORT（飞书 warning）
 - 估算主对话 token > 80k → ABORT（飞书 warning）
 - 连续 MCP 错误 >= 3 → ABORT（飞书 error）
-- 用户 Ctrl-C → 主对话 echo `[interrupted] 已落库 X 篇, 净产出 Y/N, 下次 /goal 会接力`（不发飞书）
+- 用户 Ctrl-C → 主对话 echo `[已中断] 已落库 X 篇，累计通过 Y/N 篇，下次 /goal 会接力`（不发飞书）
 
 # 三个不变式（硬约束）
 
