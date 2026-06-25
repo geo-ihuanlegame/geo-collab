@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>后端拆分重构方案 · 优缺点与风险评估（管理层版）</title>
+<style>
+  :root{
+    --bg:#f6f8fb; --card:#ffffff; --ink:#1a2230; --sub:#5b6675; --line:#e6eaf0;
+    --brand:#2f6df6; --brand-soft:#eaf1ff; --green:#1f9d6b; --green-soft:#e6f7ef;
+    --amber:#c9881a; --amber-soft:#fcf3e0; --red:#d6483b; --red-soft:#fce9e7;
+    --violet:#6d4bd1; --violet-soft:#efeaff; --shadow:0 1px 3px rgba(20,30,50,.06),0 8px 24px rgba(20,30,50,.05);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.65;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1040px;margin:0 auto;padding:48px 28px 80px}
+  header.hero{background:linear-gradient(135deg,#3a4a66,#5a86ff);color:#fff;border-radius:18px;
+    padding:38px 40px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+  header.hero:after{content:"";position:absolute;right:-60px;top:-60px;width:240px;height:240px;
+    background:rgba(255,255,255,.08);border-radius:50%}
+  .hero h1{margin:0 0 8px;font-size:26px;letter-spacing:.3px}
+  .hero p{margin:0;opacity:.92;font-size:15px}
+  .hero .meta{margin-top:18px;display:flex;gap:10px;flex-wrap:wrap}
+  .hero .meta span{background:rgba(255,255,255,.16);padding:4px 12px;border-radius:999px;font-size:12.5px}
+  section{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:28px 30px;
+    margin-top:22px;box-shadow:var(--shadow)}
+  h2{font-size:19px;margin:0 0 16px;display:flex;align-items:center;gap:10px}
+  h2 .n{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;
+    background:var(--brand-soft);color:var(--brand);border-radius:8px;font-size:13px;font-weight:700}
+  h3{font-size:15px;margin:22px 0 10px;color:var(--ink)}
+  p{margin:8px 0;color:var(--ink)}
+  .sub{color:var(--sub);font-size:14px}
+  .verdict{border-left:4px solid var(--green);background:var(--green-soft);border-radius:10px;
+    padding:18px 22px;margin-top:6px}
+  .verdict b{color:var(--green)}
+  .verdict.warn{border-color:var(--amber);background:var(--amber-soft)}
+  .verdict.warn b{color:var(--amber)}
+  .verdict.brand{border-color:var(--brand);background:var(--brand-soft)}
+  .verdict.brand b{color:var(--brand)}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:18px}
+  .kpi{background:var(--brand-soft);border-radius:12px;padding:16px;text-align:center}
+  .kpi .big{font-size:21px;font-weight:800;color:var(--brand);line-height:1.2}
+  .kpi .lbl{font-size:12.5px;color:var(--sub);margin-top:4px}
+  .kpi.red{background:var(--red-soft)} .kpi.red .big{color:var(--red)}
+  .kpi.amber{background:var(--amber-soft)} .kpi.amber .big{color:var(--amber)}
+  .kpi.green{background:var(--green-soft)} .kpi.green .big{color:var(--green)}
+  table{width:100%;border-collapse:collapse;font-size:14px;margin-top:6px}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:#fafbfd;color:var(--sub);font-weight:600;font-size:13px}
+  tr:last-child td{border-bottom:none}
+  .tag{display:inline-block;padding:2px 9px;border-radius:6px;font-size:12px;font-weight:600}
+  .tag.ok{background:var(--green-soft);color:var(--green)}
+  .tag.no{background:var(--red-soft);color:var(--red)}
+  .tag.mid{background:var(--amber-soft);color:var(--amber)}
+  .pc{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:6px}
+  .pc .box{border-radius:12px;padding:16px 18px}
+  .pc .pro{background:var(--green-soft);border:1px solid #c8ebd9}
+  .pc .con{background:var(--red-soft);border:1px solid #f3cfca}
+  .pc h4{margin:0 0 10px;font-size:14px}
+  .pc .pro h4{color:var(--green)} .pc .con h4{color:var(--red)}
+  .pc ul{margin:0;padding-left:18px} .pc li{font-size:13px;margin:6px 0}
+  .risk{font-size:13.5px}
+  .sev{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:7px;vertical-align:middle}
+  .sev.h{background:var(--red)} .sev.m{background:var(--amber)} .sev.l{background:var(--green)}
+  code{background:#eef1f5;border-radius:5px;padding:1px 6px;font-size:12.5px;color:#3a4660;
+    font-family:"SF Mono",Consolas,Menlo,monospace}
+  .note{font-size:12.5px;color:var(--sub);margin-top:8px}
+  .footer{text-align:center;color:var(--sub);font-size:12.5px;margin-top:30px}
+  .pill{display:inline-block;background:#fff;border:1px solid var(--line);border-radius:999px;
+    padding:3px 11px;font-size:12px;color:var(--sub);margin:3px 4px 0 0}
+  .lead{font-size:14px}
+  .lead .em{background:#fff6d8;padding:0 3px;border-radius:3px}
+  @media(max-width:720px){
+    .kpis{grid-template-columns:repeat(2,1fr)}
+    .pc{grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero">
+    <h1>后端拆分重构方案 · 优缺点与风险评估</h1>
+    <p>对《Geo 协作平台 · 后端业务域拆分重构方案》的独立技术评审 —— 我们通读了现有代码，逐条核对了方案里的假设</p>
+    <div class="meta">
+      <span>📅 2026-06-25</span>
+      <span>📄 评审对象：backend-decomposition-plan</span>
+      <span>🔬 方法：通读 2.3 万行后端代码逐条验证</span>
+      <span>👥 受众：管理层</span>
+    </div>
+  </header>
+
+  <!-- 给老板的一句话 -->
+  <section>
+    <h2><span class="n">★</span>给管理层的一句话结论</h2>
+    <div class="verdict brand">
+      <p class="lead" style="margin-top:0">
+        <b style="color:var(--brand)">大方向是对的，可以做；但原方案的「时间表」和「怎么切」两处过于乐观，照原样推进会踩坑。</b>
+      </p>
+      <p class="lead" style="margin-bottom:0">
+        把单体后端拆开、让生文/发文团队各管一摊、能独立上线 —— 这个目标本身值得投入。
+        但我们逐行核对代码后发现：① 原方案说的<span class="em">「代码基本不用搬家、解耦只要 4–6 周」</span>，实测要 <b>2–3 倍</b>时间；
+        ② 原方案把业务切成的<span class="em">「5 个独立域」</span>里，有两组在代码里是<b>焊死在一起</b>的，硬拆会把简单问题变成分布式难题。
+        建议<b>采纳方案的方向，但把目标从「一口气拆 5 个」改成「先稳妥拆 2 个大块」</b>，工期与风险都更可控。
+      </p>
+    </div>
+    <div class="kpis">
+      <div class="kpi green"><div class="big">✓ 值得做</div><div class="lbl">独立部署 / 团队自治方向正确</div></div>
+      <div class="kpi amber"><div class="big">5 → 2</div><div class="lbl">建议拆分粒度从 5 域降为 2 大块</div></div>
+      <div class="kpi red"><div class="big">×2–3</div><div class="lbl">真实工期是原估的 2–3 倍</div></div>
+      <div class="kpi"><div class="big">2 处</div><div class="lbl">方案边界与代码现实冲突</div></div>
+    </div>
+  </section>
+
+  <!-- 这方案到底在干嘛 -->
+  <section>
+    <h2><span class="n">1</span>先用大白话讲清：这方案到底在干什么</h2>
+    <p class="sub">现在整个后端是<b>「一栋大房子里所有人挤在一个大厅办公」</b>——17 个功能模块跑在同一个程序、共用一个数据库。
+      好处是简单，坏处是：改其中任何一处（哪怕只改生文），都要把整栋楼重新装修上线；人多了（4–6 人）在同一片代码上互相踩脚。</p>
+    <p class="sub">原方案想做的，是<b>把大厅隔成 5 个独立办公室</b>（内容、生成、发布、账号、平台），每间屋自己装修、自己开门、自己换人，互不打扰；
+      门口再设一个<b>统一前台（API 网关）</b>负责验证身份和分流。前端用户那一侧<b>看起来完全不变</b>，还是一个后台。</p>
+    <p class="sub">这个思路在行业里是成熟做法，<b>方向我们认可</b>。问题出在两个具体判断上，下面用代码证据说明。</p>
+  </section>
+
+  <!-- 优点 -->
+  <section>
+    <h2><span class="n">2</span>方案的优点（这些判断是对的）</h2>
+    <div class="pc">
+      <div class="box pro">
+        <h4>✓ 站得住的优点</h4>
+        <ul>
+          <li><b>解决的痛点是真实的</b>：改一处要全量重发、多人抢同一片代码冲突、一处出问题拖垮全站 —— 代码现状确实如此。</li>
+          <li><b>「先逻辑解耦、再物理拆分」的稳健路径正确</b>：不一上来就拆进程，先在单体内把边界划清楚，每步可上线、可回滚 —— 这是降低风险的正确姿势。</li>
+          <li><b>前端不拆，对的</b>：前端用户无感、改造面最小，把复杂度都收在后端。</li>
+          <li><b>技术栈策略克制、理性</b>：Python 守住浏览器自动化/AI/富文本这些「深水区」，Go 只切网关、热榜这类边缘，不盲目全量重写。</li>
+          <li><b>CI 护栏思路好</b>：加门禁规则禁止「新增跨域耦合」，避免边重构边制造新问题 —— 这条应当立即落地。</li>
+        </ul>
+      </div>
+      <div class="box con">
+        <h4>△ 但要付的代价（方案自己也承认）</h4>
+        <ul>
+          <li>整体复杂度上升：从 1 个程序变成 5 个 + 网关 + 消息总线，运维、监控、排错成本都上一个台阶。</li>
+          <li>分布式带来「最终一致」难题：原来一个数据库事务能保证的事，拆开后要靠对账、幂等、重试来兜底，调试链路变长。</li>
+          <li>一次报错可能要翻 5 个服务的日志才能定位。</li>
+          <li>本地开发、新人上手门槛升高。</li>
+          <li>周期与人力投入实打实，且（见下）比方案估的更长。</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 关键问题1：工期 -->
+  <section>
+    <h2><span class="n">3</span>风险一：工期被低估了 2–3 倍</h2>
+    <p class="sub">原方案的核心卖点是<b>「代码已按模块分好，拆分时代码基本不用搬家」「P0 逻辑解耦只要 4–6 周」</b>。
+      我们实测代码后，认为这个判断<b>过于乐观</b>。拆服务的难点从来不是「搬代码」，而是「拆开后那些原本在一个程序里悄悄完成的协作，全要改成跨网络调用」。下面是体检数据：</p>
+    <table>
+      <tr><th style="width:46%">现状体检（实测数字）</th><th>说明它为什么拖慢拆分</th></tr>
+      <tr><td><b>35+ 处</b>跨模块直接调用</td><td>一个模块直接 import 另一个模块的代码/数据，多达 35 处以上。拆开后每一处都要改成「跨服务网络调用 + 失败重试」。</td></tr>
+      <tr><td><b>核心「用户」数据被 7 个模块共用</b></td><td>几乎每个模块都靠外键挂在「用户」表上。拆库时这是绕不开的硬骨头，要么共享、要么复制（带来一致性风险）。</td></tr>
+      <tr><td><b>52 条数据库变更脚本是单一条链</b></td><td>所有模块的建表/改表历史串在一条线上。拆成多服务后，多人并行改库会频繁撞车，需要先拆这条链。</td></tr>
+      <tr><td><b>165 个测试文件假设「单进程一个程序」</b></td><td>现有约 750 处测试都基于「所有模块在一个程序里」搭建。拆服务后这套测试要大面积重写，否则就是裸奔上线。</td></tr>
+    </table>
+    <div class="verdict warn" style="margin-top:16px">
+      <b>⏱ 工期重估：</b>原方案说「P0 解耦 4–6 周、10–15 周达成核心目标」。
+      按上面真实耦合度，<b>仅「逻辑解耦」一项就要 8–12 周</b>（不是 4–6 周）；叠加测试重写（3–4 周）、生成模块的改造（见风险三），
+      达成「发文/生文能独立部署」这个核心目标，<b>更现实的预期是 4–6 个月</b>，而非 2.5–3.5 个月。
+    </div>
+    <p class="note">⚠️ 这不是说方案不可行，而是建议<b>给老板汇报和排期时用更稳的数字</b>，避免承诺了 3 个月、实际半年，影响团队信誉与业务节奏。</p>
+  </section>
+
+  <!-- 关键问题2：边界切错 -->
+  <section>
+    <h2><span class="n">4</span>风险二：方案画的「5 个域」里，有两组在代码里是焊死的</h2>
+    <p class="sub">这是<b>最重要的一条</b>。拆房子要沿着「墙缝」拆，不能从「承重墙」中间劈开。原方案按功能名字画了 5 个域，
+      但代码里有两组模块共用了「承重墙」（共享的数据外键、共享的磁盘文件、共享的状态流程），硬拆会把本来简单的事变成最难的「分布式事务」。</p>
+
+    <h3>① 「账号」和「发布」被原方案拆成两个独立域 —— 但代码里它们物理不可分</h3>
+    <p class="sub">发布记录直接用外键挂着账号（<code>publish_records.account_id</code>）；发文时还要去硬盘上读账号登录时写下的<b>浏览器登录态文件</b>，
+      两边共用同一块磁盘目录、共用一把跨进程的「浏览器锁」。这意味着把它们拆成两个独立服务，就要在两台机器间同步加密文件、跨网络抢锁 —— 徒增故障点。</p>
+    <p class="sub"><b>结论：账号 + 发布应当合成「一个发文域」</b>，而不是方案里的两个独立域。</p>
+
+    <h3>② 「内容」和「生成」被原方案拆成两个独立域 —— 但它们共用同一套「审核/成组」流程</h3>
+    <p class="sub">生文、智能体编排、自动评审这三路，最后都会调同一个函数把文章标成「待审」并归到同一个分组（<code>mark_pending_and_group</code>），
+      还都要写文章的「审核状态」、同步文章正文的三份并行副本。这套流程现在靠「在同一个程序、同一个数据库事务里完成」来保证不出错。</p>
+    <p class="sub"><b>一旦把「内容」和「生成」拆成两个服务，这套原子操作就被网络切断</b>，要靠分布式事务/补偿来兜底 —— 这是性价比最低的拆法。
+      <b>结论：内容 + 生成 + 编排短期应当留在「一个内容域」内</b>，对外只暴露一个「成组/送审」的统一接口。</p>
+
+    <div class="verdict" style="margin-top:18px">
+      <b>✅ 校正建议：把目标从「一口气拆 5 个域」改成「沿真实墙缝先拆 2 个大块」</b>
+      <table style="margin-top:10px">
+        <tr><th>原方案的 5 个域</th><th>按代码现实校正后</th><th>判定</th></tr>
+        <tr><td>内容 + 生成（A、B 两个域）</td><td>合并为 <b>内容域</b>（文章/生文/编排/模板/图库/评审）</td><td><span class="tag no">原拆法会制造分布式事务</span></td></tr>
+        <tr><td>发布 + 账号（C、D 两个域）</td><td>合并为 <b>发文域</b>（任务/驱动/账号/浏览器/worker）</td><td><span class="tag no">原拆法物理不可分</span></td></tr>
+        <tr><td>平台（E 域）</td><td>保留 <b>平台/身份</b>（用户/鉴权/审计/热榜）</td><td><span class="tag ok">这个切得对</span></td></tr>
+      </table>
+      <p style="margin:10px 0 0;font-size:13.5px">先稳妥拆成 <b>内容域 / 发文域 / 平台域</b>这 2–3 个大块，就已经能满足「生文、发文团队各自独立上线」的核心诉求；
+      等某个域真的遇到扩容瓶颈，再沿清晰接口进一步细拆。<b>不必、也不该一开始就拆 5 个。</b></p>
+    </div>
+    <p class="note">📎 代码证据（供技术同事复核）：<code>tasks/service.py:21</code> 与 <code>articles/service.py:41</code> 双向引用、
+      <code>pipelines/executor.py:16</code> 调 <code>mark_pending_and_group</code>、<code>accounts</code>↔<code>tasks</code> 外键与共享浏览器 profile、
+      <code>Asset</code> 表被 articles/accounts/tasks 三模块外键引用。</p>
+  </section>
+
+  <!-- 关键问题3：生成模块隐藏改造 -->
+  <section>
+    <h2><span class="n">5</span>风险三：「生成」改独立服务，是一次重写，不是搬代码</h2>
+    <p class="sub">方案把「生成」轻描淡写成「拆成一个独立服务」。但代码里，<b>生文和编排根本没有独立的后台进程</b>——
+      它们是直接在 API 网页服务器内部「开线程」干活的（接到请求 → 当场在本进程里起线程跑生成 → 立即返回）。</p>
+    <p class="sub">要把它变成独立服务，等于要把这套「当场开线程」改成「请求 → 丢进任务队列 → 后台 worker 去捞」的全新架构。
+      这是<b>地基层面的重写</b>，不是「把文件夹挪个位置」。同时还有几处<b>「只能单实例运行」的硬约束</b>（启动时会把所有在跑的任务无条件判死复位），
+      意味着不能简单地多开几个实例来扩容，得先补上分布式锁/租约机制。</p>
+    <div class="verdict warn" style="margin-top:14px">
+      <b>📌 提示：</b>这块隐藏工作量是原方案完全没计入的，也是上面「工期 ×2–3」的主要来源之一。
+      建议把它<b>排到最后做、且只在真有扩容需求时才做</b>——短期让它留在内容域里按现状跑，零改造、零风险。
+    </div>
+  </section>
+
+  <!-- 风险总表 -->
+  <section>
+    <h2><span class="n">6</span>风险一览（按严重程度）</h2>
+    <table class="risk">
+      <tr><th style="width:6%">级别</th><th style="width:40%">风险</th><th>缓解建议</th></tr>
+      <tr><td><span class="sev h"></span>高</td><td>边界切错：按 5 域硬拆，把「内容↔生成」「账号↔发布」从承重墙劈开 → 制造分布式事务</td><td>校正为 2–3 个大块（内容域 / 发文域 / 平台域），沿真实墙缝拆</td></tr>
+      <tr><td><span class="sev h"></span>高</td><td>工期低估：4–6 周解耦 → 实测 8–12 周；3 个月达成 → 实测 4–6 个月</td><td>用稳健工期对外承诺；先交付一个大块的独立部署，再滚动推进</td></tr>
+      <tr><td><span class="sev m"></span>中</td><td>「生成」改独立服务是异步队列重写 + 单实例约束，非搬代码</td><td>排到最后、按需再做；短期保持现状不动</td></tr>
+      <tr><td><span class="sev m"></span>中</td><td>165 个测试假设单进程，拆服务后大面积失效</td><td>解耦阶段同步重写测试，预留 3–4 周；不可裸奔上线</td></tr>
+      <tr><td><span class="sev m"></span>中</td><td>52 条单链数据库迁移，多服务并行改库会撞车</td><td>先拆迁移链，每个域独立管自己的表（低风险、可先做）</td></tr>
+      <tr><td><span class="sev m"></span>中</td><td>隐藏的跨模块引用（如截图/头像共用一张 Asset 表、JSON 里藏的 id 引用）拆库时变孤儿</td><td>拆库前做一次「引用盘点 + 孤儿扫描脚本」</td></tr>
+      <tr><td><span class="sev l"></span>低</td><td>加密密钥需在多个服务间保持一致，否则发文解密失败</td><td>纳入统一密钥管理，已有现成机制可复用</td></tr>
+      <tr><td><span class="sev l"></span>低</td><td>本地开发/运维复杂度上升</td><td>保留「单体模式」一键启动开关；CI/部署交 DevOps</td></tr>
+    </table>
+    <p class="sub" style="margin-top:12px"><span class="sev h"></span>高　<span class="sev m"></span>中　<span class="sev l"></span>低</p>
+  </section>
+
+  <!-- 建议下一步 -->
+  <section>
+    <h2><span class="n">7</span>给管理层的决策建议</h2>
+    <p><b>一句话：批准这个方向，但按下面三条校正后再启动，能省下大量返工。</b></p>
+    <table>
+      <tr><th style="width:30%">决策点</th><th style="width:35%">原方案</th><th style="width:35%">我们的建议</th></tr>
+      <tr><td>拆分粒度</td><td>一次拆 5 个独立域</td><td><b>先拆 2–3 个大块</b>（内容/发文/平台），按需再细拆</td></tr>
+      <tr><td>对外承诺工期</td><td>2.5–3.5 个月达成核心目标</td><td><b>4–6 个月</b>更稳；先交付「发文域独立部署」作为第一个里程碑</td></tr>
+      <tr><td>「生成」独立服务</td><td>作为 P2 一并拆出</td><td><b>推到最后、按需再做</b>（是重写，不是搬家）</td></tr>
+      <tr><td>立即可做、零风险</td><td>—</td><td>补 CI 跨域耦合门禁 + 拆数据库迁移链 + 先动冷模块（热榜/平台）</td></tr>
+    </table>
+    <div class="verdict brand" style="margin-top:16px">
+      <b style="color:var(--brand)">建议的启动顺序：</b>
+      ① 先做零风险地基（CI 护栏 + 拆迁移链）；② 把「发文域」（账号+发布）整体打包成第一个独立部署单元，直接兑现「发文团队自治」；
+      ③ 再把「内容域」状态机收口、用接口和发文域对接；④ 平台/身份按需 Go 化；⑤ 真遇扩容瓶颈再拆「生成」、再分物理库。
+      每一步都能独立上线、可回滚、单独交付价值。
+    </div>
+    <div style="margin-top:14px">
+      <span class="pill">方向：批准</span>
+      <span class="pill">粒度：5 域 → 2–3 大块</span>
+      <span class="pill">工期：4–6 个月（稳）</span>
+      <span class="pill">先做：发文域独立</span>
+      <span class="pill">缓做：生成服务化</span>
+      <span class="pill">立即做：CI 护栏 + 拆迁移链</span>
+    </div>
+  </section>
+
+  <div class="footer">
+    后端拆分重构方案 · 优缺点与风险评估（管理层版）· 基于通读代码的独立技术评审 · 2026-06-25<br>
+    评审对象：<code>docs/backend-decomposition-plan.html</code>　·　校正版技术细节见 <code>docs/plans/2026-06-24-refactor-plan-v2-grounded.md</code>
+  </div>
+
+</div>
+</body>
+</html>

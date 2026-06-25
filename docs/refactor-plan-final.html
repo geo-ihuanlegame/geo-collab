@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Geo 协作平台 · 业务重构方案（决策终稿）</title>
+<style>
+  :root{
+    --bg:#f6f8fb; --card:#ffffff; --ink:#1f2733; --muted:#647082;
+    --line:#e6ebf2; --brand:#2f6df6; --brand-soft:#eaf1ff;
+    --green:#1f9d6b; --green-soft:#e7f6ef; --amber:#c8881a; --amber-soft:#fdf3e0;
+    --red:#d6493b; --red-soft:#fdecea; --purple:#7a52d6; --purple-soft:#f0eafb;
+    --slate:#475569;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.65; font-size:15px; -webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1080px; margin:0 auto; padding:0 24px 80px}
+  header.hero{background:linear-gradient(135deg,#1f3a8a 0%,#2f6df6 60%,#4a90ff 100%);
+    color:#fff; padding:54px 0 46px; margin-bottom:34px;}
+  header.hero .wrap{padding-bottom:0}
+  .eyebrow{font-size:13px; letter-spacing:2px; text-transform:uppercase; opacity:.82; margin:0 0 10px}
+  header.hero h1{font-size:33px; margin:0 0 14px; font-weight:700; letter-spacing:.5px}
+  header.hero p{font-size:16px; margin:0; max-width:820px; opacity:.94}
+  .meta-row{margin-top:22px; display:flex; flex-wrap:wrap; gap:10px}
+  .chip{background:rgba(255,255,255,.16); border:1px solid rgba(255,255,255,.25);
+    padding:6px 13px; border-radius:20px; font-size:13px}
+
+  section{margin:34px 0}
+  h2{font-size:21px; margin:0 0 6px; display:flex; align-items:center; gap:10px}
+  h2 .num{display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px;
+    background:var(--brand); color:#fff; border-radius:8px; font-size:14px; font-weight:700}
+  h2 + .sub{color:var(--muted); margin:0 0 18px; font-size:14px}
+  h3{font-size:16px; margin:22px 0 10px}
+  p{margin:10px 0}
+
+  .card{background:var(--card); border:1px solid var(--line); border-radius:14px;
+    padding:22px 24px; box-shadow:0 1px 2px rgba(20,40,80,.04)}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+  .grid3{display:grid; grid-template-columns:repeat(3,1fr); gap:16px}
+  @media(max-width:760px){.grid2,.grid3{grid-template-columns:1fr}}
+
+  .verdict{background:linear-gradient(180deg,#fff,#fafcff); border:1px solid #d6e2fb;
+    border-left:5px solid var(--brand); border-radius:14px; padding:22px 24px}
+  .verdict h2{margin-bottom:12px}
+  .verdict p{font-size:15.5px}
+  .verdict strong{color:var(--brand)}
+  .kpis{display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-top:20px}
+  @media(max-width:760px){.kpis{grid-template-columns:1fr 1fr}}
+  .kpi{background:var(--brand-soft); border:1px solid #d6e2fb; border-radius:12px; padding:16px; text-align:center}
+  .kpi .big{font-size:24px; font-weight:800; color:var(--brand); line-height:1.2}
+  .kpi .lbl{font-size:12.5px; color:var(--slate); margin-top:6px}
+  .kpi.amber{background:var(--amber-soft); border-color:#e9c48a} .kpi.amber .big{color:var(--amber)}
+  .kpi.green{background:var(--green-soft); border-color:#cdeadd} .kpi.green .big{color:var(--green)}
+  .kpi.red{background:var(--red-soft); border-color:#f3cfca} .kpi.red .big{color:var(--red)}
+
+  table{width:100%; border-collapse:collapse; margin:14px 0; font-size:14px}
+  th,td{text-align:left; padding:10px 12px; border-bottom:1px solid var(--line); vertical-align:top}
+  th{background:#f3f6fb; font-weight:600; color:var(--slate)}
+  td code{background:#f1f4f9; padding:1px 6px; border-radius:5px; font-size:12.5px; color:#3a4a63}
+
+  .tag{display:inline-block; font-size:12px; padding:2px 9px; border-radius:6px; font-weight:600}
+  .t-keep{background:var(--amber-soft); color:var(--amber)}
+  .t-go{background:var(--brand-soft); color:var(--brand)}
+  .t-new{background:var(--green-soft); color:var(--green)}
+  .t-opt{background:var(--purple-soft); color:var(--purple)}
+  .t-ok{background:var(--green-soft); color:var(--green)}
+  .t-no{background:var(--red-soft); color:var(--red)}
+
+  .pill{display:inline-block; font-size:12px; padding:2px 8px; border-radius:20px; background:#eef2f8; color:var(--slate)}
+
+  .recbox{border:1px solid var(--green); border-left:5px solid var(--green); background:var(--green-soft);
+    border-radius:12px; padding:16px 18px}
+  .warnbox{border:1px solid #e9c48a; border-left:5px solid var(--amber); background:var(--amber-soft);
+    border-radius:12px; padding:16px 18px}
+  .auditbox{border:1px solid #cdb8f0; border-left:5px solid var(--purple); background:var(--purple-soft);
+    border-radius:12px; padding:16px 18px}
+  .recbox h3,.warnbox h3,.auditbox h3{margin-top:0}
+
+  .flow{display:flex; flex-wrap:wrap; gap:10px; align-items:stretch; margin:8px 0}
+  .unit{flex:1; min-width:150px; border:1px solid var(--line); border-radius:12px; padding:14px; background:#fff}
+  .unit .u-h{font-weight:700; font-size:14.5px; margin-bottom:6px}
+  .unit .u-d{font-size:12.5px; color:var(--muted)}
+  .unit.core{border-color:#bcd2fb; background:var(--brand-soft)}
+  .unit.pub{border-color:#e9c48a; background:var(--amber-soft)}
+  .unit.base{border-color:#cdeadd; background:var(--green-soft)}
+
+  ol.steps{counter-reset:s; list-style:none; padding:0; margin:0}
+  ol.steps li{position:relative; padding:14px 16px 14px 56px; border:1px solid var(--line);
+    border-radius:12px; margin-bottom:12px; background:#fff}
+  ol.steps li::before{counter-increment:s; content:"P"counter(s,decimal);
+    position:absolute; left:14px; top:14px; width:30px; height:30px; line-height:30px; text-align:center;
+    background:var(--brand); color:#fff; border-radius:8px; font-weight:700; font-size:13px}
+  ol.steps li.p0::before{content:"P0"; background:var(--slate); counter-increment:none}
+  ol.steps b{color:var(--ink)}
+  ol.steps .v{display:inline-block; margin-top:4px; font-size:12.5px; color:var(--green); font-weight:600}
+  ol.steps .eta{float:right; font-size:12px; color:var(--muted); font-weight:600; background:#f3f6fb;
+    padding:2px 9px; border-radius:20px}
+
+  .decisions{counter-reset:d; padding:0; list-style:none; margin:0}
+  .decisions li{padding:16px 18px; border:1px solid #d6e2fb; border-radius:12px; margin-bottom:12px;
+    background:linear-gradient(180deg,#fff,#fbfdff)}
+  .decisions .q{font-weight:700; font-size:15px; margin-bottom:6px}
+  .decisions .rec{font-size:13.5px; color:var(--green); font-weight:600}
+  .decisions .alt{font-size:13px; color:var(--muted)}
+
+  .sev{display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:7px; vertical-align:middle}
+  .sev.h{background:var(--red)} .sev.m{background:var(--amber)} .sev.l{background:var(--green)}
+
+  .muted{color:var(--muted); font-size:13px}
+  footer{color:var(--muted); font-size:13px; text-align:center; margin-top:40px}
+  .legend{display:flex; gap:14px; flex-wrap:wrap; font-size:12.5px; color:var(--muted); margin:8px 0}
+</style>
+</head>
+<body>
+<header class="hero">
+  <div class="wrap">
+    <p class="eyebrow">Geo 协作平台 · 技术决策提案（终稿）</p>
+    <h1>业务重构方案 · 决策终稿</h1>
+    <p>把单体平台演进成「模块可独立部署、团队可独立维护、并向大模型开放能力」的架构。本稿在通读 2.3 万行后端代码、并逐项核对早期「5 域拆分」设想的基础上，给出务实的拆分路线、真实工期、面向大模型的 MCP + 技能库规划，以及需要拍板的决策。</p>
+    <div class="meta-row">
+      <span class="chip">日期 2026-06-25</span>
+      <span class="chip">依据 · 通读代码逐项核实</span>
+      <span class="chip">团队规模 · 2~3 名活跃开发</span>
+      <span class="chip">状态 · 待拍板</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- 核心结论 -->
+  <section>
+    <div class="verdict">
+      <h2><span class="num">★</span> 一句话结论</h2>
+      <p>拆分这件事<strong>值得做、方向正确</strong>：现有代码确实支持「业务模块独立部署、团队各管一摊」。但有两条要先校正——</p>
+      <p>① <strong>不要一步切成十几个微服务</strong>，那会用分布式复杂度拖垮一个还在快速迭代的产品；推荐<strong>先粗粒度拆 4~5 个可独立部署单元 + 模块化单体起步 + 按需再细分</strong>。<br>
+         ② <strong>工期要按代码现实重估</strong>：早期设想的「解耦 4~6 周、3 个月达成」偏乐观，真实达成核心目标更接近 <strong>4~6 个月</strong>。发文域第一阶段就能独立部署、独立发版，先交付价值。</p>
+      <div class="kpis">
+        <div class="kpi green"><div class="big">✓ 值得做</div><div class="lbl">独立部署 / 团队自治方向正确</div></div>
+        <div class="kpi amber"><div class="big">12 → 5</div><div class="lbl">不上微服务全家桶，粗粒度起步</div></div>
+        <div class="kpi red"><div class="big">4~6 个月</div><div class="lbl">达成核心目标的稳健工期</div></div>
+        <div class="kpi"><div class="big">2~3 人</div><div class="lbl">活跃开发，决定了「不能过度拆」</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 审计交代 -->
+  <section>
+    <h2><span class="num">0</span> 这份方案是怎么来的：我们核对了早期设想</h2>
+    <p class="sub">为避免「拍脑袋」，本稿先对早期的《后端 5 域拆分》设想做了代码核对，再据实修正。</p>
+    <div class="auditbox">
+      <h3>🔬 核对结论：早期「5 域」方向对，但两处边界与代码现实冲突</h3>
+      <p style="margin-top:6px">早期设想把后端切成「内容 / 生成 / 发布 / 账号 / 平台」5 个独立域。逐行核对代码后发现，其中两组在代码里是<b>焊死在一起</b>的——硬按 5 域拆，会把本来简单的事变成最难的「分布式事务」：</p>
+      <table>
+        <tr><th style="width:34%">早期设想的边界</th><th style="width:40%">代码里的真实情况</th><th>校正</th></tr>
+        <tr>
+          <td>「账号」与「发布」拆成<b>两个独立域</b></td>
+          <td>发布记录用外键直挂账号；发文时要读账号写在硬盘上的浏览器登录态文件、共用同一把跨进程锁 → <b>物理不可分</b></td>
+          <td><span class="tag t-no">合并为发文域</span></td>
+        </tr>
+        <tr>
+          <td>「内容」与「生成」拆成<b>两个独立域</b></td>
+          <td>生文 / 编排 / 评审三路共用同一套「审核+成组」原子流程，靠同库同事务保证不出错 → <b>拆开即制造分布式事务</b></td>
+          <td><span class="tag t-no">合并为内容核心</span></td>
+        </tr>
+        <tr>
+          <td>「平台」（用户 / 鉴权 / 审计 / 热榜）独立</td>
+          <td>低耦合、天然独立</td>
+          <td><span class="tag t-ok">这个切得对</span></td>
+        </tr>
+      </table>
+      <p style="margin-bottom:0" class="muted">📎 代码证据（供技术复核）：<code>tasks/service.py</code>↔<code>articles/service.py</code> 双向引用；<code>pipelines/executor.py</code> 调 <code>mark_pending_and_group</code>；<code>accounts</code>↔<code>tasks</code> 外键 + 共享浏览器 profile；<code>Asset</code> 表被 articles/accounts/tasks 三模块外键引用。</p>
+    </div>
+  </section>
+
+  <!-- 现状 -->
+  <section>
+    <h2><span class="num">1</span> 现状盘点（一句话版）</h2>
+    <p class="sub">我们实际拥有什么——这是所有决策的事实基础。</p>
+    <div class="grid2">
+      <div class="card">
+        <h3>后端</h3>
+        <p class="muted" style="margin-top:0">FastAPI + MySQL 单体，12 个活跃业务模块、42 张表、约 2.3 万行业务代码。模块之间耦合紧密：内容（文章）和发文双向依赖，账号与发文不可分割，多处「跨模块同一笔事务」。</p>
+      </div>
+      <div class="card">
+        <h3>前端</h3>
+        <p class="muted" style="margin-top:0">React + 自研组件，<b>目前没有 URL 路由</b>——所有页面靠一个总开关切换，地址栏永远不变，无法直达/分享某个页面。未使用任何成熟组件库。</p>
+      </div>
+      <div class="card">
+        <h3>团队协作</h3>
+        <p class="muted" style="margin-top:0">已规范使用 Git 提交规范 + PR 流程 + CI 门禁，基础很好。但<b>缺少「代码归属」机制</b>，多人改同一片代码时容易冲突；数据库迁移是单一链路（52 条串成一条），并行开发常撞车。</p>
+      </div>
+      <div class="card">
+        <h3>部署</h3>
+        <p class="muted" style="margin-top:0">Docker Compose 一套镜像跑全部，web 与发文 worker 共用同一镜像。发文依赖浏览器自动化（Linux 专属），且必须单实例运行。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 核心决策 -->
+  <section>
+    <h2><span class="num">2</span> 核心决策：粗粒度，而非「微服务全家桶」</h2>
+    <p class="sub">这是本方案与「直接上 12 个 Go 微服务」最大的区别，也是最需要老板拍板的地方。</p>
+    <div class="grid2">
+      <div class="warnbox">
+        <h3>⚠️ 为什么不建议一步到位 12 微服务</h3>
+        <p style="margin-bottom:0">十几个微服务会同时引入：消息总线、分布式锁、跨服务事务、十几条流水线、十几个镜像、还要用 Go 重写包括复杂富文本转换在内的所有逻辑。这套「分布式税」对 2~3 人团队是<b>净负债</b>，且每个跨服务调用都新增一种出错可能。投入大、风险高、见效慢。</p>
+      </div>
+      <div class="recbox">
+        <h3>✅ 推荐：粗粒度 + 按需抽离</h3>
+        <p style="margin-bottom:0">沿代码<b>真实的「断裂面」</b>切成 4~5 个单元，而不是沿目录硬拆。把强耦合的模块留在同一单元里同库同事务（最省心），把天然独立的（发文、热榜、身份）先拆出去。<b>每一步都能独立上线、交付价值、可回滚。</b>需要更细时再继续抽。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 目标架构 -->
+  <section>
+    <h2><span class="num">3</span> 目标架构：4~5 个可独立部署单元</h2>
+    <p class="sub">按真实耦合划分（即上文校正后的边界）；每个单元有清晰的负责人与边界。</p>
+    <div class="flow">
+      <div class="unit core">
+        <div class="u-h">内容核心 <span class="tag t-keep">保留 Python</span></div>
+        <div class="u-d">文章 / AI 生文 / 工作流编排 / 提示词 / 图片库 / 审核。这些共享「文章状态机+富文本」，强行拆开就是制造分布式事务，故同库同事务。</div>
+      </div>
+      <div class="unit pub">
+        <div class="u-h">发文域 <span class="tag t-keep">保留 Python</span></div>
+        <div class="u-d">发布任务 / 账号 / 浏览器驱动 / 发布 worker。绑定 Linux 浏览器自动化、加密凭据、单实例约束——天然独立，<b>第一阶段即可独立部署</b>。</div>
+      </div>
+      <div class="unit base">
+        <div class="u-h">基础身份 <span class="tag t-go">可 Go</span></div>
+        <div class="u-d">用户 / 平台 / 心跳。全员依赖，先稳定契约。</div>
+      </div>
+      <div class="unit base">
+        <div class="u-h">热榜 <span class="tag t-new">已独立</span></div>
+        <div class="u-d">第三方热榜聚合，现状已是独立 Node 子服务，零成本。</div>
+      </div>
+      <div class="unit">
+        <div class="u-h">网关 / 聚合 <span class="tag t-opt">可选</span></div>
+        <div class="u-d">统一入口、鉴权、路由，作为渐进迁移的「接缝」。</div>
+      </div>
+      <div class="unit" style="border-color:#cdb8f0;background:var(--purple-soft)">
+        <div class="u-h">Agent 接入层 <span class="tag t-opt">已有 POC</span></div>
+        <div class="u-d">MCP 网关（大模型调后端的桥）+ 技能库（给大模型装的 skill 包）。已有可用雏形，本阶段产品化，详见第 4 节。</div>
+      </div>
+    </div>
+    <div class="legend">
+      <span><span class="tag t-keep">保留 Python</span> 复杂事务/浏览器绑定，短期不重写</span>
+      <span><span class="tag t-go">可 Go</span> 低耦合域，适合用 Go 练手并受益</span>
+      <span><span class="tag t-opt">可选</span> 按需引入</span>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h3 style="margin-top:0">Go 语言的定位</h3>
+      <p class="muted" style="margin-bottom:0">不是「全量重写」，而是<b>按性能与团队边界按需抽离</b>。身份、热榜、数据统计这类近乎纯增删查的低耦合域，是用 Go 练手并受益的首选；内容核心与发文域的复杂事务短期保留 Python 最稳。把「Go 微服务」当作可达的终态，而不是起步的硬要求。</p>
+    </div>
+  </section>
+
+  <!-- 面向大模型的接入层：MCP + 技能库 -->
+  <section>
+    <h2><span class="num">4</span> 面向大模型：MCP 网关 + 技能库（已有 POC，本阶段产品化）</h2>
+    <p class="sub">新增需求：让大模型通过 MCP 调用后端服务，并提供一个技能库方便把整理好的 skill 给大模型安装。<b>好消息是这两块仓库里都已有可用雏形</b>——本节说明现状、在新架构里怎么摆、以及如何从 POC 走向生产。</p>
+
+    <div class="recbox" style="margin-bottom:16px">
+      <h3>✅ 关键判断：不是从零造，而是「产品化 + 纳入新架构」</h3>
+      <p style="margin-bottom:0">现有 MCP 服务已封装 <b>22 个工具</b>（读 10 / 写 8 / 评估回流 4），且<b>本来就是以「HTTP 调后端 API」的薄封装方式实现</b>的——这意味着拆服务后它天然就是一个独立网关，几乎无需重写。技能库也已有一个带版本、可一键安装、带校验的 bundle。所以这块是<b>中等投入的增强</b>，不是另起炉灶。</p>
+    </div>
+
+    <h3>① MCP 网关：大模型调用后端的「桥」</h3>
+    <table>
+      <tr><th style="width:30%">维度</th><th>现状（已有）</th><th>产品化要补</th></tr>
+      <tr>
+        <td><b>是什么</b></td>
+        <td>独立 MCP 服务（FastMCP），把后端能力包装成 22 个工具给大模型调用；同进程挂在 <code>/mcp</code>，也有命令行入口可独立跑。</td>
+        <td>在新架构里独立成一个<b>无状态网关单元</b>（归入「Agent 接入层」），可独立扩缩、独立发版。</td>
+      </tr>
+      <tr>
+        <td><b>怎么连后端</b></td>
+        <td>工具内部是用 HTTP「自调」后端接口实现的，<b>不含业务逻辑</b>。每个业务域还各有一组带 MCP 令牌保护的专用接口。</td>
+        <td>把「内部接口地址」从单体改成<b>分别指向内容核心 / 发文 / 身份各服务</b>即可——改动小，是这套架构的最大红利。</td>
+      </tr>
+      <tr>
+        <td><b>鉴权</b></td>
+        <td>用<b>独立的服务令牌</b>（<code>GEO_MCP_TOKEN</code>），与用户登录态完全隔离，恒定时间比对。</td>
+        <td>当前是<b>全局共享一把令牌</b>（POC 够用）；多团队/多租户要升级为<b>按用户/按租户的令牌</b>（可吊销、可审计）。</td>
+      </tr>
+      <tr>
+        <td><b>可观测 / 稳态</b></td>
+        <td>已有 MCP 专用错误映射（上游错→可重试码 / 其它→500），错误对大模型友好。</td>
+        <td>补<b>全链路追踪</b>（一次大模型调用串起多服务日志）、<b>调用限流/配额</b>、工具 schema 版本化与前向兼容。</td>
+      </tr>
+    </table>
+
+    <h3>② 技能库：给大模型安装的 skill 仓库</h3>
+    <div class="warnbox" style="margin-bottom:10px">
+      <p style="margin:0">⚠️ <b>先澄清命名</b>：这跟早已下线的后端 DB「skills 模块」<b>完全是两回事</b>。要做的是 <b>面向大模型的 skill 包仓库</b>（每个 skill = 一个目录：说明书 + 参考资料 + 骨架模板），由大模型按需安装到自己的工作目录。</p>
+    </div>
+    <table>
+      <tr><th style="width:30%">维度</th><th>现状（已有）</th><th>产品化要补</th></tr>
+      <tr>
+        <td><b>是什么</b></td>
+        <td>已有一个<b>带版本号的技能 bundle</b>（当前版本含「写作 / 校验 / 编排」三个 skill + 一个入口命令），并附 sha256 校验、CI 防篡改。</td>
+        <td>从「一个 bundle 打包三件」升级为真正的<b>注册表</b>：可列出 / 搜索 / 按需安装<b>单个</b> skill，各自独立版本号。</td>
+      </tr>
+      <tr>
+        <td><b>怎么安装</b></td>
+        <td>大模型调一个 MCP 工具即可<b>一键把 skill 包写进自己的 <code>.claude/</code> 目录</b>；也支持打包 zip 下载。</td>
+        <td>补 <code>列出 / 安装 / 更新</code> 全套，带版本兼容性校验（skill ↔ 所需 MCP 工具最低版本）。</td>
+      </tr>
+      <tr>
+        <td><b>治理</b></td>
+        <td>仓库根另有若干参考 skill 设计；bundle 由服务端统一打包。</td>
+        <td>建<b>入库审核流程</b> + <b>stable / beta 双发布渠道</b>；每个 skill 声明依赖哪些 MCP 工具，装时校验网关是否提供。</td>
+      </tr>
+      <tr>
+        <td><b>放哪</b></td>
+        <td>—</td>
+        <td>技能库 = 静态包 + 一个轻量注册表接口，和 MCP 网关同属「Agent 接入层」<b>一起部署最自然</b>。</td>
+      </tr>
+    </table>
+    <p class="muted">💡 MCP 网关与技能库是一对：<b>网关给「工具」，技能库给「用好这些工具的配方」</b>。两者都属面向大模型的边缘层，无状态、与核心业务解耦，是这套架构里最容易独立演进的一块。</p>
+  </section>
+
+  <!-- 工期现实检验（新增：来自代码体检） -->
+  <section>
+    <h2><span class="num">5</span> 工期现实检验：为什么是 4~6 个月，而不是 3 个月</h2>
+    <p class="sub">拆服务的难点从来不是「搬代码」，而是「拆开后那些原本在一个程序里悄悄完成的协作，全要改成跨网络调用」。下面是后端代码体检的实测数字。</p>
+    <table>
+      <tr><th style="width:42%">体检项（实测）</th><th>为什么它拖慢拆分</th></tr>
+      <tr><td><b>35+ 处</b>跨模块直接调用</td><td>一个模块直接引用另一个模块的代码/数据。拆开后每一处都要改成「跨服务网络调用 + 失败重试」。</td></tr>
+      <tr><td><b>核心「用户」数据被 7 个模块共用</b></td><td>几乎每个模块都靠外键挂在「用户」表上。拆库时绕不开，要么共享、要么复制（带一致性风险）。</td></tr>
+      <tr><td><b>52 条数据库变更脚本串成一条链</b></td><td>所有模块的建表历史串在一条线。多服务并行改库会频繁撞车，需先拆这条链。</td></tr>
+      <tr><td><b>165 个测试文件假设「单进程一个程序」</b></td><td>约 750 处测试都基于「所有模块在一个程序里」搭建。拆服务后要大面积重写，否则就是裸奔上线。</td></tr>
+      <tr><td><b>「生成」没有独立后台进程</b></td><td>生文/编排是直接在网页服务器里「当场开线程」干活的。改成独立服务等于换成「任务队列 + 后台 worker」的新架构——是地基重写，不是搬文件。</td></tr>
+    </table>
+    <div class="warnbox" style="margin-top:14px">
+      <p style="margin:0"><b>⏱ 工期重估：</b>早期设想「解耦 4~6 周、10~15 周达成」。按真实耦合度，<b>仅「逻辑解耦」一项就要 8~12 周</b>；叠加测试重写（3~4 周）与生成模块改造，达成「发文/生文能独立部署」的核心目标，<b>更现实的预期是 4~6 个月</b>。这不是说不可行，而是建议<b>对外用更稳的数字承诺</b>，避免承诺 3 个月、实际半年，影响团队信誉与业务节奏。</p>
+    </div>
+  </section>
+
+  <!-- 三诉求 -->
+  <section>
+    <h2><span class="num">6</span> 三个诉求如何满足</h2>
+    <p class="sub">逐一回应最初提出的三点目标。</p>
+
+    <div class="card" style="margin-bottom:16px">
+      <h3 style="margin-top:0">① 业务模块相互独立部署，方便维护</h3>
+      <p style="margin-bottom:0"><b>发文域第一阶段就独立部署、独立发版、独立扩缩</b>，发文团队完全自治。生文/编排先在「内容核心」内逻辑独立、留好抽离接口；当生文确实需要单独扩容时，再沿这一个接口抽成独立单元。<span class="pill">先模块化、保留接缝、按需再抽</span></p>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <h3 style="margin-top:0">② 前端菜单页独立 URL 路由 + 是否引入 ant-design-pro</h3>
+      <p>现状是「无路由单页」，地址栏永远不变。建议分两步：</p>
+      <table>
+        <tr><th style="width:90px">步骤</th><th>做什么</th><th style="width:120px">工期 / 风险</th></tr>
+        <tr><td><b>第一步</b><br><span class="pill">推荐先做</span></td><td>引入路由库（react-router），保留现有全部组件。把每个菜单映射成<b>唯一 URL</b>（如 <code>/content/pending</code>），可直达、可分享、可加书签——<b>直接满足诉求②</b>。</td><td>约 2~3 周<br>中等</td></tr>
+        <tr><td><b>第二步</b><br><span class="pill">按需评估</span></td><td>是否上 ant-design-pro。它能省掉大量列表/表单代码、自带后台皮肤与权限模型；但属重型框架，富文本编辑器、节点编辑器等自研组件仍需保留，且全量迁移工期长。</td><td>约 5~8 周<br>较高</td></tr>
+      </table>
+      <div class="warnbox" style="margin-top:8px">
+        <p style="margin:0"><b>对 ant-design-pro 的建议：不要为了「换框架」而换。</b> 如果主要诉求是「表单/列表更规整 + 现成后台模板」，可以只按需引入 antd 组件库，路由用轻量方案即可，无需迁到 UmiJS 全家桶。等第一步上线后用真实痛点再决定是否深入。</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0">③ 多人协作如何用 Git 避免冲突</h3>
+      <p>团队已有良好的提交规范与 PR 流程。避免冲突的真正杠杆有四个：</p>
+      <table>
+        <tr><th style="width:170px">措施</th><th>作用</th></tr>
+        <tr><td><b>保持单一代码仓库</b><br>（monorepo）</td><td>2~3 人用多仓库是净负担。一个仓库 + 按单元分目录，统一管理最省心。</td></tr>
+        <tr><td><b>补「代码归属」配置</b><br>（CODEOWNERS，当前缺）</td><td><b>核心手段</b>：人按目录分工 → 改的是不同文件 → 天然不撞车。冲突只剩「公共契约 / 共享代码」，而那本就该多人评审。</td></tr>
+        <tr><td><b>主干开发 + 短命分支</b></td><td>沿用现有 PR 流程，特性分支控制在 2~3 天内合并，避免长命大分支积累冲突。</td></tr>
+        <tr><td><b>拆分数据库迁移链</b></td><td>当前单一迁移链是并行开发频繁撞车的隐藏根源。每个单元各管自己的迁移，互不干扰。</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <!-- 迁移路线 -->
+  <section>
+    <h2><span class="num">7</span> 迁移路线（每步独立上线、可回滚）</h2>
+    <p class="sub">不追求「一次切完」，追求「每步交付价值」。右侧为粗估工期。</p>
+    <ol class="steps">
+      <li class="p0"><span class="eta">1~2 周</span><b>地基（不动业务）：</b>补代码归属配置（CODEOWNERS）+ 拆迁移链；前端引入路由打通独立 URL。<span class="v">✓ 立即交付诉求②，零业务风险</span></li>
+      <li><span class="eta">6~10 周</span><b>发文域独立：</b>把发文相关模块整体打包成独立部署单元（保留 Python，不重写），仅改三处对接点。<span class="v">✓ 交付诉求①核心，发文团队自治</span></li>
+      <li><span class="eta">4~6 周</span><b>内容核心收口：</b>把文章状态机统一成单一写入口 + 对外原子接口；内容与发文之间通过契约/事件清晰解耦。<span class="v">✓ 两大单元彻底分清边界</span></li>
+      <li><span class="eta">3~5 周·可并行</span><b>Agent 接入层产品化：</b>MCP 网关独立成无状态单元、内部地址改指向各域服务；技能库从单 bundle 升级为注册表 + 按用户令牌。<span class="v">✓ 大模型可经 MCP 调各服务、可装 skill；与上面阶段可并行</span></li>
+      <li><span class="eta">按需</span><b>按需 Go 化：</b>身份、热榜、数据统计等低耦合域按团队意愿用 Go 抽离、练手。<span class="v">✓ 渐进引入 Go，风险可控</span></li>
+      <li><span class="eta">按需</span><b>按需扩展：</b>哪个单元真遇到性能瓶颈，才为它付「多实例 + 物理拆库」的成本；生成服务化、前端 ant-design-pro 均在此阶段按需评估。<span class="v">✓ 只在真有需要时投入</span></li>
+    </ol>
+    <p class="muted">⏱ P0→P2 合计约 <b>4~6 个月</b>达成「发文/生文独立部署」核心目标；P3、P4 为增量优化，不阻塞上线。</p>
+  </section>
+
+  <!-- 风险 -->
+  <section>
+    <h2><span class="num">8</span> 主要风险与应对</h2>
+    <table>
+      <tr><th style="width:8%">级别</th><th style="width:34%">风险</th><th>应对</th></tr>
+      <tr><td><span class="sev h"></span>高</td><td>过度拆分吃掉开发产能（2~3 人上 12 微服务）</td><td>本方案核心对策：粗粒度起步、模块化单体、按需再抽，不一次上微服务全家桶。</td></tr>
+      <tr><td><span class="sev h"></span>高</td><td>边界切错：把强耦合的「内容↔生成」「账号↔发布」劈开</td><td>已校正为同单元同事务（见第 0、3 节），沿真实断裂面拆。</td></tr>
+      <tr><td><span class="sev m"></span>中</td><td>工期低估，对外承诺过紧</td><td>用 4~6 个月稳健工期；先交付发文域独立，滚动推进、每步见效。</td></tr>
+      <tr><td><span class="sev m"></span>中</td><td>「生成」改独立服务是异步队列重写 + 单实例约束</td><td>排到最后、按需再做；短期保持现状在内容核心内跑，零改造。</td></tr>
+      <tr><td><span class="sev m"></span>中</td><td>165 个测试假设单进程，拆服务后失效</td><td>解耦阶段同步重写测试，预留 3~4 周；不可裸奔上线。</td></tr>
+      <tr><td><span class="sev m"></span>中</td><td>跨模块的「同一笔事务」拆开后数据不一致</td><td>把文章状态写入收归唯一入口消灭竞争；强耦合逻辑不拆，跨单元用契约+事件+本地只读副本。</td></tr>
+      <tr><td><span class="sev m"></span>中</td><td>隐藏跨模块引用（共用 Asset 表、JSON 里藏的 id）拆库变孤儿</td><td>拆库前做一次「引用盘点 + 孤儿扫描脚本」。</td></tr>
+      <tr><td><span class="sev l"></span>低</td><td>前端页面状态在路由切换后丢失</td><td>筛选条件放进 URL（反而更好用、可分享），编辑器加未保存拦截，实时连接切页时正确释放。</td></tr>
+      <tr><td><span class="sev m"></span>中</td><td>MCP 当前是全局共享令牌，多团队/多租户下不可吊销、难审计</td><td>升级为按用户/按租户的服务令牌；调用经网关统一限流、配额、审计。</td></tr>
+      <tr><td><span class="sev l"></span>低</td><td>技能库目前是单一 bundle，缺单技能版本与依赖校验</td><td>升级为注册表：单技能独立版本 + sha 校验 + skill↔MCP 工具版本兼容校验 + 入库审核。</td></tr>
+      <tr><td><span class="sev l"></span>低</td><td>加密密钥需多服务一致 / 本地开发复杂度上升</td><td>纳入统一密钥管理（已有机制可复用）；保留「单体模式」一键启动开关。</td></tr>
+    </table>
+    <p class="sub" style="margin-top:10px"><span class="sev h"></span>高　<span class="sev m"></span>中　<span class="sev l"></span>低</p>
+  </section>
+
+  <!-- 需拍板 -->
+  <section>
+    <h2><span class="num">9</span> 需要老板拍板的决策</h2>
+    <p class="sub">下面每一项给出推荐选项，确认后即可启动。</p>
+    <ol class="decisions">
+      <li>
+        <div class="q">A. 拆分粒度：粗粒度（4~5 单元）还是细粒度（10+ 微服务）？</div>
+        <div class="rec">✅ 推荐：粗粒度起步、按需再细分。</div>
+        <div class="alt">备选：直接上细粒度微服务——投入与风险显著更高，不建议当前规模采用。</div>
+      </li>
+      <li>
+        <div class="q">B. 工期与承诺：按 4~6 个月稳健排期，先交付发文域独立？</div>
+        <div class="rec">✅ 推荐：是。以「发文域独立部署」为第一个可见里程碑，滚动推进。</div>
+        <div class="alt">备选：压到 3 个月——与代码体检结论不符，存在跳票风险。</div>
+      </li>
+      <li>
+        <div class="q">C. Go 的引入节奏：终态可选 vs 起步即全量 Go？</div>
+        <div class="rec">✅ 推荐：低耦合域先用 Go 练手，核心域短期保留 Python，按需推进。</div>
+        <div class="alt">备选：全量 Go 重写——需评估重写成本与人力储备。</div>
+      </li>
+      <li>
+        <div class="q">D. 前端：先打通独立 URL 路由，ant-design-pro 按需再评估？</div>
+        <div class="rec">✅ 推荐：第一步轻量路由化（2~3 周，直接满足诉求②）；是否上 Pro 上线后再定。</div>
+        <div class="alt">备选：一步到位迁 ant-design-pro 全家桶（5~8 周，较高风险）。</div>
+      </li>
+      <li>
+        <div class="q">E. 是否立即启动两项「零风险地基」？</div>
+        <div class="rec">✅ 推荐：现在就做——① 补代码归属配置（CODEOWNERS）② 拆数据库迁移链。立竿见影减少多人冲突，无业务风险。</div>
+      </li>
+      <li>
+        <div class="q">F. 面向大模型的 MCP + 技能库：在现有 POC 上产品化？</div>
+        <div class="rec">✅ 推荐：是。MCP 升级为独立网关 + 按用户令牌，技能库升级为注册表；与发文域拆分并行推进，不占核心工期。</div>
+        <div class="alt">备选：维持现状 POC（全局令牌 + 单 bundle）——内部小范围够用，但不适合多团队/对外。</div>
+      </li>
+    </ol>
+  </section>
+
+  <footer>
+    <p>本稿为代码事实驱动的决策终稿，融合早期《后端 5 域拆分》设想的核对结论与《业务重构方案 v2》。<br>
+    配套技术细节见 <code>docs/plans/2026-06-24-refactor-plan-v2-grounded.md</code>；早期设想与独立评审见 <code>docs/backend-decomposition-plan.html</code>、<code>docs/backend-decomposition-plan-review.html</code>。<br>
+    确认决策后将据此细化各阶段实施计划。· 2026-06-25</p>
+  </footer>
+
+</div>
+</body>
+</html>

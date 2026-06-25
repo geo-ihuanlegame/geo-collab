@@ -1,0 +1,1234 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 智能体平台 · 插件生态升级方案</title>
+<style>
+  :root {
+    --bg: #f8fafc; --card: #ffffff; --border: #e2e8f0; --text: #0f172a;
+    --muted: #64748b; --brand: #10b981; --link: #1e40af; --warn: #ef4444; --pending: #f59e0b;
+    /* 四层能力色 */
+    --plugin: #10b981; --flow: #1e40af; --skill: #8b5cf6; --cloud: #06b6d4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei",
+      "Helvetica Neue", Arial, sans-serif;
+    margin: 0 auto; padding: 40px 32px 80px; background: var(--bg);
+    color: var(--text); line-height: 1.6; max-width: 1280px;
+  }
+  h1 { font-size: 28px; margin: 0 0 8px; }
+  h2 { font-size: 22px; font-weight: 800; margin: 0 0 4px; color: var(--text); }
+  h3 { font-size: 16px; font-weight: 700; margin: 18px 0 8px; }
+  h4 { font-size: 13px; font-weight: 700; color: var(--muted); margin: 0 0 10px; letter-spacing: 0.3px; }
+  p { margin: 6px 0; }
+  ul { padding-left: 20px; }
+  .subtitle { color: var(--muted); font-size: 13px; margin: 0 0 20px; }
+  .section-wrap { background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 28px 32px; margin: 28px 0; box-shadow: 0 1px 2px rgba(15,23,42,0.04); }
+  .toc { background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 20px 28px; margin: 20px 0 32px; }
+  .toc h2 { font-size: 14px; margin: 0 0 12px; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; }
+  .toc ol { margin: 0; padding-left: 22px; columns: 2; column-gap: 28px; font-size: 14px; line-height: 1.9; }
+  .toc a { color: var(--link); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  .doc-header { border-bottom: 2px solid var(--border); padding-bottom: 18px; margin-bottom: 8px; }
+  .doc-header .meta { color: var(--muted); font-size: 13px; }
+  /* 共享小组件 */
+  .panel { border: 1px solid var(--border); border-radius: 10px; padding: 16px 20px; background: #fff; }
+  .grid-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+  .tag { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 1px; padding: 2px 8px; border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<div class="doc-header">
+  <h1>AI 智能体平台 · 插件生态升级方案</h1>
+  <div class="meta">从内容自动化到企业级 AI 能力底座 · 插件 → 工作流 → skill → 云端 · 2026-06-11</div>
+</div>
+
+<nav class="toc">
+  <h2>目录</h2>
+  <ol>
+    <li><a href="#eco1">现状与拐点</a></li>
+    <li><a href="#eco2">范式总览 · 四层飞轮</a></li>
+    <li><a href="#eco3">插件层 · 能力资产化</a></li>
+    <li><a href="#eco4">工作流层 · 确定性骨架</a></li>
+    <li><a href="#eco5">skill 层 · 智能血肉</a></li>
+    <li><a href="#eco6">云端 openclaw · 自然语言入口</a></li>
+    <li><a href="#eco7">落地实例① · GEO 内容自动化闭环</a></li>
+    <li><a href="#eco8">落地实例② · 游戏素材超分放大</a></li>
+    <li><a href="#eco9">落地实例③ · AI 视频素材产线</a></li>
+    <li><a href="#eco10">分期路线图</a></li>
+    <li><a href="#eco11">投入产出与决策建议</a></li>
+  </ol>
+</nav>
+
+<section class="section-wrap" id="eco1">
+<h2>Section 1 / 11 · 现状与拐点</h2>
+<p class="subtitle">已验证的能力底座 + 当前的能力孤岛之痛 → 把"点状能力"升级为"生态"的时机已到</p>
+
+<style>
+  .s1-lead { background: linear-gradient(135deg, rgba(16,185,129,0.06), #fff); border: 1px solid var(--border); border-left: 4px solid var(--brand); border-radius: 0 10px 10px 0; padding: 14px 20px; margin: 4px 0 20px; font-size: 13.5px; }
+  .s1-lead b { color: #065f46; }
+  .s1-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin: 12px 0 8px; }
+  .s1-card { border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; background: #fff; border-left: 4px solid var(--plugin); }
+  .s1-card .n { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+  .s1-card .d { font-size: 12px; color: var(--muted); line-height: 1.55; }
+  .s1-card .badge { font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 4px; float: right; background: #d1fae5; color: #065f46; }
+  .s1-ba { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 14px 0; }
+  .s1-col { border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
+  .s1-col.bad { background: linear-gradient(135deg, #fef2f2, #fff); border-color: #fecaca; }
+  .s1-col.good { background: linear-gradient(135deg, rgba(16,185,129,0.05), #fff); border-color: #bbf7d0; }
+  .s1-col h4 { font-size: 13px; margin: 0 0 10px; }
+  .s1-col.bad h4 { color: #991b1b; }
+  .s1-col.good h4 { color: #065f46; }
+  .s1-col ul { list-style: none; padding: 0; margin: 0; }
+  .s1-col li { font-size: 12.5px; line-height: 1.5; padding: 5px 0 5px 18px; position: relative; }
+  .s1-col li::before { position: absolute; left: 0; top: 5px; font-weight: 700; }
+  .s1-col.bad li::before { content: "✕"; color: var(--warn); }
+  .s1-col.good li::before { content: "✓"; color: var(--plugin); }
+  .s1-turn { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0; margin: 14px 0 4px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .s1-turn .step { padding: 16px 18px; border-right: 1px dashed var(--border); position: relative; }
+  .s1-turn .step:last-child { border-right: none; }
+  .s1-turn .step.k { background: linear-gradient(135deg, rgba(30,64,175,0.05), #fff); }
+  .s1-turn .step .num { font-size: 11px; font-weight: 700; color: var(--muted); letter-spacing: 1px; }
+  .s1-turn .step .t { font-size: 14px; font-weight: 700; margin: 4px 0; }
+  .s1-turn .step .d { font-size: 12px; color: var(--muted); line-height: 1.5; }
+  .s1-turn .step.k .t { color: var(--link); }
+</style>
+
+<div class="s1-lead">
+  起点不是零：现有「AI 智能体平台」（geo-collab）已经跑通一条<b>内容自动化产线</b>，并且——关键的是——底层已经具备<b>插件式注册表机制</b>。我们要做的不是从头造，而是把这些已验证的能力<b>生态化</b>。
+</div>
+
+<h3>一、已验证的能力底座（现有平台已跑通）</h3>
+<div class="s1-grid">
+  <div class="s1-card"><span class="badge">已验证</span><div class="n">工作流引擎</div><div class="d">前端「智能体管理 / 配置流程」，后端线性节点序列已跑通，支持调度与运行快照。</div></div>
+  <div class="s1-card"><span class="badge">已验证</span><div class="n">节点 / 驱动注册表</div><div class="d">新增能力 = 写一个 handler + register()。插件化的底层机制已经在手。</div></div>
+  <div class="s1-card"><span class="badge">已验证</span><div class="n">AI 生文</div><div class="d">方案化批量写作 + 提示词管理，多模型（写作 / 格式分工）。</div></div>
+  <div class="s1-card"><span class="badge">已验证</span><div class="n">分发引擎</div><div class="d">多平台发布任务编排、状态机、日志与截图可回溯。</div></div>
+  <div class="s1-card"><span class="badge">已验证</span><div class="n">媒体矩阵</div><div class="d">多账号、多平台分发，账号体系与浏览器自动化已落地。</div></div>
+</div>
+
+<h3>二、但今天每加一个新能力，仍然很痛</h3>
+<div class="s1-ba">
+  <div class="s1-col bad">
+    <h4>今天 · 点状能力（孤岛）</h4>
+    <ul>
+      <li>每个新需求都要改代码、散落各处</li>
+      <li>能力与具体流程硬耦合，搬不动、拆不开</li>
+      <li>稳定性靠人盯，出错难定位、难重跑</li>
+      <li>做完一次很难被下一个场景复用</li>
+      <li>能力封闭，大模型"看不见"也调不动</li>
+      <li>能力 / skill 散落在个人手里，人一走资产就丢</li>
+    </ul>
+  </div>
+  <div class="s1-col good">
+    <h4>插件生态之后 · 能力资产（可复用）</h4>
+    <ul>
+      <li>一次封装，注册即用，到处可拼</li>
+      <li>能力与流程解耦，工作流锁定确定性</li>
+      <li>可观测、可重跑，关键路径稳定</li>
+      <li>沉淀进内部"插件市场"，复用率随时间上升</li>
+      <li>注册为 skill 后，大模型可按需调用</li>
+      <li>统一沉淀为组织资产，不随人员流动而流失</li>
+    </ul>
+  </div>
+</div>
+
+<h3>三、拐点判断：为什么是现在</h3>
+<div class="s1-turn">
+  <div class="step"><div class="num">条件 01</div><div class="t">模型能力到位</div><div class="d">大模型的意图理解、工具调用、编排能力已跨过可用线，"让 AI 调度能力"从设想变可行。</div></div>
+  <div class="step"><div class="num">条件 02</div><div class="t">机制已验证</div><div class="d">注册表 / 工作流引擎已在现有平台跑通——插件化不是赌一个新架构，是把成熟机制标准化。</div></div>
+  <div class="step k"><div class="num">结论</div><div class="t">现在是窗口</div><div class="d">把"点状能力"升级为"生态"的时机已到：成本低、风险可控、复利可期。</div></div>
+</div>
+</section>
+
+<section class="section-wrap" id="eco2">
+<h2>Section 2 / 11 · 范式总览：四层飞轮</h2>
+<p class="subtitle">插件 → 工作流 → skill → 云端 openclaw：一条"越攒越多、越用越聪明"的能力飞轮</p>
+
+<style>
+  .s2-ladder { display: flex; flex-direction: column-reverse; gap: 10px; margin: 16px 0; }
+  .s2-layer { display: grid; grid-template-columns: 150px 1fr 1fr; align-items: center; gap: 18px; border: 1px solid var(--border); border-left: 6px solid var(--c); border-radius: 10px; padding: 14px 18px; background: linear-gradient(135deg, var(--bgc), #fff); }
+  .s2-layer .lname { font-size: 16px; font-weight: 800; color: var(--c); }
+  .s2-layer .lname .en { display: block; font-size: 10px; font-weight: 600; color: var(--muted); letter-spacing: 1px; margin-top: 2px; }
+  .s2-layer .ldef { font-size: 13px; }
+  .s2-layer .lmap { font-size: 11.5px; color: var(--muted); border-left: 1px dashed var(--border); padding-left: 14px; }
+  .s2-layer .lmap b { color: var(--text); }
+  .s2-l-plugin { --c: var(--plugin); --bgc: rgba(16,185,129,0.06); }
+  .s2-l-flow   { --c: var(--flow);   --bgc: rgba(30,64,175,0.06); }
+  .s2-l-skill  { --c: var(--skill);  --bgc: rgba(139,92,246,0.06); }
+  .s2-l-cloud  { --c: var(--cloud);  --bgc: rgba(6,182,212,0.06); }
+  .s2-arrow { text-align: center; color: var(--muted); font-size: 12px; margin: -4px 0; letter-spacing: 2px; }
+  .s2-two { display: grid; grid-template-columns: 1.15fr 1fr; gap: 18px; margin: 22px 0 8px; align-items: stretch; }
+  .s2-flywheel { border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; background: #fff; }
+  .s2-flywheel h4 { margin-bottom: 12px; }
+  .s2-fw-step { display: flex; align-items: flex-start; gap: 10px; font-size: 12.5px; padding: 6px 0; }
+  .s2-fw-step .dot { flex: none; width: 22px; height: 22px; border-radius: 50%; background: var(--bgc, #eef2ff); color: var(--c, var(--link)); font-weight: 800; font-size: 11px; display: flex; align-items: center; justify-content: center; }
+  .s2-fw-loop { margin-top: 10px; font-size: 12px; color: var(--link); font-weight: 700; text-align: center; }
+  .s2-pyr { border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; background: #fff; display: flex; flex-direction: column; gap: 6px; justify-content: center; }
+  .s2-pyr h4 { margin-bottom: 8px; }
+  .s2-pyr .row { color: #fff; font-size: 12.5px; font-weight: 700; text-align: center; padding: 8px 6px; border-radius: 6px; margin: 0 auto; }
+  .s2-pyr .r4 { width: 60%; background: var(--cloud); }
+  .s2-pyr .r3 { width: 73%; background: var(--skill); }
+  .s2-pyr .r2 { width: 86%; background: var(--flow); }
+  .s2-pyr .r1 { width: 100%; background: var(--plugin); }
+  .s2-core { background: linear-gradient(135deg, rgba(30,64,175,0.07), #fff); border: 1px solid var(--border); border-left: 5px solid var(--flow); border-radius: 0 12px 12px 0; padding: 16px 22px; margin: 18px 0 4px; }
+  .s2-core .t { font-size: 16px; font-weight: 800; color: var(--flow); margin-bottom: 4px; }
+  .s2-core .d { font-size: 13px; color: var(--text); }
+</style>
+
+<h3>四层能力阶梯（从下到上：低层被高层编排 / 调用）</h3>
+<div class="s2-ladder">
+  <div class="s2-layer s2-l-plugin">
+    <div class="lname">① 插件层<span class="en">PLUGIN</span></div>
+    <div class="ldef">能力的<b>原子单元</b>——把一个业务能力封装成标准件，一次封装、到处可用。</div>
+    <div class="lmap">对应现状：<b>节点 / 驱动注册表</b></div>
+  </div>
+  <div class="s2-arrow">▲ 被编排</div>
+  <div class="s2-layer s2-l-flow">
+    <div class="lname">② 工作流层<span class="en">WORKFLOW</span></div>
+    <div class="ldef">把插件<b>编排成确定性流程</b>——稳定、可回溯、可调度，关键路径锁死。</div>
+    <div class="lmap">对应现状：<b>Pipeline 引擎</b></div>
+  </div>
+  <div class="s2-arrow">▲ 被调用</div>
+  <div class="s2-layer s2-l-skill">
+    <div class="lname">③ skill 层<span class="en">SKILL</span></div>
+    <div class="ldef">把插件 / 工作流暴露给大模型<b>按需调用</b>——随模型升级自动变聪明。</div>
+    <div class="lmap">对应现状：<b>休眠的 skills 模块可复活</b></div>
+  </div>
+  <div class="s2-arrow">▲ 被触达</div>
+  <div class="s2-layer s2-l-cloud">
+    <div class="lname">④ 云端层<span class="en">OPENCLAW</span></div>
+    <div class="ldef">飞书 / 微信<b>自然语言统一入口</b>——不懂后台的人也能用平台全部能力。</div>
+    <div class="lmap">对应现状：<b>已有飞书集成</b></div>
+  </div>
+</div>
+
+<div class="s2-two">
+  <div class="s2-flywheel">
+    <h4>飞轮：为什么会越用越强</h4>
+    <div class="s2-fw-step"><span class="dot" style="--bgc:rgba(16,185,129,0.12);--c:var(--plugin)">1</span><div>能力不断被封装成<b>插件</b>，可复用件越攒越多</div></div>
+    <div class="s2-fw-step"><span class="dot" style="--bgc:rgba(30,64,175,0.12);--c:var(--flow)">2</span><div>插件越多，<b>工作流</b>能拼出的确定性流程越强</div></div>
+    <div class="s2-fw-step"><span class="dot" style="--bgc:rgba(139,92,246,0.12);--c:var(--skill)">3</span><div>可调用的 <b>skill</b> 越多，大模型能自动干的活越多</div></div>
+    <div class="s2-fw-step"><span class="dot" style="--bgc:rgba(6,182,212,0.12);--c:var(--cloud)">4</span><div><b>入口</b>用得越多，沉淀的新能力诉求越多 → 回到 ①</div></div>
+    <div class="s2-fw-loop">↻ 自我增强的复利循环</div>
+  </div>
+  <div class="s2-pyr">
+    <h4>价值金字塔</h4>
+    <div class="row r4">入口无处不在（云端）</div>
+    <div class="row r3">智能化 ↑（skill）</div>
+    <div class="row r2">确定性 ↑（工作流）</div>
+    <div class="row r1">迭代成本 ↓（插件）</div>
+  </div>
+</div>
+
+<div class="s2-core">
+  <div class="t">确定性骨架 + 智能血肉</div>
+  <div class="d">关键路径用<b>工作流</b>锁死稳定性（骨架），灵活判断与开放任务交给<b>大模型</b>（血肉）。稳，又活。</div>
+</div>
+</section>
+
+<section class="section-wrap" id="eco3">
+<h2>Section 3 / 11 · 插件层：能力资产化</h2>
+<p class="subtitle">把公司现有业务能力抽象为标准化插件——低成本迭代、高自定义、人人可拼</p>
+
+<style>
+  .s3-contract { display: grid; grid-template-columns: 1fr 1.4fr 1fr; align-items: center; gap: 0; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; margin: 14px 0; }
+  .s3-contract .io { padding: 18px 20px; background: #f8fafc; }
+  .s3-contract .io .lab { font-size: 11px; font-weight: 700; color: var(--muted); letter-spacing: 1px; }
+  .s3-contract .io .v { font-size: 13px; margin-top: 6px; line-height: 1.5; }
+  .s3-contract .io code { font-family: "JetBrains Mono", monospace; font-size: 11.5px; background: #eef2f7; padding: 1px 5px; border-radius: 4px; }
+  .s3-contract .core { padding: 18px 20px; background: linear-gradient(135deg, rgba(16,185,129,0.08), #fff); border-left: 1px solid var(--border); border-right: 1px solid var(--border); text-align: center; }
+  .s3-contract .core .nm { font-size: 15px; font-weight: 800; color: #065f46; }
+  .s3-contract .core .attrs { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 8px; }
+  .s3-contract .core .attrs span { font-size: 10.5px; background: #d1fae5; color: #065f46; padding: 2px 8px; border-radius: 4px; font-weight: 700; }
+  .s3-map { font-size: 11.5px; color: var(--muted); margin: 6px 2px 0; }
+  .s3-map code { font-family: "JetBrains Mono", monospace; background: #eef2f7; padding: 1px 5px; border-radius: 4px; }
+  .s3-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin: 14px 0; }
+  .s3-card { border: 1px solid var(--border); border-radius: 10px; padding: 13px 15px; background: #fff; border-left: 4px solid var(--plugin); }
+  .s3-card .n { font-size: 14px; font-weight: 700; margin-bottom: 5px; }
+  .s3-card .d { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+  .s3-card .b { font-size: 9.5px; font-weight: 700; padding: 1px 6px; border-radius: 4px; float: right; }
+  .s3-card .b.have { background: #d1fae5; color: #065f46; }
+  .s3-card .b.wrap { background: #dbeafe; color: #1e40af; }
+  .s3-card .b.todo { background: #fef3c7; color: #92400e; }
+  .s3-ba { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 14px 0; }
+  .s3-col { border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
+  .s3-col.bad { background: linear-gradient(135deg,#fef2f2,#fff); border-color:#fecaca; }
+  .s3-col.good { background: linear-gradient(135deg,rgba(16,185,129,0.05),#fff); border-color:#bbf7d0; }
+  .s3-col h4 { font-size:13px; margin:0 0 10px; }
+  .s3-col.bad h4 { color:#991b1b; } .s3-col.good h4 { color:#065f46; }
+  .s3-col ul { list-style:none; padding:0; margin:0; }
+  .s3-col li { font-size:12.5px; line-height:1.5; padding:5px 0 5px 18px; position:relative; }
+  .s3-col li::before { position:absolute; left:0; top:5px; font-weight:700; }
+  .s3-col.bad li::before { content:"✕"; color:var(--warn); }
+  .s3-col.good li::before { content:"✓"; color:var(--plugin); }
+  .s3-market { background: linear-gradient(135deg, rgba(16,185,129,0.06), #fff); border:1px solid var(--border); border-left:4px solid var(--plugin); border-radius:0 10px 10px 0; padding:14px 20px; margin-top:16px; font-size:13px; }
+  .s3-market b { color:#065f46; }
+</style>
+
+<h3>一、插件标准契约：可复用、可独立升级的关键</h3>
+<div class="s3-contract">
+  <div class="io"><div class="lab">输入 INPUT</div><div class="v">标准化入参 <code>schema</code><br>（上游数据 / 用户配置）</div></div>
+  <div class="core"><div class="nm">⬢ 插件</div><div class="attrs"><span>声明式配置</span><span>版本号 vN</span><span>独立可测</span></div></div>
+  <div class="io"><div class="lab">输出 OUTPUT</div><div class="v">标准化出参 <code>schema</code><br>（供下游 / 工作流消费）</div></div>
+</div>
+<p class="s3-map">映射现状：对应 geo-collab 的 <code>NodeRunContext</code> → <code>NodeResult</code> 节点契约，以及 <code>PlatformDriver</code> 的 <code>publish()</code> 驱动契约——<b>机制已在，缺的是统一成对外一致的"插件标准"</b>。</p>
+
+<h3>二、把现有业务能力抽象成插件（按能力域分类）</h3>
+<div class="s3-grid">
+  <div class="s3-card"><span class="b have">现有</span><div class="n">内容生成</div><div class="d">发文 / 改写 / 扩写 / 起标题，复用 AI 生文与提示词。</div></div>
+  <div class="s3-card"><span class="b wrap">可封装</span><div class="n">视觉素材</div><div class="d">配图 / 封面 / 短视频合成，接图片库与视频产线。</div></div>
+  <div class="s3-card"><span class="b wrap">可封装</span><div class="n">合规质检</div><div class="d">敏感词 / 事实校验 / 平台规则检查，发布前把关。</div></div>
+  <div class="s3-card"><span class="b todo">待建</span><div class="n">数据采集</div><div class="d">热点 / 竞品 / 平台数据抓取，喂给选题与决策。</div></div>
+  <div class="s3-card"><span class="b have">现有</span><div class="n">账号与分发</div><div class="d">登录 / 发布 / 多平台驱动，复用分发引擎。</div></div>
+  <div class="s3-card"><span class="b todo">待建</span><div class="n">运营动作</div><div class="d">评论 / 私信 / 工单应答，渗透到 L2 运营场景。</div></div>
+</div>
+<p class="s3-map">badge 图例：<span style="color:#065f46;font-weight:700">现有</span>=平台已具备 · <span style="color:#1e40af;font-weight:700">可封装</span>=能力在、待规整为插件 · <span style="color:#92400e;font-weight:700">待建</span>=需新建。</p>
+
+<h3>三、从"硬编码"到"插件化"</h3>
+<div class="s3-ba">
+  <div class="s3-col bad">
+    <h4>硬编码</h4>
+    <ul>
+      <li>每个需求改一次代码，逻辑散落各处</li>
+      <li>改一处牵全身，不敢动、回归成本高</li>
+      <li>无法独立测试，质量靠整体回归</li>
+      <li>做完即埋没，下个场景重新来过</li>
+    </ul>
+  </div>
+  <div class="s3-col good">
+    <h4>插件化</h4>
+    <ul>
+      <li>封装一次，注册即用</li>
+      <li>边界清晰，改插件不影响其它流程</li>
+      <li>有标准契约，可独立测试与版本化</li>
+      <li>沉淀可检索，复用率随时间上升</li>
+    </ul>
+  </div>
+</div>
+
+<div class="s3-market">
+  <b>内部「插件市场」</b>：所有插件沉淀在一个可检索目录里——谁封装的、什么契约、用在哪。新场景优先"找现成插件拼"，复用率越高，边际成本越低。（量化效果见 Section 9）
+</div>
+</section>
+
+<section class="section-wrap" id="eco4">
+<h2>Section 4 / 11 · 工作流层：确定性骨架</h2>
+<p class="subtitle">插件拼成工作流——高确定性、稳定、可回溯、可调度；关键路径不靠大模型即兴</p>
+
+<style>
+  .s4-flow { display: flex; align-items: stretch; gap: 0; border: 2px solid var(--flow); border-radius: 12px; padding: 16px; margin: 14px 0; background: linear-gradient(135deg, rgba(30,64,175,0.04), #fff); overflow-x: auto; }
+  .s4-node { flex: 1; min-width: 120px; display: flex; flex-direction: column; align-items: center; text-align: center; }
+  .s4-node .box { width: 100%; background: #fff; border: 1px solid var(--plugin); border-left: 4px solid var(--plugin); border-radius: 8px; padding: 12px 8px; box-shadow: 0 1px 2px rgba(16,185,129,0.15); }
+  .s4-node .box .t { font-size: 13px; font-weight: 700; }
+  .s4-node .box .p { font-size: 10px; color: var(--muted); margin-top: 3px; }
+  .s4-conn { display: flex; align-items: center; color: var(--flow); font-weight: 800; padding: 0 4px; font-size: 18px; }
+  .s4-flowcap { text-align: center; font-size: 11.5px; color: var(--flow); font-weight: 700; margin: -6px 0 16px; }
+  .s4-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin: 14px 0; }
+  .s4-card { border: 1px solid var(--border); border-radius: 10px; padding: 13px 15px; background: #fff; border-left: 4px solid var(--flow); }
+  .s4-card .n { font-size: 13.5px; font-weight: 700; margin-bottom: 4px; color: var(--flow); }
+  .s4-card .d { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+  .s4-run { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; margin: 14px 0; }
+  .s4-run .hd { background: #f1f5f9; padding: 10px 16px; font-size: 12px; font-weight: 700; display: flex; justify-content: space-between; }
+  .s4-run .hd .ok { color: #065f46; }
+  .s4-run .body { padding: 10px 16px; }
+  .s4-run .line { display: flex; align-items: center; gap: 12px; font-size: 12px; padding: 6px 0; border-bottom: 1px dashed var(--border); }
+  .s4-run .line:last-child { border-bottom: none; }
+  .s4-run .st { font-size: 10px; font-weight: 700; padding: 1px 8px; border-radius: 10px; flex: none; width: 64px; text-align: center; }
+  .s4-run .st.done { background: #d1fae5; color: #065f46; }
+  .s4-run .st.run { background: #dbeafe; color: #1e40af; }
+  .s4-run .st.wait { background: #f1f5f9; color: #64748b; }
+  .s4-run .line .nm { flex: 1; }
+  .s4-run .line .log { color: var(--muted); font-family: "JetBrains Mono", monospace; font-size: 10.5px; }
+  .s4-core { background: linear-gradient(135deg, rgba(30,64,175,0.07), #fff); border: 1px solid var(--border); border-left: 5px solid var(--flow); border-radius: 0 12px 12px 0; padding: 14px 20px; margin-top: 16px; font-size: 13px; }
+  .s4-core b { color: var(--flow); }
+</style>
+
+<h3>一、插件拼成工作流（蓝框 = 工作流锁定，绿块 = 插件）</h3>
+<div class="s4-flow">
+  <div class="s4-node"><div class="box"><div class="t">选题</div><div class="p">数据采集插件</div></div></div>
+  <div class="s4-conn">→</div>
+  <div class="s4-node"><div class="box"><div class="t">AI 生成</div><div class="p">内容生成插件</div></div></div>
+  <div class="s4-conn">→</div>
+  <div class="s4-node"><div class="box"><div class="t">配图</div><div class="p">视觉素材插件</div></div></div>
+  <div class="s4-conn">→</div>
+  <div class="s4-node"><div class="box"><div class="t">合规质检</div><div class="p">合规插件</div></div></div>
+  <div class="s4-conn">→</div>
+  <div class="s4-node"><div class="box"><div class="t">分发</div><div class="p">账号/分发插件</div></div></div>
+</div>
+<div class="s4-flowcap">⬛ 整条链路被工作流锁定：固定顺序、固定质量门、可调度、可重跑</div>
+
+<h3>二、确定性从哪来（映射 geo-collab Pipeline 现状）</h3>
+<div class="s4-grid">
+  <div class="s4-card"><div class="n">快照不可变</div><div class="d">运行时冻结节点配置，编辑不影响在跑任务，结果可复现。</div></div>
+  <div class="s4-card"><div class="n">可调度</div><div class="d">minutely / hourly / daily / weekly，支持时间窗。</div></div>
+  <div class="s4-card"><div class="n">并发 / 串行锁</div><div class="d">每流程串行锁 + 全局并发上限，防账号冲突与超载。</div></div>
+  <div class="s4-card"><div class="n">可回溯</div><div class="d">每次运行有 Run 记录 + 日志 + 截图，问题可定位。</div></div>
+  <div class="s4-card"><div class="n">失败可重跑</div><div class="d">单节点失败不毁全局，可从断点重试。</div></div>
+  <div class="s4-card"><div class="n">条件跳过</div><div class="d">按上游数据决定是否执行某节点，流程可分支。</div></div>
+</div>
+
+<h3>三、执行可观测：稳定 = 看得见、可重来</h3>
+<div class="s4-run">
+  <div class="hd"><span>Run #20260611-014 · 发文产线</span><span class="ok">● 进行中 3/5</span></div>
+  <div class="body">
+    <div class="line"><span class="st done">已完成</span><span class="nm">选题（数据采集）</span><span class="log">picked 8 topics · 1.2s</span></div>
+    <div class="line"><span class="st done">已完成</span><span class="nm">AI 生成</span><span class="log">8 drafts · 42s</span></div>
+    <div class="line"><span class="st run">运行中</span><span class="nm">配图</span><span class="log">3/8 imgs…</span></div>
+    <div class="line"><span class="st wait">等待</span><span class="nm">合规质检</span><span class="log">—</span></div>
+    <div class="line"><span class="st wait">等待</span><span class="nm">分发</span><span class="log">—</span></div>
+  </div>
+</div>
+
+<div class="s4-core">
+  <b>确定性骨架</b>：可靠性来自工作流把关键路径锁死——固定顺序、固定质量门、可重跑——而不是让大模型每次自由发挥。<b>稳，是设计出来的，不是祈祷出来的。</b>
+</div>
+</section>
+
+<section class="section-wrap" id="eco5">
+<h2>Section 5 / 11 · skill 层：智能血肉</h2>
+<p class="subtitle">把插件 / 工作流注册为大模型可发现、可按需调用的 skill——随模型升级自动变聪明</p>
+
+<style>
+  .s5-orch { display: flex; align-items: stretch; gap: 0; border: 2px solid var(--skill); border-radius: 12px; padding: 16px; margin: 14px 0; background: linear-gradient(135deg, rgba(139,92,246,0.05), #fff); overflow-x: auto; }
+  .s5-step { flex: 1; min-width: 120px; text-align: center; }
+  .s5-step .box { background: #fff; border: 1px solid var(--skill); border-radius: 8px; padding: 12px 8px; }
+  .s5-step .box .num { font-size: 10px; font-weight: 700; color: var(--skill); letter-spacing: 1px; }
+  .s5-step .box .t { font-size: 13px; font-weight: 700; margin-top: 3px; }
+  .s5-step .box .d { font-size: 10px; color: var(--muted); margin-top: 3px; line-height: 1.4; }
+  .s5-conn { display: flex; align-items: center; color: var(--skill); font-weight: 800; padding: 0 4px; font-size: 18px; }
+  .s5-brain { text-align: center; font-size: 11.5px; color: var(--skill); font-weight: 700; margin: -6px 0 16px; }
+  .s5-reg { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; align-items: center; gap: 10px; border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; margin: 14px 0; background: #fff; }
+  .s5-reg .cell { text-align: center; }
+  .s5-reg .cell .ic { font-size: 20px; }
+  .s5-reg .cell .t { font-size: 12.5px; font-weight: 700; margin-top: 4px; }
+  .s5-reg .cell .d { font-size: 10.5px; color: var(--muted); line-height: 1.4; margin-top: 2px; }
+  .s5-reg .cell.meta { background: linear-gradient(135deg, rgba(139,92,246,0.08), #fff); border: 1px dashed var(--skill); border-radius: 8px; padding: 10px 8px; }
+  .s5-reg .ar { color: var(--skill); font-weight: 800; font-size: 16px; }
+  .s5-map { font-size: 11.5px; color: var(--muted); margin: 8px 2px 0; }
+  .s5-map code { font-family: "JetBrains Mono", monospace; background: #eef2f7; padding: 1px 5px; border-radius: 4px; }
+  .s5-ba { display: grid; grid-template-columns: 1fr auto 1fr; gap: 14px; align-items: center; margin: 16px 0; }
+  .s5-side { border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
+  .s5-side.bone { border-left: 4px solid var(--flow); background: linear-gradient(135deg, rgba(30,64,175,0.04), #fff); }
+  .s5-side.flesh { border-left: 4px solid var(--skill); background: linear-gradient(135deg, rgba(139,92,246,0.05), #fff); }
+  .s5-side h4 { font-size: 13px; margin: 0 0 8px; }
+  .s5-side.bone h4 { color: var(--flow); } .s5-side.flesh h4 { color: var(--skill); }
+  .s5-side ul { margin: 0; padding-left: 16px; font-size: 12px; line-height: 1.6; color: var(--text); }
+  .s5-plus { font-size: 22px; font-weight: 800; color: var(--muted); text-align: center; }
+  .s5-core { background: linear-gradient(135deg, rgba(139,92,246,0.07), #fff); border: 1px solid var(--border); border-left: 5px solid var(--skill); border-radius: 0 12px 12px 0; padding: 14px 20px; margin-top: 8px; font-size: 13px; }
+  .s5-core b { color: var(--skill); }
+</style>
+
+<h3>一、大模型当"编排大脑"：意图 → 结果</h3>
+<div class="s5-orch">
+  <div class="s5-step"><div class="box"><div class="num">01</div><div class="t">理解意图</div><div class="d">读懂用户要什么</div></div></div>
+  <div class="s5-conn">→</div>
+  <div class="s5-step"><div class="box"><div class="num">02</div><div class="t">检索 skill</div><div class="d">匹配可用能力</div></div></div>
+  <div class="s5-conn">→</div>
+  <div class="s5-step"><div class="box"><div class="num">03</div><div class="t">填参</div><div class="d">按契约组装入参</div></div></div>
+  <div class="s5-conn">→</div>
+  <div class="s5-step"><div class="box"><div class="num">04</div><div class="t">串联调用</div><div class="d">调插件 / 工作流</div></div></div>
+  <div class="s5-conn">→</div>
+  <div class="s5-step"><div class="box"><div class="num">05</div><div class="t">结果自检</div><div class="d">校验 / 重试 / 回执</div></div></div>
+</div>
+<div class="s5-brain">🧠 大模型只负责"选与编"，真正干活的是确定性的插件 / 工作流</div>
+
+<h3>二、插件 / 工作流如何变成可被调用的 skill</h3>
+<div class="s5-reg">
+  <div class="cell"><div class="ic">⬢</div><div class="t">插件 / 工作流</div><div class="d">已封装的能力</div></div>
+  <div class="ar">+</div>
+  <div class="cell meta"><div class="t">skill 元信息</div><div class="d">名称 · 描述 · 入参 · 适用场景</div></div>
+  <div class="ar">→</div>
+  <div class="cell"><div class="ic">📇</div><div class="t">注册进 skill 目录</div><div class="d">大模型按描述匹配调用</div></div>
+</div>
+<p class="s5-map">映射现状：复活 geo-collab 休眠的 <code>skills/</code> 模块作为落点——历史上已有 skill 概念，本次把它升级为"插件/工作流的对外 LLM 调用契约"。</p>
+
+<h3>三、骨架 vs 血肉：组合才完整</h3>
+<div class="s5-ba">
+  <div class="s5-side bone">
+    <h4>确定性骨架（工作流）</h4>
+    <ul><li>固定路径、稳定可复现</li><li>适合关键、合规、高频流程</li><li>质量靠流程门把关</li></ul>
+  </div>
+  <div class="s5-plus">+</div>
+  <div class="s5-side flesh">
+    <h4>智能血肉（skill 调用）</h4>
+    <ul><li>灵活编排、随模型进化</li><li>适合开放、长尾、模糊任务</li><li>判断靠大模型理解</li></ul>
+  </div>
+</div>
+
+<div class="s5-core">
+  <b>越用越聪明的来源</b>：同一套 skill，<b>模型越强、自动越能干</b>——模型升级时业务代码无需重写，能力随大模型免费"涨点"。今天大模型搞不定的编排，明天可能就稳了。
+</div>
+</section>
+
+<section class="section-wrap" id="eco6">
+<h2>Section 6 / 11 · 云端 openclaw：自然语言统一入口</h2>
+<p class="subtitle">云端、企业级、深度适配业务的 AI 助理——飞书 / 微信一句话，调度平台全部能力</p>
+
+<style>
+  .s6-def { background: linear-gradient(135deg, rgba(6,182,212,0.07), #fff); border: 1px solid var(--border); border-left: 4px solid var(--cloud); border-radius: 0 10px 10px 0; padding: 14px 20px; margin: 4px 0 18px; font-size: 13.5px; }
+  .s6-def b { color: #0e7490; }
+  .s6-pipe { display: flex; align-items: stretch; gap: 0; border: 2px solid var(--cloud); border-radius: 12px; padding: 16px; margin: 14px 0; background: linear-gradient(135deg, rgba(6,182,212,0.04), #fff); overflow-x: auto; }
+  .s6-seg { flex: 1; min-width: 110px; text-align: center; }
+  .s6-seg .box { background: #fff; border: 1px solid var(--cloud); border-radius: 8px; padding: 12px 8px; height: 100%; }
+  .s6-seg .box .t { font-size: 13px; font-weight: 700; color: #0e7490; }
+  .s6-seg .box .d { font-size: 10px; color: var(--muted); margin-top: 3px; line-height: 1.4; }
+  .s6-conn { display: flex; align-items: center; color: var(--cloud); font-weight: 800; padding: 0 4px; font-size: 18px; }
+  .s6-two { display: grid; grid-template-columns: 1.1fr 1fr; gap: 18px; margin: 18px 0 8px; }
+  .s6-chat { border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; background: #f8fafc; }
+  .s6-chat h4 { margin: 0 0 10px; }
+  .s6-bub { max-width: 82%; padding: 9px 13px; border-radius: 12px; font-size: 12.5px; margin: 8px 0; line-height: 1.45; }
+  .s6-bub.u { background: var(--cloud); color: #fff; margin-left: auto; border-bottom-right-radius: 3px; }
+  .s6-bub.a { background: #fff; border: 1px solid var(--border); border-bottom-left-radius: 3px; }
+  .s6-bub .who { font-size: 9.5px; opacity: 0.7; display: block; margin-bottom: 2px; }
+  .s6-gov { display: flex; flex-direction: column; gap: 10px; }
+  .s6-gcard { border: 1px solid var(--border); border-left: 4px solid var(--cloud); border-radius: 8px; padding: 10px 14px; background: #fff; }
+  .s6-gcard .n { font-size: 13px; font-weight: 700; }
+  .s6-gcard .d { font-size: 11px; color: var(--muted); line-height: 1.45; margin-top: 2px; }
+  .s6-trap { background: linear-gradient(135deg, #fef2f2, #fff); border: 1px solid #fecaca; border-left: 4px solid var(--warn); border-radius: 0 10px 10px 0; padding: 14px 20px; margin-top: 16px; font-size: 12.5px; }
+  .s6-trap b { color: #991b1b; }
+</style>
+
+<div class="s6-def">
+  <b>什么是 openclaw？</b> 把它理解成一个<b>云端企业级 AI 助理</b>：员工在飞书 / 企业微信里用大白话说一句需求，它就在后台调度平台的插件、工作流、skill 把活干完并回执。<b>让不懂后台的人，也能用上平台的全部能力</b>——这是把 AI 能力真正"送到每个人手边"的最后一公里。
+</div>
+
+<h3>一、入口数据流：从一句话到结果回执</h3>
+<div class="s6-pipe">
+  <div class="s6-seg"><div class="box"><div class="t">IM 入口</div><div class="d">飞书 / 企业微信<br>自然语言</div></div></div>
+  <div class="s6-conn">→</div>
+  <div class="s6-seg"><div class="box"><div class="t">网关</div><div class="d">鉴权 / 路由<br>身份与权限</div></div></div>
+  <div class="s6-conn">→</div>
+  <div class="s6-seg"><div class="box"><div class="t">skill 调度</div><div class="d">大模型选 skill<br>编排大脑</div></div></div>
+  <div class="s6-conn">→</div>
+  <div class="s6-seg"><div class="box"><div class="t">执行</div><div class="d">工作流 / 插件<br>确定性干活</div></div></div>
+  <div class="s6-conn">→</div>
+  <div class="s6-seg"><div class="box"><div class="t">回写</div><div class="d">结果 / 链接<br>推回 IM</div></div></div>
+</div>
+<p style="font-size:11.5px;color:var(--muted);margin:6px 2px 0">映射现状：复用 geo-collab 已有飞书集成（sync OAuth + notify webhook），网关与回执有现成基础。</p>
+
+<div class="s6-two">
+  <div class="s6-chat">
+    <h4>运营在飞书里的一次真实交互</h4>
+    <div class="s6-bub u"><span class="who">运营</span>帮我把这周 5 篇稿子配图后发到今日头条</div>
+    <div class="s6-bub a"><span class="who">AI 助理</span>已生成工作流：配图 → 合规质检 → 分发，覆盖 5 篇、3 个账号，预计 8 分钟。确认执行？</div>
+    <div class="s6-bub u"><span class="who">运营</span>确认</div>
+    <div class="s6-bub a"><span class="who">AI 助理</span>✅ 已完成 5/5。链接：t.cn/aXXXX … 失败 0，截图已留档。</div>
+  </div>
+  <div>
+    <h4>企业级治理（不是裸奔的 ChatBot）</h4>
+    <div class="s6-gov">
+      <div class="s6-gcard"><div class="n">权限</div><div class="d">按用户 / 角色（admin / operator 已有），能调什么由权限决定。</div></div>
+      <div class="s6-gcard"><div class="n">审计</div><div class="d">谁、何时、调了什么、结果如何——audit_logs 全程留痕。</div></div>
+      <div class="s6-gcard"><div class="n">多租户 / 多账号</div><div class="d">部门 / 账号隔离，数据不串。</div></div>
+      <div class="s6-gcard"><div class="n">可控边界</div><div class="d">敏感操作（如批量发布）需二次确认，防误触。</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="s6-trap">
+  <b>⚠️ 通道边界（务实）：</b>企业微信、飞书可走官方机器人 API，合规可行；<b>个人微信受限</b>（无官方开放、风控严）。本方案主推 <b>飞书 + 企业微信</b>双通道，个人微信不作承诺。
+</div>
+</section>
+
+<section class="section-wrap" id="eco7">
+<h2>Section 7 / 11 · 落地实例：GEO 内容自动化闭环</h2>
+<p class="subtitle">数据驱动的"优化型"闭环——监测 → 生产 → 分发 → 归因 → 决策回流，四层贯穿</p>
+
+<style>
+  .gp-intro { font-size: 12.5px; color: var(--muted); margin: 6px 0 4px; }
+  .gp-intro b { color: var(--text); }
+  .gp-band { border: 1px solid var(--border); border-left: 6px solid var(--c); border-radius: 10px; padding: 14px 18px 16px; background: linear-gradient(135deg, var(--bgc), #fff); margin: 12px 0; }
+  .gp-band .hd { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+  .gp-band .hd .lv { font-size: 14px; font-weight: 800; color: var(--c); }
+  .gp-band .hd .role { font-size: 11px; color: var(--muted); }
+  .gp-b-plugin { --c: var(--plugin); --bgc: rgba(16,185,129,0.05); }
+  .gp-b-flow   { --c: var(--flow);   --bgc: rgba(30,64,175,0.05); }
+  .gp-b-skill  { --c: var(--skill);  --bgc: rgba(139,92,246,0.05); }
+  .gp-b-cloud  { --c: var(--cloud);  --bgc: rgba(6,182,212,0.05); }
+  /* ① 插件表 */
+  .gp-tbl { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+  .gp-tbl th { text-align: left; font-size: 10px; letter-spacing: 0.5px; color: var(--muted); text-transform: uppercase; padding: 6px 8px; border-bottom: 1px solid var(--border); font-weight: 700; }
+  .gp-tbl td { padding: 7px 8px; border-bottom: 1px dashed var(--border); line-height: 1.4; vertical-align: top; }
+  .gp-tbl tr:last-child td { border-bottom: none; }
+  .gp-tbl .pn { font-weight: 700; white-space: nowrap; }
+  .gp-tbl code { font-family: "JetBrains Mono", monospace; font-size: 10.5px; background: rgba(16,185,129,0.1); color: #065f46; padding: 1px 5px; border-radius: 4px; }
+  .gp-tbl .det { font-size: 9.5px; font-weight: 700; padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
+  .gp-tbl .det.hard { background: #d1fae5; color: #065f46; }
+  .gp-tbl .det.soft { background: #ede9fe; color: #6d28d9; }
+  /* ② 闭环图 */
+  .gp-loop { display: flex; align-items: stretch; gap: 0; border: 2px solid var(--flow); border-radius: 10px; padding: 10px; margin: 4px 0 8px; background: linear-gradient(135deg, rgba(30,64,175,0.04), #fff); }
+  .gp-loop .step { flex: 1 1 0; min-width: 0; text-align: center; background: #fff; border: 1px solid var(--flow); border-radius: 6px; padding: 9px 4px; font-size: 11.5px; font-weight: 600; color: var(--flow); }
+  .gp-loop .step.gate { border-style: dashed; background: rgba(245,158,11,0.08); border-color: var(--pending); color: #92400e; }
+  .gp-loop .step.loop { border-color: var(--brand); background: rgba(16,185,129,0.08); color: #065f46; }
+  .gp-loop .ar { flex: 0 0 18px; display: flex; align-items: center; justify-content: center; color: var(--flow); font-weight: 800; }
+  .gp-loop .ar.back { color: var(--brand); }
+  .gp-loopcap { font-size: 11px; color: var(--brand); font-weight: 700; margin: 2px 0 10px; }
+  .gp-gates { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .gp-gate { font-size: 11px; background: #fff; border: 1px solid var(--border); border-left: 3px solid var(--flow); border-radius: 6px; padding: 7px 11px; line-height: 1.4; }
+  .gp-gate b { color: var(--flow); display: block; margin-bottom: 1px; }
+  /* ③ skill 映射 */
+  .gp-intent2 { background: #fff; border: 1px dashed var(--skill); border-radius: 8px; padding: 8px 12px; font-size: 12px; margin-bottom: 10px; }
+  .gp-intent2 .q { color: #6d28d9; font-style: italic; }
+  .gp-split { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .gp-split .col { border: 1px solid var(--border); border-radius: 8px; padding: 10px 13px; background: #fff; }
+  .gp-split .col.lock { border-left: 3px solid var(--flow); }
+  .gp-split .col.free { border-left: 3px solid var(--skill); }
+  .gp-split .col h5 { margin: 0 0 6px; font-size: 12px; }
+  .gp-split .col.lock h5 { color: var(--flow); } .gp-split .col.free h5 { color: var(--skill); }
+  .gp-split .col ul { margin: 0; padding-left: 15px; font-size: 11px; line-height: 1.55; }
+  /* ④ 飞书对话 */
+  .gp-chat { background: #f8fafc; border-radius: 10px; padding: 12px 14px; }
+  .gp-bub { max-width: 86%; padding: 8px 12px; border-radius: 11px; font-size: 12px; margin: 7px 0; line-height: 1.45; }
+  .gp-bub.u { background: var(--cloud); color: #fff; margin-left: auto; border-bottom-right-radius: 3px; }
+  .gp-bub.a { background: #fff; border: 1px solid var(--border); border-bottom-left-radius: 3px; }
+  .gp-bub .who { font-size: 9px; opacity: 0.7; display: block; margin-bottom: 2px; }
+  .gp-bub .rcpt { font-family: "JetBrains Mono", monospace; font-size: 10.5px; color: #0e7490; }
+  /* run 卡 */
+  .gp-run { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin: 12px 0 4px; }
+  .gp-mc { border: 1px solid var(--border); border-radius: 8px; padding: 10px 8px; text-align: center; background: #fff; }
+  .gp-mc .lab { font-size: 9.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .gp-mc .val { font-size: 14px; font-weight: 800; margin-top: 3px; color: var(--text); }
+  .gp-mc .demo { font-size: 8.5px; color: var(--muted); }
+  /* 视角 + 复用 */
+  .gp-two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0 8px; }
+  .gp-view { border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  .gp-view.op { background: linear-gradient(135deg, rgba(6,182,212,0.05), #fff); border-color: rgba(6,182,212,0.3); }
+  .gp-view.te { background: linear-gradient(135deg, rgba(16,185,129,0.05), #fff); border-color: rgba(16,185,129,0.3); }
+  .gp-view h4 { font-size: 13px; margin: 0 0 8px; }
+  .gp-view.op h4 { color: #0e7490; } .gp-view.te h4 { color: #065f46; }
+  .gp-view ul { margin: 0; padding-left: 16px; font-size: 12px; line-height: 1.6; }
+  .gp-pair { background: linear-gradient(135deg, rgba(30,64,175,0.05), #fff); border: 1px solid var(--border); border-left: 4px solid var(--flow); border-radius: 0 10px 10px 0; padding: 13px 18px; font-size: 12.5px; margin-top: 8px; }
+  .gp-pair b { color: var(--flow); }
+</style>
+
+<p class="gp-intro">这是<b>三个落地实例的第一个</b>。与后面两章（图片超分=工具型、视频=生产型）不同，GEO 是一条<b>数据驱动的"优化型"闭环</b>——监测 AI 引擎里的品牌提及，自动生产/分发内容，再归因回收、反推下一轮。<b>同一套插件生态，既能拼线性产线，也能拼自我迭代的闭环。</b></p>
+
+<!-- ① 插件层 -->
+<div class="gp-band gp-b-plugin">
+  <div class="hd"><span class="lv">① 插件层</span><span class="role">把 GEO 六大子系统拆成标准能力件</span></div>
+  <table class="gp-tbl">
+    <tr><th>插件</th><th>输入 → 输出</th><th>底层实现</th><th>类型</th></tr>
+    <tr><td class="pn">AI 引擎监测</td><td>关键词宇宙 → <code>提及率 / 排名 / 是否被引 / 引用源</code></td><td>多引擎扫描（豆包 / 文心 / 通义 / Kimi / ChatGPT / Perplexity）</td><td><span class="det hard">确定性·采集</span></td></tr>
+    <tr><td class="pn">选题</td><td>监测信号 + 策略 → <code>选题清单</code></td><td>LLM + 规则</td><td><span class="det soft">智能</span></td></tr>
+    <tr><td class="pn">文章生成</td><td>选题 → <code>GEO 结构化文章</code></td><td>LLM</td><td><span class="det soft">智能</span></td></tr>
+    <tr><td class="pn">配图</td><td>文章 → <code>配图</code></td><td>生图插件</td><td><span class="det hard">确定性</span></td></tr>
+    <tr><td class="pn">内容审核</td><td>内容 → <code>通过 / 驳回</code></td><td>人工 + 规则</td><td><span class="det hard">确定性</span></td></tr>
+    <tr><td class="pn">多平台分发</td><td>内容 → <code>发布回执</code></td><td>官方 API + 浏览器自动化（头条 / 知乎 / 小红书 / 公众号 / 百家号）</td><td><span class="det hard">确定性</span></td></tr>
+    <tr><td class="pn">分层归因</td><td>分发记录 + 落地页 UTM + 引擎复测 → <code>露出 / 中转 / 时序归因</code></td><td>规则 + 统计</td><td><span class="det hard">确定性</span></td></tr>
+    <tr><td class="pn">ROI / 效能</td><td>全链路数据 → <code>ROI + 内容效能模型 + 下一轮策略</code></td><td>规则模型（策略反推器）</td><td><span class="det hard">确定性</span></td></tr>
+  </table>
+  <p style="font-size:10.5px;color:var(--muted);margin:8px 2px 0">GEO 平台本来就是"工作流引擎 + 节点"架构——这些子系统天然就是插件，把它们对外标准化即可直接复用。</p>
+</div>
+
+<!-- ② 工作流层 -->
+<div class="gp-band gp-b-flow">
+  <div class="hd"><span class="lv">② 工作流层</span><span class="role">把插件拼成自我迭代的闭环 + 质量门</span></div>
+  <div class="gp-loop">
+    <div class="step">每日监测</div><div class="ar">→</div>
+    <div class="step">选题</div><div class="ar">→</div>
+    <div class="step">生成</div><div class="ar">→</div>
+    <div class="step gate">审核门</div><div class="ar">→</div>
+    <div class="step">分发</div><div class="ar">→</div>
+    <div class="step">归因</div><div class="ar">→</div>
+    <div class="step">决策中枢</div><div class="ar back">↺</div>
+    <div class="step loop">回流</div>
+  </div>
+  <div class="gp-loopcap">↺ 决策中枢反推下一轮选题与策略 → 回流到监测/选题，<b>越跑越准</b></div>
+  <div class="gp-gates">
+    <span class="gp-gate"><b>审核门</b> 人工 + 规则双卡</span>
+    <span class="gp-gate"><b>风控门</b> 账号池调度 / 频率限制</span>
+    <span class="gp-gate"><b>归因口径</b> 分层归因统一标准</span>
+    <span class="gp-gate"><b>调度</b> 每日定时扫描</span>
+  </div>
+  <p style="font-size:10.5px;color:var(--muted);margin:9px 2px 0"><b>与视频产线的关键差异</b>：这是<b>闭环</b>——上一轮的归因结果驱动下一轮的选题，工作流不仅保稳，还让整条产线<b>自我优化</b>。</p>
+</div>
+
+<!-- ③ skill 层 -->
+<div class="gp-band gp-b-skill">
+  <div class="hd"><span class="lv">③ skill 层</span><span class="role">整条闭环注册为 skill，大模型按目标编排</span></div>
+  <div class="gp-intent2">意图输入：<span class="q">"把『XX 手游 国际服』这个词在豆包和文心里的提及率，这个月提上去。"</span></div>
+  <div class="gp-split">
+    <div class="col free">
+      <h5>🧠 大模型决定（智能血肉）</h5>
+      <ul>
+        <li>选题角度与内容策略（攻略 / 对比 / 问答…）</li>
+        <li>优先铺哪些平台、什么节奏</li>
+        <li>读归因结果后，下一轮怎么调</li>
+        <li>哪些低效内容模板要淘汰</li>
+      </ul>
+    </div>
+    <div class="col lock">
+      <h5>🔒 工作流锁定（确定性骨架）</h5>
+      <ul>
+        <li>监测频率与关键词口径</li>
+        <li>审核门 + 风控（账号池 / 频率）</li>
+        <li>分层归因统一口径</li>
+        <li>发布规范与合规校验</li>
+      </ul>
+    </div>
+  </div>
+  <p style="font-size:10.5px;color:var(--muted);margin:9px 2px 0">大模型把"提升提及率"这个<b>模糊目标</b>翻译成一轮轮可执行的内容策略，而归因与合规始终由工作流兜底。</p>
+</div>
+
+<!-- ④ 云端层 -->
+<div class="gp-band gp-b-cloud">
+  <div class="hd"><span class="lv">④ 云端层</span><span class="role">飞书一句话查看板 / 触发一轮优化</span></div>
+  <div class="gp-chat">
+    <div class="gp-bub u"><span class="who">运营</span>看下这周 GEO 提及率走势</div>
+    <div class="gp-bub a"><span class="who">AI 助理</span>📊 本周「国际服」相关词：豆包 12%→15%、文心 9%→11%，被引来源 +6。看板已推送本群。</div>
+    <div class="gp-bub u"><span class="who">运营</span>针对「国际服」这个词再跑一轮内容优化</div>
+    <div class="gp-bub a"><span class="who">AI 助理</span>已规划：选题 8 篇（攻略 5 / 对比 3），铺知乎 + 小红书 + 公众号。审核门人工抽检。<b>确认？</b></div>
+    <div class="gp-bub u"><span class="who">运营</span>确认</div>
+    <div class="gp-bub a"><span class="who">AI 助理</span>✅ 已铺 8 篇，<span class="rcpt">收录 7 · 1 篇待审 · UTM 已埋点，归因 T+3 回收</span>。</div>
+  </div>
+</div>
+
+<h3>一轮闭环 run（数字为示意）</h3>
+<div class="gp-run">
+  <div class="gp-mc"><div class="lab">监测词</div><div class="val">120 词</div><div class="demo">关键词宇宙</div></div>
+  <div class="gp-mc"><div class="lab">本轮内容</div><div class="val">8 篇</div><div class="demo">文 + 图</div></div>
+  <div class="gp-mc"><div class="lab">覆盖平台</div><div class="val">3 个</div><div class="demo">知乎/小红书/公众号</div></div>
+  <div class="gp-mc"><div class="lab">提及率</div><div class="val">12%→15%</div><div class="demo">示意</div></div>
+  <div class="gp-mc"><div class="lab">闭环周期</div><div class="val">T+3 回收</div><div class="demo">示意</div></div>
+</div>
+
+<h3>同一件事，两种视角</h3>
+<div class="gp-two">
+  <div class="gp-view op">
+    <h4>🗣 运营看到的</h4>
+    <ul><li>飞书看板看走势</li><li>一句话调策略、点"确认"</li><li>提及率涨没涨，一目了然</li><li>不用懂监测/归因的后台</li></ul>
+  </div>
+  <div class="gp-view te">
+    <h4>⚙ 技术看到的</h4>
+    <ul><li>8 个插件复用、可独立换实现</li><li>工作流闭环 + 归因驱动自迭代</li><li>skill 把"提目标"变成可执行策略</li><li>分层归因口径统一、可信</li></ul>
+  </div>
+</div>
+
+<div class="gp-pair">
+  <b>三个实例展示三种任务形态：</b>本章 GEO=<b>闭环·优化型</b>（越跑越准），后续图片超分=<b>批处理·工具型</b>、视频=<b>线性·生产型</b>——同一套插件生态都装得下。而且 GEO 的归因与效能模型，能反哺<b>所有内容业务</b>的投放决策。
+</div>
+</section>
+
+<section class="section-wrap" id="eco8">
+<h2>Section 8 / 11 · 落地实例：游戏素材超分放大产线</h2>
+<p class="subtitle">三个落地实例之二 · 批处理·工具型——把一次性问题沉淀成可复用插件</p>
+
+<style>
+  .im-intro { font-size: 12.5px; color: var(--muted); margin: 6px 0 4px; }
+  .im-intro b { color: var(--text); }
+  .im-band { border: 1px solid var(--border); border-left: 6px solid var(--c); border-radius: 10px; padding: 14px 18px 16px; background: linear-gradient(135deg, var(--bgc), #fff); margin: 12px 0; }
+  .im-band .hd { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+  .im-band .hd .lv { font-size: 14px; font-weight: 800; color: var(--c); }
+  .im-band .hd .role { font-size: 11px; color: var(--muted); }
+  .im-b-plugin { --c: var(--plugin); --bgc: rgba(16,185,129,0.05); }
+  .im-b-flow   { --c: var(--flow);   --bgc: rgba(30,64,175,0.05); }
+  .im-b-skill  { --c: var(--skill);  --bgc: rgba(139,92,246,0.05); }
+  .im-b-cloud  { --c: var(--cloud);  --bgc: rgba(6,182,212,0.05); }
+  /* ① 插件表 */
+  .im-tbl { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+  .im-tbl th { text-align: left; font-size: 10px; letter-spacing: 0.5px; color: var(--muted); text-transform: uppercase; padding: 6px 8px; border-bottom: 1px solid var(--border); font-weight: 700; }
+  .im-tbl td { padding: 7px 8px; border-bottom: 1px dashed var(--border); line-height: 1.4; vertical-align: top; }
+  .im-tbl tr:last-child td { border-bottom: none; }
+  .im-tbl .pn { font-weight: 700; white-space: nowrap; }
+  .im-tbl code { font-family: "JetBrains Mono", monospace; font-size: 10.5px; background: rgba(16,185,129,0.1); color: #065f46; padding: 1px 5px; border-radius: 4px; }
+  .im-tbl .det { font-size: 9.5px; font-weight: 700; padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
+  .im-tbl .det.hard { background: #d1fae5; color: #065f46; }
+  .im-tbl .det.api { background: #cffafe; color: #0e7490; }
+  /* ② 条件路由图 */
+  .im-route { display: flex; align-items: stretch; gap: 0; border: 2px solid var(--flow); border-radius: 10px; padding: 10px; margin: 4px 0 8px; background: linear-gradient(135deg, rgba(30,64,175,0.04), #fff); }
+  .im-route .nd { flex: 0 0 auto; align-self: center; text-align: center; background: #fff; border: 1px solid var(--flow); border-radius: 6px; padding: 9px 10px; font-size: 11.5px; font-weight: 600; color: var(--flow); }
+  .im-route .nd.gate { border-style: dashed; background: rgba(245,158,11,0.08); border-color: var(--pending); color: #92400e; }
+  .im-route .ar { flex: 0 0 16px; display: flex; align-items: center; justify-content: center; color: var(--flow); font-weight: 800; }
+  .im-router { flex: 1 1 0; min-width: 0; align-self: stretch; border: 1.5px dashed var(--flow); border-radius: 8px; padding: 7px 9px; background: rgba(30,64,175,0.03); }
+  .im-router .rh { font-size: 10px; font-weight: 700; color: var(--flow); text-align: center; margin-bottom: 5px; letter-spacing: 0.5px; }
+  .im-rt { display: flex; align-items: center; gap: 6px; font-size: 10.5px; padding: 2px 0; }
+  .im-rt .ty { flex: 0 0 64px; color: var(--muted); }
+  .im-rt .md { flex: 1; background: #fff; border: 1px solid var(--plugin); border-radius: 5px; padding: 2px 7px; color: #065f46; font-weight: 600; }
+  .im-rt .a2 { color: var(--flow); font-weight: 800; }
+  .im-gates { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+  .im-gate { font-size: 11px; background: #fff; border: 1px solid var(--border); border-left: 3px solid var(--flow); border-radius: 6px; padding: 7px 10px; line-height: 1.4; }
+  .im-gate b { color: var(--flow); display: block; margin-bottom: 1px; }
+  /* ③ skill 映射 */
+  .im-intent { background: #fff; border: 1px dashed var(--skill); border-radius: 8px; padding: 8px 12px; font-size: 12px; margin-bottom: 10px; }
+  .im-intent .q { color: #6d28d9; font-style: italic; }
+  .im-split { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .im-split .col { border: 1px solid var(--border); border-radius: 8px; padding: 10px 13px; background: #fff; }
+  .im-split .col.lock { border-left: 3px solid var(--flow); }
+  .im-split .col.free { border-left: 3px solid var(--skill); }
+  .im-split .col h5 { margin: 0 0 6px; font-size: 12px; }
+  .im-split .col.lock h5 { color: var(--flow); } .im-split .col.free h5 { color: var(--skill); }
+  .im-split .col ul { margin: 0; padding-left: 15px; font-size: 11px; line-height: 1.55; }
+  /* ④ 飞书对话 */
+  .im-chat { background: #f8fafc; border-radius: 10px; padding: 12px 14px; }
+  .im-bub { max-width: 86%; padding: 8px 12px; border-radius: 11px; font-size: 12px; margin: 7px 0; line-height: 1.45; }
+  .im-bub.u { background: var(--cloud); color: #fff; margin-left: auto; border-bottom-right-radius: 3px; }
+  .im-bub.a { background: #fff; border: 1px solid var(--border); border-bottom-left-radius: 3px; }
+  .im-bub .who { font-size: 9px; opacity: 0.7; display: block; margin-bottom: 2px; }
+  .im-bub .rcpt { font-family: "JetBrains Mono", monospace; font-size: 10.5px; color: #0e7490; }
+  /* run 卡 */
+  .im-run { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin: 12px 0 4px; }
+  .im-mc { border: 1px solid var(--border); border-radius: 8px; padding: 10px 8px; text-align: center; background: #fff; }
+  .im-mc .lab { font-size: 9.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .im-mc .val { font-size: 14px; font-weight: 800; margin-top: 3px; color: var(--text); }
+  .im-mc .demo { font-size: 8.5px; color: var(--muted); }
+  /* 视角 + 合看 */
+  .im-two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0 8px; }
+  .im-view { border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  .im-view.op { background: linear-gradient(135deg, rgba(6,182,212,0.05), #fff); border-color: rgba(6,182,212,0.3); }
+  .im-view.te { background: linear-gradient(135deg, rgba(16,185,129,0.05), #fff); border-color: rgba(16,185,129,0.3); }
+  .im-view h4 { font-size: 13px; margin: 0 0 8px; }
+  .im-view.op h4 { color: #0e7490; } .im-view.te h4 { color: #065f46; }
+  .im-view ul { margin: 0; padding-left: 16px; font-size: 12px; line-height: 1.6; }
+  .im-synth { border: 1px solid var(--border); border-radius: 12px; padding: 14px 18px; margin-top: 10px; background: linear-gradient(135deg, rgba(139,92,246,0.04), #fff); }
+  .im-synth h4 { font-size: 13px; margin: 0 0 10px; color: var(--skill); }
+  .im-synth .row { display: grid; grid-template-columns: 100px 1fr; gap: 10px; font-size: 12px; padding: 4px 0; align-items: baseline; }
+  .im-synth .row .tag { font-weight: 800; text-align: center; border-radius: 5px; padding: 2px 4px; color: #fff; font-size: 11px; }
+  .im-synth .t-geo { background: var(--cloud); } .im-synth .t-vid { background: var(--flow); } .im-synth .t-img { background: var(--plugin); }
+  .im-synth .concl { font-size: 12.5px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
+  .im-synth .concl b { color: var(--skill); }
+</style>
+
+<p class="im-intro">美术 / 营销常踩的真实坑：老素材分辨率低、AI 生图要放大、而<b>不同类型素材（原画 / UI / 像素 / 立绘 / 带人脸）放大方式还不一样</b>。过去靠美术一张张手工或外包；插件化后，它变成一条<b>按素材类型自动路由</b>的批处理产线。与上一章 GEO 闭环对照——这是"工具型·批处理"形态，凸显工作流的<b>条件路由</b>能力。</p>
+
+<!-- ① 插件层 -->
+<div class="im-band im-b-plugin">
+  <div class="hd"><span class="lv">① 插件层</span><span class="role">把"放大"这件事拆成可按需挑选的标准能力件</span></div>
+  <table class="im-tbl">
+    <tr><th>插件</th><th>输入 → 输出</th><th>底层实现</th><th>类型</th></tr>
+    <tr><td class="pn">素材分类</td><td>图 → <code>类型标签</code>（原画 / UI / 像素 / 含人脸）</td><td>图像分类模型</td><td><span class="det hard">确定性·识别</span></td></tr>
+    <tr><td class="pn">预处理</td><td>图 → <code>去噪 / 去压缩伪影</code></td><td>开源算法</td><td><span class="det hard">确定性</span></td></tr>
+    <tr><td class="pn">通用超分</td><td>原画 / 写实图 → <code>2x / 4x</code></td><td>Real-ESRGAN</td><td><span class="det hard">确定性</span></td></tr>
+    <tr><td class="pn">二次元超分</td><td>动漫风图 → <code>放大</code></td><td>waifu2x / anime-ESRGAN</td><td><span class="det hard">确定性</span></td></tr>
+    <tr><td class="pn">人脸修复超分</td><td>含人脸图 → <code>修复 + 放大</code></td><td>GFPGAN / CodeFormer</td><td><span class="det hard">确定性</span></td></tr>
+    <tr><td class="pn">像素图放大</td><td>像素风 → <code>整数倍保真</code></td><td>最近邻 / 专用算法</td><td><span class="det hard">确定性</span></td></tr>
+    <tr><td class="pn">难图补位</td><td>高要求图 → <code>放大</code></td><td>闭源 SaaS（Topaz Gigapixel）</td><td><span class="det api">外部 API</span></td></tr>
+    <tr><td class="pn">瑕疵质检</td><td>放大前后 → <code>通过 / 驳回 + 理由</code></td><td>对比 + artifact 检测</td><td><span class="det hard">确定性</span></td></tr>
+    <tr><td class="pn">多尺寸导出</td><td>成图 → <code>@1x/2x/3x · png/webp</code></td><td>规则</td><td><span class="det hard">确定性</span></td></tr>
+  </table>
+  <p style="font-size:10.5px;color:var(--muted);margin:8px 2px 0">注意：超分不是"一个模型打天下"——不同素材类型要用不同插件。把它们都做成标准插件，才能在工作流里按需挑选、自由组合。</p>
+</div>
+
+<!-- ② 工作流层 -->
+<div class="im-band im-b-flow">
+  <div class="hd"><span class="lv">② 工作流层</span><span class="role">批处理 + 条件路由：按素材类型自动选模型</span></div>
+  <div class="im-route">
+    <div class="nd">输入批</div><div class="ar">→</div>
+    <div class="nd">分类</div><div class="ar">→</div>
+    <div class="im-router">
+      <div class="rh">⟨ 条件路由 ⟩ 按类型自动分流</div>
+      <div class="im-rt"><span class="ty">原画/写实</span><span class="a2">→</span><span class="md">通用超分</span></div>
+      <div class="im-rt"><span class="ty">二次元</span><span class="a2">→</span><span class="md">anime 超分</span></div>
+      <div class="im-rt"><span class="ty">含人脸</span><span class="a2">→</span><span class="md">人脸修复</span></div>
+      <div class="im-rt"><span class="ty">像素风</span><span class="a2">→</span><span class="md">整数倍保真</span></div>
+      <div class="im-rt"><span class="ty">高要求</span><span class="a2">→</span><span class="md">Topaz 补位</span></div>
+    </div>
+    <div class="ar">→</div>
+    <div class="nd gate">瑕疵质检</div><div class="ar">→</div>
+    <div class="nd gate">人工抽检</div><div class="ar">→</div>
+    <div class="nd">多尺寸导出 / 入库</div>
+  </div>
+  <div class="im-gates">
+    <span class="im-gate"><b>倍数门</b> 2x / 4x 达标</span>
+    <span class="im-gate"><b>分辨率门</b> 目标尺寸达标</span>
+    <span class="im-gate"><b>瑕疵门</b> 无伪影 / 不糊</span>
+    <span class="im-gate"><b>像素保真</b> 像素风不模糊</span>
+    <span class="im-gate"><b>人脸门</b> 五官不变形</span>
+  </div>
+  <p style="font-size:10.5px;color:var(--muted);margin:9px 2px 0"><b>与前两章的关键差异</b>：这里凸显工作流的<b>条件路由</b>——同一条产线按素材类型把每张图自动送到对的放大插件，分支逻辑确定、可控、可回溯。</p>
+</div>
+
+<!-- ③ skill 层 -->
+<div class="im-band im-b-skill">
+  <div class="hd"><span class="lv">③ skill 层</span><span class="role">整条产线注册为 skill，大模型按意图调度</span></div>
+  <div class="im-intent">意图输入：<span class="q">"把这批老角色立绘放大到 4K，二次元风别糊，有几张带脸的修一下。"</span></div>
+  <div class="im-split">
+    <div class="col free">
+      <h5>🧠 大模型决定（智能血肉）</h5>
+      <ul>
+        <li>逐张判断素材类型、走哪条路由</li>
+        <li>要不要先去噪 / 去伪影</li>
+        <li>放大倍数（2x / 4x）</li>
+        <li>可疑结果是否换模型重做</li>
+      </ul>
+    </div>
+    <div class="col lock">
+      <h5>🔒 工作流锁定（确定性骨架）</h5>
+      <ul>
+        <li>路由规则与各类型对应插件</li>
+        <li>分辨率 / 瑕疵 / 人脸质量门</li>
+        <li>像素风整数倍保真</li>
+        <li>多尺寸导出规范与命名</li>
+      </ul>
+    </div>
+  </div>
+  <p style="font-size:10.5px;color:var(--muted);margin:9px 2px 0">大模型把"别糊、带脸的修一下"这种<b>模糊要求</b>翻译成逐张的路由与参数，而质量门始终由工作流兜底。</p>
+</div>
+
+<!-- ④ 云端层 -->
+<div class="im-band im-b-cloud">
+  <div class="hd"><span class="lv">④ 云端层</span><span class="role">飞书拖个压缩包 + 一句话，批量放大</span></div>
+  <div class="im-chat">
+    <div class="im-bub u"><span class="who">美术</span>［上传 角色立绘_old.zip］这批图放大到 4K，二次元别糊，带脸的修一下</div>
+    <div class="im-bub a"><span class="who">AI 助理</span>已识别 128 张：立绘 80 / UI 30 / 像素 10 / 含人脸 8。将分别路由 anime 超分 / 通用 / 整数倍 / 人脸修复。<b>确认执行？</b></div>
+    <div class="im-bub u"><span class="who">美术</span>确认</div>
+    <div class="im-bub a"><span class="who">AI 助理</span>✅ 完成。<span class="rcpt">124/128 通过 · 像素图 10 张保真放大 · 人脸 8 张已修复 · 4 张瑕疵换模型重做通过 · 用时 18m · @1x/2x/3x 已导出入库</span></div>
+  </div>
+</div>
+
+<h3>一批 run（数字为示意）</h3>
+<div class="im-run">
+  <div class="im-mc"><div class="lab">输入</div><div class="val">128 张</div><div class="demo">混合类型</div></div>
+  <div class="im-mc"><div class="lab">放大</div><div class="val">4x</div><div class="demo">到 4K</div></div>
+  <div class="im-mc"><div class="lab">通过率</div><div class="val">97%</div><div class="demo">示意</div></div>
+  <div class="im-mc"><div class="lab">用时</div><div class="val">~18 min</div><div class="demo">示意</div></div>
+  <div class="im-mc"><div class="lab">单张成本</div><div class="val">较外包显著↓</div><div class="demo">示意</div></div>
+</div>
+
+<h3>同一件事，两种视角</h3>
+<div class="im-two">
+  <div class="im-view op">
+    <h4>🗣 美术 / 运营看到的</h4>
+    <ul><li>飞书拖个文件夹、说一句话</li><li>不用关心每张该用哪个模型</li><li>等回执、拿多尺寸成图</li><li>一次性需求也能秒接</li></ul>
+  </div>
+  <div class="im-view te">
+    <h4>⚙ 技术看到的</h4>
+    <ul><li>9 个插件复用、可独立换 SOTA 模型</li><li>工作流条件路由 + 质检兜底</li><li>skill 把模糊要求变逐张参数</li><li>临时问题沉淀成长期资产</li></ul>
+  </div>
+</div>
+
+<div class="im-synth">
+  <h4>三种任务形态：本方案的三个落地实例</h4>
+  <div class="row"><span class="tag t-geo">GEO</span><span>闭环 · 优化型——监测→生产→归因→回流，<b>越跑越准</b></span></div>
+  <div class="row"><span class="tag t-vid">视频</span><span>线性 · 生产型——脚本→合成→质检→入库，<b>一次成片</b></span></div>
+  <div class="row"><span class="tag t-img">图片超分</span><span>批处理 · 工具型——分类→<b>条件路由</b>→质检→导出，<b>按类型分流</b></span></div>
+  <div class="concl">三种最常见的任务形态，<b>同一套插件生态都装得下</b>。而且本章为"放大图片"建的超分插件，明天能被 <b>AI 生图后处理、营销图、电商主图</b>直接复用——<b>今天的一次性问题，沉淀成明天的可复用资产</b>。</div>
+</div>
+</section>
+
+<section class="section-wrap" id="eco9">
+<h2>Section 9 / 11 · 落地实例：AI 视频素材产线</h2>
+<p class="subtitle">三个落地实例之三 · 线性"生产型"产线——看插件 / 工作流 / skill / 云端 各自具体长什么样</p>
+
+<style>
+  .s7-band { border: 1px solid var(--border); border-left: 6px solid var(--c); border-radius: 10px; padding: 14px 18px 16px; background: linear-gradient(135deg, var(--bgc), #fff); margin: 12px 0; }
+  .s7-band .hd { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+  .s7-band .hd .lv { font-size: 14px; font-weight: 800; color: var(--c); }
+  .s7-band .hd .role { font-size: 11px; color: var(--muted); }
+  .s7-b-plugin { --c: var(--plugin); --bgc: rgba(16,185,129,0.05); }
+  .s7-b-flow   { --c: var(--flow);   --bgc: rgba(30,64,175,0.05); }
+  .s7-b-skill  { --c: var(--skill);  --bgc: rgba(139,92,246,0.05); }
+  .s7-b-cloud  { --c: var(--cloud);  --bgc: rgba(6,182,212,0.05); }
+  /* ① 插件表 */
+  .s7-tbl { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+  .s7-tbl th { text-align: left; font-size: 10px; letter-spacing: 0.5px; color: var(--muted); text-transform: uppercase; padding: 6px 8px; border-bottom: 1px solid var(--border); font-weight: 700; }
+  .s7-tbl td { padding: 7px 8px; border-bottom: 1px dashed var(--border); line-height: 1.4; vertical-align: top; }
+  .s7-tbl tr:last-child td { border-bottom: none; }
+  .s7-tbl .pn { font-weight: 700; white-space: nowrap; }
+  .s7-tbl code { font-family: "JetBrains Mono", monospace; font-size: 10.5px; background: rgba(16,185,129,0.1); color: #065f46; padding: 1px 5px; border-radius: 4px; }
+  .s7-tbl .det { font-size: 9.5px; font-weight: 700; padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
+  .s7-tbl .det.hard { background: #d1fae5; color: #065f46; }
+  .s7-tbl .det.soft { background: #ede9fe; color: #6d28d9; }
+  .s7-tbl .det.api { background: #cffafe; color: #0e7490; }
+  /* ② 工作流链 + 质量门 */
+  .s7-chain { display: flex; align-items: stretch; gap: 0; border: 2px solid var(--flow); border-radius: 10px; padding: 10px; margin: 4px 0 8px; background: linear-gradient(135deg, rgba(30,64,175,0.04), #fff); }
+  .s7-chain .step { flex: 1 1 0; min-width: 0; text-align: center; background: #fff; border: 1px solid var(--flow); border-radius: 6px; padding: 9px 3px; font-size: 11px; font-weight: 600; color: var(--flow); }
+  .s7-chain .step.human { border-style: dashed; background: rgba(245,158,11,0.08); border-color: var(--pending); color: #92400e; }
+  .s7-chain .ar { flex: 0 0 14px; display: flex; align-items: center; justify-content: center; color: var(--flow); font-weight: 800; font-size: 11px; }
+  .s7-gates { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+  .s7-gate { font-size: 11px; background: #fff; border: 1px solid var(--border); border-left: 3px solid var(--flow); border-radius: 6px; padding: 7px 10px; line-height: 1.4; }
+  .s7-gate b { color: var(--flow); display: block; margin-bottom: 1px; }
+  /* ③ skill 意图映射 */
+  .s7-intent { background: #fff; border: 1px dashed var(--skill); border-radius: 8px; padding: 8px 12px; font-size: 12px; margin-bottom: 10px; }
+  .s7-intent .q { color: #6d28d9; font-style: italic; }
+  .s7-split { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .s7-split .col { border: 1px solid var(--border); border-radius: 8px; padding: 10px 13px; background: #fff; }
+  .s7-split .col.lock { border-left: 3px solid var(--flow); }
+  .s7-split .col.free { border-left: 3px solid var(--skill); }
+  .s7-split .col h5 { margin: 0 0 6px; font-size: 12px; }
+  .s7-split .col.lock h5 { color: var(--flow); } .s7-split .col.free h5 { color: var(--skill); }
+  .s7-split .col ul { margin: 0; padding-left: 15px; font-size: 11px; line-height: 1.55; }
+  /* ④ 飞书对话 */
+  .s7-chat { background: #f8fafc; border-radius: 10px; padding: 12px 14px; }
+  .s7-bub { max-width: 86%; padding: 8px 12px; border-radius: 11px; font-size: 12px; margin: 7px 0; line-height: 1.45; }
+  .s7-bub.u { background: var(--cloud); color: #fff; margin-left: auto; border-bottom-right-radius: 3px; }
+  .s7-bub.a { background: #fff; border: 1px solid var(--border); border-bottom-left-radius: 3px; }
+  .s7-bub .who { font-size: 9px; opacity: 0.7; display: block; margin-bottom: 2px; }
+  .s7-bub .rcpt { font-family: "JetBrains Mono", monospace; font-size: 10.5px; color: #0e7490; }
+  /* run 卡 */
+  .s7-run { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin: 12px 0 4px; }
+  .s7-mc { border: 1px solid var(--border); border-radius: 8px; padding: 10px 8px; text-align: center; background: #fff; }
+  .s7-mc .lab { font-size: 9.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .s7-mc .val { font-size: 14px; font-weight: 800; margin-top: 3px; color: var(--text); }
+  .s7-mc .demo { font-size: 8.5px; color: var(--muted); }
+  /* 视角 + 复用 */
+  .s7-two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0 8px; }
+  .s7-view { border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  .s7-view.op { background: linear-gradient(135deg, rgba(6,182,212,0.05), #fff); border-color: rgba(6,182,212,0.3); }
+  .s7-view.te { background: linear-gradient(135deg, rgba(16,185,129,0.05), #fff); border-color: rgba(16,185,129,0.3); }
+  .s7-view h4 { font-size: 13px; margin: 0 0 8px; }
+  .s7-view.op h4 { color: #0e7490; } .s7-view.te h4 { color: #065f46; }
+  .s7-view ul { margin: 0; padding-left: 16px; font-size: 12px; line-height: 1.6; }
+  .s7-reuse { background: linear-gradient(135deg, rgba(16,185,129,0.06), #fff); border: 1px solid var(--border); border-left: 4px solid var(--plugin); border-radius: 0 10px 10px 0; padding: 13px 18px; font-size: 12.5px; }
+  .s7-reuse b { color: #065f46; }
+</style>
+
+<p style="font-size:12.5px;color:var(--muted);margin:6px 0 4px">场景：营销买量短视频（门槛低、效果可量化）。下面自下而上拆开四层，看"能力资产化"在一条真实产线里具体是什么。</p>
+
+<!-- ① 插件层 -->
+<div class="s7-band s7-b-plugin">
+  <div class="hd"><span class="lv">① 插件层</span><span class="role">把产线拆成标准能力件，每件有明确契约</span></div>
+  <table class="s7-tbl">
+    <tr><th>插件</th><th>输入 → 输出</th><th>底层实现</th><th>类型</th></tr>
+    <tr><td class="pn">脚本生成</td><td>产品卖点 / 风格 → <code>分镜脚本</code></td><td>LLM</td><td><span class="det soft">智能</span></td></tr>
+    <tr><td class="pn">分镜拆解</td><td>脚本 → <code>镜头表</code>（画面 / 时长 / 运镜）</td><td>LLM + 规则</td><td><span class="det soft">智能</span></td></tr>
+    <tr><td class="pn">关键帧生图</td><td>镜头描述 → <code>关键帧图</code></td><td>自建 ComfyUI + 开源生图</td><td><span class="det hard">确定性</span></td></tr>
+    <tr><td class="pn">图 / 文生视频</td><td>关键帧 → <code>视频片段</code></td><td>ComfyUI + 开源视频模型（Wan / 混元）</td><td><span class="det hard">确定性</span></td></tr>
+    <tr><td class="pn">难镜头补位</td><td>复杂镜头需求 → <code>片段</code></td><td>闭源 SaaS（可灵 / 即梦 / Runway）</td><td><span class="det api">外部 API</span></td></tr>
+    <tr><td class="pn">TTS 配音</td><td>文案 → <code>配音音轨</code></td><td>TTS 插件</td><td><span class="det hard">确定性</span></td></tr>
+    <tr><td class="pn">合成拼接</td><td>片段 + 音轨 + 字幕 → <code>成片</code></td><td>剪辑引擎（规则）</td><td><span class="det hard">确定性</span></td></tr>
+    <tr><td class="pn">封面生成</td><td>成片 / 卖点 → <code>封面图</code></td><td>生图插件</td><td><span class="det hard">确定性</span></td></tr>
+    <tr><td class="pn">合规质检</td><td>成片 → <code>通过 / 驳回 + 理由</code></td><td>规则 + 模型</td><td><span class="det hard">确定性</span></td></tr>
+  </table>
+  <p style="font-size:10.5px;color:var(--muted);margin:8px 2px 0">每个插件独立可测、可版本化、可单独换实现（如把开源视频模型换成更新的 SOTA），不影响其它环节——这就是"能力资产化"。</p>
+</div>
+
+<!-- ② 工作流层 -->
+<div class="s7-band s7-b-flow">
+  <div class="hd"><span class="lv">② 工作流层</span><span class="role">把插件拼成确定性产线 + 质量门 + 人工把关</span></div>
+  <div class="s7-chain">
+    <span class="step">脚本</span><span class="ar">→</span><span class="step">分镜</span><span class="ar">→</span><span class="step">关键帧</span><span class="ar">→</span><span class="step">生视频</span><span class="ar">→</span><span class="step">补位</span><span class="ar">→</span><span class="step">配音</span><span class="ar">→</span><span class="step">合成</span><span class="ar">→</span><span class="step">封面</span><span class="ar">→</span><span class="step">质检</span><span class="ar">→</span><span class="step human">人工抽检</span><span class="ar">→</span><span class="step">入库</span>
+  </div>
+  <div class="s7-gates">
+    <span class="s7-gate"><b>比例门</b> 9:16 竖屏</span>
+    <span class="s7-gate"><b>时长门</b> 15s ± 2s</span>
+    <span class="s7-gate"><b>合规门</b> 敏感词 / 版号 / 素材授权</span>
+    <span class="s7-gate"><b>可用率门</b> 质检通过才入库</span>
+    <span class="s7-gate"><b>人工把关</b> 抽检，不达标退回重跑</span>
+  </div>
+  <p style="font-size:10.5px;color:var(--muted);margin:9px 2px 0">关键路径被工作流锁死：固定顺序、固定质量门、单条失败自动重跑、整条 run 可回溯（节点日志 + 截图）。<b>半自动 + 人工把关</b>，不追全自动炫技。</p>
+</div>
+
+<!-- ③ skill 层 -->
+<div class="s7-band s7-b-skill">
+  <div class="hd"><span class="lv">③ skill 层</span><span class="role">整条产线注册为可调用 skill，大模型按意图编排</span></div>
+  <div class="s7-intent">意图输入：<span class="q">"给新版本做 10 条买量短视频，竖屏 15 秒，突出新版本 BOSS 玩法，今晚要。"</span></div>
+  <div class="s7-split">
+    <div class="col free">
+      <h5>🧠 大模型决定（智能血肉）</h5>
+      <ul>
+        <li>选题角度与文案卖点（10 条各不同）</li>
+        <li>分镜创意与运镜风格</li>
+        <li>哪些复杂镜头走 SaaS 补位</li>
+        <li>封面文案与钩子</li>
+      </ul>
+    </div>
+    <div class="col lock">
+      <h5>🔒 工作流锁定（确定性骨架）</h5>
+      <ul>
+        <li>9:16 / 15s / 导出格式 / 命名规范</li>
+        <li>合规门与素材授权校验</li>
+        <li>质检通过率门 + 人工抽检</li>
+        <li>失败重跑与并发上限</li>
+      </ul>
+    </div>
+  </div>
+  <p style="font-size:10.5px;color:var(--muted);margin:9px 2px 0">模型越强，左侧创意编排越好——而右侧的稳定与合规始终由工作流兜底。模型升级时，这条产线<b>自动变聪明、无需改代码</b>。</p>
+</div>
+
+<!-- ④ 云端层 -->
+<div class="s7-band s7-b-cloud">
+  <div class="hd"><span class="lv">④ 云端层</span><span class="role">飞书一句话触发，带确认门与结果回执</span></div>
+  <div class="s7-chat">
+    <div class="s7-bub u"><span class="who">运营</span>给新版本做 10 条买量短视频，竖屏 15 秒，突出新版本 BOSS 玩法，今晚要</div>
+    <div class="s7-bub a"><span class="who">AI 助理</span>已规划：视频产线 ×10，9:16 / 15s，4 条含复杂镜头将走 SaaS 补位。预计 ~25 分钟，SaaS 调用约 4 次。<b>确认执行？</b></div>
+    <div class="s7-bub u"><span class="who">运营</span>确认</div>
+    <div class="s7-bub a"><span class="who">AI 助理</span>✅ 完成。<span class="rcpt">10 条成片 · 可用 9 · 1 条质检驳回（字幕越界）已自动重跑通过 · 用时 26m · 已入素材库待投放</span><br>预览：t.cn/vXXXX … 报告已推送本群。</div>
+  </div>
+</div>
+
+<h3>一次端到端 run（数字为示意）</h3>
+<div class="s7-run">
+  <div class="s7-mc"><div class="lab">输入</div><div class="val">1 句话</div><div class="demo">自然语言</div></div>
+  <div class="s7-mc"><div class="lab">产出</div><div class="val">10 条</div><div class="demo">竖屏成片</div></div>
+  <div class="s7-mc"><div class="lab">用时</div><div class="val">~26 min</div><div class="demo">示意</div></div>
+  <div class="s7-mc"><div class="lab">可用率</div><div class="val">90%</div><div class="demo">示意</div></div>
+  <div class="s7-mc"><div class="lab">单条成本</div><div class="val">较手工显著↓</div><div class="demo">示意</div></div>
+</div>
+
+<h3>同一件事，两种视角</h3>
+<div class="s7-two">
+  <div class="s7-view op">
+    <h4>🗣 运营看到的</h4>
+    <ul><li>飞书说一句话、点一次"确认"</li><li>等一个带进度的回执</li><li>拿到 9 条可用成片，直接投放</li><li>零工具学习成本</li></ul>
+  </div>
+  <div class="s7-view te">
+    <h4>⚙ 技术看到的</h4>
+    <ul><li>9 个插件复用、可独立换实现</li><li>工作流锁质量门 + 人工把关</li><li>skill 让入口零门槛、随模型变强</li><li>一次建设、多业务复用</li></ul>
+  </div>
+</div>
+
+<div class="s7-reuse">
+  <b>复用是最大红利</b>：脚本生成、TTS 配音、合规质检、合成拼接这些插件，同样能拼进<b>发文产线、直播切片、电商带货素材</b>。与 AI-plan 旗舰 pilot 上下呼应——<b>同一个插件底座，支撑多条业务线</b>，越攒越省。
+</div>
+</section>
+
+<section class="section-wrap" id="eco10">
+<h2>Section 10 / 11 · 分期路线图</h2>
+<p class="subtitle">四期推进：先确定性、后智能化——一条风险可控的落地路径</p>
+
+<style>
+  .s8-gantt { display: flex; flex-direction: column; gap: 8px; margin: 16px 0; }
+  .s8-row { display: grid; grid-template-columns: 130px 1fr; align-items: center; gap: 12px; }
+  .s8-row .lab { font-size: 12.5px; font-weight: 700; text-align: right; color: var(--c); }
+  .s8-track { position: relative; height: 38px; background: #f1f5f9; border-radius: 8px; overflow: hidden; }
+  .s8-bar { position: absolute; top: 4px; bottom: 4px; border-radius: 6px; display: flex; align-items: center; padding: 0 12px; font-size: 11.5px; font-weight: 700; color: #fff; white-space: nowrap; }
+  .s8-bar.research { background: transparent !important; color: var(--c); border: 1.5px dashed var(--c); }
+  .s8-p0 { --c: var(--plugin); } .s8-p1 { --c: var(--flow); } .s8-p2 { --c: var(--skill); } .s8-p3 { --c: var(--cloud); }
+  .s8-axis { display: grid; grid-template-columns: 130px 1fr; gap: 12px; margin-bottom: 4px; }
+  .s8-axis .sp { } .s8-axis .ticks { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--muted); padding: 0 6px; }
+  .s8-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 18px 0 8px; }
+  .s8-card { border: 1px solid var(--border); border-top: 4px solid var(--c); border-radius: 10px; padding: 14px 16px; background: #fff; }
+  .s8-card .ph { font-size: 14px; font-weight: 800; color: var(--c); }
+  .s8-card .tag { font-size: 10px; font-weight: 700; padding: 1px 8px; border-radius: 10px; float: right; }
+  .s8-card .tag.near { background: #d1fae5; color: #065f46; }
+  .s8-card .tag.mid { background: #fef3c7; color: #92400e; }
+  .s8-card .tag.res { background: #ede9fe; color: #6d28d9; }
+  .s8-card dl { margin: 8px 0 0; font-size: 11.5px; line-height: 1.5; }
+  .s8-card dt { font-weight: 700; color: var(--muted); margin-top: 6px; }
+  .s8-card dd { margin: 1px 0 0; }
+  .s8-legend { font-size: 11.5px; color: var(--muted); margin-top: 6px; }
+  .s8-legend .k { display: inline-block; width: 20px; border-top: 2px solid var(--muted); vertical-align: middle; margin: 0 4px 0 12px; }
+  .s8-legend .kd { border-top-style: dashed; }
+</style>
+
+<h3>四期节奏（先打地基与确定性，再上智能与入口）</h3>
+<div class="s8-axis"><div class="sp"></div><div class="ticks"><span>启动</span><span>季度 1</span><span>季度 2</span><span>季度 3</span><span>季度 4+</span></div></div>
+<div class="s8-gantt">
+  <div class="s8-row s8-p0"><div class="lab">P0 插件标准化</div><div class="s8-track"><div class="s8-bar s8-p0" style="left:0;width:30%;background:var(--c)">插件契约 + 注册表 + 插件目录</div></div></div>
+  <div class="s8-row s8-p1"><div class="lab">P1 工作流增强</div><div class="s8-track"><div class="s8-bar s8-p1" style="left:22%;width:33%;background:var(--c)">可观测 + 编排 UI + 重跑</div></div></div>
+  <div class="s8-row s8-p2"><div class="lab">P2 skill 化</div><div class="s8-track"><div class="s8-bar s8-p2" style="left:48%;width:30%;background:var(--c)">复活 skills + LLM 编排闭环</div></div></div>
+  <div class="s8-row s8-p3"><div class="lab">P3 云端 openclaw</div><div class="s8-track"><div class="s8-bar research s8-p3" style="left:68%;width:32%">飞书入口 + 网关 + 对话触发（含预研）</div></div></div>
+</div>
+<div class="s8-legend"><span class="k"></span>实线 = 可落地 <span class="k kd"></span>虚线 = 含预研，节奏随前序成熟度浮动</div>
+
+<h3>每期里程碑 · 依赖 · 风险</h3>
+<div class="s8-cards">
+  <div class="s8-card s8-p0">
+    <span class="tag near">近期可落地</span><div class="ph">P0 · 插件标准化</div>
+    <dl>
+      <dt>里程碑</dt><dd>统一插件契约；现有节点 / 驱动规整为标准插件；建可检索插件目录</dd>
+      <dt>依赖</dt><dd>现有注册表机制（已具备）</dd>
+      <dt>风险</dt><dd>契约设计要兼顾现有节点，需一次性梳理</dd>
+    </dl>
+  </div>
+  <div class="s8-card s8-p1">
+    <span class="tag near">近期可落地</span><div class="ph">P1 · 工作流增强</div>
+    <dl>
+      <dt>里程碑</dt><dd>Run 看板 / 日志可视化；拖拽编排 UI；失败重跑</dd>
+      <dt>依赖</dt><dd>P0 插件契约</dd>
+      <dt>风险</dt><dd>编排 UI 工作量，可分步交付</dd>
+    </dl>
+  </div>
+  <div class="s8-card s8-p2">
+    <span class="tag mid">中期</span><div class="ph">P2 · skill 化</div>
+    <dl>
+      <dt>里程碑</dt><dd>复活 skills 模块；skill 元信息规范；大模型编排闭环 + 自检</dd>
+      <dt>依赖</dt><dd>P0 / P1 + 稳定的模型调用</dd>
+      <dt>风险</dt><dd>编排可靠性依赖模型能力，需护栏与回退</dd>
+    </dl>
+  </div>
+  <div class="s8-card s8-p3">
+    <span class="tag res">中期 · 含预研</span><div class="ph">P3 · 云端 openclaw</div>
+    <dl>
+      <dt>里程碑</dt><dd>飞书 / 企业微信入口；网关鉴权；对话式触发 + 回执</dd>
+      <dt>依赖</dt><dd>P2 skill 调度 + 已有飞书集成</dd>
+      <dt>风险</dt><dd>IM 平台能力 / 合规边界，先小范围灰度</dd>
+    </dl>
+  </div>
+</div>
+</section>
+
+<section class="section-wrap" id="eco11">
+<h2>Section 11 / 11 · 投入产出与决策建议</h2>
+<p class="subtitle">为什么值得做、风险在哪、需要拍板什么</p>
+
+<style>
+  .s9-roi { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin: 14px 0; }
+  .s9-rcard { border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; background: linear-gradient(135deg, rgba(16,185,129,0.04), #fff); }
+  .s9-rcard .n { font-size: 13px; font-weight: 700; }
+  .s9-rcard .v { font-size: 13px; font-weight: 800; color: var(--brand); margin: 6px 0; font-family: "JetBrains Mono", monospace; }
+  .s9-rcard .v .demo { font-size: 9px; font-weight: 700; color: var(--muted); background: #f1f5f9; padding: 1px 5px; border-radius: 4px; margin-left: 4px; font-family: inherit; }
+  .s9-rcard .d { font-size: 11px; color: var(--muted); line-height: 1.45; }
+  .s9-asset { display: flex; align-items: flex-start; gap: 14px; background: linear-gradient(135deg, rgba(16,185,129,0.08), #fff); border: 1px solid var(--border); border-left: 5px solid var(--brand); border-radius: 0 12px 12px 0; padding: 14px 20px; margin: 14px 0 4px; }
+  .s9-asset .ic { font-size: 24px; line-height: 1.2; flex: none; }
+  .s9-asset .t { font-size: 14px; font-weight: 800; color: #065f46; margin-bottom: 4px; }
+  .s9-asset .d { font-size: 12.5px; line-height: 1.55; }
+  .s9-asset .d b { color: #065f46; }
+  .s9-risk { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 14px 0; }
+  .s9-rk { border: 1px solid var(--border); border-left: 4px solid var(--warn); border-radius: 8px; padding: 12px 15px; background: #fff; }
+  .s9-rk .r { font-size: 13px; font-weight: 700; color: #991b1b; }
+  .s9-rk .c { font-size: 12px; line-height: 1.5; margin-top: 4px; }
+  .s9-rk .c b { color: var(--brand); }
+  .s9-decide { background: linear-gradient(135deg, rgba(30,64,175,0.05), #fff); border: 1px solid var(--border); border-radius: 12px; padding: 18px 22px; margin: 16px 0 6px; }
+  .s9-decide h4 { font-size: 14px; color: var(--link); margin: 0 0 12px; }
+  .s9-q { border-top: 1px dashed var(--border); padding: 12px 0; }
+  .s9-q:first-of-type { border-top: none; padding-top: 0; }
+  .s9-q . q { font-size: 13.5px; font-weight: 700; }
+  .s9-q .rec { font-size: 12px; margin-top: 4px; color: var(--text); }
+  .s9-q .rec .tag { display: inline-block; font-size: 10px; font-weight: 700; background: #d1fae5; color: #065f46; padding: 1px 8px; border-radius: 4px; margin-right: 6px; }
+  .s9-close { background: linear-gradient(135deg, rgba(16,185,129,0.08), #fff); border-left: 5px solid var(--brand); border-radius: 0 12px 12px 0; padding: 14px 20px; margin-top: 14px; font-size: 13px; }
+  .s9-close b { color: #065f46; }
+</style>
+
+<h3>一、投入产出（ROI）</h3>
+<div class="s9-roi">
+  <div class="s9-rcard"><div class="n">新能力上线提速</div><div class="v">周级 → 天级 <span class="demo">示意</span></div><div class="d">从"改代码"变"配插件 / 拼工作流"，迭代成本大幅下降。</div></div>
+  <div class="s9-rcard"><div class="n">复用率</div><div class="v">逐期上升 <span class="demo">示意</span></div><div class="d">插件市场沉淀越多，新场景越多"拿现成的拼"。</div></div>
+  <div class="s9-rcard"><div class="n">稳定性</div><div class="v">关键路径锁定 <span class="demo">示意</span></div><div class="d">工作流把控质量门，发布出错率与人盯成本下降。</div></div>
+  <div class="s9-rcard"><div class="n">运营自助化</div><div class="v">飞书一句话 <span class="demo">示意</span></div><div class="d">不懂后台也能用，AI 能力触达每个一线员工。</div></div>
+  <div class="s9-rcard"><div class="n">随模型免费变强</div><div class="v">0 重写 <span class="demo">示意</span></div><div class="d">模型升级，skill 编排能力自动"涨点"，无需改业务代码。</div></div>
+  <div class="s9-rcard"><div class="n">复利资产</div><div class="v">越攒越值钱 <span class="demo">示意</span></div><div class="d">插件 / 工作流是会累积的资产，不是一次性项目。</div></div>
+</div>
+<p style="font-size:11px;color:var(--muted);margin:0 2px">※ 标「示意」的为方向性区间，缺真实基线、不作绝对承诺；立项后用 P0/P1 试点数据回填。</p>
+
+<div class="s9-asset">
+  <div class="ic">🏛</div>
+  <div>
+    <div class="t">额外价值 · 组织资产沉淀，防"人走资产丢"</div>
+    <div class="d">没有平台时，能力与 skill 散落在<b>各人电脑、各人脑子里</b>——人一离职，经验与产能随之蒸发。插件 / 工作流 / skill 统一沉淀在平台上，<b>是组织的资产、不是个人的私货</b>：人员流动不影响能力存续，新人接手即用，团队产能可累积、可交接。</div>
+  </div>
+</div>
+
+<h3>二、风险与对策</h3>
+<div class="s9-risk">
+  <div class="s9-rk"><div class="r">确定性 vs 灵活</div><div class="c">担心 LLM 不可控？<b>对策：</b>骨架锁关键路径，大模型只在开放任务里发挥，敏感操作需确认。</div></div>
+  <div class="s9-rk"><div class="r">数据安全</div><div class="c">企业数据敏感。<b>对策：</b>权限 + 审计 + 可私有化部署，能力调用全程留痕。</div></div>
+  <div class="s9-rk"><div class="r">IM 平台限制</div><div class="c">微信通道受限。<b>对策：</b>主推飞书 / 企业微信官方 API，个人微信不承诺。</div></div>
+  <div class="s9-rk"><div class="r">模型成本</div><div class="c">大模型调用费。<b>对策：</b>分级用模型——便宜模型做格式 / 校验，贵模型只做编排判断。</div></div>
+</div>
+
+<h3>三、需要拍板的决策点</h3>
+<div class="s9-decide">
+  <h4>请管理层就以下两点给方向</h4>
+  <div class="s9-q">
+    <div class="q">① 是否立项？以什么档位启动？</div>
+    <div class="rec"><span class="tag">建议</span>先启动 P0 + P1（插件标准化 + 工作流增强）——近期可落地、ROI 明确、风险低。</div>
+  </div>
+  <div class="s9-q">
+    <div class="q">② 资源投入档位？</div>
+    <div class="rec"><span class="tag">建议</span>以现有平台团队为主 + 1–2 AI 同学，先小投入跑通 P0/P1，用数据决定是否加码 P2/P3。</div>
+  </div>
+</div>
+
+<div class="s9-close">
+  <b>一句话结论：</b>不是从零造一个新系统，而是把已验证的平台<b>生态化</b>——用低风险的 P0/P1 起步，攒下会复利的能力资产，让公司 AI 能力随大模型一起"越用越聪明"。
+</div>
+</section>
+
+</body>
+</html>
