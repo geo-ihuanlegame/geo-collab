@@ -539,24 +539,44 @@ def test_run_publish_headless_displayless_and_no_display(monkeypatch, tmp_path):
     pw_cm = types.SimpleNamespace(start=lambda: pw)
 
     monkeypatch.setattr(publish_runner, "get_data_dir", lambda: tmp_path)
-    monkeypatch.setattr(publish_runner, "account_key_from_state_path", lambda sp: ("testplat", "k1"))
+    monkeypatch.setattr(
+        publish_runner, "account_key_from_state_path", lambda sp: ("testplat", "k1")
+    )
     monkeypatch.setattr(publish_runner, "_build_payload", lambda *a, **k: stub_payload)
-    monkeypatch.setattr(publish_runner, "profile_key_from_state_path", lambda sp: "browser_states/testplat/k1")
-    monkeypatch.setattr(publish_runner, "profile_dir_from_state_path", lambda sp: tmp_path / "profile")
+    monkeypatch.setattr(
+        publish_runner, "profile_key_from_state_path", lambda sp: "browser_states/testplat/k1"
+    )
+    monkeypatch.setattr(
+        publish_runner, "profile_dir_from_state_path", lambda sp: tmp_path / "profile"
+    )
     monkeypatch.setattr(publish_runner, "get_or_create_account_session", fake_get_or_create)
     monkeypatch.setattr(publish_runner, "stop_remote_browser_session", lambda sid: None)
     monkeypatch.setattr(publish_runner, "clear_profile_locks", lambda d: None)
     monkeypatch.setattr(publish_runner, "sync_playwright", lambda: pw_cm)
-    monkeypatch.setattr(publish_runner, "launch_options", lambda channel, executable_path, **kwargs: {})
+    monkeypatch.setattr(
+        publish_runner, "launch_options", lambda channel, executable_path, **kwargs: {}
+    )
     monkeypatch.setattr(publish_runner, "attach_browser_handles", lambda *a, **k: None)
 
     class _Driver:
-        code = "testplat"; name = "x"; home_url = "h"; publish_url = "p"
+        code = "testplat"
+        name = "x"
+        home_url = "h"
+        publish_url = "p"
 
         def detect_logged_in(self, *, url, title, body):
             return True
 
-        def publish(self, *, page, context, payload, stop_before_publish, commit_guard=None, retry_policy=None):
+        def publish(
+            self,
+            *,
+            page,
+            context,
+            payload,
+            stop_before_publish,
+            commit_guard=None,
+            retry_policy=None,
+        ):
             return PublishResult(url="u", title=payload.title, message="ok")
 
     monkeypatch.setattr(publish_runner, "resolve_driver", lambda pc: _Driver())
@@ -592,28 +612,53 @@ def test_run_publish_headless_user_input_does_not_keep_session(monkeypatch, tmp_
     pw_cm = types.SimpleNamespace(start=lambda: pw)
 
     monkeypatch.setattr(publish_runner, "get_data_dir", lambda: tmp_path)
-    monkeypatch.setattr(publish_runner, "account_key_from_state_path", lambda sp: ("testplat", "k1"))
+    monkeypatch.setattr(
+        publish_runner, "account_key_from_state_path", lambda sp: ("testplat", "k1")
+    )
     monkeypatch.setattr(publish_runner, "_build_payload", lambda *a, **k: stub_payload)
-    monkeypatch.setattr(publish_runner, "profile_key_from_state_path", lambda sp: "browser_states/testplat/k1")
-    monkeypatch.setattr(publish_runner, "profile_dir_from_state_path", lambda sp: tmp_path / "profile")
-    monkeypatch.setattr(publish_runner, "get_or_create_account_session",
-                        lambda platform_code, account_key, profile_key=None, *, with_display=True: stub_session)
+    monkeypatch.setattr(
+        publish_runner, "profile_key_from_state_path", lambda sp: "browser_states/testplat/k1"
+    )
+    monkeypatch.setattr(
+        publish_runner, "profile_dir_from_state_path", lambda sp: tmp_path / "profile"
+    )
+    monkeypatch.setattr(
+        publish_runner,
+        "get_or_create_account_session",
+        lambda platform_code, account_key, profile_key=None, *, with_display=True: stub_session,
+    )
     monkeypatch.setattr(publish_runner, "clear_profile_locks", lambda d: None)
     monkeypatch.setattr(publish_runner, "sync_playwright", lambda: pw_cm)
-    monkeypatch.setattr(publish_runner, "launch_options", lambda channel, executable_path, **kwargs: {})
+    monkeypatch.setattr(
+        publish_runner, "launch_options", lambda channel, executable_path, **kwargs: {}
+    )
     monkeypatch.setattr(publish_runner, "attach_browser_handles", lambda *a, **k: None)
 
     kept, stopped = [], []
     monkeypatch.setattr(publish_runner, "keep_session_alive", lambda sid: kept.append(sid))
-    monkeypatch.setattr(publish_runner, "stop_remote_browser_session", lambda sid: stopped.append(sid))
+    monkeypatch.setattr(
+        publish_runner, "stop_remote_browser_session", lambda sid: stopped.append(sid)
+    )
 
     class _Driver:
-        code = "testplat"; name = "x"; home_url = "h"; publish_url = "p"
+        code = "testplat"
+        name = "x"
+        home_url = "h"
+        publish_url = "p"
 
         def detect_logged_in(self, *, url, title, body):
             return True
 
-        def publish(self, *, page, context, payload, stop_before_publish, commit_guard=None, retry_policy=None):
+        def publish(
+            self,
+            *,
+            page,
+            context,
+            payload,
+            stop_before_publish,
+            commit_guard=None,
+            retry_policy=None,
+        ):
             raise ToutiaoUserInputRequired("needs login")
 
     monkeypatch.setattr(publish_runner, "resolve_driver", lambda pc: _Driver())

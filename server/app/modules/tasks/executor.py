@@ -835,7 +835,9 @@ def _finish_record_future(db: Session, task: PublishTask, record_id: int, future
                     _expire_account_for_record(db, record_id)
                 _stop_record_session(record_id)
                 _logger.info(
-                    "Record %d failed (headless, login state invalid; type=%s)", record_id, error_type
+                    "Record %d failed (headless, login state invalid; type=%s)",
+                    record_id,
+                    error_type,
                 )
             else:
                 type_label = {

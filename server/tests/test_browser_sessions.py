@@ -72,8 +72,6 @@ def test_remote_browser_session_starts_processes_and_cleans_up(monkeypatch, tmp_
 
 def test_start_remote_browser_session_displayless_skips_processes(monkeypatch, tmp_path: Path):
     """with_display=False：不起任何子进程，会话无 display/novnc，但可注册与停止。"""
-    import types
-
     monkeypatch.setenv("GEO_DATA_DIR", str(tmp_path))
     get_settings.cache_clear()
 
