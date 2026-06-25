@@ -40,8 +40,10 @@ description: Use when spawned as a writer subagent by /goal, or when manually
 
 - 风格：轻松实用，避免「开篇一段宏大引入」，直接进主题
 - 偏好题材：游戏推荐 / 攻略 / 玩法解析 / 国风游戏综述
-- 配图主推栏目：`main_category_id = <REPLACE_ME>`  # ← 安装时查 GEO 后台
-  「图库管理」→ 主推栏目「餐厅养成记」的 id；写死在这里
+- 配图主推栏目：`main_category_id = <REPLACE_ME>`  # ← 安装时填，**不知道 id 就
+  对 Claude 说「帮我查下主推栏目，我用<矩阵名>」**，它会调 list_stock_categories
+  MCP 工具列候选并用 Edit 工具帮你写到这里。也可以去 GEO 后台「图库管理」→
+  主推栏目手抄 id
 - 配图风格：默认 `aggressive_images=True`（积极配图，每个明确出现的游戏都插）
 - 封面：默认 `set_cover=True`（从主推栏目随机取一张做封面，已有封面则跳过）
 - 陪衬：默认 `include_companion=True`（AI 同时从所有陪衬栏目选）

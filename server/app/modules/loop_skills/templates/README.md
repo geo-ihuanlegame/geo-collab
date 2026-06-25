@@ -30,9 +30,14 @@
    - 详细参考 docs/mcp-setup-notes.md
 3. 重启 Claude Code
 4. 在 Claude Code 里输入 /mcp，确认 geo server 显示 "connected"
-5. 打开本机 .claude/skills/geo-article-writer/SKILL.md，找到「矩阵特例」段
-   `main_category_id = <REPLACE_ME>` 行；去 GEO 后台「图库管理」→ 主推栏目
-   里找你矩阵对应栏目（比如餐厅养成记），把 id 填进去（数字）。
+5. 让 Claude 帮你填 main_category_id：
+   在 Claude Code 主对话里直接说：
+     "帮我查下主推栏目，我用的是<你的矩阵名>"
+   Claude 会调 list_stock_categories MCP 工具列出候选（含 id / 名称 / 图数），
+   你选一个 id 告诉它，Claude 会用 Edit 工具帮你写到本机
+   .claude/skills/geo-article-writer/SKILL.md 的「矩阵特例」段。
+
+   也可以走老路：自己去 GEO 后台「图库管理」→ 主推栏目查 id，手动 vim 改文件。
 6. 在 Claude Code 里输入：
    /goal 帮我今天产出 5 篇关于国风游戏的文章
 
