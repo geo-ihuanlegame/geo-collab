@@ -24,9 +24,11 @@ class _ToolCall:
 
 
 class _Msg:
-    def __init__(self, content=None, tool_calls=None):
+    def __init__(self, content=None, tool_calls=None, reasoning_content=None, annotations=None):
         self.content = content
         self.tool_calls = tool_calls
+        self.reasoning_content = reasoning_content
+        self.annotations = annotations
 
 
 class _Resp:
@@ -52,6 +54,8 @@ def test_provider_detection():
     assert _provider_of("openai/gpt-4o") == "openai"
     assert _provider_of("gpt-4o") == "openai"
     assert _provider_of("gemini/gemini-2.0") == "gemini"
+    assert _provider_of("doubao-pro-32k") == "doubao"
+    assert _provider_of("volcengine/doubao-seed-1-6") == "doubao"
     assert _provider_of("deepseek/deepseek-v4-flash") == "other"
 
 
@@ -103,6 +107,162 @@ def test_web_search_native_for_anthropic_openai():
             logger=LOG,
         )
         assert fake.calls[0]["web_search_options"] == {}
+
+
+def _result_line(caplog):
+    """取「[生文能力·结果]」那条结果日志的文本（无则 None）。"""
+    for r in caplog.records:
+        if "[生文能力·结果]" in r.getMessage():
+            return r.getMessage()
+    return None
+
+
+def test_deep_thinking_used_logged_when_response_has_reasoning(caplog):
+    """深度思考开启且模型真返回思考内容 → 结果行标「深度思考=已使用」。"""
+
+    def fake(**kwargs):
+        return _Resp(_Msg(content="ok", reasoning_content="先想了想这个问题……"))
+
+    with caplog.at_level(logging.INFO):
+        completion_with_capabilities(
+            completion=fake,
+            base_kwargs={"model": "deepseek/deepseek-reasoner", "messages": []},
+            model="deepseek/deepseek-reasoner",
+            web_search=False,
+            deep_thinking=True,
+            logger=logging.getLogger("test.dt"),
+        )
+    line = _result_line(caplog)
+    assert line is not None and "深度思考=已使用" in line
+
+
+def test_deep_thinking_not_used_logged_when_no_reasoning(caplog):
+    """深度思考开启但模型不返回思考内容 → 结果行标「深度思考=未使用」。"""
+    fake = _capture()
+    with caplog.at_level(logging.INFO):
+        completion_with_capabilities(
+            completion=fake,
+            base_kwargs={"model": "deepseek/deepseek-v4-flash", "messages": []},
+            model="deepseek/deepseek-v4-flash",
+            web_search=False,
+            deep_thinking=True,
+            logger=logging.getLogger("test.dt"),
+        )
+    line = _result_line(caplog)
+    assert line is not None and "深度思考=未使用" in line
+
+
+def test_capability_result_marks_not_requested_when_disabled(caplog):
+    """两个能力都不影响：未开启的能力在结果行标「未请求」，不会误报已/未使用。"""
+    fake = _capture()
+    with caplog.at_level(logging.INFO):
+        completion_with_capabilities(
+            completion=fake,
+            base_kwargs={"model": "deepseek/deepseek-v4-flash", "messages": []},
+            model="deepseek/deepseek-v4-flash",
+            web_search=False,
+            deep_thinking=False,
+            logger=logging.getLogger("test.dt"),
+        )
+    # 两者全关 → 直接原样调用，不产生能力结果行
+    assert _result_line(caplog) is None
+
+
+def test_doubao_result_logs_web_search_not_used(caplog):
+    """豆包：联网开启但 litellm 不支持 → 结果行明确标「联网搜索=未使用（…无原生联网支持）」。"""
+    fake = _capture()
+    with caplog.at_level(logging.INFO):
+        completion_with_capabilities(
+            completion=fake,
+            base_kwargs={"model": "doubao-pro-32k", "messages": []},
+            model="doubao-pro-32k",
+            web_search=True,
+            deep_thinking=True,
+            logger=logging.getLogger("test.dt"),
+        )
+    line = _result_line(caplog)
+    assert line is not None
+    assert "联网搜索=未使用" in line
+    assert "深度思考=" in line  # 深度思考的使用与否也一并标注
+
+
+def test_native_web_search_used_when_response_has_citations(caplog):
+    """原生联网且响应带 url_citation 注解 → 结果行标「联网搜索=已使用」。"""
+
+    def fake(**kwargs):
+        return _Resp(
+            _Msg(
+                content="ok",
+                annotations=[{"type": "url_citation", "url_citation": {"url": "https://x"}}],
+            )
+        )
+
+    with caplog.at_level(logging.INFO):
+        completion_with_capabilities(
+            completion=fake,
+            base_kwargs={"model": "openai/gpt-4o", "messages": []},
+            model="openai/gpt-4o",
+            web_search=True,
+            deep_thinking=False,
+            logger=logging.getLogger("test.dt"),
+        )
+    line = _result_line(caplog)
+    assert line is not None and "联网搜索=已使用" in line
+
+
+def test_anthropic_relay_skips_native_web_search():
+    """方案2：Anthropic 经中转网关（api_base 非官方）时主动跳过服务端联网，
+    不再发一次注定被 web_search_20250305 name 校验拒绝的请求。深度思考仍生效。"""
+    fake = _capture()
+    completion_with_capabilities(
+        completion=fake,
+        base_kwargs={
+            "model": "anthropic/claude-opus-4-8",
+            "messages": [],
+            "api_base": "https://relay.example.com/v1",
+        },
+        model="anthropic/claude-opus-4-8",
+        web_search=True,
+        deep_thinking=True,
+        logger=LOG,
+    )
+    assert len(fake.calls) == 1  # 直接走基线，无「先失败再重试」的第二次调用
+    kw = fake.calls[0]
+    assert "web_search_options" not in kw  # 联网被跳过
+    assert kw["reasoning_effort"] == "high"  # 深度思考仍生效
+    assert kw["drop_params"] is True
+
+
+def test_anthropic_official_still_tries_native_web_search():
+    """官方直连（未配 api_base）不算中转，仍按原逻辑尝试服务端联网。"""
+    fake = _capture()
+    completion_with_capabilities(
+        completion=fake,
+        base_kwargs={"model": "anthropic/claude-opus-4-8", "messages": []},
+        model="anthropic/claude-opus-4-8",
+        web_search=True,
+        deep_thinking=False,
+        logger=LOG,
+    )
+    assert fake.calls[0]["web_search_options"] == {}
+
+
+def test_doubao_web_search_silently_ignored():
+    """决策：豆包 litellm 不支持 web_search_options，联网暂静默忽略（不传 web_search_options、不报错），
+    但 provider 已被识别为 doubao（深度思考/日志标注用）。等联网内容插件 schema 确认后再实现。"""
+    fake = _capture()
+    completion_with_capabilities(
+        completion=fake,
+        base_kwargs={"model": "doubao-pro-32k", "messages": []},
+        model="doubao-pro-32k",
+        web_search=True,
+        deep_thinking=False,
+        logger=LOG,
+    )
+    kw = fake.calls[0]
+    assert "web_search_options" not in kw
+    assert "tools" not in kw
+    assert kw["drop_params"] is True
 
 
 def test_web_search_noop_for_unsupported_provider():
