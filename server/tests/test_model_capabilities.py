@@ -168,8 +168,8 @@ def test_capability_result_marks_not_requested_when_disabled(caplog):
     assert _result_line(caplog) is None
 
 
-def test_doubao_result_logs_web_search_not_used(caplog):
-    """豆包：联网开启但 litellm 不支持 → 结果行明确标「联网搜索=未使用（…无原生联网支持）」。"""
+def test_doubao_result_logs_web_search_enabled(caplog):
+    """豆包：联网开启走原生 web_search_options → 结果行标「联网搜索=已启用（web_search_options）…」。"""
     fake = _capture()
     with caplog.at_level(logging.INFO):
         completion_with_capabilities(
@@ -182,7 +182,8 @@ def test_doubao_result_logs_web_search_not_used(caplog):
         )
     line = _result_line(caplog)
     assert line is not None
-    assert "联网搜索=未使用" in line
+    assert "联网搜索=已启用" in line
+    assert "web_search_options" in line  # 走原生联网选项
     assert "深度思考=" in line  # 深度思考的使用与否也一并标注
 
 
@@ -247,9 +248,9 @@ def test_anthropic_official_still_tries_native_web_search():
     assert fake.calls[0]["web_search_options"] == {}
 
 
-def test_doubao_web_search_silently_ignored():
-    """决策：豆包 litellm 不支持 web_search_options，联网暂静默忽略（不传 web_search_options、不报错），
-    但 provider 已被识别为 doubao（深度思考/日志标注用）。等联网内容插件 schema 确认后再实现。"""
+def test_doubao_web_search_uses_native_options():
+    """豆包联网：走原生 web_search_options（与 anthropic/openai/gemini/xai 同路径，
+    litellm volcengine 翻译成豆包联网工具）。provider 识别为 doubao（深度思考/日志标注用）。"""
     fake = _capture()
     completion_with_capabilities(
         completion=fake,
@@ -260,8 +261,8 @@ def test_doubao_web_search_silently_ignored():
         logger=LOG,
     )
     kw = fake.calls[0]
-    assert "web_search_options" not in kw
-    assert "tools" not in kw
+    assert kw["web_search_options"] == {}  # 豆包走原生联网选项
+    assert "tools" not in kw  # 非 moonshot，不走 $web_search 工具循环
     assert kw["drop_params"] is True
 
 

@@ -5,10 +5,8 @@
 - 深度思考(deep_thinking)：统一传 litellm `reasoning_effort`。配 `drop_params=True`，不支持推理的
   模型会被静默丢弃该参数。Anthropic 扩展思考要求 temperature≠0，故 thinking 时去掉 temperature=0。
 - 联网搜索(web_search)：各家原生，按 provider 分叉
-    · Anthropic / OpenAI / Gemini / xAI → `web_search_options={}`（litellm 统一翻译成各家联网工具）
+    · Anthropic / OpenAI / Gemini / xAI / 豆包 → `web_search_options={}`（litellm 统一翻译成各家联网工具）
     · Moonshot / Kimi → `$web_search` builtin 工具 + 工具调用循环（litellm 的 web_search_options 覆盖不到）
-    · 豆包 / Doubao → litellm volcengine 不支持 web_search_options（其联网是 tools/联网内容插件，
-      schema 待确认），暂按「其它」静默忽略，仅识别 provider 让深度思考与日志标注正确
     · 其它 provider → 不动，靠 `drop_params=True` 静默忽略
 
 provider 判定只看 model 串前缀/关键字；新增模型族在 `_provider_of` 补一行即可。
@@ -34,7 +32,7 @@ def _provider_of(model: str) -> str:
     if m.startswith("moonshot/") or "kimi" in m:
         return "moonshot"
     if m.startswith(("volcengine/", "doubao/")) or "doubao" in m:
-        return "doubao"  # litellm 不支持其 web_search_options，联网暂静默忽略；识别仅为深度思考/日志标注
+        return "doubao"  # 走原生 web_search_options（litellm volcengine 翻译成豆包联网工具）
     if m.startswith("anthropic/") or "claude" in m:
         return "anthropic"
     if m.startswith("openai/") or m.startswith("gpt-") or m.startswith(("o1", "o3", "o4")):
