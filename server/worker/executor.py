@@ -309,10 +309,10 @@ def main() -> None:
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT, _handle_signal)
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
+    # 统一日志配置（级别 / 格式 / 运行上下文 / stdout+滚动文件），与 web 进程一致
+    from server.app.core.logging import configure_logging
+
+    configure_logging()
 
     db = SessionLocal()
     try:

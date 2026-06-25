@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     app_name: str = "Geo Collab"
     app_version: str = "0.1.0"
     data_dir: Path | None = None
+    # 日志（详见 core/logging.py）：级别 + 是否落滚动文件到 GEO_DATA_DIR/logs/app.log。
+    log_level: str = "INFO"  # GEO_LOG_LEVEL：DEBUG/INFO/WARNING/ERROR
+    log_to_file: bool = True  # GEO_LOG_TO_FILE：关掉则只打 stdout
+    log_file_backup_days: int = 14  # GEO_LOG_FILE_BACKUP_DAYS：按天滚动保留份数
     database_url: str | None = None
     # 独立数据库凭据（当 database_url 未设时自动拼接 MySQL 连接 URL，密码无需手动做 URL 编码）
     db_host: str | None = None
