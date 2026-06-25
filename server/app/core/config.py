@@ -74,6 +74,10 @@ class Settings(BaseSettings):
     login_max_concurrent_browsers: int = 8  # GEO_LOGIN_MAX_CONCURRENT_BROWSERS
     publish_browser_channel: str = "chromium"
     publish_browser_executable_path: str | None = None
+    # 发布路径 Chromium 是否 headless（GEO_PUBLISH_BROWSER_HEADLESS）。默认 True=headless（发布路径
+    # 不起 VNC 链，大幅降低单次发布内存/CPU）；设 false 回退 headed+VNC+实时接管（noVNC 人工干预
+    # 场景）。仅作用于发布；**登录路径恒为 headed**（人工扫码必须可见）。
+    publish_browser_headless: bool = True  # GEO_PUBLISH_BROWSER_HEADLESS
     publish_xvfb_path: str = "Xvfb"
     publish_x11vnc_path: str = "x11vnc"
     publish_websockify_path: str = "websockify"

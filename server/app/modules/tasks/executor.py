@@ -821,21 +821,40 @@ def _finish_record_future(db: Session, task: PublishTask, record_id: int, future
                 db, task.id, record_id, exc.screenshot, task.user_id
             )
             error_type = getattr(exc, "error_type", "login_required")
-            type_label = {
-                "login_required": "需要登录",
-                "captcha_required": "需要验证码",
-                "qr_scan_required": "需要扫码",
-            }.get(error_type, "需要人工操作")
-            _mark_record_waiting_user_input(
-                db,
-                task.id,
-                record_id,
-                f"[{type_label}] {exc}\n{traceback.format_exc()}",
-                screenshot_asset_id=screenshot_asset_id,
-            )
-            if exc.session_id:
-                associate_record_with_session(record_id, exc.session_id)
-            _logger.info("Record %d waiting user input (type=%s)", record_id, error_type)
+            if get_settings().publish_browser_headless:
+                # headless 无实时接管：标失败 + 置账号失效 + 不暂停任务(执行循环继续其余记录)。
+                _mark_record_failed(
+                    db,
+                    task.id,
+                    record_id,
+                    f"[账号登录态失效，请重新登录账号后重试] {exc}\n{traceback.format_exc()}",
+                    screenshot_asset_id=screenshot_asset_id,
+                    failure_kind="login_required",
+                )
+                if error_type == "login_required":
+                    _expire_account_for_record(db, record_id)
+                _stop_record_session(record_id)
+                _logger.info(
+                    "Record %d failed (headless, login state invalid; type=%s)",
+                    record_id,
+                    error_type,
+                )
+            else:
+                type_label = {
+                    "login_required": "需要登录",
+                    "captcha_required": "需要验证码",
+                    "qr_scan_required": "需要扫码",
+                }.get(error_type, "需要人工操作")
+                _mark_record_waiting_user_input(
+                    db,
+                    task.id,
+                    record_id,
+                    f"[{type_label}] {exc}\n{traceback.format_exc()}",
+                    screenshot_asset_id=screenshot_asset_id,
+                )
+                if exc.session_id:
+                    associate_record_with_session(record_id, exc.session_id)
+                _logger.info("Record %d waiting user input (type=%s)", record_id, error_type)
         except Exception as _inner:
             _logger.error(
                 "Record %d: error handling UserInputRequired: %s", record_id, _inner, exc_info=True
@@ -1071,6 +1090,20 @@ def _mark_record_waiting_user_input(
         add_log(db, task_id, record_id, "warn", message, screenshot_asset_id=screenshot_asset_id)
 
 
+def _expire_account_for_record(db: Session, record_id: int) -> None:
+    """headless 发布撞登录失效:把该记录对应账号置 expired。
+
+    触发账号列表标红待重登录,且该账号其余 pending 记录在 _validate_record_inputs 处
+    (status != "valid")快速失败,天然实现"一个账号失效、其余账号照常发"。
+    """
+    account_id = db.execute(
+        select(PublishRecord.account_id).where(PublishRecord.id == record_id)
+    ).scalar_one_or_none()
+    if account_id is None:
+        return
+    db.execute(sa_update(Account).where(Account.id == account_id).values(status="expired"))
+
+
 def _store_failure_screenshot(
     db: Session,
     task_id: int,
@@ -1169,6 +1202,7 @@ def build_publish_runner_for_record(record: PublishRecord):
     settings = get_settings()
     channel = settings.publish_browser_channel
     executable_path = settings.publish_browser_executable_path
+    headless = settings.publish_browser_headless
     _record_id = record.id
 
     def _runner(article, account, *, stop_before_publish=False):
@@ -1178,6 +1212,7 @@ def build_publish_runner_for_record(record: PublishRecord):
             account=account,
             channel=channel,
             executable_path=executable_path,
+            headless=headless,
             stop_before_publish=stop_before_publish,
             commit_guard=commit_guard,
             retry_policy=retry_policy,

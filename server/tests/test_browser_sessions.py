@@ -68,3 +68,53 @@ def test_remote_browser_session_starts_processes_and_cleans_up(monkeypatch, tmp_
     finally:
         browser_sessions._stop_idle_cleanup()
         get_settings.cache_clear()
+
+
+def test_start_remote_browser_session_displayless_skips_processes(monkeypatch, tmp_path: Path):
+    """with_display=False：不起任何子进程，会话无 display/novnc，但可注册与停止。"""
+    monkeypatch.setenv("GEO_DATA_DIR", str(tmp_path))
+    get_settings.cache_clear()
+
+    def _boom_popen(*_a, **_k):
+        raise AssertionError("Popen must not be called for a displayless session")
+
+    monkeypatch.setattr(browser_session.subprocess, "Popen", _boom_popen)
+    monkeypatch.setattr(browser_session, "_write_session_to_db", lambda *a, **k: None)
+    monkeypatch.setattr(browser_session, "_delete_session_from_db", lambda *a, **k: None)
+    monkeypatch.setattr(browser_session, "_start_idle_cleanup", lambda: None)
+    browser_session._reset_globals()
+    try:
+        session = browser_session.start_remote_browser_session(
+            "acct1", platform_code="toutiao", with_display=False
+        )
+        assert session.processes == []
+        assert session.display == ""
+        assert session.novnc_url == ""
+        assert session.id in {s.id for s in browser_session.active_remote_browser_sessions()}
+
+        browser_session.stop_remote_browser_session(session.id)
+        assert browser_session.active_remote_browser_sessions() == []
+    finally:
+        browser_session._reset_globals()
+        get_settings.cache_clear()
+
+
+def test_get_or_create_account_session_passes_with_display(monkeypatch):
+    """get_or_create_account_session 把 with_display 透传给 start_remote_browser_session。"""
+    import types
+
+    captured = {}
+
+    def fake_start(account_key, platform_code="", profile_key=None, *, with_display=True):
+        captured["with_display"] = with_display
+        session = types.SimpleNamespace(id="s1", browser_context=None)
+        browser_session._active_sessions["s1"] = session
+        return session
+
+    monkeypatch.setattr(browser_session, "start_remote_browser_session", fake_start)
+    browser_session._reset_globals()
+    try:
+        browser_session.get_or_create_account_session("toutiao", "k1", with_display=False)
+        assert captured["with_display"] is False
+    finally:
+        browser_session._reset_globals()

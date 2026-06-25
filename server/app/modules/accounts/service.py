@@ -127,9 +127,16 @@ def get_or_create_platform(db: Session, code: str, name: str, base_url: str | No
     return platform
 
 
-def launch_options(channel: str, executable_path: str | None) -> dict[str, Any]:
+def launch_options(
+    channel: str, executable_path: str | None, *, headless: bool = False
+) -> dict[str, Any]:
+    """构建 Playwright launch_persistent_context 选项。
+
+    headless 仅由发布路径显式传入（GEO_PUBLISH_BROWSER_HEADLESS）；登录路径不传、恒为
+    headed——人工扫码 / 登录必须在 noVNC 里看得见实时画面。
+    """
     options: dict[str, Any] = {
-        "headless": False,
+        "headless": headless,
         "viewport": {"width": 1440, "height": 900},
         "args": ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
     }
