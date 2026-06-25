@@ -54,7 +54,7 @@ def _apply_deep_thinking(kwargs: dict[str, Any], model: str) -> None:
 
 
 def _supports_native_web_search_options(provider: str) -> bool:
-    return provider in ("anthropic", "openai", "gemini", "xai")
+    return provider in ("anthropic", "openai", "gemini", "xai","doubao")
 
 
 def _api_base_of(base_kwargs: dict[str, Any]) -> str | None:
