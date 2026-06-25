@@ -269,3 +269,46 @@ async def install_loop_skills() -> dict[str, Any]:
     if isinstance(inner, dict) and "ok" in inner and "data" in inner:
         return inner  # 后端已经返了 {ok, data, error}
     return raw
+
+
+@mcp.tool()
+async def ai_illustrate_article(
+    article_id: int,
+    main_category_id: int,
+    include_companion: bool = True,
+    aggressive_images: bool = True,
+    set_cover: bool = True,
+) -> dict[str, Any]:
+    """AI-driven illustration + auto cover for one article (Web UI parity).
+
+    Uses GEO's run_ai_format under the hood — the AI model picks which images
+    to insert and where, based on article content. Draws images from
+    main_category_id + (optionally) all companion categories. Auto-sets cover
+    from main_category_id if article has no cover.
+
+    Args:
+        article_id: Target article (must exist).
+        main_category_id: Stock image library category id ("主推栏目"). The matrix
+            section in your writer SKILL.md tells you which id to use.
+        include_companion: If True, also draws from all companion categories.
+            Default True matches Web UI default.
+        aggressive_images: If True, "积极" style (more images, less spacing).
+            Default True matches Web UI default.
+        set_cover: If True, also picks a random image from main_category_id
+            as the article cover (only if cover not already set).
+
+    Returns:
+        {"ok": True, "data": {
+            "images_inserted": int,
+            "cover_status": str,        # "set" | "skipped_existing" | "no_image" | "error" | "skipped"
+            "cover_error": str | None,
+            "format_error": str | None,
+        }, "error": None}
+    """
+    body: dict[str, Any] = {
+        "main_category_id": main_category_id,
+        "include_companion": include_companion,
+        "aggressive_images": aggressive_images,
+        "set_cover": set_cover,
+    }
+    return await _apost(f"/api/articles/{article_id}/ai-illustrate", json=body)

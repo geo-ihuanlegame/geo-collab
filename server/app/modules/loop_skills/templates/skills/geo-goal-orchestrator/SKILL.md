@@ -44,7 +44,7 @@ while True:
         since_hours=24,
         model_label=target.model_label,
     ).data
-    echo(f"[netto] today approved by goal-verifier: {netto.count}/{target.N}")
+    echo(f"[净产出] 今日通过 goal 评审的文章数: {netto.count}/{target.N}")
 
     if netto.count >= target.N:
         notify_feishu("生文 Loop 完成", f"净产出 {netto.count}/{target.N}, 共耗时 {minutes}m", "done")
@@ -86,13 +86,13 @@ No other text.""",
     )
     parsed = parse_last_json_line(writer_result.stdout)
     if "error" in parsed:
-        echo(f"[round {attempts}/{3*target.N}] writer 失败: {parsed.error}")
+        echo(f"[第 {attempts}/{3*target.N} 轮] 改写失败: {parsed.error}")
         if is_mcp_error(parsed.error):
             consecutive_mcp_fail += 1
         continue
     consecutive_mcp_fail = 0
     article_id = parsed["article_id"]
-    echo(f"[round {attempts}/{3*target.N}] writer 交稿 article_id={article_id}, verifier …")
+    echo(f"[第 {attempts}/{3*target.N} 轮] 改写完成 article_id={article_id}, 评审中 …")
 
     # === Verifier subagent（fresh context, Haiku）===
     verifier_result = Agent(
@@ -109,21 +109,21 @@ No other text.""",
     )
     parsed_v = parse_last_json_line(verifier_result.stdout)
     if "error" in parsed_v:
-        echo(f"[round {attempts}/{3*target.N}] verifier 失败, article {article_id} 留 pending 由人审")
+        echo(f"[第 {attempts}/{3*target.N} 轮] 评审失败, article {article_id} 留 pending 由人审")
         continue
-    echo(f"[round {attempts}/{3*target.N}] verifier decision={parsed_v.decision} score={parsed_v.score_total}")
+    echo(f"[第 {attempts}/{3*target.N} 轮] 评审 决策={parsed_v.decision} 总分={parsed_v.score_total}")
     # 不管 decision 是什么循环都继续——netto 查询会反映真实通过数
 ```
 
 # 进度日志（必须 echo 这些短行）
 
 ```
-[orchestrator] sanity ✓ pool=<name> N=<N> matrix=<code|default>
-[round k/3N] qid=<id> → writer …
-[round k/3N] writer 交稿 article_id=<id>, verifier …
-[round k/3N] verifier decision=<d> score=<total>
-[netto] today approved by goal-verifier: <count>/<N>
-[done|abort] 净产出 <count>/<N>, 共耗时 <m>m, 原因=<...>
+[快检] pool=<name> N=<N> matrix=<code|默认> 通过
+[第 k/3N 轮] 选题 qid=<id> → 改写中 …
+[第 k/3N 轮] 改写完成 article_id=<id>, 评审中 …
+[第 k/3N 轮] 评审 决策=<d> 总分=<total>
+[净产出] 今日通过 goal 评审的文章数: <count>/<N>
+[完成|中止] 净产出 <count>/<N>, 共耗时 <m>m, 原因=<...>
 ```
 
 # Helper 定义（消除歧义）

@@ -18,7 +18,9 @@ description: Use when spawned as a writer subagent by /goal, or when manually
 2. get template — `list_prompt_templates(scope="generation")` 找到 tpl_id 的 content
 3. 写 markdown body（约束见下）
 4. `save_article(question_item_id, prompt_template_id, title, markdown_content, model_label)`
-5. `illustrate_article(article_id)` — best-effort，失败吞掉
+5. `ai_illustrate_article(article_id, main_category_id=<从矩阵特例段拿>)` —
+   AI 智能配图 + 自动封面，**返回值检查 `format_error` / `cover_error` 字段**；
+   有错就在最后 JSON 里加 `illustration_warnings` 透传给 orchestrator，不抛错
 6. 返回 `{"article_id": int, "title": str}` 作为**最后一条消息**，**只输出 JSON 一行**
 
 # title vs markdown_content 约束（重要）
@@ -38,7 +40,15 @@ description: Use when spawned as a writer subagent by /goal, or when manually
 
 - 风格：轻松实用，避免「开篇一段宏大引入」，直接进主题
 - 偏好题材：游戏推荐 / 攻略 / 玩法解析 / 国风游戏综述
-- 配图类别：温馨治愈、国风山水（具体 stock_category_id 让 `illustrate_article` 自动按文章 tag 选；不要写死 category_ids）
+- 配图主推栏目：`main_category_id = <REPLACE_ME>`  # ← 安装时查 GEO 后台
+  「图库管理」→ 主推栏目「餐厅养成记」的 id；写死在这里
+- 配图风格：默认 `aggressive_images=True`（积极配图，每个明确出现的游戏都插）
+- 封面：默认 `set_cover=True`（从主推栏目随机取一张做封面，已有封面则跳过）
+- 陪衬：默认 `include_companion=True`（AI 同时从所有陪衬栏目选）
+
+> 调用约定：
+> `ai_illustrate_article(article_id=<>, main_category_id=<上面那个值>)`
+> 其余 3 个布尔参数走默认即可。
 
 ## 加新矩阵的方法（给团队同事）
 
