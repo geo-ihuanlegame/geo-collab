@@ -131,11 +131,32 @@ def test_text_escaped():
     doc = _doc(_p(_text('a<b>&"c')))
     html = tiptap_to_wechat_html(doc)
     assert "a&lt;b&gt;&amp;" in html
+    assert "&quot;" in html  # double-quote must be escaped for safe href embedding
 
 
 def test_empty_paragraph_becomes_br():
     doc = _doc(_p())
     assert tiptap_to_wechat_html(doc) == "<p><br></p>"
+
+
+def test_list_item_non_paragraph_block_child():
+    # listItem whose child is a codeBlock (not paragraph/list) — exercises _list_html else-branch
+    doc = _doc(
+        {
+            "type": "bulletList",
+            "content": [
+                {
+                    "type": "listItem",
+                    "content": [
+                        {"type": "codeBlock", "content": [_text("x = 1")]},
+                    ],
+                }
+            ],
+        }
+    )
+    html = tiptap_to_wechat_html(doc)
+    assert "<li>" in html
+    assert "<pre><code>x = 1</code></pre>" in html
 
 
 def test_empty_doc_returns_empty_string():
