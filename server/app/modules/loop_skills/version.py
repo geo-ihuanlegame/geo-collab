@@ -6,7 +6,7 @@ fail + 提示开发者：把新 sha 加进 KNOWN_BUNDLE_SHAS 并 bump
 LOOP_SKILL_BUNDLE_VERSION，强制「改模板必同步 bump 版本」纪律。
 """
 
-LOOP_SKILL_BUNDLE_VERSION = "2026-06-25-v2"
+LOOP_SKILL_BUNDLE_VERSION = "2026-06-25-v3"
 
 KNOWN_BUNDLE_SHAS: frozenset[str] = frozenset(
     {
@@ -14,5 +14,9 @@ KNOWN_BUNDLE_SHAS: frozenset[str] = frozenset(
         "49f824a36606c285b84c71ade5aec406ea3c545599b7a3ccf59f863b521667dd",
         # v2 (2026-06-25): writer step 5 / 矩阵特例 + orchestrator 日志中文化 + README onboarding 6 步
         "abd8416c51f0b591c85cee0c3635645a10a313a2cedbeb52b89953a2c41e7fea",
+        # v3 (2026-06-25): writer step 5 改 4 类信号检查（format_error/cover_error/
+        # warning/images_inserted=0）+ 返回格式 illustration_warnings 字段固定输出，
+        # 配合服务端 ai_format silent zero 修复（加 skip_reason → IllustrateResult.warning）
+        "c8050b24111efc69b56259194bed5d4b236b537ce7effc777a5e2786b3e44acc",
     }
 )
