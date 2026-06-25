@@ -183,16 +183,18 @@ def test_select_due_filters_and_orders(monkeypatch):
             canonical = _account(db, pid=p.id, uid=u.id, name="canon")
             _account(db, pid=p.id, uid=u.id, name="merged", merged_into=canonical.id)
             db.commit()
-            never_id, old_id = never.id, old.id
+            never_id, old_id, canon_id = never.id, old.id, canonical.id
 
         with test_app.session_factory() as db:
             due = ka.select_due_account_ids(db, window_start)
 
-        # canon 也是 valid 且未刷 → 入选；断言关键过滤 + 顺序（NULL 最前、旧在前）
-        assert never_id in due and old_id in due
-        assert due[0] == never_id  # NULL last_checked_at 最优先
-        assert due.index(old_id) < due.index([a for a in due][-1]) or True
-        assert len(due) == 3  # never, old, canon
+        # 过滤：恰好选出 never/old/canon 三个 valid 浏览器账号（排除 expired/api/deleted/merged/fresh）
+        assert set(due) == {never_id, old_id, canon_id}
+        assert len(due) == 3
+        # 顺序（ASC，NULL 最前）：last_checked_at 为 NULL 的 never、canon 排在有时间戳的 old 之前。
+        # never 与 canon 同为 NULL，相对顺序由 SQL 未定义——故不断言二者先后，只断言 NULL 组在 old 之前。
+        assert due.index(never_id) < due.index(old_id)
+        assert due.index(canon_id) < due.index(old_id)
     finally:
         test_app.cleanup()
 
@@ -375,6 +377,9 @@ def test_start_keepalive_disabled_returns_false(monkeypatch):
 
 
 def test_start_keepalive_runs_one_round_then_stops(monkeypatch):
+    # 重置模块级全局，避免前序测试遗留的线程/停止位污染本用例（start_keepalive 见活线程会静默返回 False）
+    ka._stop.clear()
+    ka._thread = None
     rounds = []
 
     class _On:
@@ -391,7 +396,15 @@ def test_start_keepalive_runs_one_round_then_stops(monkeypatch):
 
     monkeypatch.setattr(ka, "run_keepalive_once", fake_once)
 
-    assert ka.start_keepalive(lambda: None) is True
-    ka._thread.join(timeout=5)
-    assert ka._thread.is_alive() is False
+    try:
+        assert ka.start_keepalive(lambda: None) is True
+        ka._thread.join(timeout=5)
+        assert ka._thread.is_alive() is False
+        assert len(rounds) >= 1
+    finally:
+        ka.stop_keepalive()
+        if ka._thread is not None:
+            ka._thread.join(timeout=5)
+        ka._stop.clear()
+        ka._thread = None
     assert len(rounds) >= 1
