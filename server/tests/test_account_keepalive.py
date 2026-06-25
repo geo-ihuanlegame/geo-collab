@@ -347,16 +347,16 @@ def test_run_once_no_due_in_window(monkeypatch):
 def test_run_once_refreshes_oldest_and_returns_gap(monkeypatch):
     monkeypatch.setattr(ka, "get_settings", lambda: _FakeKaSettings())
     monkeypatch.setattr(ka, "select_due_account_ids", lambda db, ws: [7, 8, 9])
-    called = {}
+    calls = []
 
     def _fake_refresh(sf, aid, *, check_timeout_s):
-        called.setdefault("aid", aid)
+        calls.append(aid)
         return "refreshed_valid"
 
     monkeypatch.setattr(ka, "refresh_one_account", _fake_refresh)
     now = dt.datetime(2026, 6, 25, 1, 0, tzinfo=_TZ)
     r = ka.run_keepalive_once(lambda: _DummyDB(), now, random.Random(0))
-    assert called["aid"] == 7  # due[0]，最旧优先
+    assert calls == [7]  # 恰好刷一个，且是 due[0]（最旧优先）
     assert r["processed"] is True and r["result"] == "refreshed_valid"
     assert r["remaining_due"] == 2
     assert 30.0 <= r["next_gap_seconds"] <= 600.0
@@ -424,10 +424,12 @@ def test_worker_main_starts_and_stops_keepalive(monkeypatch):
 
         started = {}
         stopped = {}
-        monkeypatch.setattr(
-            "server.app.modules.accounts.keepalive.start_keepalive",
-            lambda sf: started.setdefault("called", True) or True,
-        )
+
+        def _fake_start(sf):
+            started["sf"] = sf
+            return True
+
+        monkeypatch.setattr("server.app.modules.accounts.keepalive.start_keepalive", _fake_start)
         monkeypatch.setattr(
             "server.app.modules.accounts.keepalive.stop_keepalive",
             lambda: stopped.setdefault("called", True),
@@ -452,7 +454,7 @@ def test_worker_main_starts_and_stops_keepalive(monkeypatch):
         finally:
             ex._shutdown = False
 
-        assert started.get("called") is True
+        assert started.get("sf") is ex.SessionLocal  # 传入的是真正的 session 工厂
         assert stopped.get("called") is True
     finally:
         test_app.cleanup()
