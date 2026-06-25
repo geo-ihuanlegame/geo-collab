@@ -46,6 +46,9 @@ class IllustrateOptions:
     set_cover: bool = True
 
 
+_ILLUSTRATION_SKIP_PREFIX = "[illustration_skip] "
+
+
 @dataclass
 class IllustrateResult:
     article_id: int
@@ -53,6 +56,9 @@ class IllustrateResult:
     cover_status: str = "skipped"
     cover_error: str | None = None
     format_error: str | None = None
+    # warning: AI / 数据决策为空导致 0 张图（无 throw 异常），区别于 format_error。
+    # 比如 AI 返了空 image_positions、栏目里无图等——这是合法分支但 writer / 飞书要可见。
+    warning: str | None = None
 
 
 def illustrate_one(
@@ -149,15 +155,26 @@ def illustrate_one(
         finally:
             db.close()
 
-    # 阶段 3: 回读 article.ai_format_error
-    format_error: str | None = None
+    # 阶段 3: 回读 article.ai_format_error，区分 [illustration_skip] 前缀
+    raw_error: str | None = None
     db = session_factory()
     try:
         article = db.get(Article, article_id)
         if article is not None:
-            format_error = article.ai_format_error
+            raw_error = article.ai_format_error
     finally:
         db.close()
+
+    format_error: str | None = raw_error
+    warning: str | None = None
+    if raw_error and raw_error.startswith(_ILLUSTRATION_SKIP_PREFIX):
+        # ai_format._maybe_insert_images 给出的 "AI 决策为空" 信号 —— 不算 error
+        warning = raw_error[len(_ILLUSTRATION_SKIP_PREFIX) :]
+        format_error = None
+    elif (images_inserted or 0) == 0 and raw_error is None:
+        # 兜底：0 张图、无 error、无 skip_reason（防止未来 ai_format 改回不写前缀，
+        # writer 仍能拿到一个明确信号）
+        warning = "no images inserted (unknown reason — check server log)"
 
     return IllustrateResult(
         article_id=article_id,
@@ -165,4 +182,5 @@ def illustrate_one(
         cover_status=cover_status,
         cover_error=cover_error,
         format_error=format_error,
+        warning=warning,
     )

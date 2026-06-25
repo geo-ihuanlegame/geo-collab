@@ -303,7 +303,16 @@ async def ai_illustrate_article(
             "cover_status": str,        # "set" | "skipped_existing" | "no_image" | "error" | "skipped"
             "cover_error": str | None,
             "format_error": str | None,
+            "warning": str | None,      # AI decided not to insert / no matching image / etc.
+                                        # 0 images + warning != error: writer MUST still surface this
+                                        # as an illustration_warnings entry so 0-image articles do
+                                        # not enter the review pool silently.
         }, "error": None}
+
+    Caller contract (writer skill):
+        format_error / cover_error / warning 任一非空,或 images_inserted == 0
+        → 加进最终 JSON 的 illustration_warnings 数组,让 orchestrator / 飞书可见.
+        不要把 warning 当 error 抛——文章本身已落库可用,只是无图.
     """
     body: dict[str, Any] = {
         "main_category_id": main_category_id,
