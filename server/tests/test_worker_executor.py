@@ -289,3 +289,82 @@ def test_startup_recovers_claims_and_writes_heartbeat(monkeypatch):
             assert db.query(WorkerHeartbeat).filter_by(worker_id=executor.WORKER_ID).count() == 1
     finally:
         test_app.cleanup()
+
+
+def test_clear_stale_worker_heartbeats_removes_other_workers(monkeypatch):
+    """启动清理删除其它（已死）worker 的心跳行，只保留当前 WORKER_ID 的行——防 worker_heartbeats 无限累积。"""
+    test_app = build_test_app(monkeypatch)
+    try:
+        from server.worker import executor
+
+        with test_app.session_factory() as db:
+            db.add(
+                WorkerHeartbeat(
+                    worker_id="dead-worker-1", heartbeat_at=utcnow() - timedelta(days=3)
+                )
+            )
+            db.add(
+                WorkerHeartbeat(
+                    worker_id="dead-worker-2", heartbeat_at=utcnow() - timedelta(hours=1)
+                )
+            )
+            db.add(WorkerHeartbeat(worker_id=executor.WORKER_ID, heartbeat_at=utcnow()))
+            db.commit()
+
+        with test_app.session_factory() as db:
+            executor._clear_stale_worker_heartbeats(db)
+
+        with test_app.session_factory() as db:
+            ids = {r.worker_id for r in db.query(WorkerHeartbeat).all()}
+            assert ids == {executor.WORKER_ID}, "应只保留当前 worker 的心跳行"
+    finally:
+        test_app.cleanup()
+
+
+def test_recover_stuck_browser_sessions_purges_foreign_and_null(monkeypatch):
+    """启动清理删除非当前 worker（含 worker_id 为 NULL）的浏览器会话残留，保留当前 worker 的行。"""
+    test_app = build_test_app(monkeypatch)
+    try:
+        from server.app.modules.accounts.browser import recover_stuck_browser_sessions
+        from server.app.modules.accounts.models import BrowserSession
+        from server.worker import executor
+
+        with test_app.session_factory() as db:
+            db.add(BrowserSession(id="dead00000001", account_key="a", worker_id="dead-worker"))
+            db.add(BrowserSession(id="nullwrk00001", account_key="b", worker_id=None))
+            db.add(BrowserSession(id="mine00000001", account_key="c", worker_id=executor.WORKER_ID))
+            db.commit()
+
+        with test_app.session_factory() as db:
+            recover_stuck_browser_sessions(db, worker_id=executor.WORKER_ID)
+
+        with test_app.session_factory() as db:
+            ids = {r.id for r in db.query(BrowserSession).all()}
+            assert ids == {"mine00000001"}, "应只保留当前 worker 的会话行"
+    finally:
+        test_app.cleanup()
+
+
+def test_startup_purges_stale_browser_sessions_and_heartbeats(monkeypatch):
+    """_startup 同时清掉上一条命残留的 browser_sessions 与 worker_heartbeats（容器重启后的孤儿行）。"""
+    test_app = build_test_app(monkeypatch)
+    try:
+        from server.app.modules.accounts.models import BrowserSession
+        from server.worker import executor
+
+        with test_app.session_factory() as db:
+            db.add(BrowserSession(id="orphan000001", account_key="x", worker_id="dead-worker"))
+            db.add(
+                WorkerHeartbeat(worker_id="dead-worker", heartbeat_at=utcnow() - timedelta(days=1))
+            )
+            db.commit()
+
+        with test_app.session_factory() as db:
+            executor._startup(db)
+
+        with test_app.session_factory() as db:
+            assert db.query(BrowserSession).count() == 0, "残留浏览器会话应被清空"
+            ids = {r.worker_id for r in db.query(WorkerHeartbeat).all()}
+            assert ids == {executor.WORKER_ID}, "应只剩当前 worker 自己的心跳"
+    finally:
+        test_app.cleanup()

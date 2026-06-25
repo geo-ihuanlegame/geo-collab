@@ -49,6 +49,7 @@ from server.app.modules.accounts.browser import (  # noqa: F401
     heartbeat_profile_lock,
     keep_session_alive,
     managed_remote_browser_session,
+    recover_stuck_browser_sessions,
     release_profile_lock,
     release_profile_lock_by_owner,
     remote_browser_runtime_status,
