@@ -23,7 +23,8 @@ KNOWN_BUNDLE_SHAS: frozenset[str] = frozenset(
         # (format_error/cover_error/warning/images_inserted=0) + 返回格式 illustration_warnings
         # 字段固定输出，配合服务端 ai_format silent zero 修复（加 skip_reason → warning）。
         # 与 #152 同属 v3 字符串，但 bundle sha 不同（SKILL.md 内容增量）——保留 #152 的
-        # 两个 sha 是为已装那份的用户兜底；CI 只校验下面这个 LF sha (Linux 容器读字节)。
-        "c8050b24111efc69b56259194bed5d4b236b537ce7effc777a5e2786b3e44acc",  # LF (CI canonical)
+        # 两个 sha 是为已装那份的用户兜底。
+        "ee9659ae08d68a6bdabecfce9f60324fab2093b7ad4535f056f5cdc4ea6a77e8",  # LF (CI canonical)
+        "c8050b24111efc69b56259194bed5d4b236b537ce7effc777a5e2786b3e44acc",  # CRLF (Windows host)
     }
 )
