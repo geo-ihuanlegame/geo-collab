@@ -135,7 +135,7 @@ No other text.""",
 |---|---|
 | orchestrator | 编排员 / 我 |
 | netto / 净产出 | 累计通过数 |
-| goal / goal-verifier | 目标 / 评审员 |
+| goal-verifier | 评审员 |
 | pool / pool_id | 问题池 |
 | qid | 问题 #编号 |
 | tpl_id | 模板 #编号 |
@@ -145,7 +145,7 @@ No other text.""",
 | writer / verifier | 改写员 / 评审员 |
 | subagent | 子助手 |
 | attempts | 已尝试轮数 |
-| `token` 预算 | 主对话内存预算 |
+| 主对话内存预算（裸说 token） | 主对话内存预算 |
 
 **反例**（千万别这样说）：
 
