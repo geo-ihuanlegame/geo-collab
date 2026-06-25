@@ -6,7 +6,7 @@ fail + 提示开发者：把新 sha 加进 KNOWN_BUNDLE_SHAS 并 bump
 LOOP_SKILL_BUNDLE_VERSION，强制「改模板必同步 bump 版本」纪律。
 """
 
-LOOP_SKILL_BUNDLE_VERSION = "2026-06-25-v3"
+LOOP_SKILL_BUNDLE_VERSION = "2026-06-25-v4"
 
 KNOWN_BUNDLE_SHAS: frozenset[str] = frozenset(
     {
@@ -19,12 +19,13 @@ KNOWN_BUNDLE_SHAS: frozenset[str] = frozenset(
         # Linux）。build_bundle 读字节后直接 sha256，行尾不归一化——两边都要认。
         "58448672effda8290f97dc5afdfb6c4146ea9c8b7cc7c432b2d4a76274b65856",  # CRLF
         "515c9202f1e0880a1657e4da768954e83bb8a2a5cdfc220355a369862d2cefc6",  # LF (CI canonical)
-        # v3 (2026-06-25, this PR): 在 #152 基础上加 writer step 5 改 4 类信号检查
-        # (format_error/cover_error/warning/images_inserted=0) + 返回格式 illustration_warnings
-        # 字段固定输出，配合服务端 ai_format silent zero 修复（加 skip_reason → warning）。
-        # 与 #152 同属 v3 字符串，但 bundle sha 不同（SKILL.md 内容增量）——保留 #152 的
-        # 两个 sha 是为已装那份的用户兜底。
-        "ee9659ae08d68a6bdabecfce9f60324fab2093b7ad4535f056f5cdc4ea6a77e8",  # LF (CI canonical)
-        "c8050b24111efc69b56259194bed5d4b236b537ce7effc777a5e2786b3e44acc",  # CRLF (Windows host)
+        # v3 (2026-06-25, illustration_warnings PR #154): writer step 5 改 4 类信号检查 +
+        # illustration_warnings 字段。
+        "ee9659ae08d68a6bdabecfce9f60324fab2093b7ad4535f056f5cdc4ea6a77e8",  # LF
+        "c8050b24111efc69b56259194bed5d4b236b537ce7effc777a5e2786b3e44acc",  # CRLF
+        # v4 (2026-06-25, this PR): orchestrator skill 主对话叙述深度中文化
+        # （6 行日志 / 伪码 echo / notify_feishu / subagent description + 新增叙述规范段）
+        "506d2a045eee9106962e97bad0cdf287d6a36f0de2cf2b62265c904be3f22b5c",  # CRLF (Windows host)
+        # LF sha 由 CI 首跑 fail 后从 log 拿，第二 commit 追加
     }
 )
