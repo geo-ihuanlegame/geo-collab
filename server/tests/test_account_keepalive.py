@@ -346,11 +346,11 @@ def test_run_once_refreshes_oldest_and_returns_gap(monkeypatch):
     monkeypatch.setattr(ka, "get_settings", lambda: _FakeKaSettings())
     monkeypatch.setattr(ka, "select_due_account_ids", lambda db, ws: [7, 8, 9])
     called = {}
-    monkeypatch.setattr(
-        ka,
-        "refresh_one_account",
-        lambda sf, aid, *, check_timeout_s: called.setdefault("aid", aid) or "refreshed_valid",
-    )
+    def _fake_refresh(sf, aid, *, check_timeout_s):
+        called.setdefault("aid", aid)
+        return "refreshed_valid"
+
+    monkeypatch.setattr(ka, "refresh_one_account", _fake_refresh)
     now = dt.datetime(2026, 6, 25, 1, 0, tzinfo=_TZ)
     r = ka.run_keepalive_once(lambda: _DummyDB(), now, random.Random(0))
     assert called["aid"] == 7  # due[0]，最旧优先
