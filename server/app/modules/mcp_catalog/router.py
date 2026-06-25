@@ -9,7 +9,8 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select
+from pydantic import BaseModel
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from server.app.core.mcp_auth import require_mcp_token
@@ -28,6 +29,7 @@ from server.app.modules.articles.schemas import (
     ArticleRead,
     to_article_read,
 )
+from server.app.modules.image_library.models import StockCategory, StockImage
 from server.app.modules.pipelines.models import Pipeline
 from server.app.modules.prompt_templates.schemas import PromptScope, PromptTemplateRead
 from server.app.modules.prompt_templates.service import list_prompt_templates as svc_list_templates
@@ -193,3 +195,55 @@ def mcp_list_accounts(
     if distribution_enabled is not None:
         accounts = [a for a in accounts if a.distribution_enabled == distribution_enabled]
     return [to_account_read(a) for a in accounts]
+
+
+# ── stock-categories ───────────────────────────────────────────────────────
+
+
+class StockCategoryRead(BaseModel):
+    id: int
+    name: str
+    kind: str
+    description: str | None
+    official_url: str | None
+    image_count: int
+
+
+@router.get("/stock-categories", response_model=list[StockCategoryRead])
+def mcp_list_stock_categories(
+    kind: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> list[StockCategoryRead]:
+    """[MCP] 列图库栏目（service 视角，无 per-user 过滤）.
+
+    给 /goal Loop onboarding 用——使用者填 main_category_id 前先让 Claude
+    调本工具看候选栏目. kind 过滤：'main' / 'companion' / None=全量.
+    """
+    # COUNT(StockImage) per category via subquery —— 一次 SQL 避免 N+1
+    count_subq = (
+        select(StockImage.category_id, func.count(StockImage.id).label("cnt"))
+        .group_by(StockImage.category_id)
+        .subquery()
+    )
+    # kind 排序：main 优先（priority 0），companion / 其它在后（priority 1），同 kind 内按 id 升序.
+    kind_priority = case((StockCategory.kind == "main", 0), else_=1)
+    q = (
+        db.query(StockCategory, func.coalesce(count_subq.c.cnt, 0).label("image_count"))
+        .outerjoin(count_subq, count_subq.c.category_id == StockCategory.id)
+        .order_by(kind_priority.asc(), StockCategory.id.asc())
+    )
+    if kind:
+        q = q.filter(StockCategory.kind == kind)
+
+    rows = q.all()
+    return [
+        StockCategoryRead(
+            id=cat.id,
+            name=cat.name,
+            kind=cat.kind,
+            description=cat.description,
+            official_url=cat.official_url,
+            image_count=int(image_count),
+        )
+        for cat, image_count in rows
+    ]
