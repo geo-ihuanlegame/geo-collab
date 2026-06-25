@@ -293,5 +293,81 @@ def test_illustrate_one_reads_back_article_ai_format_error(monkeypatch):
 
         assert result.images_inserted == 0
         assert result.format_error == "LLM timeout after 60s"
+        # 没有 [illustration_skip] 前缀 → warning 应为 None（这是真 error）
+        assert result.warning is None
+    finally:
+        test_app.cleanup()
+
+
+@pytest.mark.mysql
+def test_illustrate_one_strips_illustration_skip_prefix_into_warning(monkeypatch):
+    """ai_format 把 [illustration_skip] xxx 写到 ai_format_error 时,svc 阶段 3 剥前缀放进 warning,
+    并把 format_error 置回 None——区分 "AI 决策为空" 与 "真的 error"."""
+    test_app = build_test_app(monkeypatch)
+    try:
+        from server.app.modules.articles.ai_illustrate_svc import (
+            IllustrateOptions,
+            illustrate_one,
+        )
+        from server.app.modules.articles.models import Article
+
+        aid = _mk_article(test_app)
+
+        # fake run_ai_format 返 0 同时按 ai_format 新行为往 ai_format_error 写带前缀的 skip_reason
+        def fake(article_id, **kwargs):
+            db = test_app.session_factory()
+            try:
+                article = db.get(Article, article_id)
+                article.ai_format_error = "[illustration_skip] ai_returned_no_positions"
+                db.commit()
+            finally:
+                db.close()
+            return 0
+
+        monkeypatch.setattr("server.app.modules.articles.ai_illustrate_svc.run_ai_format", fake)
+        _patch_cover(monkeypatch)
+
+        result = illustrate_one(
+            article_id=aid,
+            main_category_id=1,
+            user_id=test_app.admin_id,
+            options=IllustrateOptions(),
+            session_factory=test_app.session_factory,
+        )
+
+        assert result.images_inserted == 0
+        assert result.format_error is None  # 不是真 error
+        assert result.warning == "ai_returned_no_positions"
+    finally:
+        test_app.cleanup()
+
+
+@pytest.mark.mysql
+def test_illustrate_one_zero_images_no_error_falls_back_to_unknown_warning(monkeypatch):
+    """0 张图 + ai_format_error 也为 None 时,svc 兜底加一个 unknown reason warning,
+    防止未来 ai_format 改回不写前缀时 writer 依旧拿得到明确信号."""
+    test_app = build_test_app(monkeypatch)
+    try:
+        from server.app.modules.articles.ai_illustrate_svc import (
+            IllustrateOptions,
+            illustrate_one,
+        )
+
+        aid = _mk_article(test_app)
+        _patch_run_ai_format(monkeypatch, return_value=0)  # 不写 ai_format_error
+        _patch_cover(monkeypatch)
+
+        result = illustrate_one(
+            article_id=aid,
+            main_category_id=1,
+            user_id=test_app.admin_id,
+            options=IllustrateOptions(),
+            session_factory=test_app.session_factory,
+        )
+
+        assert result.images_inserted == 0
+        assert result.format_error is None
+        assert result.warning is not None
+        assert "unknown reason" in result.warning
     finally:
         test_app.cleanup()
