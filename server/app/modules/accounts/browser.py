@@ -527,6 +527,8 @@ def get_or_create_account_session(
     platform_code: str,
     account_key: str,
     profile_key: str | None = None,
+    *,
+    with_display: bool = True,
 ) -> RemoteBrowserSession:
     """返回账号的持久化会话；需要时创建新会话。
 
@@ -535,6 +537,8 @@ def get_or_create_account_session(
 
     按账号加创建锁，避免两个并发调用都看到无会话，并各自为同一账号拉起一个
     浏览器实例。
+
+    with_display=False 时：请求 displayless 会话（无 VNC 链）。
     """
     cache_key = _account_session_key(platform_code, account_key, profile_key)
 
@@ -568,7 +572,10 @@ def get_or_create_account_session(
             return existing
 
         session = start_remote_browser_session(
-            account_key, platform_code=platform_code, profile_key=profile_key
+            account_key,
+            platform_code=platform_code,
+            profile_key=profile_key,
+            with_display=with_display,
         )
         with _sessions_lock:
             _account_sessions[cache_key] = session.id
@@ -626,18 +633,47 @@ def start_remote_browser_session(
     account_key: str,
     platform_code: str = "",
     profile_key: str | None = None,
+    *,
+    with_display: bool = True,
 ) -> RemoteBrowserSession:
     """拉起一条 Xvfb → x11vnc → websockify 进程链，返回带 novnc_url 的会话句柄。
 
     每步拉起进程后都等对应 X display / 端口就绪才继续。任一步失败则杀掉已起进程、
     归还预留的 display/端口号再抛出（避免泄漏可复用的号段）。成功后注册进 _active_sessions
     并镜像到 DB，按需启动空闲清理线程。
+
+    with_display=False 时：displayless 会话（无 VNC 链），仍注册 + 镜像 DB + 启清理线程。
     """
     import os as _os
 
     worker_id = _os.environ.get("GEO_WORKER_ID")
 
     settings = get_settings()
+
+    if not with_display:
+        # displayless 会话：headless 发布路径,不起 Xvfb/x11vnc/websockify,只持有 Chromium 句柄。
+        # 仍注册 + 镜像 DB + 启清理线程,让超时/停止/profile 锁等机制原样复用(进程链为空,清理 no-op)。
+        safe_account_key = re.sub(r"[^a-zA-Z0-9_-]+", "-", account_key).strip("-") or "account"
+        session_id = uuid.uuid4().hex[:12]
+        log_dir = get_data_dir() / "logs" / "browser-sessions" / f"{safe_account_key}-{session_id}"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        session = RemoteBrowserSession(
+            id=session_id,
+            platform_code=platform_code,
+            account_key=account_key,
+            display_number=0,
+            display="",
+            vnc_port=0,
+            novnc_port=0,
+            novnc_url="",
+            log_dir=log_dir,
+            profile_key=profile_key,
+        )
+        with _sessions_lock:
+            _active_sessions[session.id] = session
+        _write_session_to_db(session, worker_id)
+        _start_idle_cleanup()
+        return session
 
     xvfb = _require_command(settings.publish_xvfb_path, "Xvfb")
     x11vnc = _require_command(settings.publish_x11vnc_path, "x11vnc")

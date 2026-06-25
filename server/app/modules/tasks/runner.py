@@ -291,6 +291,7 @@ def run_publish(
     account: Account,
     channel: str = "chromium",
     executable_path: str | None = None,
+    headless: bool = False,
     stop_before_publish: bool = False,
     commit_guard=None,
     retry_policy=None,
@@ -324,7 +325,9 @@ def run_publish(
     payload = _build_payload(article, account, account_key, platform_code, state_path)
 
     with publish_step("remote browser session"):
-        session = get_or_create_account_session(platform_code, account_key, profile_key=profile_key)
+        session = get_or_create_account_session(
+            platform_code, account_key, profile_key=profile_key, with_display=not headless
+        )
         # 立即建立关联，让超时处理器可以停止该会话。
         if record_id is not None:
             associate_record_with_session(record_id, session.id)
@@ -339,7 +342,7 @@ def run_publish(
         stop_remote_browser_session(session.id)
         with publish_step("remote browser session (re-acquire after thread switch)"):
             session = get_or_create_account_session(
-                platform_code, account_key, profile_key=profile_key
+                platform_code, account_key, profile_key=profile_key, with_display=not headless
             )
             if record_id is not None:
                 associate_record_with_session(record_id, session.id)
@@ -351,8 +354,11 @@ def run_publish(
                 pw = sync_playwright().start()
             with publish_step("launch Chromium"):
                 clear_profile_locks(profile_dir)
-                options = launch_options(channel, executable_path)
-                options["env"] = {**os.environ, "DISPLAY": session.display}
+                options = launch_options(channel, executable_path, headless=headless)
+                env = {k: v for k, v in os.environ.items() if k != "DISPLAY"}
+                if not headless:
+                    env["DISPLAY"] = session.display
+                options["env"] = env
                 context = pw.chromium.launch_persistent_context(
                     user_data_dir=str(profile_dir),
                     **options,
@@ -395,10 +401,11 @@ def run_publish(
                 keep_session_alive(session.id)
             return result
     except UserInputRequired as exc:
-        _keep_browser = True
-        keep_session_alive(session.id)
-        exc.session_id = session.id
-        exc.novnc_url = session.novnc_url
+        if not headless:
+            _keep_browser = True
+            keep_session_alive(session.id)
+            exc.session_id = session.id
+            exc.novnc_url = session.novnc_url
         raise
     except Exception:
         # 销毁会话，避免下次为该账号发布时复用已损坏的 context。

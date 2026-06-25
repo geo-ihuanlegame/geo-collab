@@ -97,6 +97,10 @@ class TestErrorTypeClassification:
 
     def test_error_type_propagates_in_finish_record_future(self, monkeypatch):
         """_finish_record_future 应把 error_type 标签写进日志消息。"""
+        from server.app.core.config import get_settings
+
+        monkeypatch.setenv("GEO_PUBLISH_BROWSER_HEADLESS", "false")
+        get_settings.cache_clear()
         test_app = build_test_app(monkeypatch)
         try:
             article_id = _create_article(test_app.client)

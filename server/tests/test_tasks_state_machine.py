@@ -142,6 +142,10 @@ def test_stop_before_publish_enters_waiting_state(monkeypatch):
 
 @pytest.mark.mysql
 def test_user_input_required_pauses_record(monkeypatch):
+    from server.app.core.config import get_settings
+
+    monkeypatch.setenv("GEO_PUBLISH_BROWSER_HEADLESS", "false")
+    get_settings.cache_clear()
     test_app = build_test_app(monkeypatch)
     client = test_app.client
 
@@ -200,6 +204,10 @@ def test_user_input_required_pauses_record(monkeypatch):
 
 @pytest.mark.mysql
 def test_resolve_user_input_requeues_and_continues(monkeypatch):
+    from server.app.core.config import get_settings
+
+    monkeypatch.setenv("GEO_PUBLISH_BROWSER_HEADLESS", "false")
+    get_settings.cache_clear()
     test_app = build_test_app(monkeypatch)
     client = test_app.client
     attempts = 0

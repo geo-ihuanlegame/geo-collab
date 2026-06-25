@@ -356,6 +356,11 @@ def main() -> None:
     )
     login_thread.start()
 
+    from server.app.modules.accounts.keepalive import start_keepalive
+
+    if start_keepalive(SessionLocal):
+        _logger.info("Worker %s: account keep-alive thread started", WORKER_ID)
+
     _recovery_cycle = 0
 
     while not _shutdown:
@@ -403,6 +408,13 @@ def main() -> None:
         login_broker.shutdown()
     except Exception:
         _logger.warning("Worker %s: login broker shutdown failed", WORKER_ID, exc_info=True)
+
+    try:
+        from server.app.modules.accounts.keepalive import stop_keepalive
+
+        stop_keepalive()
+    except Exception:
+        _logger.warning("Worker %s: keepalive stop failed", WORKER_ID, exc_info=True)
 
     _logger.info("Worker %s exited", WORKER_ID)
 
