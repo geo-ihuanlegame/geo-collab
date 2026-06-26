@@ -328,3 +328,109 @@ def test_web_fallback_creates_category_and_inserts(monkeypatch):
             assert db.query(StockCategory).filter(StockCategory.name == "王者荣耀").first() is None
     finally:
         app.cleanup()
+
+
+@pytest.mark.mysql
+def test_maybe_insert_images_records_partial_miss_in_diagnostics(monkeypatch):
+    """请求 2 个游戏位置：甲搜得到→配上，乙搜不到→miss。
+
+    out_diagnostics 应记 requested=2 / inserted=1 / missed=1，且 missed_games 含「游戏乙」，
+    让上层（illustrate_one / writer）能发现"该配 2 张只来 1 张"的部分失败，而非静默通过。
+    """
+    from server.tests.utils import build_test_app
+
+    app = build_test_app(monkeypatch)
+    try:
+        from server.app.modules.image_library import store as minio_store
+
+        monkeypatch.setattr(minio_store, "ensure_bucket", lambda b: None)
+        monkeypatch.setattr(minio_store, "upload_image", lambda *a, **k: None)
+
+        def fake_search(name, **k):
+            # 游戏甲有图，游戏乙百度搜不到（返回空）
+            if name == "游戏甲":
+                return [baidu.BaiduImage("http://i/x.jpg", 1920, 1080, "http://src", "t")]
+            return []
+
+        monkeypatch.setattr(baidu, "search_landscape_images", fake_search)
+        monkeypatch.setattr(
+            baidu, "download_image", lambda url: (b"\xff\xd8\xff\x00data", "image/jpeg")
+        )
+
+        from server.app.modules.articles.ai_format import _maybe_insert_images
+
+        content = {
+            "type": "doc",
+            "content": [
+                {"type": "paragraph", "content": [{"type": "text", "text": "游戏甲很好玩"}]},
+                {"type": "paragraph", "content": [{"type": "text", "text": "游戏乙也不错"}]},
+            ],
+        }
+        parsed = {
+            "image_positions": [
+                {"index": 0, "game": "游戏甲"},
+                {"index": 1, "game": "游戏乙"},
+            ]
+        }
+        diag: dict = {}
+        with app.session_factory() as db:
+            _new_doc, count = _maybe_insert_images(
+                content,
+                parsed,
+                None,
+                db,
+                available_categories=[],
+                web_fallback=True,
+                out_diagnostics=diag,
+            )
+        assert count == 1
+        assert diag["requested"] == 2
+        assert diag["inserted"] == 1
+        assert diag["missed"] == 1
+        assert "游戏乙" in diag.get("missed_games", [])
+    finally:
+        app.cleanup()
+
+
+# ── illustrate_one 部分配图判定（纯函数，无需 DB）─────────────────────────────
+
+
+def test_resolve_illustration_outcome_partial_miss():
+    """部分 miss：应配 2 张只来 1 张 → 合成 partial warning（含 missed 游戏名），format_error 仍为空。"""
+    from server.app.modules.articles.ai_illustrate_svc import _resolve_illustration_outcome
+
+    fmt_error, warning, requested, missed, missed_games = _resolve_illustration_outcome(
+        raw_error=None,
+        images_inserted=1,
+        fmt_diag={"requested": 2, "inserted": 1, "missed": 1, "missed_games": ["游戏乙"]},
+    )
+    assert fmt_error is None
+    assert requested == 2 and missed == 1 and missed_games == ["游戏乙"]
+    assert warning is not None and "游戏乙" in warning
+
+
+def test_resolve_illustration_outcome_full_success_no_warning():
+    """全配上：requested == inserted → 不报 warning。"""
+    from server.app.modules.articles.ai_illustrate_svc import _resolve_illustration_outcome
+
+    fmt_error, warning, requested, missed, _missed_games = _resolve_illustration_outcome(
+        raw_error=None,
+        images_inserted=3,
+        fmt_diag={"requested": 3, "inserted": 3, "missed": 0},
+    )
+    assert fmt_error is None and warning is None
+    assert requested == 3 and missed == 0
+
+
+def test_resolve_illustration_outcome_zero_images_keeps_skip_warning():
+    """0 张图（全 miss）：保持原 [illustration_skip] 语义的 warning，不被 partial 文案覆盖。"""
+    from server.app.modules.articles.ai_illustrate_svc import _resolve_illustration_outcome
+
+    fmt_error, warning, _requested, missed, _missed_games = _resolve_illustration_outcome(
+        raw_error="[illustration_skip] no_match_in_categories",
+        images_inserted=0,
+        fmt_diag={"requested": 2, "inserted": 0, "missed": 2},
+    )
+    assert fmt_error is None
+    assert warning == "no_match_in_categories"
+    assert missed == 2

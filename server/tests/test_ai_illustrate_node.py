@@ -84,6 +84,7 @@ def test_ai_illustrate_candidates_and_passthrough(monkeypatch):
             max_images=None,
             min_spacing=None,
             builtin_variant="conservative",
+            out_diagnostics=None,
         ):
             captured["article_id"] = article_id
             captured["candidates"] = candidate_categories
@@ -404,5 +405,42 @@ def test_ai_illustrate_empty_inputs(monkeypatch):
             )
         )
         assert res.article_ids == []
+    finally:
+        app.cleanup()
+
+
+@pytest.mark.mysql
+def test_illustrate_one_surfaces_partial_miss(monkeypatch):
+    """illustrate_one 端到端：run_ai_format 经 out_diagnostics 报 requested=2/inserted=1（部分 miss）时，
+    IllustrateResult 须带 partial warning + requested/missed 字段，而非 inserted 非 0 就静默当成功。"""
+    app = build_test_app(monkeypatch)
+    try:
+        from server.app.modules.articles import ai_illustrate_svc
+
+        main_id = _make_category(app, "主推A", "main-a", "main")
+        aid = _make_article(app.client)
+        uid = _uid(app)
+
+        def fake_run(article_id, *, out_diagnostics=None, **kw):
+            # 模拟 run_ai_format：透传 diag（应配 2 张、只来 1 张，游戏乙没补到）+ 返回 1
+            if out_diagnostics is not None:
+                out_diagnostics.update(
+                    {"requested": 2, "inserted": 1, "missed": 1, "missed_games": ["游戏乙"]}
+                )
+            return 1
+
+        monkeypatch.setattr(ai_illustrate_svc, "run_ai_format", fake_run)
+
+        result = ai_illustrate_svc.illustrate_one(
+            article_id=aid,
+            main_category_id=main_id,
+            user_id=uid,
+            options=ai_illustrate_svc.IllustrateOptions(set_cover=False, web_fallback=True),
+            session_factory=app.session_factory,
+        )
+        assert result.images_inserted == 1
+        assert result.requested == 2 and result.missed == 1
+        assert result.format_error is None
+        assert result.warning and "游戏乙" in result.warning
     finally:
         app.cleanup()

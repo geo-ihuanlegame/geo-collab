@@ -18,15 +18,20 @@ description: Use when spawned as a writer subagent by /goal, or when manually
 2. get template — `list_prompt_templates(scope="generation")` 找到 tpl_id 的 content
 3. 写 markdown body（约束见下）
 4. `save_article(question_item_id, prompt_template_id, title, markdown_content, model_label)`
-5. `ai_illustrate_article(article_id, main_category_id=<从矩阵特例段拿>)` —
-   AI 智能配图 + 自动封面。**必须**收集这 4 类信号进 `illustration_warnings`
+5. `ai_illustrate_article(article_id, main_category_id=<从矩阵特例段拿>, web_fallback=True)` —
+   AI 智能配图 + 自动封面。`web_fallback=True` 让图库里没有对应栏目的游戏也能
+   联网补图（见矩阵特例段）。**必须**收集这 5 类信号进 `illustration_warnings`
    数组（任一非空 / 命中即记录，不抛错、不阻塞返回）：
    - `format_error` 非空 → 加 `"format_error: <值>"`
    - `cover_error` 非空 → 加 `"cover_error: <值>"`
    - `warning` 非空 → 加 `"warning: <值>"`（典型值：`ai_returned_no_positions` /
-     `no_match_in_categories` / `no_valid_categories` / `already_has_images`）
+     `no_match_in_categories` / `no_valid_categories` / `already_has_images` /
+     `partial_images: ...`）
    - `images_inserted == 0` → 额外加 `"images_inserted=0"`（即便上面三个都为空，
      也要让 orchestrator 看到"AI 决定不插图"这一事实）
+   - `missed > 0` → 加 `"partial: 应配 {requested} 张、实配 {images_inserted} 张，缺 {missed} 张（{missed_games}）"`
+     （部分配图失败：图库 + 联网都没补齐。**即便 images_inserted 非 0 也要记**——
+     别因为有图就当完全成功；missed_games 指出是哪几款游戏没配上）
 6. 返回 `{"article_id": int, "title": str, "illustration_warnings": [...]}` 作为
    **最后一条消息**，**只输出 JSON 一行**；`illustration_warnings` 字段始终存在
    （没有 warning 时为 `[]`），让 orchestrator 可以统一解析
@@ -55,10 +60,15 @@ description: Use when spawned as a writer subagent by /goal, or when manually
 - 配图风格：默认 `aggressive_images=True`（积极配图，每个明确出现的游戏都插）
 - 封面：默认 `set_cover=True`（从主推栏目随机取一张做封面，已有封面则跳过）
 - 陪衬：默认 `include_companion=True`（AI 同时从所有陪衬栏目选）
+- 联网兜底：默认 `web_fallback=True`（图库里【没有】对应栏目的游戏，AI 用规范中文名
+  点名后，GEO 自动建陪衬栏目 + 走百度（千帆 AI 搜索）联网搜一张横版图补上——这样
+  图库里还没有的新游戏也配得上图。best-effort：需容器配 `GEO_BAIDU_API_KEY`，
+  key 缺失 / 网络失败时静默不补、不报错，绝不阻塞交付）
 
 > 调用约定：
-> `ai_illustrate_article(article_id=<>, main_category_id=<上面那个值>)`
-> 其余 3 个布尔参数走默认即可。
+> `ai_illustrate_article(article_id=<>, main_category_id=<上面那个值>, web_fallback=True)`
+> 其余布尔参数（include_companion / aggressive_images / set_cover）走默认即可；
+> `web_fallback` 建议显式带 `True`，让图库里没有的游戏也能联网补图。
 >
 > **务必**检查返回的 `format_error` / `cover_error` / `warning` / `images_inserted`
 > 四个字段，按上面 step 5 规则进 `illustration_warnings`——历史 bug：silent

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
 
@@ -59,6 +59,51 @@ class IllustrateResult:
     # warning: AI / 数据决策为空导致 0 张图（无 throw 异常），区别于 format_error。
     # 比如 AI 返了空 image_positions、栏目里无图等——这是合法分支但 writer / 飞书要可见。
     warning: str | None = None
+    # 部分配图诊断（来自 run_ai_format 的 out_diagnostics）：requested=应配位置数、
+    # missed=没配上的张数、missed_games=没配上的游戏名/栏目。inserted < requested 时
+    # warning 会带 partial_images 文案，避免"该 N 张只来 M 张"被静默当成功（见 #部分配图盲区）。
+    requested: int = 0
+    missed: int = 0
+    missed_games: list[str] = field(default_factory=list)
+
+
+def _resolve_illustration_outcome(
+    *,
+    raw_error: str | None,
+    images_inserted: int,
+    fmt_diag: dict,
+) -> tuple[str | None, str | None, int, int, list[str]]:
+    """从 run_ai_format 的 raw ai_format_error + 实插图数 + 诊断 dict 推导对外信号。
+
+    返回 (format_error, warning, requested, missed, missed_games)：
+    - [illustration_skip] 前缀 = 0 图的"AI 决策为空"信号 → 转 warning（非真 error）。
+    - 部分配图失败（inserted>0 但 < requested）→ 合成 partial_images warning，让 writer
+      看到"该 N 张只来 M 张"，而不是 inserted 非 0 就静默当成功。0 图全 miss 已被上面的
+      skip warning 覆盖，这里不重复报（优先级：skip/error > partial）。
+    """
+    requested = int(fmt_diag.get("requested", 0) or 0)
+    inserted = int(fmt_diag.get("inserted", images_inserted or 0) or 0)
+    missed = int(fmt_diag.get("missed", 0) or 0)
+    missed_games = list(fmt_diag.get("missed_games", []) or [])
+
+    format_error: str | None = raw_error
+    warning: str | None = None
+    if raw_error and raw_error.startswith(_ILLUSTRATION_SKIP_PREFIX):
+        # ai_format._maybe_insert_images 给出的 "AI 决策为空" 信号 —— 不算 error
+        warning = raw_error[len(_ILLUSTRATION_SKIP_PREFIX) :]
+        format_error = None
+    elif (images_inserted or 0) == 0 and raw_error is None:
+        # 兜底：0 张图、无 error、无 skip_reason（防止未来 ai_format 改回不写前缀，
+        # writer 仍能拿到一个明确信号）
+        warning = "no images inserted (unknown reason — check server log)"
+
+    # 部分配图失败：该配 requested 张、只来 inserted 张。仅在没有更高优先级的 skip/error
+    # warning 时报（专抓 inserted>0 但 < requested 的静默盲区）。
+    if warning is None and format_error is None and missed > 0:
+        games = ("：" + "、".join(missed_games)) if missed_games else ""
+        warning = f"partial_images: 应配 {requested} 张，实配 {inserted} 张，缺 {missed} 张{games}"
+
+    return format_error, warning, requested, missed, missed_games
 
 
 def illustrate_one(
@@ -121,6 +166,7 @@ def illustrate_one(
     finally:
         db.close()
 
+    fmt_diag: dict = {}
     images_inserted = run_ai_format(
         article_id,
         include_images=True,
@@ -132,6 +178,7 @@ def illustrate_one(
         max_images=max_images,
         min_spacing=min_spacing,
         builtin_variant=builtin_variant,
+        out_diagnostics=fmt_diag,
     )
 
     # 阶段 2: 封面 (独立短 session)
@@ -165,16 +212,11 @@ def illustrate_one(
     finally:
         db.close()
 
-    format_error: str | None = raw_error
-    warning: str | None = None
-    if raw_error and raw_error.startswith(_ILLUSTRATION_SKIP_PREFIX):
-        # ai_format._maybe_insert_images 给出的 "AI 决策为空" 信号 —— 不算 error
-        warning = raw_error[len(_ILLUSTRATION_SKIP_PREFIX) :]
-        format_error = None
-    elif (images_inserted or 0) == 0 and raw_error is None:
-        # 兜底：0 张图、无 error、无 skip_reason（防止未来 ai_format 改回不写前缀，
-        # writer 仍能拿到一个明确信号）
-        warning = "no images inserted (unknown reason — check server log)"
+    format_error, warning, requested, missed, missed_games = _resolve_illustration_outcome(
+        raw_error=raw_error,
+        images_inserted=images_inserted or 0,
+        fmt_diag=fmt_diag,
+    )
 
     return IllustrateResult(
         article_id=article_id,
@@ -183,4 +225,7 @@ def illustrate_one(
         cover_error=cover_error,
         format_error=format_error,
         warning=warning,
+        requested=requested,
+        missed=missed,
+        missed_games=missed_games,
     )

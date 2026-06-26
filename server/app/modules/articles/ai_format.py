@@ -715,6 +715,8 @@ def _maybe_insert_images(
     matched_refs: list[Any] = []
     matched_positions: list[int] = []
     used_ids: list[int] = []
+    requested_labels: list[str] = []  # 每个"AI 点名且能定位到栏目"的位置（应该配上图的）
+    missed_labels: list[str] = []  # requested 里最终没配上的（选不到图 + 联网也没补到）
     for idx, req_cat_id, game in positions:
         if max_images is not None and len(matched_refs) >= max_images:
             break  # 已达硬上限：停止扫描，后续位置不再取图/联网搜图
@@ -727,6 +729,9 @@ def _maybe_insert_images(
             target_cat_id = category.id if category is not None else None
         if target_cat_id is None:
             continue
+        # 走到这=AI 点名了且能定位到栏目=一个"应该配上图"的请求位置
+        label = game or f"category:{target_cat_id}"
+        requested_labels.append(label)
 
         image_id = pick_image_id(
             ImageQuery(category_ids=[target_cat_id], excluded_ids=used_ids), db
@@ -745,6 +750,7 @@ def _maybe_insert_images(
                     # 同步路径：就地联网搜图 + 下载 + 落库（旧行为，仅非多段式调用方走到）
                     image_id = _web_fallback_fill_category(db, category, image_search_query)
         if image_id is None:
+            missed_labels.append(label)  # 该配图但选不到/联网也没补到 → 记一笔 miss
             continue
 
         ref = fetch_image_by_id(image_id, db)
@@ -752,6 +758,17 @@ def _maybe_insert_images(
             used_ids.append(image_id)
             matched_refs.append(ref)
             matched_positions.append(idx)
+        else:
+            missed_labels.append(label)  # 拿到 image_id 但取不到 ref，同样没配上
+
+    # 部分配图诊断：requested=应配位置数 / inserted=实配数 / missed=差额（missed_games 给出具体游戏名）。
+    # 让上层（illustrate_one / writer）能发现"该 N 张只来 M 张"的部分失败，而非静默通过。
+    if out_diagnostics is not None:
+        out_diagnostics["requested"] = len(requested_labels)
+        out_diagnostics["inserted"] = len(matched_refs)
+        out_diagnostics["missed"] = len(requested_labels) - len(matched_refs)
+        if missed_labels:
+            out_diagnostics["missed_games"] = missed_labels
 
     if not matched_refs:
         if out_diagnostics is not None:
@@ -796,6 +813,7 @@ def run_ai_format(
     max_images: int | None = None,
     min_spacing: int | None = None,
     builtin_variant: str = "conservative",
+    out_diagnostics: dict[str, Any] | None = None,
 ) -> int:
     """识别正文小标题，并把更新后的 Tiptap 文档写回文章。返回实际插入并落库的图片数。
 
@@ -825,6 +843,7 @@ def run_ai_format(
             max_images=max_images,
             min_spacing=min_spacing,
             builtin_variant=builtin_variant,
+            out_diagnostics=out_diagnostics,
         )
 
     # 段1（短借连接）：读 + 第一道锁检查 + 拼提示词，随即归还连接
@@ -879,6 +898,7 @@ def run_ai_format(
             include_images=include_images,
             heading_indices=heading_indices,
             max_images=max_images,
+            out_diagnostics=out_diagnostics,
         )
     except Exception as exc:
         _ai_format_finalize_error(article_id, lock_started_at, exc)
@@ -1038,6 +1058,7 @@ def _ai_format_write_back(
     include_images: bool,
     heading_indices: set[int],
     max_images: int | None,
+    out_diagnostics: dict[str, Any] | None = None,
 ) -> int:
     """段3（短借连接）：第二道锁检查 + 配图（仅快 DB）+ 写回三份正文 + 清锁，单 session。
 
@@ -1096,6 +1117,8 @@ def _ai_format_write_back(
             f" + {image_count} images" if image_count else "",
             article_id,
         )
+        if out_diagnostics is not None:
+            out_diagnostics.update(image_diag)
         return image_count
     finally:
         db.close()
@@ -1130,6 +1153,7 @@ def _run_ai_format_web_fallback(
     max_images: int | None,
     min_spacing: int | None,
     builtin_variant: str,
+    out_diagnostics: dict[str, Any] | None = None,
 ) -> int:
     """web_fallback=True（AI配图 节点）多段式：慢 IO（LLM + 联网搜图下载）期间都不持 DB 连接（Task 1b）。
 
@@ -1210,6 +1234,7 @@ def _run_ai_format_web_fallback(
             heading_indices=heading_indices,
             image_search_query=prep.image_search_query,
             max_images=max_images,
+            out_diagnostics=out_diagnostics,
         )
     except Exception as exc:
         _ai_format_finalize_error(article_id, lock_started_at, exc)
@@ -1328,6 +1353,7 @@ def _web_fallback_collect_and_write_back(
     heading_indices: set[int],
     image_search_query: str | None,
     max_images: int | None,
+    out_diagnostics: dict[str, Any] | None = None,
 ) -> int:
     """串起段3（决策，短借）→ 段4（下载，无连接）→ 段5（落库写回，短借）。
 
@@ -1426,6 +1452,8 @@ def _web_fallback_collect_and_write_back(
             f" + {image_count} images" if image_count else "",
             article_id,
         )
+        if out_diagnostics is not None:
+            out_diagnostics.update(image_diag)
         return image_count
     finally:
         db.close()
