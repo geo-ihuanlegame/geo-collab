@@ -6,7 +6,7 @@ fail + 提示开发者：把新 sha 加进 KNOWN_BUNDLE_SHAS 并 bump
 LOOP_SKILL_BUNDLE_VERSION，强制「改模板必同步 bump 版本」纪律。
 """
 
-LOOP_SKILL_BUNDLE_VERSION = "2026-06-25-v4"
+LOOP_SKILL_BUNDLE_VERSION = "2026-06-26-v6"
 
 KNOWN_BUNDLE_SHAS: frozenset[str] = frozenset(
     {
@@ -27,5 +27,13 @@ KNOWN_BUNDLE_SHAS: frozenset[str] = frozenset(
         # （6 行日志 / 伪码 echo / notify_feishu / subagent description + 新增叙述规范段）
         "506d2a045eee9106962e97bad0cdf287d6a36f0de2cf2b62265c904be3f22b5c",  # CRLF (Windows host)
         "3c668186ff4edcd42b95f6b59cdc79b2c9045c09bd00692f4f11990c2de6f53b",  # LF (CI canonical)
+        # v5 (2026-06-26, web_fallback): writer SKILL 配图段 + 调用约定加
+        # web_fallback=True（图库里没有对应栏目的游戏走百度联网补图）。
+        "614fb5176177ec1dc703c625a2e2318f2634699d780e22b6cc78a1e5ae6e818d",  # CRLF (Windows host)
+        "957ba2c02327a257cd34dc5eede070d30abbea3b7e6983aa9981a2c46cbcc12d",  # LF (CI canonical)
+        # v6 (2026-06-26, 部分配图盲区): writer SKILL step5 加第 5 类信号 missed>0
+        # （partial：应配 N 张只来 M 张，即便有图也记 illustration_warnings）。
+        "091addcab9c96b0f78e72cc59d0b4b33f71cb272c8c13d35c75569b78f2debe6",  # CRLF (Windows host)
+        "54b826b5273fe83546adffbc537a018e6f6b26c117e8e07f04b19742ca035b24",  # LF (CI canonical)
     }
 )

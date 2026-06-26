@@ -278,6 +278,7 @@ async def ai_illustrate_article(
     include_companion: bool = True,
     aggressive_images: bool = True,
     set_cover: bool = True,
+    web_fallback: bool = False,
 ) -> dict[str, Any]:
     """AI-driven illustration + auto cover for one article (Web UI parity).
 
@@ -296,6 +297,13 @@ async def ai_illustrate_article(
             Default True matches Web UI default.
         set_cover: If True, also picks a random image from main_category_id
             as the article cover (only if cover not already set).
+        web_fallback: 联网兜底开关(对齐 Web UI「AI 配图」节点的同名开关)。
+            默认 False。开启后,当正文点到的游戏在本地图库【没有】对应栏目、
+            或匹配到的栏目【没有图】时,AI 可以用游戏名点名,GEO 会自动建一个
+            陪衬栏目 + 走百度(千帆 AI 搜索)联网搜一张横版图补进去——这样图库
+            里没有的新游戏也能配上图。**前提**:app 容器配了 GEO_BAIDU_API_KEY;
+            best-effort:key 缺失 / 网络失败时静默不补图、不报错(退化为关时行为)。
+            想让"图库无图也走百度补图"就传 web_fallback=True。
 
     Returns:
         {"ok": True, "data": {
@@ -307,17 +315,25 @@ async def ai_illustrate_article(
                                         # 0 images + warning != error: writer MUST still surface this
                                         # as an illustration_warnings entry so 0-image articles do
                                         # not enter the review pool silently.
+            "requested": int,           # AI 点名且能定位到栏目的位置数（"应该配上图"的张数）
+            "missed": int,              # requested 里最终没配上的张数（含联网也没补到）
+            "missed_games": list[str],  # 没配上的游戏名/栏目（定位是哪几款没图）
         }, "error": None}
 
     Caller contract (writer skill):
-        format_error / cover_error / warning 任一非空,或 images_inserted == 0
-        → 加进最终 JSON 的 illustration_warnings 数组,让 orchestrator / 飞书可见.
-        不要把 warning 当 error 抛——文章本身已落库可用,只是无图.
+        以下任一成立 → 加进最终 JSON 的 illustration_warnings 数组,让 orchestrator / 飞书可见:
+          - format_error / cover_error / warning 任一非空
+          - images_inserted == 0
+          - missed > 0（部分配图失败:该配 requested 张、只来 images_inserted 张。
+            即便 warning 已含 partial_images 文案,missed 是更结构化的判定依据——
+            别因为 images_inserted 非 0 就当完全成功）
+        不要把 warning / 部分 miss 当 error 抛——文章本身已落库可用,只是图不全.
     """
     body: dict[str, Any] = {
         "main_category_id": main_category_id,
         "include_companion": include_companion,
         "aggressive_images": aggressive_images,
         "set_cover": set_cover,
+        "web_fallback": web_fallback,
     }
     return await _apost(f"/api/articles/{article_id}/ai-illustrate", json=body)

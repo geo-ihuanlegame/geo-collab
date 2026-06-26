@@ -23,7 +23,7 @@
 - `list_question_pools()` / `list_question_items(pool_id, limit, category?)` — 拿候选选题
 - `list_prompt_templates(scope="generation")` — 拿可用模板（模板内容就是给你看的写作指令）
 - `save_article(question_item_id, prompt_template_id, title, markdown_content, model_label?)` — **你写好 markdown 后调这个落库**，返回 article_id；review_status 默认 pending（进未审核库）
-- `ai_illustrate_article(article_id, main_category_id, include_companion?, aggressive_images?, set_cover?)` — AI 智能配图 + 自动封面。走 `run_ai_format`：AI 读正文，按文中点到的游戏，从「主推栏目 + 所有陪衬栏目」匹配插图（**主推和陪衬游戏都会配**），并顺手设封面。**取代**老的 `illustrate_article(category_ids=[1])`——后者只从单一栏目盲塞 3 张图、永远配不到陪衬游戏
+- `ai_illustrate_article(article_id, main_category_id, include_companion?, aggressive_images?, set_cover?, web_fallback?)` — AI 智能配图 + 自动封面。走 `run_ai_format`：AI 读正文，按文中点到的游戏，从「主推栏目 + 所有陪衬栏目」匹配插图（**主推和陪衬游戏都会配**），并顺手设封面。**取代**老的 `illustrate_article(category_ids=[1])`——后者只从单一栏目盲塞 3 张图、永远配不到陪衬游戏。传 `web_fallback=True` 时，图库里没有对应栏目的游戏会自动建栏目 + 百度联网补图（见「注意事项」最后一条）
 - `submit_review_decision(article_id, decision, score_total?, score_breakdown?, reasoning?)` — 把你的自评决策写入审核记录（人审仍是终审）
 - `get_article(article_id)` — 取详情（debug 用，正常流程不需要）
 - `notify_feishu(title, message, level)` — 飞书通知
@@ -78,13 +78,22 @@ while success_count < 5 and attempts < 15:
     #   - main_category_id=1 = 主推栏目「餐厅养成记」（dev 库实测 id；fork 矩阵改这里）
     #   - include_companion 默认 True：AI 会自动从全部陪衬栏目给正文里点到的
     #     其它游戏配图——所以写作时务必把陪衬游戏用规范中文名点出来，AI 才匹配得到
-    ill = ai_illustrate_article(article_id=aid, main_category_id=1)
+    #   - web_fallback=True：图库里【没有】对应栏目的游戏，AI 也能点名，GEO 自动
+    #     建栏目 + 百度联网搜一张横版图补上（best-effort，需容器配 GEO_BAIDU_API_KEY；
+    #     没配则静默不补、不报错）。开它让"图库没有的新游戏"也配得上图
+    ill = ai_illustrate_article(article_id=aid, main_category_id=1, web_fallback=True)
     if ill.ok:
         d = ill.data
-        # 观测点：0 张图 / 带 warning / format_error 都意味着这篇可能没配上图。
+        # 观测点：0 张图 / missed>0（部分没配上）/ 带 warning / format_error 都意味着配图不全。
         # 典型 warning：ai_returned_no_positions（AI 没给位置）、
-        # no_match_in_categories（正文游戏在库里没有对应栏目）。
-        if (d.get("images_inserted") or 0) == 0 or d.get("warning") or d.get("format_error"):
+        # no_match_in_categories（正文游戏在库里没有对应栏目）、
+        # partial_images（应配 N 张只来 M 张，联网也没补齐）。
+        if (
+            (d.get("images_inserted") or 0) == 0
+            or (d.get("missed") or 0) > 0
+            or d.get("warning")
+            or d.get("format_error")
+        ):
             illustration_misses.append({"article_id": aid, **d})
     else:
         # ill.ok == False = MCP 调用本身失败；文章已落库，跳过配图继续
@@ -139,7 +148,8 @@ notify_feishu(
 - **始终通过 MCP 工具**：除了写 markdown 本身（属于主对话的输出），所有数据流动经过 `mcp__geo__*`。
 - **title vs markdown_content**：title 单字段传，**不要**在 markdown 顶部再写一遍 `# 标题`（save 端会把整块 markdown 转成 Tiptap 段落树，重复标题会进段落里）。
 - **失败 fallback**：单次失败 → 跳过这个 qid 而不是停整个 Loop；配图失败不影响主流程。
-- **配图机制（主推 vs 陪衬）**：`ai_illustrate_article` 一次调用就把「主推栏目（餐厅养成记）+ 全部陪衬栏目」一起喂给 AI，AI 按正文里点到的游戏分别匹配各自栏目插图——**主推和陪衬游戏都会配**，不用为陪衬游戏单独再调一次。陪衬出图的前提是：① 正文用规范中文名点到了那款游戏；② 该游戏在图库里有对应陪衬栏目且有图（dev 库现有 554 个有图的陪衬栏目，覆盖很全）。库里完全没有的全新游戏不会自动联网补图（loop 路径未开 `web_fallback`）——属预期，不算 bug。
+- **配图机制（主推 vs 陪衬）**：`ai_illustrate_article` 一次调用就把「主推栏目（餐厅养成记）+ 全部陪衬栏目」一起喂给 AI，AI 按正文里点到的游戏分别匹配各自栏目插图——**主推和陪衬游戏都会配**，不用为陪衬游戏单独再调一次。陪衬出图的前提是：① 正文用规范中文名点到了那款游戏；② 该游戏在图库里有对应陪衬栏目且有图（dev 库现有 554 个有图的陪衬栏目，覆盖很全）。
+- **图库无图时走百度（`web_fallback=True`，默认开）**：上面伪码调用 `ai_illustrate_article` 时已默认带 `web_fallback=True`。开了它，库里【完全没有】对应栏目的全新游戏不再被放弃——AI 用规范中文名点名后，GEO 自动建一个陪衬栏目 + 走百度（千帆 AI 搜索）联网搜一张横版图补进去，这样图库里没有的新游戏也配得上图。**前提**：app 容器配了 `GEO_BAIDU_API_KEY`；这是 best-effort——key 缺失 / 网络失败 / 搜不到横版图时静默跳过、不报错（行为退化成跟关掉时一样，绝不会让配图或主流程失败）。所以放心默认开着：配了 key 多一层联网兜底，没配也无副作用。
 - **飞书节制**：开始、结束、严重失败发；中间进度不发。
 - **policy_safety 维度从严**：合规分 < 80 一律不能给 approved（即使总分高）——人审兜底但减轻审核负担。
 - **写作风格**：餐厅养成记矩阵偏轻松实用，避免"开篇一段宏大的引入"——直接进主题。模板里的具体指引以模板为准。
