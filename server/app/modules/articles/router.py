@@ -1061,6 +1061,11 @@ class AiIllustrateResponse(BaseModel):
     # warning: 0 张图但非 error（AI 决策 / 候选无图等合法分支）。MCP loop writer
     # 必须把这里非空时也当作 illustration_warnings 上报，否则文章会无图入库且无人感知。
     warning: str | None = None
+    # 部分配图诊断：requested=应配位置数，missed=没配上张数，missed_games=没配上的游戏名。
+    # inserted < requested（missed>0）= "该 N 张只来 M 张"，warning 会带 partial_images 文案。
+    requested: int = 0
+    missed: int = 0
+    missed_games: list[str] = Field(default_factory=list)
 
 
 @articles_mcp_router.post(
@@ -1113,6 +1118,9 @@ def ai_illustrate_article_mcp(
         cover_error=result.cover_error,
         format_error=result.format_error,
         warning=result.warning,
+        requested=result.requested,
+        missed=result.missed,
+        missed_games=result.missed_games,
     )
 
 
