@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Brain, Globe, Trash2 } from "lucide-react";
 import { listAccounts } from "../../api/accounts";
-import { listAiEngines, listQuestionPools, listQuestionTypes } from "../../api/ai-generation";
+import { listAiEngines, listFormatEngines, listQuestionPools, listQuestionTypes } from "../../api/ai-generation";
 import { listArticleGroups } from "../../api/articles";
 import { listCategories } from "../../api/image-library";
 import {
@@ -275,6 +275,7 @@ export function PipelineEditor({ pipelineId, onChanged }:
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [pools, setPools] = useState<QuestionPool[]>([]);
   const [engines, setEngines] = useState<AiEngine[]>([]);
+  const [formatEngines, setFormatEngines] = useState<AiEngine[]>([]);
   const [genTemplates, setGenTemplates] = useState<PromptTemplate[]>([]);
   const [formatTemplates, setFormatTemplates] = useState<PromptTemplate[]>([]);
   const [mainCategories, setMainCategories] = useState<StockCategory[]>([]);
@@ -296,6 +297,7 @@ export function PipelineEditor({ pipelineId, onChanged }:
     listAccounts().then(setAccounts).catch(() => {});
     listQuestionPools().then(setPools).catch(() => {});
     listAiEngines().then(setEngines).catch(() => {});
+    listFormatEngines().then(setFormatEngines).catch(() => {});
     listPromptTemplates("generation")
       .then((ts) => setGenTemplates(ts.filter((t) => t.scope === "generation" && t.is_enabled)))
       .catch(() => {});
@@ -638,6 +640,15 @@ export function PipelineEditor({ pipelineId, onChanged }:
                           { config: { ...sel.config, [f.key]: e.target.value || null } })}>
                         <option value="">系统默认</option>
                         {engines.map((en) => (
+                          <option key={en.model} value={en.model}>{en.label || en.model}</option>
+                        ))}
+                      </select>
+                    : f.type === "format_engine"
+                    ? <select value={String(sel.config[f.key] ?? "")}
+                        onChange={(e) => updateNode(selected!,
+                          { config: { ...sel.config, [f.key]: e.target.value || null } })}>
+                        <option value="">系统默认</option>
+                        {formatEngines.map((en) => (
                           <option key={en.model} value={en.model}>{en.label || en.model}</option>
                         ))}
                       </select>

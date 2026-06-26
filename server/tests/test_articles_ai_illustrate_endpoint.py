@@ -81,3 +81,42 @@ def test_ai_illustrate_endpoint_returns_result_when_authed(monkeypatch):
         assert called["include_companion"] is False
     finally:
         test_app.cleanup()
+
+
+@pytest.mark.mysql
+def test_ai_illustrate_endpoint_passes_format_engine(monkeypatch):
+    """payload.format_engine → IllustrateOptions.format_model。"""
+    test_app = build_test_app(monkeypatch)
+    try:
+        monkeypatch.setenv("GEO_MCP_TOKEN", "secret")
+        from server.app.core import config
+
+        config.get_settings.cache_clear()
+
+        from server.app.modules.articles.ai_illustrate_svc import IllustrateResult
+
+        called: dict = {}
+
+        def fake_illustrate_one(*, article_id, main_category_id, user_id, options, session_factory):
+            called["format_model"] = options.format_model
+            return IllustrateResult(
+                article_id=article_id,
+                images_inserted=0,
+                cover_status="skipped",
+                cover_error=None,
+                format_error=None,
+            )
+
+        monkeypatch.setattr(
+            "server.app.modules.articles.router.illustrate_one", fake_illustrate_one
+        )
+
+        r = test_app.client.post(
+            "/api/articles/9/ai-illustrate",
+            json={"main_category_id": 1, "format_engine": "relay-model-x"},
+            headers={"X-MCP-Token": "secret"},
+        )
+        assert r.status_code == 200, r.text
+        assert called["format_model"] == "relay-model-x"
+    finally:
+        test_app.cleanup()

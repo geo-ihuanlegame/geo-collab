@@ -96,6 +96,10 @@ export function listAiEngines(): Promise<AiEngine[]> {
   return api<AiEngine[]>("/api/generation/ai-engines");
 }
 
+export function listFormatEngines(): Promise<AiEngine[]> {
+  return api<AiEngine[]>("/api/generation/format-engines");
+}
+
 export function listSchemes(): Promise<Scheme[]> {
   return api<Scheme[]>("/api/generation/schemes");
 }

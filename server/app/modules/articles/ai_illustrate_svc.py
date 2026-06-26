@@ -44,6 +44,8 @@ class IllustrateOptions:
     min_spacing: int | None = None
     preset_id: int | None = None
     set_cover: bool = True
+    # 配图模型（litellm 模型串，scope=ai_format）；None/"" = 走默认格式模型
+    format_model: str | None = None
 
 
 _ILLUSTRATION_SKIP_PREFIX = "[illustration_skip] "
@@ -178,6 +180,7 @@ def illustrate_one(
         max_images=max_images,
         min_spacing=min_spacing,
         builtin_variant=builtin_variant,
+        format_model_selected=options.format_model,
         out_diagnostics=fmt_diag,
     )
 

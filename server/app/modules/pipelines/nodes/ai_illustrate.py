@@ -44,6 +44,8 @@ def run_ai_illustrate(ctx: NodeRunContext) -> NodeResult:
     include_companion = bool(cfg.get("include_companion", True))
     web_fallback = bool(cfg.get("web_fallback", False))
     set_cover = bool(cfg.get("set_cover", True))
+    # 配图模型：空串/None = 走默认格式模型（resolve_format_engine 取 scope 默认行）
+    format_model = cfg.get("format_engine") or None
 
     # 配图风格 / 数量旋钮（节点自包含，不再回退 user.ai_format_preset_id）：
     # aggressive_images 默认开 → 用「积极配图」内置变体（每个明确出现的游戏都插）；关 → 保守变体。
@@ -70,6 +72,7 @@ def run_ai_illustrate(ctx: NodeRunContext) -> NodeResult:
                 min_spacing=min_spacing,
                 preset_id=effective_preset,
                 set_cover=set_cover,
+                format_model=format_model,
             ),
             session_factory=ctx.session_factory,
         )

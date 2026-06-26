@@ -35,11 +35,10 @@ KNOWN_BUNDLE_SHAS: frozenset[str] = frozenset(
         # （partial：应配 N 张只来 M 张，即便有图也记 illustration_warnings）。
         "091addcab9c96b0f78e72cc59d0b4b33f71cb272c8c13d35c75569b78f2debe6",  # CRLF (Windows host)
         "54b826b5273fe83546adffbc537a018e6f6b26c117e8e07f04b19742ca035b24",  # LF (CI canonical)
-        # v6 (2026-06-26, GitHub PR #162 merge 产物): GitHub 私人镜像 main 落后在 v4，与本分支
-        # v6 走 squash/merge 不同历史、共同祖先很老，PR 的 3-way merge 把两边 loop_skills 改动
-        # 合并出第三种字节序列（内容语义=干净 v6、writer SKILL 不重复，仅行级合并产物 sha 不同）。
-        # GitHub CI 在该 merge commit 上算此值；加入以放行 PR #162。GitLab 主力 main 已是干净 v6，
-        # 自身 merge 算 54b826（上一行），不需要这个值——它只为 GitHub 镜像的 3-way merge 存在。
-        "9dfb1db0508d9f930d99e74a25ee6b257c78ed12c4caf2301b1faf4ed708be4b",  # LF (GitHub PR #162 merge)
+        # v6 merge 产物 (2026-06-26): 把 feat 分支 merge 进 main 时，GitLab 与 GitHub 两边的
+        # 3-way merge 都会产出这第三种字节序列（语义=干净 v6，writer SKILL 不重复，仅行级合并
+        # 产物 sha 不同）。GitLab pipeline #342 在 merge commit b7b5912 上实测算出此值；GitHub
+        # PR #162 merge 也算出同值。两边 CI 都需要它放行（早前注释误判「GitLab 不需要」，已订正）。
+        "9dfb1db0508d9f930d99e74a25ee6b257c78ed12c4caf2301b1faf4ed708be4b",  # LF (3-way merge product)
     }
 )

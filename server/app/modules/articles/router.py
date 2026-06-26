@@ -1051,6 +1051,8 @@ class AiIllustratePayload(BaseModel):
     min_spacing: int | None = Field(default=None, ge=1, le=20)
     preset_id: int | None = None
     set_cover: bool = True
+    # 配图模型（litellm 模型串，scope=ai_format）；None/"" = 默认格式模型
+    format_engine: str | None = None
 
 
 class AiIllustrateResponse(BaseModel):
@@ -1099,6 +1101,7 @@ def ai_illustrate_article_mcp(
                 min_spacing=payload.min_spacing,
                 preset_id=payload.preset_id,
                 set_cover=payload.set_cover,
+                format_model=payload.format_engine,
             ),
             session_factory=SessionLocal,
         )

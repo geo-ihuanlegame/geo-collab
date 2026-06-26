@@ -279,6 +279,7 @@ async def ai_illustrate_article(
     aggressive_images: bool = True,
     set_cover: bool = True,
     web_fallback: bool = False,
+    format_engine: str | None = None,
 ) -> dict[str, Any]:
     """AI-driven illustration + auto cover for one article (Web UI parity).
 
@@ -304,6 +305,8 @@ async def ai_illustrate_article(
             里没有的新游戏也能配上图。**前提**:app 容器配了 GEO_BAIDU_API_KEY;
             best-effort:key 缺失 / 网络失败时静默不补图、不报错(退化为关时行为)。
             想让"图库无图也走百度补图"就传 web_fallback=True。
+        format_engine: 配图所用 LLM 模型串（scope=ai_format，需在「AI 模型管理」里存在并启用）。
+            None = 用默认格式模型。用于给配图换中转/不同模型，与 Web UI「AI配图」节点的下拉等价。
 
     Returns:
         {"ok": True, "data": {
@@ -335,5 +338,6 @@ async def ai_illustrate_article(
         "aggressive_images": aggressive_images,
         "set_cover": set_cover,
         "web_fallback": web_fallback,
+        "format_engine": format_engine,
     }
     return await _apost(f"/api/articles/{article_id}/ai-illustrate", json=body)

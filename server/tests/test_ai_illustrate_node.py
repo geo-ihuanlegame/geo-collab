@@ -84,6 +84,7 @@ def test_ai_illustrate_candidates_and_passthrough(monkeypatch):
             max_images=None,
             min_spacing=None,
             builtin_variant="conservative",
+            format_model_selected=None,
             out_diagnostics=None,
         ):
             captured["article_id"] = article_id
@@ -442,5 +443,104 @@ def test_illustrate_one_surfaces_partial_miss(monkeypatch):
         assert result.requested == 2 and result.missed == 1
         assert result.format_error is None
         assert result.warning and "游戏乙" in result.warning
+    finally:
+        app.cleanup()
+
+
+@pytest.mark.mysql
+def test_ai_format_prepare_threads_selected_model(monkeypatch):
+    """_ai_format_prepare 把 format_model_selected 透传给 resolve_format_engine，
+    并把解析出的 model/base_url（含 Claude 中转地址）带进 prep。"""
+    app = build_test_app(monkeypatch)
+    try:
+        aid = _make_article(app.client)
+        uid = _uid(app)
+        captured: dict = {}
+
+        def _spy_resolve(db, selected=None):
+            captured["selected"] = selected
+            return ("relay-model-x", "sk-relay", "https://relay.example/v1", 120)
+
+        # resolve_format_engine 在 _ai_format_prepare 内部按需 import，故 patch 源模块属性
+        monkeypatch.setattr(
+            "server.app.modules.ai_models.service.resolve_format_engine", _spy_resolve
+        )
+
+        from server.app.modules.articles.ai_format import _ai_format_prepare
+
+        prep = _ai_format_prepare(
+            aid,
+            lock_started_at=None,
+            include_images=False,
+            preset_id=None,
+            user_id=uid,
+            candidate_categories=None,
+            max_images=None,
+            min_spacing=None,
+            builtin_variant="conservative",
+            format_model_selected="relay-model-x",
+        )
+        assert captured["selected"] == "relay-model-x"
+        assert prep is not None
+        assert prep.model == "relay-model-x"
+        assert prep.base_url == "https://relay.example/v1"
+    finally:
+        app.cleanup()
+
+
+@pytest.mark.mysql
+def test_ai_illustrate_passes_format_model(monkeypatch):
+    """节点 cfg.format_engine → IllustrateOptions.format_model → run_ai_format(format_model_selected=...)。"""
+    app = build_test_app(monkeypatch)
+    try:
+        main_id = _make_category(app, "主推A", "main-a", "main")
+        aid = _make_article(app.client)
+        uid = _uid(app)
+        captured = _capture_knobs(monkeypatch)
+
+        from server.app.modules.pipelines.nodes.ai_illustrate import run_ai_illustrate
+        from server.app.modules.pipelines.nodes.base import NodeRunContext
+
+        run_ai_illustrate(
+            NodeRunContext(
+                session_factory=app.session_factory,
+                user_id=uid,
+                config={
+                    "main_category_id": main_id,
+                    "format_engine": "relay-model-x",
+                    "set_cover": False,
+                },
+                inputs={"article_ids": [aid]},
+                upstream={},
+            )
+        )
+        assert captured["format_model_selected"] == "relay-model-x"
+    finally:
+        app.cleanup()
+
+
+@pytest.mark.mysql
+def test_ai_illustrate_format_model_default_none(monkeypatch):
+    """不配 format_engine → format_model_selected 透传 None（走默认格式模型）。"""
+    app = build_test_app(monkeypatch)
+    try:
+        main_id = _make_category(app, "主推A", "main-a", "main")
+        aid = _make_article(app.client)
+        uid = _uid(app)
+        captured = _capture_knobs(monkeypatch)
+
+        from server.app.modules.pipelines.nodes.ai_illustrate import run_ai_illustrate
+        from server.app.modules.pipelines.nodes.base import NodeRunContext
+
+        run_ai_illustrate(
+            NodeRunContext(
+                session_factory=app.session_factory,
+                user_id=uid,
+                config={"main_category_id": main_id, "set_cover": False},
+                inputs={"article_ids": [aid]},
+                upstream={},
+            )
+        )
+        assert captured["format_model_selected"] is None
     finally:
         app.cleanup()

@@ -813,6 +813,7 @@ def run_ai_format(
     max_images: int | None = None,
     min_spacing: int | None = None,
     builtin_variant: str = "conservative",
+    format_model_selected: str | None = None,
     out_diagnostics: dict[str, Any] | None = None,
 ) -> int:
     """识别正文小标题，并把更新后的 Tiptap 文档写回文章。返回实际插入并落库的图片数。
@@ -843,6 +844,7 @@ def run_ai_format(
             max_images=max_images,
             min_spacing=min_spacing,
             builtin_variant=builtin_variant,
+            format_model_selected=format_model_selected,
             out_diagnostics=out_diagnostics,
         )
 
@@ -858,6 +860,7 @@ def run_ai_format(
             max_images=max_images,
             min_spacing=min_spacing,
             builtin_variant=builtin_variant,
+            format_model_selected=format_model_selected,
         )
     except Exception as exc:
         _ai_format_finalize_error(article_id, lock_started_at, exc)
@@ -958,6 +961,7 @@ def _ai_format_prepare(
     max_images: int | None,
     min_spacing: int | None,
     builtin_variant: str,
+    format_model_selected: str | None = None,
     web_fallback: bool = False,
 ) -> _AiFormatPrep | None:
     """段1（短借连接）：读文章 + 第一道锁检查 + 拼提示词，return 前归还连接。
@@ -995,7 +999,9 @@ def _ai_format_prepare(
         # 格式·配图模型走 DB 注册表（scope=ai_format 默认行）；无行回落 settings.ai_format_*
         from server.app.modules.ai_models.service import resolve_format_engine
 
-        format_model, format_key, format_base_url, format_timeout = resolve_format_engine(db, None)
+        format_model, format_key, format_base_url, format_timeout = resolve_format_engine(
+            db, format_model_selected
+        )
         api_key = format_key or None
         if not api_key:
             raise AIFormatConfigurationError(
@@ -1153,6 +1159,7 @@ def _run_ai_format_web_fallback(
     max_images: int | None,
     min_spacing: int | None,
     builtin_variant: str,
+    format_model_selected: str | None = None,
     out_diagnostics: dict[str, Any] | None = None,
 ) -> int:
     """web_fallback=True（AI配图 节点）多段式：慢 IO（LLM + 联网搜图下载）期间都不持 DB 连接（Task 1b）。
@@ -1176,6 +1183,7 @@ def _run_ai_format_web_fallback(
             max_images=max_images,
             min_spacing=min_spacing,
             builtin_variant=builtin_variant,
+            format_model_selected=format_model_selected,
             web_fallback=True,
         )
     except Exception as exc:

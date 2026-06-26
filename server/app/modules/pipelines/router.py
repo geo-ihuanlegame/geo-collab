@@ -173,6 +173,12 @@ def get_node_types() -> dict:
                         "type": "stock_category_main",
                         "label": "图片库 · 主推游戏",
                     },
+                    {
+                        "key": "format_engine",
+                        "type": "format_engine",
+                        "label": "配图模型（留空=默认）",
+                        "hint": "选「AI 模型管理」里 用途=格式·配图 的模型；留空走默认格式模型",
+                    },
                     # 配图风格：开=「积极配图」(每个明确出现的游戏都插，保留"不确定不插"准星)，
                     # 关=保守(图少文多)。默认开。见 ai_format._builtin_prompt_template 的 aggressive 变体。
                     {
