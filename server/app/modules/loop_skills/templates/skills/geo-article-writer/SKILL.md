@@ -17,7 +17,13 @@ description: Use when spawned as a writer subagent by /goal, or when manually
    或直接用 input 里给的 question_text 兜底（如果 orchestrator 已经带过来）
 2. get template — `list_prompt_templates(scope="generation")` 找到 tpl_id 的 content
 3. 写 markdown body（约束见下）
-4. `save_article(question_item_id, prompt_template_id, title, markdown_content, model_label)`
+4. `save_article(question_item_id, prompt_template_id, title, markdown_content,
+   model_label, prompt_template_name=<step 2 拿到的 tpl.name>,
+   question_text_preview=<step 1 拿到的 question_text 前 ~40 字>)` —
+   后两个**展示参数**是给 Claude Code UI 看的：传了之后工具调用渲染会显示
+   `prompt_template_id: 13, prompt_template_name: "游戏情绪清单"`，运营在主对话里
+   一眼就知道用了哪个模板 / 哪个问题，不用回头查数字。后端会丢弃这两字段
+   （Pydantic `extra='ignore'`），传错不报错——但**务必传**，否则 UI 只显示数字
 5. **配图前先判断正文结构,决定要不要传显式游戏清单 `game_positions`:**
    - 若你写的是**每款游戏各占一个 `##` 小标题**的推荐 / 盘点类文章 → **逐款收一份
      `game_positions`**:每个出现的游戏一项,`game` 用它在小标题里的规范中文名(和小标题

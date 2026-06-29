@@ -3,7 +3,9 @@
 复用 articles/ai_illustrate_svc.py 的 illustrate_one——pipeline 节点和 /goal
 MCP loop 都调它，保证两条路径配图效果一致.
 
-并发 max_workers=4，单篇失败收进 errors（partial_failed），不中断.
+并发 max_workers=2，单篇失败收进 errors（partial_failed），不中断.
+（配图搜图最终堵在 baidu.py 进程级全局限速闸 ~3 QPS，并发开太大只是徒增排队/超时；
+故意压低，配合 GEO_PIPELINE_MAX_CONCURRENT_RUNS=3 把全局同时在配图的篇数封在 ~6 内。）
 """
 
 from __future__ import annotations
@@ -81,7 +83,7 @@ def run_ai_illustrate(ctx: NodeRunContext) -> NodeResult:
     covers_set = 0
     cover_errors: list[str] = []
     format_errors_from_results: list[str] = []
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    with ThreadPoolExecutor(max_workers=2) as pool:
         futures = {submit_in_context(pool, _one, aid): aid for aid in article_ids}
         for fut in as_completed(futures):
             try:

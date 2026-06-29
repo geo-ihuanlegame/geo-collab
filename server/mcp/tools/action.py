@@ -72,6 +72,8 @@ async def save_article(
     title: str,
     markdown_content: str,
     model_label: str | None = None,
+    prompt_template_name: str | None = None,
+    question_text_preview: str | None = None,
 ) -> dict[str, Any]:
     """Save a Claude Code-generated article (markdown) into GEO.
 
@@ -82,7 +84,9 @@ async def save_article(
     Workflow for the generation loop:
         1. Call list_question_items / list_prompt_templates to pick a question + template.
         2. Compose the article markdown yourself in this conversation.
-        3. Call save_article(question_item_id, prompt_template_id, title, markdown_content).
+        3. Call save_article(question_item_id, prompt_template_id, title, markdown_content,
+                             prompt_template_name=tpl.name,
+                             question_text_preview=item.question_text[:40]).
         4. Then illustrate_article + submit_review_decision as usual.
 
     Args:
@@ -96,6 +100,13 @@ async def save_article(
             standard MD for lists / bold / etc. Converted to Tiptap JSON + HTML on save.
         model_label: Optional identifier of the writer (e.g. "claude-opus-4-7"). Stored
             in article.metrics['writer_model'] for later analytics.
+        prompt_template_name: Optional display-only label, e.g. "游戏情绪清单". When passed,
+            Claude Code UI renders the tool call as
+            `prompt_template_id: 13, prompt_template_name: "游戏情绪清单"` so humans can
+            read along instead of staring at bare numbers. Backend ignores this field
+            (SaveArticleFromMcpPayload uses Pydantic default extra='ignore').
+        question_text_preview: Optional display-only preview of question_text (recommend
+            first ~40 chars). Same intent as prompt_template_name. Backend ignores.
 
     Returns:
         {"ok": True, "data": {"article_id": N}, "error": None}
@@ -109,6 +120,12 @@ async def save_article(
     }
     if model_label:
         payload["model_label"] = model_label
+    # 这两字段后端会丢弃；保留进 payload 一方面让后续审计 / 日志层可选拾取，
+    # 另一方面 LLM 看到这两参数在示例里就更愿意填，UI 渲染才会显式展示中文名。
+    if prompt_template_name:
+        payload["prompt_template_name"] = prompt_template_name
+    if question_text_preview:
+        payload["question_text_preview"] = question_text_preview
     return await _apost("/api/articles/save-from-mcp", json=payload)
 
 
