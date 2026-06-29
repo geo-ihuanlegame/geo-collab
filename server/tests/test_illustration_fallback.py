@@ -196,9 +196,7 @@ def test_illustrate_one_fills_missed_via_endpoint(monkeypatch):
                 db.commit()
             out = kwargs.get("out_diagnostics")
             if out is not None:
-                out.update(
-                    {"requested": 3, "inserted": 1, "missed": 2, "missed_games": ["B", "C"]}
-                )
+                out.update({"requested": 3, "inserted": 1, "missed": 2, "missed_games": ["B", "C"]})
             return 1
 
         monkeypatch.setattr(
