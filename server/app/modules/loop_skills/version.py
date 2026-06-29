@@ -54,6 +54,12 @@ KNOWN_BUNDLE_SHAS: frozenset[str] = frozenset(
         # 不用回头查数字。后端 SaveArticleFromMcpPayload 用 Pydantic 默认 extra='ignore'
         # 丢弃这两字段，无需后端 schema 改动。
         "128eb1d6a0198fe62313474ef47f0c63788068c348814177853cb790cec404b7",  # CRLF (Windows host)
-        "e9da575b99e750f919713f1f8f678f0fbb17d71713ce91849bcf911321343111",  # LF (CI canonical)
+        "e9da575b99e750f919713f1f8f678f0fbb17d71713ce91849bcf911321343111",  # LF (Windows 序)
+        # 上面 e9da575 实为 Windows 序值（曾误标「CI canonical」）。build_bundle 的
+        # sorted(rglob) 排的是 Path 对象：Windows 大小写不敏感→commands/ 在 README.md 之前；
+        # Linux(CI)大小写敏感→README.md(R=82)在 commands/(c=99)之前。同内容两序两 sha。
+        # 下面才是 GitHub Actions(Linux)实测真实 LF sha（v8 直接合主干没跑 CI 才漏记）。
+        # 实测 run 28358*（PR #171 backend-tests）。根因（sorted 跨 OS 不确定）建议后续单独修。
+        "095a801c4751b119366c268d495016eeffaead3670b3b920ee64ad7a6bd110d2",  # LF (Linux/CI canonical)
     }
 )
