@@ -20,7 +20,7 @@ class McpConfig:
             "GEO_MCP_INTERNAL_API_URL",
             "http://127.0.0.1:8000",
         )
-        self.timeout_seconds = float(os.environ.get("GEO_MCP_TIMEOUT_SECONDS", "30"))
+        self.timeout_seconds = float(os.environ.get("GEO_MCP_TIMEOUT_SECONDS", "60"))
 
     def assert_ready(self) -> None:
         if not self.token:
