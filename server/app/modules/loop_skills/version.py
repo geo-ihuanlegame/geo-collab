@@ -6,7 +6,7 @@ fail + 提示开发者：把新 sha 加进 KNOWN_BUNDLE_SHAS 并 bump
 LOOP_SKILL_BUNDLE_VERSION，强制「改模板必同步 bump 版本」纪律。
 """
 
-LOOP_SKILL_BUNDLE_VERSION = "2026-06-29-v8"
+LOOP_SKILL_BUNDLE_VERSION = "2026-06-29-v9"
 
 KNOWN_BUNDLE_SHAS: frozenset[str] = frozenset(
     {
@@ -55,5 +55,14 @@ KNOWN_BUNDLE_SHAS: frozenset[str] = frozenset(
         # 丢弃这两字段，无需后端 schema 改动。
         "128eb1d6a0198fe62313474ef47f0c63788068c348814177853cb790cec404b7",  # CRLF (Windows host)
         "e9da575b99e750f919713f1f8f678f0fbb17d71713ce91849bcf911321343111",  # LF (CI canonical)
+        # v9 (2026-06-29, tpl_id 命令行覆盖): orchestrator SKILL Goal Parsing 表加 tpl_id
+        # 字段 + 主循环 `tpl_id = target.tpl_id or templates[attempts % len(templates)].id`。
+        # 用户在 /goal 里写 `生文提示词Id=13` / `生文提示词 #13` / `用生文提示词 13`（也
+        # 兼容旧写法 `tpl=13` / `模板 #13`）即固定走该提示词；缺省仍是全提示词 round-robin
+        # 轮转。启动检查日志加「生文提示词：<#id 写死|轮转>」字段让运营在主对话里一眼可见；
+        # 中文叙述对照表把「模板」统一改成「生文提示词」，与后端 PromptTemplate schema
+        # 命名一致。
+        "b360c4086ec0aca8db7ffdbd961172bd5c9be15951180236ec71944353045f61",  # CRLF (Windows host)
+        "f40f9c28625e8e430fd4ebaa538d83a44d32b804d5c7e6cb5fc5662731218001",  # LF (CI canonical)
     }
 )
