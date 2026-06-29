@@ -378,7 +378,7 @@ crontab -e
 在 crontab 中添加以下行：
 
 ```
-# 每天 03:00 备份 geo_collab 数据库，保留最近 7 天
+# 每天 03:00 备份 geo_collab 数据库，保留最近 3 天
 0 3 * * * MYSQL_PASSWORD=$(grep MYSQL_PASSWORD ~/geo/.env | cut -d= -f2) bash ~/geo/scripts/backup_db.sh >> ~/geo/backups/backup.log 2>&1
 ```
 
@@ -389,7 +389,7 @@ crontab -l
 ```
 
 > `>> backup.log 2>&1` 把 mysqldump/docker 的 stderr 也接进日志，否则连 MySQL 失败时只能去 `/var/mail/$USER` 找错误。
-> 默认保留 7 天，可在调用前覆盖：`BACKUP_KEEP_DAYS=30 bash ~/geo/scripts/backup_db.sh`
+> 默认保留 3 天，可在调用前覆盖：`BACKUP_KEEP_DAYS=30 bash ~/geo/scripts/backup_db.sh`
 
 ---
 
@@ -488,7 +488,7 @@ bash scripts/backup_files.sh
 |---|---|---|
 | `BACKUP_SKIP_MINIO=1` | 不跳过 | 跳过 minio，只备份 app_data |
 | `BACKUP_SKIP_BROWSER_PROFILES=1` | 不跳过 | 跳过 `browser_states/*/*/profile/`，只保留登录态 `storage_state.json`。当 chromium profile 太大或发布期间可能被持有时建议开启 |
-| `BACKUP_KEEP_DAYS=N` | 7 | 自动清理超过 N 天的旧备份 |
+| `BACKUP_KEEP_DAYS=N` | 3 | 自动清理超过 N 天的旧备份 |
 | `COMPOSE_PROJECT_NAME=xxx` | 仓库目录名 | 如果 compose 项目名和目录名不一致，必须设置 |
 
 **完整的每日自动备份 cron（MySQL + 文件）**

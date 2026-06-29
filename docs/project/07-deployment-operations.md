@@ -159,7 +159,7 @@ docker compose logs -f app             # 看启动日志
 推荐 cron（与 `DEPLOYMENT.md` 一致）：
 
 ```cron
-# 每天 03:00 备份 MySQL（保留 7 天）
+# 每天 03:00 备份 MySQL（保留 3 天）
 0 3 * * * MYSQL_PASSWORD=$(grep MYSQL_PASSWORD ~/geo/.env | cut -d= -f2) bash ~/geo/scripts/backup_db.sh >> ~/geo/backups/backup.log 2>&1
 # 每天 03:30 备份文件（默认跳过 chromium profile，只留 storage_state）
 30 3 * * * BACKUP_SKIP_BROWSER_PROFILES=1 bash ~/geo/scripts/backup_files.sh >> ~/geo/backups/backup.log 2>&1
