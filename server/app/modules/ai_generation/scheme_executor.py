@@ -26,7 +26,11 @@ from server.app.modules.ai_generation.models import (
     GenerationSchemeRunTask,
 )
 from server.app.modules.ai_generation.scheme_service import get_line_questions, get_lines
-from server.app.modules.articles.ai_format import all_category_contexts, run_ai_format
+from server.app.modules.articles.ai_format import (
+    all_category_contexts,
+    run_ai_format,
+    run_ai_format_from_game_list,
+)
 from server.app.modules.prompt_templates.service import get_visible_prompt_template
 from server.app.shared.concurrency import ObservableGate, register_gate
 from server.app.shared.errors import ConflictError
@@ -423,6 +427,7 @@ def _auto_format_article(
         lock_started_at = utcnow().replace(microsecond=0)
         preset_id: int | None = None
         candidate_categories: list[Any] = []
+        game_positions: list[dict] | None = None
 
         db = session_factory()
         try:
@@ -431,6 +436,8 @@ def _auto_format_article(
                 return
             if not has_ai_format_targets(article.content_json):
                 return
+            # 写作模型盖的显式游戏清单（盘点 / 推荐文）→ 走确定性落图；无则回退弱模型识别
+            game_positions = (article.metrics or {}).get("game_positions")
             user = db.get(User, user_id)
             preset_id = getattr(user, "ai_format_preset_id", None) if user else None
             candidate_categories = all_category_contexts(db)
@@ -441,14 +448,27 @@ def _auto_format_article(
         finally:
             db.close()
 
-        run_ai_format(
-            article_id,
-            include_images=True,
-            lock_started_at=lock_started_at,
-            preset_id=preset_id,
-            user_id=user_id,
-            candidate_categories=candidate_categories,
-        )
+        if game_positions:
+            run_ai_format_from_game_list(
+                article_id,
+                lock_started_at=lock_started_at,
+                game_list=game_positions,
+                preset_id=preset_id,
+                user_id=user_id,
+                candidate_categories=candidate_categories,
+                max_images=12,  # 积极配图：盘点文每款一图（确定性路 min_spacing 不生效）
+                min_spacing=1,
+                builtin_variant="aggressive",
+            )
+        else:
+            run_ai_format(
+                article_id,
+                include_images=True,
+                lock_started_at=lock_started_at,
+                preset_id=preset_id,
+                user_id=user_id,
+                candidate_categories=candidate_categories,
+            )
     except Exception:  # noqa: BLE001 — 自动排版失败不影响生文结果
         logger.exception("auto ai_format failed for article %s", article_id)
 

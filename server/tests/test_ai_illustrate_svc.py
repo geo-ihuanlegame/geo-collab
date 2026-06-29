@@ -371,3 +371,124 @@ def test_illustrate_one_zero_images_no_error_falls_back_to_unknown_warning(monke
         assert "unknown reason" in result.warning
     finally:
         test_app.cleanup()
+
+
+def _patch_game_list_format(monkeypatch, return_value: int = 5) -> list:
+    """Mock run_ai_format_from_game_list（确定性落图入口）→ 记录调用参数。"""
+    calls: list[dict[str, Any]] = []
+
+    def fake(article_id, **kwargs):
+        calls.append({"article_id": article_id, **kwargs})
+        return return_value
+
+    monkeypatch.setattr(
+        "server.app.modules.articles.ai_illustrate_svc.run_ai_format_from_game_list", fake
+    )
+    return calls
+
+
+def _stamp_game_positions(test_app, article_id: int, game_positions: list[dict]) -> None:
+    from server.app.modules.articles.models import Article
+
+    db = test_app.session_factory()
+    try:
+        art = db.get(Article, article_id)
+        art.metrics = {"game_positions": game_positions}
+        db.commit()
+    finally:
+        db.close()
+
+
+@pytest.mark.mysql
+def test_illustrate_reads_stamp_when_option_none(monkeypatch):
+    """options.game_list=None 但文章 metrics 带 game_positions → 走确定性 run_ai_format_from_game_list。"""
+    test_app = build_test_app(monkeypatch)
+    try:
+        from server.app.modules.articles.ai_illustrate_svc import (
+            IllustrateOptions,
+            illustrate_one,
+        )
+
+        aid = _mk_article(test_app)
+        _mk_stock_category(test_app, cat_id=42)
+        _stamp_game_positions(test_app, aid, [{"game": "原神"}])
+        weak = _patch_run_ai_format(monkeypatch, return_value=3)
+        det = _patch_game_list_format(monkeypatch, return_value=5)
+        _patch_cover(monkeypatch)
+
+        result = illustrate_one(
+            article_id=aid,
+            main_category_id=42,
+            user_id=test_app.admin_id,
+            options=IllustrateOptions(),  # game_list 默认 None
+            session_factory=test_app.session_factory,
+        )
+
+        assert result.images_inserted == 5
+        assert len(det) == 1
+        assert det[0]["game_list"] == [{"game": "原神"}]
+        assert weak == []  # 弱模型路径未被调用
+    finally:
+        test_app.cleanup()
+
+
+@pytest.mark.mysql
+def test_explicit_game_list_wins_over_stamp(monkeypatch):
+    """显式 options.game_list 优先于文章 stamp。"""
+    test_app = build_test_app(monkeypatch)
+    try:
+        from server.app.modules.articles.ai_illustrate_svc import (
+            IllustrateOptions,
+            illustrate_one,
+        )
+
+        aid = _mk_article(test_app)
+        _mk_stock_category(test_app, cat_id=42)
+        _stamp_game_positions(test_app, aid, [{"game": "来自stamp"}])
+        _patch_run_ai_format(monkeypatch, return_value=3)
+        det = _patch_game_list_format(monkeypatch, return_value=5)
+        _patch_cover(monkeypatch)
+
+        illustrate_one(
+            article_id=aid,
+            main_category_id=42,
+            user_id=test_app.admin_id,
+            options=IllustrateOptions(game_list=[{"game": "显式优先"}]),
+            session_factory=test_app.session_factory,
+        )
+
+        assert len(det) == 1
+        assert det[0]["game_list"] == [{"game": "显式优先"}]  # 不读 stamp
+    finally:
+        test_app.cleanup()
+
+
+@pytest.mark.mysql
+def test_no_stamp_no_option_uses_run_ai_format(monkeypatch):
+    """无 stamp 且 options.game_list=None → 回退现有 run_ai_format（现状不破）。"""
+    test_app = build_test_app(monkeypatch)
+    try:
+        from server.app.modules.articles.ai_illustrate_svc import (
+            IllustrateOptions,
+            illustrate_one,
+        )
+
+        aid = _mk_article(test_app)
+        _mk_stock_category(test_app, cat_id=42)
+        weak = _patch_run_ai_format(monkeypatch, return_value=3)
+        det = _patch_game_list_format(monkeypatch, return_value=5)
+        _patch_cover(monkeypatch)
+
+        result = illustrate_one(
+            article_id=aid,
+            main_category_id=42,
+            user_id=test_app.admin_id,
+            options=IllustrateOptions(),
+            session_factory=test_app.session_factory,
+        )
+
+        assert result.images_inserted == 3
+        assert len(weak) == 1
+        assert det == []  # 确定性路径未被调用
+    finally:
+        test_app.cleanup()

@@ -147,6 +147,7 @@ def illustrate_one(
     # 阶段 1: 配图 (持锁 + run_ai_format)
     lock_started_at = utcnow().replace(microsecond=0)
     candidate_categories: list = []
+    stamped_game_list: list | None = None
 
     db = session_factory()
     try:
@@ -159,6 +160,8 @@ def illustrate_one(
             return IllustrateResult(
                 article_id=article_id, format_error="no ai_format_targets in content"
             )
+        # web 生文写作模型盖的显式游戏清单（缺省路径的 stamp 兜底，显式 options 优先）
+        stamped_game_list = (article.metrics or {}).get("game_positions")
         candidate_categories = category_contexts_for(
             db,
             main_category_id=main_category_id,
@@ -172,11 +175,13 @@ def illustrate_one(
         db.close()
 
     fmt_diag: dict = {}
-    if options.game_list is not None:
+    # 显式 options.game_list 优先；缺省时回退文章 stamp（web 生文盖的 game_positions）
+    effective_game_list = options.game_list if options.game_list is not None else stamped_game_list
+    if effective_game_list is not None:
         images_inserted = run_ai_format_from_game_list(
             article_id,
             lock_started_at=lock_started_at,
-            game_list=options.game_list,
+            game_list=effective_game_list,
             preset_id=options.preset_id,
             user_id=user_id,
             candidate_categories=candidate_categories,

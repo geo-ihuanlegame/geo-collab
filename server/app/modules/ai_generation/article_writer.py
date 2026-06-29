@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import uuid
@@ -126,6 +127,34 @@ def extract_title_and_body(md_content: str) -> tuple[str, str]:
     return _truncate_title(first, _FALLBACK_TITLE_MAX), body
 
 
+# 取 ```json 围栏块；仅当解析为含 list 型 "games" 的 dict（=我们的哨兵）才认。
+# 注：与 ai_format.py:_extract_json 正则近似，但本函数要 span（剥块）+ 最后一个 +
+# games 键校验，契约不同，故另写小函数、不跨模块耦合那个私有 helper。
+_GAMES_FENCE_RE = re.compile(r"```json\s*(\{.*?\})\s*```", re.DOTALL)
+
+
+def _split_games_block(md_content: str) -> tuple[str, list[str]]:
+    """从模型输出尾部抽 {"games":[...]} 哨兵块 → (剥离后的正文, 游戏名列表)。
+
+    - 仅识别最后一个 ```json 围栏；解析为 dict 且含 list 型 "games" 才认（剥块 + 取名）。
+    - 非哨兵 / 坏 JSON / 无块 → 原样返回正文 + []（零回归，绝不误吃正文里的代码块）。
+    """
+    text = md_content or ""
+    matches = list(_GAMES_FENCE_RE.finditer(text))
+    if not matches:
+        return text, []
+    m = matches[-1]
+    try:
+        obj = json.loads(m.group(1))
+    except (ValueError, TypeError):
+        return text, []
+    if not isinstance(obj, dict) or not isinstance(obj.get("games"), list):
+        return text, []
+    games = [str(g).strip() for g in obj["games"] if str(g).strip()]
+    body = (text[: m.start()] + text[m.end() :]).strip()
+    return body, games
+
+
 def generate_article_from_prompt(
     *,
     session_factory: Callable[[], Any],
@@ -163,8 +192,13 @@ def generate_article_from_prompt(
 
     user_prompt = (
         render_question_prompt(template_content, question_text)
-        + "\n\n请开始写作。第一行必须是 `# 标题`（井号后留一个空格），"
-        "不要输出任何前言、解释或 ``` 代码块标记，只输出 Markdown 正文："
+        + "\n\n请开始写作。第一行必须是 `# 标题`（井号后留一个空格）。"
+        "正文写完后，**若本文是“每款游戏各占一个小标题”的盘点 / 推荐类文章**，"
+        "在正文之后另起一行追加一个 json 代码块，按小标题顺序列出每个小标题对应的"
+        "规范游戏中文名（与小标题一致即可，带不带《》/“游戏N、”前缀都行，后端会归一化匹配）：\n"
+        '```json\n{"games": ["原神", "明日方舟"]}\n```\n'
+        '若是没有分款小标题的散文 / 综述，则追加 `{"games": []}`。'
+        "该 json 块只用于自动配图、不展示给读者；除此之外不要输出任何前言、解释或额外代码块。"
     )
     response = completion_with_capabilities(
         completion=litellm.completion,
@@ -186,7 +220,11 @@ def generate_article_from_prompt(
     )
     md_content = response.choices[0].message.content or ""
 
-    title, body_md = extract_title_and_body(md_content)
+    # 先剥掉模型尾部的 {"games":[...]} 哨兵块，再抽标题正文（否则 json 块会泄进正文）
+    article_body, game_names = _split_games_block(md_content)
+    game_list = [{"game": g} for g in game_names] or None
+
+    title, body_md = extract_title_and_body(article_body)
 
     article_payload = ArticleCreate(
         title=title,
@@ -205,6 +243,10 @@ def generate_article_from_prompt(
         # 生文溯源：去规范化存名字，供未审核库 / 列表卡片直接展示
         article.source_agent_name = source_agent_name
         article.source_template_name = source_template_name
+        # 显式游戏清单：盘点 / 推荐文写完顺手吐的 game_list 盖进 metrics，供配图侧走确定性落图
+        # （散文 / 无块 → game_list None → 不盖 → 消费侧回退现有 run_ai_format，零回归）
+        if game_list:
+            article.metrics = {**(article.metrics or {}), "game_positions": game_list}
         db.commit()
         return article.id
     except Exception:
