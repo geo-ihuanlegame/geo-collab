@@ -6,7 +6,7 @@ fail + 提示开发者：把新 sha 加进 KNOWN_BUNDLE_SHAS 并 bump
 LOOP_SKILL_BUNDLE_VERSION，强制「改模板必同步 bump 版本」纪律。
 """
 
-LOOP_SKILL_BUNDLE_VERSION = "2026-06-29-v8"
+LOOP_SKILL_BUNDLE_VERSION = "2026-06-29-v9"
 
 KNOWN_BUNDLE_SHAS: frozenset[str] = frozenset(
     {
@@ -54,12 +54,22 @@ KNOWN_BUNDLE_SHAS: frozenset[str] = frozenset(
         # 不用回头查数字。后端 SaveArticleFromMcpPayload 用 Pydantic 默认 extra='ignore'
         # 丢弃这两字段，无需后端 schema 改动。
         "128eb1d6a0198fe62313474ef47f0c63788068c348814177853cb790cec404b7",  # CRLF (Windows host)
-        "e9da575b99e750f919713f1f8f678f0fbb17d71713ce91849bcf911321343111",  # LF (Windows 序)
-        # 上面 e9da575 实为 Windows 序值（曾误标「CI canonical」）。build_bundle 的
-        # sorted(rglob) 排的是 Path 对象：Windows 大小写不敏感→commands/ 在 README.md 之前；
-        # Linux(CI)大小写敏感→README.md(R=82)在 commands/(c=99)之前。同内容两序两 sha。
-        # 下面才是 GitHub Actions(Linux)实测真实 LF sha（v8 直接合主干没跑 CI 才漏记）。
-        # 实测 run 28358*（PR #171 backend-tests）。根因（sorted 跨 OS 不确定）建议后续单独修。
-        "095a801c4751b119366c268d495016eeffaead3670b3b920ee64ad7a6bd110d2",  # LF (Linux/CI canonical)
+        "e9da575b99e750f919713f1f8f678f0fbb17d71713ce91849bcf911321343111",  # LF (CI canonical)
+        # v9 (2026-06-29, tpl_id 命令行覆盖): orchestrator SKILL Goal Parsing 表加 tpl_id
+        # 字段 + 主循环 `tpl_id = target.tpl_id or templates[attempts % len(templates)].id`。
+        # 用户在 /goal 里写 `生文提示词Id=13` / `生文提示词 #13` / `用生文提示词 13`（也
+        # 兼容旧写法 `tpl=13` / `模板 #13`）即固定走该提示词；缺省仍是全提示词 round-robin
+        # 轮转。启动检查日志加「生文提示词：<#id 写死|轮转>」字段让运营在主对话里一眼可见；
+        # 中文叙述对照表把「模板」统一改成「生文提示词」，与后端 PromptTemplate schema
+        # 命名一致。
+        # 下面 4 个 sha 对应 build_bundle 的 sorted(rglob) 跨 OS 文件序 × 行尾两维（根因见
+        # v7/v8 注释；本批为实测复现值，原 v9 登记的两值都对不上真实运行环境，没跑 CI 漏掉）。
+        # 前两个是真实运行环境实测算出、必须认：
+        "6eb8f07c8391a8ba400d2df4d5241ac40f8f4cc87b27e8ac9018e24726c364b9",  # Linux序+LF (GitHub/GitLab CI canonical, 实测 build_bundle)
+        "0ab1a3f1a361435816549b58f83260ba45224745618e0ef264186934904c3984",  # Windows序+CRLF (autocrlf=true 本地工作区, 实测)
+        # 下面两个是先前登记值：f40f9c28 实为 Windows序+LF（autocrlf=false 的 Windows checkout），
+        # 早前误标「CI canonical」；b360c408 对不上任何标准组合（来源存疑/stale）。只增不删保留。
+        "f40f9c28625e8e430fd4ebaa538d83a44d32b804d5c7e6cb5fc5662731218001",  # Windows序+LF (autocrlf=false Windows)
+        "b360c4086ec0aca8db7ffdbd961172bd5c9be15951180236ec71944353045f61",  # 来源存疑(对不上标准组合), 保留不删
     }
 )
