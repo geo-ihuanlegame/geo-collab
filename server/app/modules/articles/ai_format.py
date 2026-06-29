@@ -422,23 +422,80 @@ def _to_paragraph(node: dict) -> dict:
     return {"type": "paragraph", "content": node.get("content", [])}
 
 
-def _node_html(node: dict) -> str:
-    inner_parts = []
-    for child in node.get("content") or []:
+_INLINE_MARK_TAGS = {
+    "bold": ("<strong>", "</strong>"),
+    "italic": ("<em>", "</em>"),
+    "code": ("<code>", "</code>"),
+    "underline": ("<u>", "</u>"),
+    "strike": ("<s>", "</s>"),
+}
+
+
+def _inline_html(children: list | None) -> str:
+    """渲染一组 inline 子节点（text/hardBreak）为 HTML，保留 marks。与既有风格一致：text 不转义。"""
+    parts: list[str] = []
+    for child in children or []:
         if not isinstance(child, dict):
             continue
-        if child.get("type") != "text":
+        ctype = child.get("type")
+        if ctype == "hardBreak":
+            parts.append("<br>")
+            continue
+        if ctype != "text":
             continue
         text = child.get("text", "")
-        marks = child.get("marks") or []
-        is_bold = any(isinstance(m, dict) and m.get("type") == "bold" for m in marks)
-        inner_parts.append(f"<strong>{text}</strong>" if is_bold else text)
-    inner = "".join(inner_parts)
-    node_type = node.get("type")
-    if node_type == "heading":
+        for mark in child.get("marks") or []:
+            if not isinstance(mark, dict):
+                continue
+            mtype = mark.get("type")
+            if mtype == "link":
+                href = (mark.get("attrs") or {}).get("href", "")
+                text = f'<a href="{href}">{text}</a>'
+            elif mtype in _INLINE_MARK_TAGS:
+                open_tag, close_tag = _INLINE_MARK_TAGS[mtype]
+                text = f"{open_tag}{text}{close_tag}"
+        parts.append(text)
+    return "".join(parts)
+
+
+def _node_html(node: dict) -> str:
+    """单个块节点 → HTML。递归处理列表/引用/列表项内的块子节点。"""
+    ntype = node.get("type")
+    if ntype == "heading":
         level = (node.get("attrs") or {}).get("level", 1)
-        return f"<h{level}>{inner}</h{level}>"
-    return f"<p>{inner}</p>"
+        return f"<h{level}>{_inline_html(node.get('content'))}</h{level}>"
+    if ntype == "paragraph":
+        return f"<p>{_inline_html(node.get('content'))}</p>"
+    if ntype == "image":
+        attrs = node.get("attrs") or {}
+        src = attrs.get("src", "")
+        alt = attrs.get("alt", "") or ""
+        return f'<img src="{src}" alt="{alt}">'
+    if ntype in ("bulletList", "orderedList"):
+        tag = "ul" if ntype == "bulletList" else "ol"
+        items = "".join(_node_html(c) for c in node.get("content") or [] if isinstance(c, dict))
+        return f"<{tag}>{items}</{tag}>"
+    if ntype == "listItem":
+        return f"<li>{''.join(_node_html(c) for c in node.get('content') or [] if isinstance(c, dict))}</li>"
+    if ntype == "blockquote":
+        return f"<blockquote>{''.join(_node_html(c) for c in node.get('content') or [] if isinstance(c, dict))}</blockquote>"
+    if ntype == "codeBlock":
+        return f"<pre><code>{_inline_html(node.get('content'))}</code></pre>"
+    # 未知块节点：尽量取 inline 文本，不静默吞整块
+    return f"<p>{_inline_html(node.get('content'))}</p>"
+
+
+def _node_plain_text(node: dict) -> str:
+    """单个块节点 → 纯文本（递归）。列表项各成一行。"""
+    ntype = node.get("type")
+    if ntype in ("heading", "paragraph", "codeBlock"):
+        return _node_text(node)
+    if ntype in ("bulletList", "orderedList", "blockquote", "listItem"):
+        lines = [_node_plain_text(c) for c in node.get("content") or [] if isinstance(c, dict)]
+        return "\n".join(t for t in lines if t.strip())
+    if ntype == "image":
+        return ""
+    return _node_text(node)
 
 
 def _derive_html_and_text(content_json: dict) -> tuple[str, str]:
@@ -447,12 +504,10 @@ def _derive_html_and_text(content_json: dict) -> tuple[str, str]:
     for node in content_json.get("content") or []:
         if not isinstance(node, dict):
             continue
-        ntype = node.get("type")
-        if ntype in ("heading", "paragraph"):
-            html_parts.append(_node_html(node))
-            t = _node_text(node)
-            if t.strip():
-                text_parts.append(t)
+        html_parts.append(_node_html(node))
+        t = _node_plain_text(node)
+        if t.strip():
+            text_parts.append(t)
     return "".join(html_parts), "\n".join(text_parts)
 
 
