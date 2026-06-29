@@ -25,7 +25,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 BACKUP_DIR="$REPO_ROOT/backups"
 LOG_FILE="$BACKUP_DIR/backup.log"
-KEEP_DAYS="${BACKUP_KEEP_DAYS:-7}"
+KEEP_DAYS="${BACKUP_KEEP_DAYS:-3}"
 
 # Docker compose 项目名（默认是 REPO_ROOT 的目录名）
 PROJECT_NAME="${COMPOSE_PROJECT_NAME:-$(basename "$REPO_ROOT")}"

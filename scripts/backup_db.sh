@@ -25,7 +25,7 @@ LOG_FILE="$BACKUP_DIR/backup.log"
 COMPOSE_FILE="$REPO_ROOT/docker-compose.yml"
 DB_NAME="${GEO_DB_NAME:-geo_collab}"
 DB_USER="${GEO_DB_USER:-geo_user}"
-KEEP_DAYS="${BACKUP_KEEP_DAYS:-7}"
+KEEP_DAYS="${BACKUP_KEEP_DAYS:-3}"
 
 # ── 前置检查 ──
 if [[ -z "${MYSQL_PASSWORD:-}" ]]; then
