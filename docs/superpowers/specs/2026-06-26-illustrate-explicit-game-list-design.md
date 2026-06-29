@@ -96,6 +96,16 @@
 - **pipeline 节点**：`ai_illustrate.py` 节点 input mapping 可接上游 `game_list`，字段名与识别分支对接时敲定。
 - 注：上游识别分支未定型，**本设计先把消费侧 + 契约做扎实**；缺省路径保证现状不破。
 
+### 7.1 web 生产者落地（2026-06-29，本节为后续补记）
+
+MCP writer（SKILL v7）之外，web 端三条生文路（方案运行 / ai_compose / ai_generate）的「产清单」生产者已接上，与 MCP 路根上对齐：
+
+- **生产者（共享）**：`ai_generation/article_writer.py:generate_article_from_prompt` 让强写作模型在正文后追加 ` ```json {"games":[...]}``` ` 哨兵块；新增 `_split_games_block` 剥块取名（取最后一个、需 `games` 键、绝不误吃正文代码块），把 `game_list` 盖进 `Article.metrics["game_positions"]`（盘点 / 推荐文非空才盖；散文 / 无块 → 不盖）。**返回签名保持 `int`**，不影响既有 mock。
+- **消费者① 方案运行**：`scheme_executor.py:_auto_format_article` 读 stamp → 非空走 `run_ai_format_from_game_list`（aggressive / max_images=12），否则现状 `run_ai_format`。
+- **消费者② pipeline**：`ai_illustrate_svc.py:illustrate_one` 在 `options.game_list is None` 时回退读 `metrics["game_positions"]`（`effective_game_list`），显式参数优先；ai_compose/ai_generate → 下游 `ai_illustrate` 节点据此吃上确定性配图。
+- **零回归护栏**：模型不吐 / 吐错 json 块 / `games` 空 → 不盖 → 两消费侧回退现有 `run_ai_format`，行为 == 改动前。
+- 不碰 `loop_skills` 模板、不 bump `version.py`、无 DB 迁移（复用 `Article.metrics` JSON 列）。
+
 ## 8. 向后兼容与风险
 
 - **缺省 → 现状完全不变**（最大兼容护栏）。
