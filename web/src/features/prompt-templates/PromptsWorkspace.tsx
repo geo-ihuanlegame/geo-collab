@@ -298,6 +298,13 @@ export function PromptsWorkspace(
                 <div>
                   <div className="aiCardName">{prompt.name}</div>
                   <div className="promptTemplateMeta">
+                    <span
+                      className="badge"
+                      style={{ fontFamily: "var(--mono, monospace)", color: "var(--text-muted, #888)" }}
+                      title="数据库 ID"
+                    >
+                      ID {prompt.id}
+                    </span>
                     <span className={`badge ${prompt.is_system ? "running" : "pending"}`}>
                       {prompt.is_system ? "系统" : "个人"}
                     </span>
