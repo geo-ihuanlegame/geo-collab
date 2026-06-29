@@ -6,7 +6,7 @@ fail + 提示开发者：把新 sha 加进 KNOWN_BUNDLE_SHAS 并 bump
 LOOP_SKILL_BUNDLE_VERSION，强制「改模板必同步 bump 版本」纪律。
 """
 
-LOOP_SKILL_BUNDLE_VERSION = "2026-06-26-v6"
+LOOP_SKILL_BUNDLE_VERSION = "2026-06-29-v7"
 
 KNOWN_BUNDLE_SHAS: frozenset[str] = frozenset(
     {
@@ -40,5 +40,10 @@ KNOWN_BUNDLE_SHAS: frozenset[str] = frozenset(
         # 产物 sha 不同）。GitLab pipeline #342 在 merge commit b7b5912 上实测算出此值；GitHub
         # PR #162 merge 也算出同值。两边 CI 都需要它放行（早前注释误判「GitLab 不需要」，已订正）。
         "9dfb1db0508d9f930d99e74a25ee6b257c78ed12c4caf2301b1faf4ed708be4b",  # LF (3-way merge product)
+        # v7 (2026-06-29, 显式游戏清单产清单): writer SKILL step5 + 调用约定 加 game_positions —
+        # 每款一标题的推荐 / 盘点文逐款产 game_positions 走确定性落图（修弱模型漏点缺图），
+        # 散文 / 综述回退现有模型识别路径。配合已合并的端点 + MCP 工具 game_positions 形参。
+        "06df0c1fb709cc3e5e8f4edbf110a7005e1fa1bce16597c9ef42dde9ee5a5c36",  # CRLF (Windows host)
+        "03b209b8c580e6dee185a3a7c465a5fc6c6584d54d340876987d0fb346fc6071",  # LF (CI canonical)
     }
 )

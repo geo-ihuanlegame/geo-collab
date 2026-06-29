@@ -18,9 +18,20 @@ description: Use when spawned as a writer subagent by /goal, or when manually
 2. get template — `list_prompt_templates(scope="generation")` 找到 tpl_id 的 content
 3. 写 markdown body（约束见下）
 4. `save_article(question_item_id, prompt_template_id, title, markdown_content, model_label)`
-5. `ai_illustrate_article(article_id, main_category_id=<从矩阵特例段拿>, web_fallback=True)` —
+5. **配图前先判断正文结构,决定要不要传显式游戏清单 `game_positions`:**
+   - 若你写的是**每款游戏各占一个 `##` 小标题**的推荐 / 盘点类文章 → **逐款收一份
+     `game_positions`**:每个出现的游戏一项,`game` 用它在小标题里的规范中文名(和小标题
+     保持一致;后端会自动去掉《》「」弯引号与「游戏N、」前缀再匹配),顺序按正文小标题顺序。
+     例:`game_positions=[{"game": "原神"}, {"game": "明日方舟"}, {"game": "鸣潮"}]`。
+     这样走**确定性落图**:每款精准配到自己的小标题下、图库没有的走联网兜底、
+     `requested / missed / missed_games` 计数精确(不再有"漏点游戏"盲区)。
+   - 若是**没有分款小标题的散文 / 综述**(游戏名只散在正文、无各自小标题)→ **不要传**
+     `game_positions`(设 None),回退现有 AI 模型识别路径(否则游戏匹配不到小标题会落不了图)。
+   然后调:
+   `ai_illustrate_article(article_id, main_category_id=<从矩阵特例段拿>, web_fallback=True, game_positions=<上面那份;散文则 None>)` —
    AI 智能配图 + 自动封面。`web_fallback=True` 让图库里没有对应栏目的游戏也能
-   联网补图（见矩阵特例段）。**必须**收集这 5 类信号进 `illustration_warnings`
+   联网补图（见矩阵特例段;传了 `game_positions` 时确定性路径内部已写死联网兜底,
+   该参数只对回退路径生效）。**必须**收集这 5 类信号进 `illustration_warnings`
    数组（任一非空 / 命中即记录，不抛错、不阻塞返回）：
    - `format_error` 非空 → 加 `"format_error: <值>"`
    - `cover_error` 非空 → 加 `"cover_error: <值>"`
@@ -66,9 +77,11 @@ description: Use when spawned as a writer subagent by /goal, or when manually
   key 缺失 / 网络失败时静默不补、不报错，绝不阻塞交付）
 
 > 调用约定：
-> `ai_illustrate_article(article_id=<>, main_category_id=<上面那个值>, web_fallback=True)`
+> `ai_illustrate_article(article_id=<>, main_category_id=<上面那个值>, web_fallback=True, game_positions=<见 Checklist step 5：每款一标题的文章传清单、散文传 None>)`
 > 其余布尔参数（include_companion / aggressive_images / set_cover）走默认即可；
 > `web_fallback` 建议显式带 `True`，让图库里没有的游戏也能联网补图。
+> 传了 `game_positions` 时走**确定性落图**（按游戏名匹配小标题、计数精确、不调配图模型）；
+> 这是修「弱模型漏点游戏导致缺图」的主路径，每款一标题的推荐 / 盘点文优先用它。
 >
 > **务必**检查返回的 `format_error` / `cover_error` / `warning` / `images_inserted`
 > 四个字段，按上面 step 5 规则进 `illustration_warnings`——历史 bug：silent
