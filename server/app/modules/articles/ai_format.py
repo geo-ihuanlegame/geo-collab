@@ -165,6 +165,68 @@ def _node_text(node: dict) -> str:
     return "".join(parts)
 
 
+_GAME_PREFIX_RE = re.compile(r"^游戏[0-9一二三四五六七八九十百]+、\s*")
+_BRACKET_CHARS = "《》〈〉「」『』\"''' \t　"
+
+
+def _normalize_game_name(s: str) -> str:
+    """归一化游戏名/heading 文本：去『游戏N、』前缀、去书名号/引号/空白。用于 contains 匹配。"""
+    t = (s or "").strip()
+    t = _GAME_PREFIX_RE.sub("", t)
+    return t.strip(_BRACKET_CHARS)
+
+
+def _find_heading_index(content_json: dict, game: str) -> int | None:
+    """在顶层 heading 节点里找文本含 game 的，返回其绝对下标；多命中取首个；无则 None。"""
+    target = _normalize_game_name(game)
+    if not target:
+        return None
+    for i, node in enumerate(content_json.get("content") or []):
+        if not isinstance(node, dict) or node.get("type") != "heading":
+            continue
+        if target in _normalize_game_name(_node_text(node)):
+            return i
+    return None
+
+
+def build_image_positions_from_game_list(
+    content_json: dict, game_list: list[dict]
+) -> tuple[list[dict], list[dict]]:
+    """游戏清单 → (合成 image_positions, unmatched)。game 名为权威锚点，index 仅未命中时兜底。
+
+    - 同一 game 命中多个 heading：取首个。
+    - 多个 game 解析到同一 index：按 index 去重，保留先到的，其余记 index_conflict。
+    - 命中不到 heading 且无 index 提示：记 heading_not_found。
+    """
+    positions: list[dict] = []
+    unmatched: list[dict] = []
+    used_index: set[int] = set()
+    for item in game_list or []:
+        if not isinstance(item, dict):
+            continue
+        game = (item.get("game") or "").strip()
+        if not game:
+            continue
+        idx = _find_heading_index(content_json, game)
+        if idx is None:
+            hint = item.get("index")
+            if isinstance(hint, int):
+                idx = hint
+            else:
+                unmatched.append({"game": game, "reason": "heading_not_found"})
+                continue
+        if idx in used_index:
+            unmatched.append({"game": game, "reason": "index_conflict"})
+            continue
+        used_index.add(idx)
+        pos: dict = {"index": idx, "game": game}
+        cat = item.get("category_id")
+        if isinstance(cat, int):
+            pos["category_id"] = cat
+        positions.append(pos)
+    return positions, unmatched
+
+
 def _node_label(node: dict) -> str:
     return "[小标题]" if node.get("type") == "heading" else "[段落]"
 
