@@ -166,7 +166,7 @@ def _node_text(node: dict) -> str:
 
 
 _GAME_PREFIX_RE = re.compile(r"^游戏[0-9一二三四五六七八九十百]+、\s*")
-_BRACKET_CHARS = "《》〈〉「」『』\"''' \t　"
+_BRACKET_CHARS = "《》〈〉「」『』\"'“”‘’ 	　"
 
 
 def _normalize_game_name(s: str) -> str:
@@ -1042,6 +1042,8 @@ def run_ai_format_from_game_list(
 
     段1 prepare（取 content_json/栏目/搜图模板，复用现有锁检查）→ resolver 合成 parsed →
     复用 _web_fallback_collect_and_write_back（heading_indices=set()）落图 → 用 len(清单) 修正计数。
+
+    注：min_spacing 在本路径不生效（仅影响 LLM 提示词，而本路径不调 LLM）；max_images 仍作为硬上限有效。
     """
     try:
         prep = _ai_format_prepare(
@@ -1055,6 +1057,7 @@ def run_ai_format_from_game_list(
             min_spacing=min_spacing,
             builtin_variant=builtin_variant,
             web_fallback=True,
+            require_llm=False,
         )
     except Exception as exc:
         _ai_format_finalize_error(article_id, lock_started_at, exc)
@@ -1121,7 +1124,7 @@ class _AiFormatPrep:
         system_prompt: str,
         available_categories: list[dict[str, Any]],
         model: str,
-        api_key: str,
+        api_key: str | None,
         timeout_seconds: int,
         base_url: str | None = None,
         image_search_query: str | None = None,
@@ -1150,11 +1153,15 @@ def _ai_format_prepare(
     builtin_variant: str,
     format_model_selected: str | None = None,
     web_fallback: bool = False,
+    require_llm: bool = True,
 ) -> _AiFormatPrep | None:
     """段1（短借连接）：读文章 + 第一道锁检查 + 拼提示词，return 前归还连接。
 
     返回 None = 本次应安静跳过（无文章 / 锁失配 / 无文本节点；无文本节点时已清本次锁，与旧行为一致）。
     缺 API Key 抛 AIFormatConfigurationError，由调用方走 _ai_format_finalize_error 落错 + 解锁。
+
+    require_llm=False（确定性/无 LLM 路径）时不因缺 Key 而 abort——确定性路径根本不调 LLM。
+    默认 True 保持 LLM 路径行为不变。
 
     web_fallback=True 时一并解析联网搜图关键词模板（image_search scope）随 prep 带出，
     使后续下载段无需再开连接读模板。
@@ -1190,7 +1197,8 @@ def _ai_format_prepare(
             db, format_model_selected
         )
         api_key = format_key or None
-        if not api_key:
+        # require_llm=False（确定性/无 LLM 路径）时不因缺 key 而 abort
+        if not api_key and require_llm:
             raise AIFormatConfigurationError(
                 "AI 排版失败：未配置 API Key，请设置 GEO_AI_FORMAT_API_KEY。"
             )
