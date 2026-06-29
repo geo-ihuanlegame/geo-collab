@@ -177,7 +177,7 @@ class Settings(BaseSettings):
     baidu_ai_search_timeout_seconds: int = 30  # GEO_BAIDU_AI_SEARCH_TIMEOUT_SECONDS
     # 限流韧性：配图并发 + 同名重复会把千帆 QPS 打爆（实测整批 429）。下面三个旋钮收口在 baidu.py。
     baidu_min_interval_seconds: float = (
-        1.0  # GEO_BAIDU_MIN_INTERVAL_SECONDS 全局限速(串行间隔)，压在 QPS 内
+        0.33  # GEO_BAIDU_MIN_INTERVAL_SECONDS 全局限速(串行间隔)，~3 QPS（贴近千帆 ~3-4 QPS 上限；多 worker 下需改跨进程限速）
     )
     baidu_max_retries: int = (
         3  # GEO_BAIDU_MAX_RETRIES 遇 429 的重试次数（认 Retry-After，否则指数退避）
