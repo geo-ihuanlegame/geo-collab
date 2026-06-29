@@ -19,6 +19,7 @@ from server.app.modules.articles.ai_format import (
     category_contexts_for,
     has_ai_format_targets,
     run_ai_format,
+    run_ai_format_from_game_list,
 )
 from server.app.modules.articles.models import Article
 from server.app.modules.image_library.cover import (
@@ -46,6 +47,8 @@ class IllustrateOptions:
     set_cover: bool = True
     # 配图模型（litellm 模型串，scope=ai_format）；None/"" = 走默认格式模型
     format_model: str | None = None
+    # 上游识别分支传下来的显式游戏清单；None=回退现有模型识别路径
+    game_list: list[dict] | None = None
 
 
 _ILLUSTRATION_SKIP_PREFIX = "[illustration_skip] "
@@ -169,20 +172,34 @@ def illustrate_one(
         db.close()
 
     fmt_diag: dict = {}
-    images_inserted = run_ai_format(
-        article_id,
-        include_images=True,
-        lock_started_at=lock_started_at,
-        preset_id=options.preset_id,
-        user_id=user_id,
-        candidate_categories=candidate_categories,
-        web_fallback=options.web_fallback,
-        max_images=max_images,
-        min_spacing=min_spacing,
-        builtin_variant=builtin_variant,
-        format_model_selected=options.format_model,
-        out_diagnostics=fmt_diag,
-    )
+    if options.game_list is not None:
+        images_inserted = run_ai_format_from_game_list(
+            article_id,
+            lock_started_at=lock_started_at,
+            game_list=options.game_list,
+            preset_id=options.preset_id,
+            user_id=user_id,
+            candidate_categories=candidate_categories,
+            max_images=max_images,
+            min_spacing=min_spacing,
+            builtin_variant=builtin_variant,
+            out_diagnostics=fmt_diag,
+        )
+    else:
+        images_inserted = run_ai_format(
+            article_id,
+            include_images=True,
+            lock_started_at=lock_started_at,
+            preset_id=options.preset_id,
+            user_id=user_id,
+            candidate_categories=candidate_categories,
+            web_fallback=options.web_fallback,
+            max_images=max_images,
+            min_spacing=min_spacing,
+            builtin_variant=builtin_variant,
+            format_model_selected=options.format_model,
+            out_diagnostics=fmt_diag,
+        )
 
     # 阶段 2: 封面 (独立短 session)
     cover_status = "skipped"
