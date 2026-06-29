@@ -31,6 +31,7 @@ description: Use when /goal command is invoked in geo-collab repo. Drives the
 | `pool_id` | 用户提到池名（"wenti01" / "问题池" 等） → 匹配 `list_question_pools` 里的 `name` | 第一个 `pending_count > 0` 的池 |
 | `topic_hint` | 题材关键词（"国风" / "治愈" / "解谜" 等） | `None` |
 | `matrix_code` | 用户写 `matrix=<code>` 才设 | `""`（用默认 geo-article-writer） |
+| `tpl_id` | 用户写 `生文提示词Id=<数字>` / `生文提示词 #<数字>` / `用生文提示词 <数字>`（也兼容旧写法 `tpl=<数字>` / `模板 #<数字>`）→ 写死该提示词，全部 N 篇都用它；不写则按 attempts 轮转所有提示词 | `None`（按轮转） |
 | `model_label` | 固定 | `"claude-goal-opus-4-7"` |
 
 # 主循环（每轮）
@@ -66,7 +67,8 @@ while True:
     # === 选 next qid（避重）===
     qid = pick_next_qid(candidates, used_qids)
     used_qids.add(qid)
-    tpl_id = templates[attempts % len(templates)].id
+    # target.tpl_id 优先（用户在 /goal 里显式指定了生文提示词）；缺省按 attempts 轮转所有提示词。
+    tpl_id = target.tpl_id or templates[attempts % len(templates)].id
     attempts += 1
 
     # === Writer subagent（fresh context, Opus）===
@@ -118,7 +120,7 @@ No other text.""",
 # 进度日志（必须 echo 这些短行）
 
 ```
-[启动检查] 问题池：<name>　目标：<N> 篇　矩阵：<code|默认>　✓
+[启动检查] 问题池：<name>　目标：<N> 篇　矩阵：<code|默认>　生文提示词：<#id 写死|轮转>　✓
 [第 k/3N 轮] 选题：问题 #<id> → 改写中 …
 [第 k/3N 轮] 改写完成（文章 #<id>），评审中 …
 [第 k/3N 轮] 评审结果：<d>　分数 <total>
@@ -138,7 +140,7 @@ No other text.""",
 | goal-verifier | 评审员 |
 | pool / pool_id | 问题池 |
 | qid | 问题 #编号 |
-| tpl_id | 模板 #编号 |
+| tpl_id | 生文提示词 #编号 |
 | article_id | 文章 #编号 |
 | matrix / matrix_code | 矩阵 |
 | N | 目标 X 篇 |
