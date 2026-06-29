@@ -62,7 +62,14 @@ KNOWN_BUNDLE_SHAS: frozenset[str] = frozenset(
         # 轮转。启动检查日志加「生文提示词：<#id 写死|轮转>」字段让运营在主对话里一眼可见；
         # 中文叙述对照表把「模板」统一改成「生文提示词」，与后端 PromptTemplate schema
         # 命名一致。
-        "b360c4086ec0aca8db7ffdbd961172bd5c9be15951180236ec71944353045f61",  # CRLF (Windows host)
-        "f40f9c28625e8e430fd4ebaa538d83a44d32b804d5c7e6cb5fc5662731218001",  # LF (CI canonical)
+        # 下面 4 个 sha 对应 build_bundle 的 sorted(rglob) 跨 OS 文件序 × 行尾两维（根因见
+        # v7/v8 注释；本批为实测复现值，原 v9 登记的两值都对不上真实运行环境，没跑 CI 漏掉）。
+        # 前两个是真实运行环境实测算出、必须认：
+        "6eb8f07c8391a8ba400d2df4d5241ac40f8f4cc87b27e8ac9018e24726c364b9",  # Linux序+LF (GitHub/GitLab CI canonical, 实测 build_bundle)
+        "0ab1a3f1a361435816549b58f83260ba45224745618e0ef264186934904c3984",  # Windows序+CRLF (autocrlf=true 本地工作区, 实测)
+        # 下面两个是先前登记值：f40f9c28 实为 Windows序+LF（autocrlf=false 的 Windows checkout），
+        # 早前误标「CI canonical」；b360c408 对不上任何标准组合（来源存疑/stale）。只增不删保留。
+        "f40f9c28625e8e430fd4ebaa538d83a44d32b804d5c7e6cb5fc5662731218001",  # Windows序+LF (autocrlf=false Windows)
+        "b360c4086ec0aca8db7ffdbd961172bd5c9be15951180236ec71944353045f61",  # 来源存疑(对不上标准组合), 保留不删
     }
 )
