@@ -996,9 +996,9 @@ function McpToolsPanel() {
     <aside
       className="panel"
       style={{
-        flex: "1 1 340px",
-        maxWidth: 440,
-        minWidth: 280,
+        flex: "1 1 460px",
+        maxWidth: 1000,
+        minWidth: 320,
         position: "sticky",
         top: 16,
         alignSelf: "flex-start",
@@ -1086,16 +1086,24 @@ function McpToolsPanel() {
                 {g.label}
                 <span style={{ fontWeight: 500 }}>· {g.items.length}</span>
               </div>
-              <div style={{ display: "grid", gap: 1, background: "var(--hair)", borderRadius: 8, overflow: "hidden" }}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                  gap: 8,
+                }}
+              >
                 {g.items.map((t) => (
                   <div
                     key={t.name}
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "minmax(96px, 38%) 1fr",
-                      gap: 10,
+                      gridTemplateColumns: "minmax(82px, 42%) 1fr",
+                      gap: 8,
                       padding: "8px 10px",
                       background: "var(--surface-2)",
+                      border: "1px solid var(--hair)",
+                      borderRadius: 8,
                       alignItems: "baseline",
                     }}
                   >
