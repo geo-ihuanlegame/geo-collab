@@ -1,58 +1,44 @@
-import { lazy, Suspense, useRef, useState } from "react";
+import { Suspense, useState } from "react";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { navItems } from "./types";
-import type { NavKey, PromptScope, ReviewStatus } from "./types";
+import type { NavKey } from "./types";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ToastProvider } from "./components/Toast";
 import { GlobalErrorListener } from "./components/GlobalErrorListener";
-import { AuthProvider, useAuth } from "./features/auth/AuthContext";
+import { useAuth } from "./features/auth/AuthContext";
 import { LoginPage } from "./features/auth/LoginPage";
 import { ChangePasswordPage } from "./features/auth/ChangePasswordPage";
 import { ChevronDown, ChevronLeft, Cpu, LogOut, ScrollText, Users } from "lucide-react";
 import { MobileNav } from "./components/MobileNav";
 import { MobileMorePage } from "./components/MobileMorePage";
-import { ScrollPanel } from "./components/ScrollPanel";
 import { useIsMobile } from "./hooks/useIsMobile";
 import "./styles.css";
 
-const AgentManagementWorkspace = lazy(() =>
-  import("./features/pipelines/AgentManagementWorkspace").then((m) => ({ default: m.AgentManagementWorkspace })),
-);
-const AiGenerationWorkspace = lazy(() =>
-  import("./features/ai-generation/AiGenerationWorkspace").then((m) => ({ default: m.AiGenerationWorkspace })),
-);
-const ImageLibraryWorkspace = lazy(() =>
-  import("./features/image-library/ImageLibraryWorkspace").then((m) => ({ default: m.ImageLibraryWorkspace })),
-);
-const ContentWorkspace = lazy(() =>
-  import("./features/content/ContentWorkspace").then((m) => ({ default: m.ContentWorkspace })),
-);
-const PromptsWorkspace = lazy(() =>
-  import("./features/prompt-templates/PromptsWorkspace").then((m) => ({ default: m.PromptsWorkspace })),
-);
-const AccountsWorkspace = lazy(() =>
-  import("./features/accounts/AccountsWorkspace").then((m) => ({ default: m.AccountsWorkspace })),
-);
-const TasksWorkspace = lazy(() =>
-  import("./features/tasks/TasksWorkspace").then((m) => ({ default: m.TasksWorkspace })),
-);
-const SystemWorkspace = lazy(() =>
-  import("./features/system/SystemWorkspace").then((m) => ({ default: m.SystemWorkspace })),
-);
-const HotListsWorkspace = lazy(() =>
-  import("./features/hot-lists/HotListsWorkspace").then((m) => ({ default: m.HotListsWorkspace })),
-);
-const McpConnectWorkspace = lazy(() =>
-  import("./features/mcp/McpConnectWorkspace").then((m) => ({ default: m.McpConnectWorkspace })),
-);
-const UsersWorkspace = lazy(() =>
-  import("./features/auth/UsersWorkspace").then((m) => ({ default: m.UsersWorkspace })),
-);
-const AuditLogsWorkspace = lazy(() =>
-  import("./features/system/AuditLogsWorkspace").then((m) => ({ default: m.AuditLogsWorkspace })),
-);
-const AiModelsWorkspace = lazy(() =>
-  import("./features/system/AiModelsWorkspace").then((m) => ({ default: m.AiModelsWorkspace })),
-);
+// 所有合法的顶级导航 key（= URL 首段）。
+const KNOWN_NAV: NavKey[] = [
+  "agents", "ai", "content", "prompts", "image-library", "media", "tasks",
+  "system", "hot-lists", "mcp", "admin", "audit-logs", "ai-models",
+];
+
+// 每个 tab 的标题，用于 ErrorBoundary。
+const TAB_TITLES: Record<NavKey, string> = {
+  agents: "智能体管理", ai: "AI 生文", content: "内容管理", prompts: "提示词管理",
+  "image-library": "图片库", media: "媒体矩阵", tasks: "分发引擎", system: "系统状态",
+  "hot-lists": "热榜", mcp: "MCP 接入", admin: "用户管理", "audit-logs": "审计日志",
+  "ai-models": "AI 模型管理",
+};
+
+// 移动端底栏 4 个高频入口；其余归「更多」分区。
+const BOTTOM_KEYS: NavKey[] = ["agents", "ai", "content", "tasks"];
+
+function pathToNavKey(pathname: string): NavKey {
+  const seg = pathname.split("/").filter(Boolean)[0];
+  return (KNOWN_NAV as string[]).includes(seg) ? (seg as NavKey) : "agents";
+}
+
+function subSegment(pathname: string): string {
+  return pathname.split("/").filter(Boolean)[1] ?? "";
+}
 
 function TabFallback() {
   return (
@@ -62,25 +48,23 @@ function TabFallback() {
   );
 }
 
-function AppShell() {
+export function RootLayout() {
   const { user, loading, logout } = useAuth();
   const isMobile = useIsMobile();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const activeNav = pathToNavKey(location.pathname);
+  const onMoreSection = !BOTTOM_KEYS.includes(activeNav);
   const [moreOpen, setMoreOpen] = useState(false);
-  const [activeNav, setActiveNav] = useState<NavKey>("agents");
-  // 当前页是否属于「更多」分区（即不在底栏 4 个高频入口中）
-  const onMoreSection = !(["agents", "ai", "content", "tasks"] as NavKey[]).includes(activeNav);
-  const [visitedTabs, setVisitedTabs] = useState<Set<NavKey>>(new Set(["agents"]));
-  const contentDirtyRef = useRef<() => boolean>(() => false);
-  const [openGroup, setOpenGroup] = useState<NavKey | null>(null);
-  const [contentReviewTab, setContentReviewTab] = useState<ReviewStatus>("pending");
-  const [promptsScope, setPromptsScope] = useState<PromptScope>("generation");
+  // 侧栏分组展开态；初始把当前所在的有子项分组（内容/提示词）展开。
+  const [openGroup, setOpenGroup] = useState<NavKey | null>(() => {
+    const k = pathToNavKey(location.pathname);
+    return navItems.some((i) => i.key === k && (i.children?.length ?? 0) > 0) ? k : null;
+  });
 
-  function handleNavClick(key: NavKey) {
-    if (activeNav === "content" && key !== "content" && contentDirtyRef.current()) {
-      if (!window.confirm("当前文章有未保存内容，确定要切换页面吗？未保存的修改将丢失。")) return;
-    }
-    setVisitedTabs((prev) => (prev.has(key) ? prev : new Set(prev).add(key)));
-    setActiveNav(key);
+  function go(key: NavKey) {
+    setMoreOpen(false);
+    navigate(`/${key}`);
     const hasChildren = navItems.some((i) => i.key === key && (i.children?.length ?? 0) > 0);
     if (!hasChildren) setOpenGroup(null);
   }
@@ -88,16 +72,20 @@ function AppShell() {
   function toggleGroup(key: NavKey) {
     setOpenGroup((prev) => (prev === key ? null : key));
   }
+
+  // 当前激活 tab 的子页选中值（从 URL 子段派生）。
   function childValueFor(parentKey: NavKey): string {
-    if (parentKey === "content") return contentReviewTab;
-    if (parentKey === "prompts") return promptsScope;
+    if (parentKey !== activeNav) return "";
+    const seg = subSegment(location.pathname);
+    if (parentKey === "content") return seg || "pending";
+    if (parentKey === "prompts") return seg || "generation";
     return "";
   }
+
   function selectChild(parentKey: NavKey, value: string) {
-    if (parentKey === "content") setContentReviewTab(value as ReviewStatus);
-    else if (parentKey === "prompts") setPromptsScope(value as PromptScope);
     setOpenGroup(parentKey);
-    handleNavClick(parentKey);
+    setMoreOpen(false);
+    navigate(`/${parentKey}/${value}`);
   }
 
   if (loading) {
@@ -109,14 +97,8 @@ function AppShell() {
       </div>
     );
   }
-
-  if (!user) {
-    return <LoginPage />;
-  }
-
-  if (user.must_change_password) {
-    return <ChangePasswordPage />;
-  }
+  if (!user) return <LoginPage />;
+  if (user.must_change_password) return <ChangePasswordPage />;
 
   return (
     <ToastProvider>
@@ -157,7 +139,7 @@ function AppShell() {
                         if (activeNav === item.key) {
                           toggleGroup(item.key);
                         } else {
-                          handleNavClick(item.key);
+                          go(item.key);
                           setOpenGroup(item.key);
                         }
                       }}
@@ -194,7 +176,7 @@ function AppShell() {
                   className={`navItem ${activeNav === item.key ? "active" : ""}`}
                   key={item.key}
                   type="button"
-                  onClick={() => handleNavClick(item.key)}
+                  onClick={() => go(item.key)}
                 >
                   <Icon size={17} />
                   <span>{item.label}</span>
@@ -206,7 +188,7 @@ function AppShell() {
               <button
                 className={`navItem ${activeNav === "admin" ? "active" : ""}`}
                 type="button"
-                onClick={() => handleNavClick("admin")}
+                onClick={() => go("admin")}
               >
                 <Users size={17} />
                 <span>用户管理</span>
@@ -217,7 +199,7 @@ function AppShell() {
               <button
                 className={`navItem ${activeNav === "audit-logs" ? "active" : ""}`}
                 type="button"
-                onClick={() => handleNavClick("audit-logs")}
+                onClick={() => go("audit-logs")}
               >
                 <ScrollText size={17} />
                 <span>审计日志</span>
@@ -228,7 +210,7 @@ function AppShell() {
               <button
                 className={`navItem ${activeNav === "ai-models" ? "active" : ""}`}
                 type="button"
-                onClick={() => handleNavClick("ai-models")}
+                onClick={() => go("ai-models")}
               >
                 <Cpu size={17} />
                 <span>AI 模型</span>
@@ -245,131 +227,15 @@ function AppShell() {
         </aside>
         <section className="workspace">
           <div className="workspaceInner">
-            {visitedTabs.has("agents") && (
-              <ScrollPanel id="agents" active={activeNav === "agents"}>
-                <ErrorBoundary title="智能体管理">
-                  <Suspense fallback={<TabFallback />}>
-                    <AgentManagementWorkspace />
-                  </Suspense>
-                </ErrorBoundary>
-              </ScrollPanel>
-            )}
-            {visitedTabs.has("ai") && (
-              <ScrollPanel id="ai" active={activeNav === "ai"}>
-                <ErrorBoundary title="AI 生文">
-                  <Suspense fallback={<TabFallback />}>
-                    <AiGenerationWorkspace onNavigateToContent={() => handleNavClick("content")} />
-                  </Suspense>
-                </ErrorBoundary>
-              </ScrollPanel>
-            )}
-            <ScrollPanel id="content" active={activeNav === "content"}>
-              <ErrorBoundary title="内容管理">
+            {/* `.workspaceInner > div` 是滚动容器（overflow-y:auto，见 styles.css）；
+                route-per-page 下只有一个直接子 div 承接它，ErrorBoundary 随 tab 切换重置（key=activeNav）。 */}
+            <div className="workspaceScroll">
+              <ErrorBoundary key={activeNav} title={TAB_TITLES[activeNav]}>
                 <Suspense fallback={<TabFallback />}>
-                  <ContentWorkspace
-                    dirtyCheckRef={contentDirtyRef}
-                    isActive={activeNav === "content"}
-                    reviewTab={contentReviewTab}
-                    isMobile={isMobile}
-                    onReviewTabChange={setContentReviewTab}
-                  />
+                  <Outlet />
                 </Suspense>
               </ErrorBoundary>
-            </ScrollPanel>
-            {visitedTabs.has("prompts") && (
-              <ScrollPanel id="prompts" active={activeNav === "prompts"}>
-                <ErrorBoundary title="提示词管理">
-                  <Suspense fallback={<TabFallback />}>
-                    <PromptsWorkspace
-                    scope={promptsScope}
-                    isMobile={isMobile}
-                    onScopeChange={setPromptsScope}
-                  />
-                  </Suspense>
-                </ErrorBoundary>
-              </ScrollPanel>
-            )}
-            {visitedTabs.has("image-library") && (
-              <ScrollPanel id="image-library" active={activeNav === "image-library"}>
-                <ErrorBoundary title="图片库">
-                  <Suspense fallback={<TabFallback />}>
-                    <ImageLibraryWorkspace />
-                  </Suspense>
-                </ErrorBoundary>
-              </ScrollPanel>
-            )}
-            {visitedTabs.has("media") && (
-              <ScrollPanel id="media" active={activeNav === "media"}>
-                <ErrorBoundary title="媒体矩阵">
-                  <Suspense fallback={<TabFallback />}>
-                    <AccountsWorkspace isActive={activeNav === "media"} />
-                  </Suspense>
-                </ErrorBoundary>
-              </ScrollPanel>
-            )}
-            {visitedTabs.has("tasks") && (
-              <ScrollPanel id="tasks" active={activeNav === "tasks"}>
-                <ErrorBoundary title="分发引擎">
-                  <Suspense fallback={<TabFallback />}>
-                    <TasksWorkspace isActive={activeNav === "tasks"} />
-                  </Suspense>
-                </ErrorBoundary>
-              </ScrollPanel>
-            )}
-            {visitedTabs.has("system") && (
-              <ScrollPanel id="system" active={activeNav === "system"}>
-                <ErrorBoundary title="系统状态">
-                  <Suspense fallback={<TabFallback />}>
-                    <SystemWorkspace />
-                  </Suspense>
-                </ErrorBoundary>
-              </ScrollPanel>
-            )}
-            {visitedTabs.has("hot-lists") && (
-              <ScrollPanel id="hot-lists" active={activeNav === "hot-lists"}>
-                <ErrorBoundary title="热榜">
-                  <Suspense fallback={<TabFallback />}>
-                    <HotListsWorkspace />
-                  </Suspense>
-                </ErrorBoundary>
-              </ScrollPanel>
-            )}
-            {visitedTabs.has("mcp") && (
-              <ScrollPanel id="mcp" active={activeNav === "mcp"}>
-                <ErrorBoundary title="MCP 接入">
-                  <Suspense fallback={<TabFallback />}>
-                    <McpConnectWorkspace />
-                  </Suspense>
-                </ErrorBoundary>
-              </ScrollPanel>
-            )}
-            {user.role === "admin" && visitedTabs.has("admin") && (
-              <ScrollPanel id="admin" active={activeNav === "admin"}>
-                <ErrorBoundary title="用户管理">
-                  <Suspense fallback={<TabFallback />}>
-                    <UsersWorkspace />
-                  </Suspense>
-                </ErrorBoundary>
-              </ScrollPanel>
-            )}
-            {user.role === "admin" && visitedTabs.has("audit-logs") && (
-              <ScrollPanel id="audit-logs" active={activeNav === "audit-logs"}>
-                <ErrorBoundary title="审计日志">
-                  <Suspense fallback={<TabFallback />}>
-                    <AuditLogsWorkspace />
-                  </Suspense>
-                </ErrorBoundary>
-              </ScrollPanel>
-            )}
-            {user.role === "admin" && visitedTabs.has("ai-models") && (
-              <ScrollPanel id="ai-models" active={activeNav === "ai-models"}>
-                <ErrorBoundary title="AI 模型管理">
-                  <Suspense fallback={<TabFallback />}>
-                    <AiModelsWorkspace />
-                  </Suspense>
-                </ErrorBoundary>
-              </ScrollPanel>
-            )}
+            </div>
           </div>
         </section>
         {isMobile && moreOpen && (
@@ -377,27 +243,19 @@ function AppShell() {
             username={user.username}
             role={user.role}
             isAdmin={user.role === "admin"}
-            onNavigate={(key) => { setMoreOpen(false); handleNavClick(key); }}
+            onNavigate={(key) => go(key)}
             onLogout={() => { if (window.confirm("确定退出登录？")) logout(); }}
           />
         )}
         {isMobile && (
           <MobileNav
             activeNav={activeNav}
-            onNavigate={(key) => { setMoreOpen(false); handleNavClick(key); }}
+            onNavigate={(key) => go(key)}
             moreActive={moreOpen || onMoreSection}
             onMoreClick={() => setMoreOpen((v) => !v)}
           />
         )}
       </main>
     </ToastProvider>
-  );
-}
-
-export default function App() {
-  return (
-    <AuthProvider>
-      <AppShell />
-    </AuthProvider>
   );
 }

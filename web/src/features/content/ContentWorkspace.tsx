@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useBlocker } from "react-router-dom";
 import { EditorContent, NodeViewWrapper, ReactNodeViewRenderer, useEditor } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -315,7 +316,6 @@ type UnifiedListItem =
   | { type: "group"; group: ArticleGroup; sortTime: number };
 
 interface Props {
-  dirtyCheckRef?: MutableRefObject<() => boolean>;
   isActive?: boolean;
   reviewTab?: ReviewStatus;
   onReviewTabChange?: (t: ReviewStatus) => void;
@@ -323,7 +323,6 @@ interface Props {
 }
 
 export function ContentWorkspace({
-  dirtyCheckRef,
   isActive,
   reviewTab: reviewTabProp,
   onReviewTabChange,
@@ -409,23 +408,53 @@ export function ContentWorkspace({
   latestEditor.current = editor;
   const savedStateRef = useRef<{ title: string; author: string; cover_asset_id: number | string | null; bodyState: string } | null>(null);
 
-  if (dirtyCheckRef) {
-    dirtyCheckRef.current = () => {
-      const d = latestDraft.current;
-      const e = latestEditor.current;
-      const s = savedStateRef.current;
-      const currentBodyState = e ? editorBodyState(e) : EMPTY_BODY_STATE;
-      if (!s) {
-        return d.title.trim() !== "" || d.author.trim() !== "" || d.cover_asset_id !== null || currentBodyState !== EMPTY_BODY_STATE;
+  // 当前编辑器是否有未保存改动（读 ref，恒取最新值；空依赖即稳定）。
+  const isDirty = useCallback(() => {
+    const d = latestDraft.current;
+    const e = latestEditor.current;
+    const s = savedStateRef.current;
+    const currentBodyState = e ? editorBodyState(e) : EMPTY_BODY_STATE;
+    if (!s) {
+      return d.title.trim() !== "" || d.author.trim() !== "" || d.cover_asset_id !== null || currentBodyState !== EMPTY_BODY_STATE;
+    }
+    return (
+      d.title.trim() !== s.title ||
+      d.author.trim() !== s.author ||
+      d.cover_asset_id !== s.cover_asset_id ||
+      currentBodyState !== s.bodyState
+    );
+  }, []);
+
+  // 路由切换拦截：离开「内容管理」且有未保存改动时确认（覆盖侧栏点击、移动端导航、浏览器前进/后退）。
+  const blocker = useBlocker(
+    ({ nextLocation }) => isDirty() && !nextLocation.pathname.startsWith("/content"),
+  );
+  const promptingRef = useRef(false);
+  useEffect(() => {
+    if (blocker.state !== "blocked") {
+      promptingRef.current = false;
+      return;
+    }
+    if (promptingRef.current) return; // 防 StrictMode 下重复弹窗
+    promptingRef.current = true;
+    if (window.confirm("当前文章有未保存内容，确定要切换页面吗？未保存的修改将丢失。")) {
+      blocker.proceed();
+    } else {
+      blocker.reset();
+    }
+  }, [blocker]);
+
+  // 整页刷新 / 关闭标签页时浏览器原生拦截。
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (isDirty()) {
+        e.preventDefault();
+        e.returnValue = "";
       }
-      return (
-        d.title.trim() !== s.title ||
-        d.author.trim() !== s.author ||
-        d.cover_asset_id !== s.cover_asset_id ||
-        currentBodyState !== s.bodyState
-      );
     };
-  }
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isDirty]);
 
   const groupedArticleIdSet = useMemo(() => {
     const ids = new Set<number>();
@@ -1004,7 +1033,7 @@ export function ContentWorkspace({
             <Save size={16} />
             保存
           </button>
-          <button className="secondaryButton" disabled={loading} type="button" onClick={() => { if (dirtyCheckRef?.current?.() ?? false) { setConfirmUnsavedNew(true); } else { resetDraft(); } }}>
+          <button className="secondaryButton" disabled={loading} type="button" onClick={() => { if (isDirty()) { setConfirmUnsavedNew(true); } else { resetDraft(); } }}>
             <Plus size={16} />
             新建
           </button>
