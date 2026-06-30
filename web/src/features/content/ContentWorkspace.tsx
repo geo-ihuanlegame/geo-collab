@@ -1207,7 +1207,16 @@ export function ContentWorkspace({
                             />
                           </label>
                           <button type="button" onClick={() => void loadArticle(article)}>
-                            <strong>{article.title}</strong>
+                            <span style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                              <strong>{article.title}</strong>
+                              <span
+                                className="badge"
+                                style={{ flexShrink: 0, fontFamily: "var(--mono, monospace)", color: "var(--text-muted, #888)" }}
+                                title="数据库 ID"
+                              >
+                                ID {article.id}
+                              </span>
+                            </span>
                             <span className="articleSourceLine">智能体：{article.source_agent_name || "—"}</span>
                             <span className="articleSourceRow">
                               <span className="articleSourceLine">模板：{article.source_template_name || "—"}</span>
