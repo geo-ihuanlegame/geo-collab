@@ -11,16 +11,19 @@ import {
   Package,
   Plug,
   RefreshCw,
+  Wrench,
   XCircle,
 } from "lucide-react";
 import {
   getLoopSkillBundleInfo,
   getMcpStatus,
+  getMcpTools,
   LOOP_SKILL_BUNDLE_DOWNLOAD_URL,
   pingMcpHealth,
   type LoopSkillBundleInfo,
   type McpHealthResult,
   type McpStatus,
+  type McpToolInfo,
 } from "../../api/mcp";
 import { useToast } from "../../components/Toast";
 
@@ -241,7 +244,15 @@ export function McpConnectWorkspace() {
         </div>
       </header>
 
-      <div style={{ display: "grid", gap: 16, maxWidth: 860 }}>
+      <div
+        style={{
+          display: "flex",
+          gap: 16,
+          alignItems: "flex-start",
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ display: "grid", gap: 16, flex: "1 1 560px", maxWidth: 860, minWidth: 0 }}>
         {/* Section ① 概览 ─────────────────────────────────────────────── */}
         <section className="panel">
           <h2 style={{ marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
@@ -885,6 +896,10 @@ export function McpConnectWorkspace() {
             </div>
           </details>
         </section>
+        </div>
+
+        {/* 右侧：已注册工具列表 ──────────────────────────────────────────── */}
+        <McpToolsPanel />
       </div>
     </>
   );
@@ -893,6 +908,222 @@ export function McpConnectWorkspace() {
 // ─────────────────────────────────────────────────────────────────────────────
 // Subcomponents + local styles
 // ─────────────────────────────────────────────────────────────────────────────
+
+// ── 右侧「已注册工具」面板 ────────────────────────────────────────────────────
+//
+// 列表本身由后端 GET /api/mcp/tools 实时内省 FastMCP 注册表得到（name/group/summary），
+// 保证永远等于真实注册的工具。下面这份中文 gloss 仅作展示美化：命中则显示中文「用处」，
+// 未命中（例如新加了 tool 还没补 gloss）自动回落后端英文 summary，绝不漏行。
+
+const TOOL_PURPOSE_ZH: Record<string, string> = {
+  // catalog（只读查询）
+  list_articles: "按状态 / 审核状态分页查文章列表",
+  list_question_pools: "列出所有问题池（飞书同步的选题库）",
+  list_question_items: "查某问题池下的问题条目（可按分类过滤）",
+  list_prompt_templates: "按 scope 列出提示词模板",
+  list_pipelines: "列出所有 pipeline（智能体 / 工作流）",
+  list_accounts: "列出发布账号（可按平台 / 是否可分发过滤）",
+  get_article: "按 id 取单篇文章全文（Tiptap / HTML / 纯文本）",
+  list_today_loop_articles: "统计窗口内 /goal Loop 已生成且已决策的文章（停止条件用）",
+  list_stock_categories: "列出图片库栏目（配图选 main_category_id 用）",
+  // action（写操作）
+  save_article: "把 Claude 写好的 markdown 文章入库（零配置生文）",
+  illustrate_article: "给文章正文按位置插入图库选图",
+  submit_review_decision: "写入一条自动审核决策（不改最终人审状态）",
+  notify_feishu: "发送飞书 webhook 通知",
+  set_review_status: "修改文章审核状态（pending / approved）",
+  create_distribute_task: "建 article_round_robin 分发任务（轮询派号发文）",
+  install_loop_skills: "拉取 /goal Loop skill 包供本地安装",
+  ai_illustrate_article: "AI 智能配图 + 自动封面（对齐 Web UI「AI 配图」）",
+  // meta（评估 / 回流）
+  score_recent_articles: "用 ai_format 模型给文章批量 LLM 评分",
+  get_template_performance: "聚合某提示词模板产出文章的表现指标",
+  get_account_performance: "聚合某账号已发布文章的表现指标",
+  record_publish_metrics: "回流写入发布记录的阅读 / 点赞等指标",
+};
+
+// 分组的展示顺序 + 中文标题（未知分组回落显示原始 key）
+const TOOL_GROUPS: { key: string; label: string }[] = [
+  { key: "catalog", label: "只读查询" },
+  { key: "action", label: "写操作" },
+  { key: "meta", label: "评估 / 回流" },
+];
+
+function McpToolsPanel() {
+  const [tools, setTools] = useState<McpToolInfo[] | null>(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await getMcpTools();
+      setTools(data);
+      setError("");
+    } catch (err) {
+      setTools(null);
+      setError(err instanceof Error ? err.message : "获取工具列表失败");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  // 按 TOOL_GROUPS 顺序分组；不在已知顺序里的分组追加到末尾
+  const grouped = useMemo(() => {
+    if (!tools) return [];
+    const byGroup = new Map<string, McpToolInfo[]>();
+    for (const t of tools) {
+      const arr = byGroup.get(t.group) ?? [];
+      arr.push(t);
+      byGroup.set(t.group, arr);
+    }
+    const knownKeys = new Set(TOOL_GROUPS.map((g) => g.key));
+    const ordered = TOOL_GROUPS.filter((g) => byGroup.has(g.key)).map((g) => ({
+      label: g.label,
+      items: byGroup.get(g.key) ?? [],
+    }));
+    for (const [key, items] of byGroup) {
+      if (!knownKeys.has(key)) ordered.push({ label: key, items });
+    }
+    return ordered;
+  }, [tools]);
+
+  return (
+    <aside
+      className="panel"
+      style={{
+        flex: "1 1 340px",
+        maxWidth: 440,
+        minWidth: 280,
+        position: "sticky",
+        top: 16,
+        alignSelf: "flex-start",
+        maxHeight: "calc(100vh - 32px)",
+        overflowY: "auto",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
+          marginBottom: 4,
+        }}
+      >
+        <h2 style={{ margin: 0, display: "flex", alignItems: "center", gap: 8 }}>
+          <Wrench size={18} /> 已注册工具
+          {tools ? (
+            <span style={{ fontSize: 13, fontWeight: 500, color: "var(--fg-3)" }}>
+              （{tools.length}）
+            </span>
+          ) : null}
+        </h2>
+        <button
+          type="button"
+          onClick={() => void refresh()}
+          disabled={loading}
+          aria-label="刷新工具列表"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
+            padding: "4px 8px",
+            background: "transparent",
+            border: "1px solid var(--border)",
+            borderRadius: 6,
+            cursor: loading ? "default" : "pointer",
+            color: "var(--fg-2)",
+            fontSize: 12,
+          }}
+        >
+          <RefreshCw size={13} className={loading ? "hotSpin" : ""} />
+        </button>
+      </div>
+      <p style={{ color: "var(--fg-3)", fontSize: 12, lineHeight: 1.6, margin: "0 0 12px" }}>
+        Claude Code 经 MCP 协议可调用的 GEO 工具，实时取自服务端注册表。
+      </p>
+
+      {loading && !tools ? (
+        <div style={{ color: "var(--fg-3)", fontSize: 13, display: "flex", alignItems: "center", gap: 8 }}>
+          <Loader2 size={14} className="hotSpin" /> 加载中…
+        </div>
+      ) : error ? (
+        <div
+          style={{
+            color: "var(--red)",
+            background: "var(--red-soft)",
+            border: "1px solid rgba(248,113,113,0.3)",
+            padding: "10px 12px",
+            borderRadius: 10,
+            fontSize: 12.5,
+          }}
+        >
+          <XCircle size={13} style={{ verticalAlign: "-2px", marginRight: 6 }} />
+          {error}
+        </div>
+      ) : (
+        <div style={{ display: "grid", gap: 16 }}>
+          {grouped.map((g) => (
+            <div key={g.label}>
+              <div
+                style={{
+                  fontSize: 11.5,
+                  fontWeight: 600,
+                  letterSpacing: "0.4px",
+                  textTransform: "uppercase",
+                  color: "var(--fg-3)",
+                  marginBottom: 6,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                {g.label}
+                <span style={{ fontWeight: 500 }}>· {g.items.length}</span>
+              </div>
+              <div style={{ display: "grid", gap: 1, background: "var(--hair)", borderRadius: 8, overflow: "hidden" }}>
+                {g.items.map((t) => (
+                  <div
+                    key={t.name}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "minmax(96px, 38%) 1fr",
+                      gap: 10,
+                      padding: "8px 10px",
+                      background: "var(--surface-2)",
+                      alignItems: "baseline",
+                    }}
+                  >
+                    <code
+                      title={t.name}
+                      style={{
+                        fontFamily: "var(--mono, monospace)",
+                        fontSize: 12,
+                        color: "var(--accent-deep)",
+                        overflowWrap: "anywhere",
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      {t.name}
+                    </code>
+                    <span style={{ fontSize: 12.5, color: "var(--fg-2)", lineHeight: 1.55 }}>
+                      {TOOL_PURPOSE_ZH[t.name] ?? t.summary}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </aside>
+  );
+}
 
 function TroubleshootRow({ code, hint }: { code: string; hint: string }) {
   return (

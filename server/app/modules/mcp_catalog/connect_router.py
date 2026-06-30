@@ -28,6 +28,12 @@ class McpStatusResponse(BaseModel):
     tools_count: int
 
 
+class McpToolInfo(BaseModel):
+    name: str
+    group: str  # catalog / action / meta —— 由注册函数所在模块推出
+    summary: str  # 工具 docstring 首行（英文），前端中文 gloss 缺失时回落它
+
+
 class McpHealthResponse(BaseModel):
     ok: bool
 
@@ -45,6 +51,32 @@ def get_mcp_status(request: Request) -> McpStatusResponse:
         suggested_base_url=str(request.base_url).rstrip("/"),
         tools_count=MCP_TOOLS_COUNT,
     )
+
+
+@mcp_connect_user_router.get("/tools", response_model=list[McpToolInfo])
+def list_mcp_tools() -> list[McpToolInfo]:
+    """[user] 列出当前已注册的 MCP 工具（名字 / 分组 / 首行摘要）。
+
+    直接内省 FastMCP 活注册表（与 server/mcp/server.py 里 tools_count 断言读的
+    `mcp._tool_manager._tools` 是同一来源），保证前端「MCP 接入」tab 右侧展示的
+    工具列表永远等于实际注册的工具，绝不与段 ① 的 tools_count 数字漂移。
+    """
+    # 懒导入：server.mcp.server 顶部 import 了本模块的 MCP_TOOLS_COUNT，
+    # 顶层 import 会形成循环依赖，故放函数内。
+    from server.mcp.server import mcp
+
+    infos: list[McpToolInfo] = []
+    for name, tool in mcp._tool_manager._tools.items():
+        module = getattr(tool.fn, "__module__", "") or ""
+        group = module.rsplit(".", 1)[-1]  # server.mcp.tools.catalog -> "catalog"
+        summary = ""
+        for line in (tool.description or "").splitlines():
+            if line.strip():
+                summary = line.strip()
+                break
+        infos.append(McpToolInfo(name=name, group=group, summary=summary))
+    infos.sort(key=lambda i: (i.group, i.name))
+    return infos
 
 
 # MCP token 鉴权（router-level dependency）

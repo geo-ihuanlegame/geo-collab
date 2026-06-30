@@ -14,6 +14,17 @@ export function getMcpStatus(): Promise<McpStatus> {
   return api<McpStatus>("/api/mcp/status");
 }
 
+export type McpToolInfo = {
+  name: string;
+  group: string; // catalog / action / meta
+  summary: string; // 工具 docstring 首行（英文），中文 gloss 缺失时回落
+};
+
+/** 列出当前已注册的 MCP 工具（后端实时内省 FastMCP 注册表）. */
+export function getMcpTools(): Promise<McpToolInfo[]> {
+  return api<McpToolInfo[]>("/api/mcp/tools");
+}
+
 /**
  * Ping /api/mcp/health with the user's MCP token to verify config.
  *
