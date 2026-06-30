@@ -3904,6 +3904,7 @@ option, optgroup {
 .accountRowCellStatus { width: 96px; }
 .accountRowCellAccount { width: 240px; gap: 10px; }
 .accountRowCellPlatform { width: 100px; }
+.accountRowCellOwner { width: 120px; }
 .accountRowCellRemark { flex: 1; }
 .accountRowCellActions { width: 210px; gap: 16px; }
 
@@ -4571,6 +4572,19 @@ option, optgroup {
   min-width: 0;
 }
 
+/* 编辑弹窗：账号名称 label 移到输入框左上方，头像独占最左侧 */
+.addAuthNameCol {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.addAuthNameCol .addAuthInput {
+  width: 100%;
+  flex: none;
+}
+
 /* Avatar Upload */
 .addAuthAvatarUpload {
   width: 54px;
@@ -4952,8 +4966,8 @@ option, optgroup {
 }
 
 .accountRowOwner {
-  font-size: 11.5px;
-  color: var(--fg-3);
+  font-size: 13px;
+  color: var(--fg-2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
