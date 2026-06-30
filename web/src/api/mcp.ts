@@ -1,9 +1,17 @@
 import { api } from "./core";
 
+export type McpToolInfo = {
+  name: string;
+  group: string; // catalog / action / meta
+  summary: string; // 工具 docstring 首行（英文）
+  summary_zh: string; // 中文「用处」：后端算好（手写覆盖 → 机翻 → 英文兜底）
+};
+
 export type McpStatus = {
   configured: boolean;
   suggested_base_url: string;
-  tools_count: number;
+  tools_count: number; // = tools.length，实时
+  tools: McpToolInfo[];
 };
 
 export type McpHealthResult =
@@ -12,17 +20,6 @@ export type McpHealthResult =
 
 export function getMcpStatus(): Promise<McpStatus> {
   return api<McpStatus>("/api/mcp/status");
-}
-
-export type McpToolInfo = {
-  name: string;
-  group: string; // catalog / action / meta
-  summary: string; // 工具 docstring 首行（英文），中文 gloss 缺失时回落
-};
-
-/** 列出当前已注册的 MCP 工具（后端实时内省 FastMCP 注册表）. */
-export function getMcpTools(): Promise<McpToolInfo[]> {
-  return api<McpToolInfo[]>("/api/mcp/tools");
 }
 
 /**
