@@ -68,6 +68,62 @@ def test_mcp_catalog_endpoints_pass_with_token(monkeypatch):
 
 
 @pytest.mark.mysql
+def test_mcp_prompt_templates_excludes_disabled_but_admin_list_keeps(monkeypatch):
+    """MCP catalog 只把"启用"的提示词递给 Loop（关闭的不该出现在清单里）；
+    但 admin 管理列表 /api/prompt-templates 仍要看得到关闭模板以便重新启用。
+
+    两条业务逻辑隔离：查询是查询（catalog 过滤 enabled、admin 列全量），
+    跟保存层的校验各管各的。
+    """
+    from server.app.modules.prompt_templates.models import PromptTemplate
+    from server.tests.utils import build_test_app
+
+    test_app = build_test_app(monkeypatch)
+    try:
+        monkeypatch.setenv("GEO_MCP_TOKEN", "secret")
+        from server.app.core import config
+
+        config.get_settings.cache_clear()
+
+        with test_app.session_factory() as db:
+            db.add(
+                PromptTemplate(
+                    name="enabled-tpl",
+                    content="x",
+                    scope="generation",
+                    user_id=test_app.admin_id,
+                    is_enabled=True,
+                )
+            )
+            db.add(
+                PromptTemplate(
+                    name="disabled-tpl",
+                    content="x",
+                    scope="generation",
+                    user_id=test_app.admin_id,
+                    is_enabled=False,
+                )
+            )
+            db.commit()
+
+        # MCP 视角（service token）：只看得到启用的
+        r = test_app.client.get("/api/mcp/prompt-templates", headers={"X-MCP-Token": "secret"})
+        assert r.status_code == 200, r.text
+        mcp_names = {t["name"] for t in r.json()}
+        assert "enabled-tpl" in mcp_names
+        assert "disabled-tpl" not in mcp_names
+
+        # admin 管理列表（user JWT，test_app.client 默认 admin）：两者都在
+        r2 = test_app.client.get("/api/prompt-templates")
+        assert r2.status_code == 200, r2.text
+        admin_names = {t["name"] for t in r2.json()}
+        assert "enabled-tpl" in admin_names
+        assert "disabled-tpl" in admin_names
+    finally:
+        test_app.cleanup()
+
+
+@pytest.mark.mysql
 def test_mcp_catalog_articles_filter_by_review_status(monkeypatch):
     """`review_status=approved` 过滤应只返回审核通过的文章。"""
     from server.app.modules.articles import create_article

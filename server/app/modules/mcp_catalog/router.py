@@ -149,8 +149,8 @@ def mcp_list_prompt_templates(
     scope: PromptScope | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> list[PromptTemplateRead]:
-    """[MCP] 列提示词模板（全量，仅排除软删）。"""
-    templates = svc_list_templates(db, scope=scope)
+    """[MCP] 列提示词模板：仅排除软删，且只返回"启用"的（关闭模板不递给 Loop）。"""
+    templates = svc_list_templates(db, scope=scope, enabled_only=True)
     return [PromptTemplateRead.model_validate(t) for t in templates]
 
 
