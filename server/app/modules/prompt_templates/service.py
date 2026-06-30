@@ -32,14 +32,21 @@ def _visible_query(db: Session, *, user_id: int, scope: str | None = None):
     return query
 
 
-def list_prompt_templates(db: Session, *, scope: str | None = None) -> list[PromptTemplate]:
-    """全量列出（不做可见性过滤），仅排除软删（不过滤 is_enabled）。
+def list_prompt_templates(
+    db: Session, *, scope: str | None = None, enabled_only: bool = False
+) -> list[PromptTemplate]:
+    """全量列出（不做可见性过滤），仅排除软删。
 
-    调用方：MCP catalog（service token，给 loop 列全量）+ 管理列表接口的 admin 分支
-    （admin 看全量含其他用户私有模板）。系统模板排在前，与 list_visible_prompts 的排序对齐。
+    调用方两类，对"启用"的需求不同，故用 enabled_only 隔离、不混在一个查询语义里：
+    - admin 管理列表（enabled_only=False，默认）：要看得到关闭的模板才能把它重新启用。
+    - MCP catalog（enabled_only=True）：只把"启用"的模板递给 Loop——关闭=业务上"停用",
+      不该再被拿去生文（见 save_article_from_mcp 的写入层兜底校验）。
+    系统模板排在前，与 list_visible_prompts 的排序对齐。
     """
     _validate_scope(scope)
     query = db.query(PromptTemplate).filter(PromptTemplate.is_deleted == False)  # noqa: E712
+    if enabled_only:
+        query = query.filter(PromptTemplate.is_enabled == True)  # noqa: E712
     if scope is not None:
         query = query.filter(PromptTemplate.scope == scope)
     return query.order_by(PromptTemplate.is_system.desc(), PromptTemplate.id).all()

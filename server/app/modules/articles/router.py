@@ -1173,7 +1173,7 @@ def save_article_from_mcp(
     from server.app.modules.ai_generation.models import QuestionItem
     from server.app.modules.articles.schemas import ArticleCreate
     from server.app.modules.articles.service import create_article as _create_article
-    from server.app.modules.prompt_templates.models import PromptTemplate
+    from server.app.modules.prompt_templates.service import get_prompt_template
 
     item = db.query(QuestionItem).filter(QuestionItem.id == payload.question_item_id).first()
     if item is None:
@@ -1181,11 +1181,19 @@ def save_article_from_mcp(
             status_code=404,
             detail=f"question_item not found: id={payload.question_item_id}",
         )
-    tpl = db.query(PromptTemplate).filter(PromptTemplate.id == payload.prompt_template_id).first()
+    # get_prompt_template 已过滤软删（is_deleted）→ 软删模板视同不存在（404）。
+    tpl = get_prompt_template(db, payload.prompt_template_id)
     if tpl is None:
         raise HTTPException(
             status_code=404,
             detail=f"prompt_template not found: id={payload.prompt_template_id}",
+        )
+    # 写入层兜底：被运营关闭（is_enabled=False）的模板不该再用于生文。
+    # 与查询层（mcp catalog enabled_only=True）双保险，防 Loop 传陈旧/写死的关闭 id。
+    if not tpl.is_enabled:
+        raise HTTPException(
+            status_code=400,
+            detail=f"prompt_template disabled: id={payload.prompt_template_id}",
         )
 
     article_payload = ArticleCreate(
@@ -1200,6 +1208,11 @@ def save_article_from_mcp(
     try:
         article = _create_article(db, payload.user_id, article_payload)
         article.review_status = "pending"
+        # 生文溯源（与 pipeline 生文路径对齐，供内容列表 / 卡片展示「智能体 / 模板」）：
+        # MCP loop 路径的「智能体」固定字样 "loop"；「模板」取所用提示词模板的权威名称
+        # （服务端从 prompt_template_id 查得的 tpl.name，不信任客户端传参）。
+        article.source_agent_name = "loop"
+        article.source_template_name = tpl.name
         if payload.model_label:
             existing = dict(article.metrics or {})
             existing["writer_model"] = payload.model_label
