@@ -113,14 +113,20 @@ def fill_random_images(db: Session, article: Any, *, category_ids: list[int], ga
 def apply_image_fallback(
     *,
     article_id: int,
-    requested: int,
+    anchored: int,
     category_ids: list[int],
     max_images: int,
     session_factory: Callable[[], Session],
 ) -> int:
     """兜底 orchestrator：开独立短 session，按 target 规则决定缺口并随机补足。返回补入张数。
 
-    target = min(max(requested, 1), max_images)；gap = target − 当前正文图数；gap>0 才补。
+    anchored = 配图阶段【实际锚定到正文位置】的张数，**不是** game_list / 作者意图的长度。
+    target = min(anchored, max_images)；gap = target − 当前正文图数；gap>0 才补。
+
+    关键不变量（见 #1182）：anchored == 0（锚定全失败，如 ai_returned_no_positions、
+    标题非 heading 全不匹配）→ target = 0 → 不补。绝不把"作者想配 N 张"误当成"该补 N 张
+    随机图"而灌满正文。随机兜底只为"已锚定但没配上图"的缺口补位，从属于精准/千帆配图，
+    不喧宾夺主——故去掉了旧实现里 `max(requested, 1)` 的"至少补 1 张"地板。
     """
     if not category_ids:
         return 0
@@ -133,7 +139,7 @@ def apply_image_fallback(
             return 0
         content, _ = _load_article_content(article)
         current = count_body_images(content)
-        target = min(max(requested, 1), max_images)
+        target = min(anchored, max_images)
         gap = target - current
         if gap <= 0:
             return 0
