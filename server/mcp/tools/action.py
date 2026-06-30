@@ -295,7 +295,7 @@ async def ai_illustrate_article(
     include_companion: bool = True,
     aggressive_images: bool = True,
     set_cover: bool = True,
-    web_fallback: bool = False,
+    web_fallback: bool = True,
     format_engine: str | None = None,
     game_positions: list[dict] | None = None,
 ) -> dict[str, Any]:
@@ -317,12 +317,13 @@ async def ai_illustrate_article(
         set_cover: If True, also picks a random image from main_category_id
             as the article cover (only if cover not already set).
         web_fallback: 联网兜底开关(对齐 Web UI「AI 配图」节点的同名开关)。
-            默认 False。开启后,当正文点到的游戏在本地图库【没有】对应栏目、
+            默认 True。开启后,当正文点到的游戏在本地图库【没有】对应栏目、
             或匹配到的栏目【没有图】时,AI 可以用游戏名点名,GEO 会自动建一个
             陪衬栏目 + 走百度(千帆 AI 搜索)联网搜一张横版图补进去——这样图库
-            里没有的新游戏也能配上图。**前提**:app 容器配了 GEO_BAIDU_API_KEY;
+            里没有的新游戏也能配上图。本地图库始终优先(命中本地栏目/有图就直接用本地、
+            根本不触网),联网仅在本地拿不到时兜底。**前提**:app 容器配了 GEO_BAIDU_API_KEY;
             best-effort:key 缺失 / 网络失败时静默不补图、不报错(退化为关时行为)。
-            想让"图库无图也走百度补图"就传 web_fallback=True。
+            批量并发配图需留意千帆搜图 QPS(~3-4/s)上限;不想联网补图就传 web_fallback=False。
         format_engine: 配图所用 LLM 模型串（scope=ai_format，需在「AI 模型管理」里存在并启用）。
             None = 用默认格式模型。用于给配图换中转/不同模型，与 Web UI「AI配图」节点的下拉等价。
         game_positions: 上游识别分支产出的显式游戏清单 [{"game": str, "category_id"?: int, "index"?: int}]。
