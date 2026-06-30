@@ -882,6 +882,11 @@ def _maybe_insert_images(
     # 让上层（illustrate_one / writer）能发现"该 N 张只来 M 张"的部分失败，而非静默通过。
     if out_diagnostics is not None:
         out_diagnostics["requested"] = len(requested_labels)
+        # anchored = 实际锚定到栏目的位置数（兜底用它算缺口，绝不用作者意图长度）。
+        # 本路径 requested 即诚实锚定数，故二者同值；但早退出口（already_has_images /
+        # no_valid_categories / ai_returned_no_positions）在此之前 return、不写 anchored，
+        # 上层 fmt_diag.get("anchored", 0) 自然得 0 → 兜底不补（见 #1182）。
+        out_diagnostics["anchored"] = len(requested_labels)
         out_diagnostics["inserted"] = len(matched_refs)
         out_diagnostics["missed"] = len(requested_labels) - len(matched_refs)
         if missed_labels:
@@ -1090,6 +1095,10 @@ def run_ai_format_from_game_list(
             [g for g in (game_list or []) if isinstance(g, dict) and (g.get("game") or "").strip()]
         )
         out_diagnostics["requested"] = expected
+        # anchored = 实际锚定到正文节点的游戏数（= positions 长度），与 requested（清单长度/
+        # 作者意图）解耦。#1182：10 款游戏标题写成段落、_find_heading_index 全不匹配 →
+        # positions=[] → anchored=0；下游兜底据此补 0，不再把 requested=10 误当缺口灌满。
+        out_diagnostics["anchored"] = len(positions)
         out_diagnostics["inserted"] = inserted
         out_diagnostics["missed"] = max(0, expected - inserted)
         missed_games = list(fmt_diag.get("missed_games", []) or [])

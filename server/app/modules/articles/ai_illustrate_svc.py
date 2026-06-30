@@ -210,13 +210,15 @@ def illustrate_one(
 
     fallback_inserted = 0
     try:
-        requested = int(fmt_diag.get("requested", 0) or 0)
+        # 用 anchored（实际锚定数）而非 requested（作者意图/清单长度）算兜底缺口：
+        # 锚定全失败时 anchored=0 → 兜底补 0，绝不灌满随机无关图（见 #1182）。
+        anchored = int(fmt_diag.get("anchored", 0) or 0)
         category_ids = [
             c["id"] for c in candidate_categories if isinstance(c, dict) and c.get("id")
         ]
         fallback_inserted = apply_image_fallback(
             article_id=article_id,
-            requested=requested,
+            anchored=anchored,
             category_ids=category_ids,
             max_images=max_images,
             session_factory=session_factory,
