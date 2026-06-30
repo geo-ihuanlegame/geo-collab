@@ -49,6 +49,7 @@ from server.app.modules.accounts.service import (
     get_account,
     get_or_create_platform,
     launch_options,
+    mark_account_operated,
     normalize_account_key,
     profile_dir_from_state_path,
     profile_key_from_state_path,
@@ -187,6 +188,7 @@ def register_account_from_storage_state(
             note=payload.note,
             last_login_at=now,
             last_checked_at=now,
+            last_operated_at=now,
         )
         db.add(account)
     else:
@@ -198,6 +200,7 @@ def register_account_from_storage_state(
         account.deleted_at = None
         account.last_login_at = now
         account.last_checked_at = now
+        account.last_operated_at = now
         account.updated_at = now
 
     db.flush()
@@ -247,6 +250,7 @@ def start_login_session(
             avatar_asset_id=payload.avatar_asset_id,
             distribution_enabled=payload.distribution_enabled,
             last_checked_at=now,
+            last_operated_at=now,
         )
         db.add(account)
     else:
@@ -261,6 +265,7 @@ def start_login_session(
         account.is_deleted = False
         account.deleted_at = None
         account.last_checked_at = now
+        account.last_operated_at = now
         account.updated_at = now
     db.flush()
 
@@ -725,6 +730,10 @@ def _worker_finish_login_session(db: Session, request: AccountLoginSession) -> N
                 result.extracted_platform_user_id,
                 granted_via="login_dedup",
             )
+            if resolved_id != account.id:
+                resolved = db.get(Account, resolved_id)
+                if resolved is not None:
+                    mark_account_operated(resolved)
         request.resolved_account_id = resolved_id
         request.status = LOGIN_STATUS_FINISHED
         request.error_message = None
@@ -862,6 +871,7 @@ def _apply_login_result(account: Account, result: BrowserCheckResult) -> None:
     account.last_checked_at = now
     if result.logged_in:
         account.last_login_at = now
+    account.last_operated_at = now
     account.updated_at = now
 
 
@@ -1434,6 +1444,7 @@ def import_accounts_auth_package(
                     note=entry.get("note"),
                     last_login_at=last_login_at,
                     last_checked_at=now,
+                    last_operated_at=now,
                 )
                 db.add(account)
             else:
@@ -1447,6 +1458,7 @@ def import_accounts_auth_package(
                 existing.last_checked_at = now
                 existing.is_deleted = False
                 existing.deleted_at = None
+                existing.last_operated_at = now
                 existing.updated_at = now
             imported.append(display_name)
 

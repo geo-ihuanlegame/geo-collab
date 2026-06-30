@@ -1,6 +1,7 @@
 import json
 import threading
 import zipfile
+from datetime import datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 
@@ -9,7 +10,7 @@ from fastapi.testclient import TestClient
 from server.app.core.security import create_access_token
 from server.app.modules.accounts import RemoteBrowserSession
 from server.app.modules.accounts.models import Account
-from server.app.modules.system.models import User
+from server.app.modules.system.models import Platform, User
 from server.tests.utils import build_test_app
 
 
@@ -245,6 +246,80 @@ def test_toutiao_login_registers_existing_storage_and_lists_account(monkeypatch)
         test_app.cleanup()
 
 
+def test_account_list_orders_by_last_operated_at(monkeypatch):
+    test_app = build_test_app(monkeypatch)
+    client = test_app.client
+    install_fake_driver(monkeypatch)
+
+    try:
+        base = datetime(2000, 1, 1, 0, 0, 0)
+        first_state = "browser_states/users/1/toutiao/updated-later/storage_state.json"
+        first_state_file = test_app.data_dir / first_state
+        first_state_file.parent.mkdir(parents=True, exist_ok=True)
+        first_state_file.write_text('{"cookies":[],"origins":[]}', encoding="utf-8")
+
+        with test_app.session_factory() as db:
+            platform = Platform(
+                code="toutiao",
+                name="Toutiao",
+                base_url="https://mp.toutiao.com",
+                enabled=True,
+            )
+            db.add(platform)
+            db.flush()
+            updated_later = Account(
+                user_id=test_app.admin_id,
+                platform=platform,
+                display_name="updated-later",
+                platform_user_id=None,
+                status="valid",
+                state_path=first_state,
+                distribution_enabled=True,
+                created_at=base,
+                updated_at=base + timedelta(minutes=10),
+                last_operated_at=base,
+            )
+            operated_later = Account(
+                user_id=test_app.admin_id,
+                platform=platform,
+                display_name="operated-later",
+                platform_user_id=None,
+                status="valid",
+                state_path="browser_states/users/1/toutiao/operated-later/storage_state.json",
+                distribution_enabled=True,
+                created_at=base,
+                updated_at=base,
+                last_operated_at=base + timedelta(minutes=5),
+            )
+            db.add_all([updated_later, operated_later])
+            db.commit()
+            updated_later_id = updated_later.id
+            operated_later_id = operated_later.id
+
+        response = client.get("/api/accounts")
+        assert response.status_code == 200
+        assert [item["id"] for item in response.json()] == [operated_later_id, updated_later_id]
+
+        checked = client.post(
+            f"/api/accounts/{updated_later_id}/check", json={"use_browser": False}
+        )
+        assert checked.status_code == 200
+
+        response = client.get("/api/accounts")
+        assert [item["id"] for item in response.json()] == [operated_later_id, updated_later_id]
+
+        saved = client.patch(
+            f"/api/accounts/{updated_later_id}",
+            json={"display_name": "saved-edit"},
+        )
+        assert saved.status_code == 200
+
+        response = client.get("/api/accounts")
+        assert [item["id"] for item in response.json()] == [updated_later_id, operated_later_id]
+    finally:
+        test_app.cleanup()
+
+
 def test_account_check_relogin_and_delete(monkeypatch):
     test_app = build_test_app(monkeypatch)
     client = test_app.client
@@ -459,6 +534,12 @@ def test_finish_remote_login_session_saves_state_and_stops_session(monkeypatch):
             "/api/accounts/toutiao/login",
             json={"display_name": "finish-demo", "account_key": "demo", "use_browser": False},
         ).json()
+        old_operated_at = datetime(2000, 1, 1, 0, 0, 0)
+        with test_app.session_factory() as db:
+            stored = db.get(Account, account["id"])
+            assert stored is not None
+            stored.last_operated_at = old_operated_at
+            db.commit()
 
         from server.app.modules.accounts import browser as browser_sessions
         from server.app.modules.accounts.login_broker import LoginBrowserResult, login_broker
@@ -503,6 +584,10 @@ def test_finish_remote_login_session_saves_state_and_stops_session(monkeypatch):
         payload = response.json()
         assert payload["logged_in"] is True
         assert payload["account"]["status"] == "valid"
+        with test_app.session_factory() as db:
+            stored = db.get(Account, account["id"])
+            assert stored is not None
+            assert stored.last_operated_at > old_operated_at
         assert closed.get("finish-session") is True
         assert browser_sessions.get_session("finish-session") is None
         state_file = (

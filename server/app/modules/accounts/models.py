@@ -74,6 +74,7 @@ class Account(Base):
         Integer, ForeignKey("accounts.id"), nullable=True, index=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    last_operated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
     platform = relationship("Platform", back_populates="accounts")
