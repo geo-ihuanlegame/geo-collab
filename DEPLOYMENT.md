@@ -487,7 +487,7 @@ bash scripts/backup_files.sh
 | 变量 | 默认 | 作用 |
 |---|---|---|
 | `BACKUP_SKIP_MINIO=1` | 不跳过 | 跳过 minio，只备份 app_data |
-| `BACKUP_SKIP_BROWSER_PROFILES=1` | 不跳过 | 跳过 `browser_states/*/*/profile/`，只保留登录态 `storage_state.json`。当 chromium profile 太大或发布期间可能被持有时建议开启 |
+| `BACKUP_SKIP_BROWSER_PROFILES=1` | 不跳过 | 跳过任意深度的 `*/profile` 目录（chromium 缓存），只保留登录态 `storage_state.json`。当 chromium profile 太大或发布期间可能被持有时建议开启 |
 | `BACKUP_KEEP_DAYS=N` | 3 | 自动清理超过 N 天的旧备份 |
 | `COMPOSE_PROJECT_NAME=xxx` | 仓库目录名 | 如果 compose 项目名和目录名不一致，必须设置 |
 

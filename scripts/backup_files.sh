@@ -59,8 +59,10 @@ backup_app_data() {
 
     if [[ "${BACKUP_SKIP_BROWSER_PROFILES:-0}" == "1" ]]; then
         # 跳过 chromium profile 目录，只保留 storage_state.json 和其他配置
-        exclude_args=(--exclude='browser_states/*/*/profile')
-        log "▶ app_data: 跳过 browser_states/*/*/profile（只保留登录态 json）"
+        # 深度无关 + 不锚定：profile 实际埋在 browser_states/users/<uid>/<平台>/<hash>/profile（4 层深），
+        # 且归档成员名带 ./ 前缀，旧的 'browser_states/*/*/profile' 层数写死+锚定 → 永不命中（见 issue）
+        exclude_args=(--exclude='*/profile' --exclude='*/profile/*')
+        log "▶ app_data: 跳过 chromium profile 目录（只保留登录态 storage_state.json）"
     fi
 
     log "▶ app_data: 开始备份 → $target"
