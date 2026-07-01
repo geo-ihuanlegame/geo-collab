@@ -114,7 +114,7 @@ export const router = createBrowserRouter([
       { path: "tasks", element: <TasksWorkspace isActive /> },
       { path: "system", element: <SystemWorkspace /> },
       { path: "hot-lists", element: <HotListsWorkspace /> },
-      { path: "mcp", element: <McpConnectWorkspace /> },
+      { path: "mcp-connect", element: <McpConnectWorkspace /> },
       {
         path: "admin",
         element: (
