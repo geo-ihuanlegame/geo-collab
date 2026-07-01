@@ -39,6 +39,27 @@ export const ArticleListItem = React.memo(function ArticleListItem({
             ID {article.id}
           </span>
         </span>
+        {article.auto_review_score != null && article.auto_review_score >= 0 ? (
+          <span className="articleSourceLine">
+            评分：
+            <span
+              className="badge"
+              style={{
+                marginLeft: 4,
+                fontWeight: 600,
+                color:
+                  article.auto_review_score >= 70
+                    ? "var(--green, #3fb950)"
+                    : article.auto_review_score >= 40
+                      ? "var(--amber, #d29922)"
+                      : "var(--red, #f85149)",
+              }}
+              title="MCP 生文自评分（0-100，取 auto_review_decisions 最新一条）"
+            >
+              {article.auto_review_score}
+            </span>
+          </span>
+        ) : null}
         <span className="articleSourceLine">智能体：{article.source_agent_name || "—"}</span>
         <span className="articleSourceRow">
           <span className="articleSourceLine">模板：{article.source_template_name || "—"}</span>

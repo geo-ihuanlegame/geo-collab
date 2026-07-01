@@ -108,6 +108,10 @@ class ArticleListRead(BaseModel):
     published_count: int = 0
     source_agent_name: str | None = None  # 生成此文的「智能体」(pipeline) 名，手动/历史为 None
     source_template_name: str | None = None  # 生成此文的提示词「模板」名，手动/历史为 None
+    # MCP loop/goal 生文的自评分（auto_review_decisions 最新一条 score_total，0-100）。
+    # 只有 MCP 路径经 submit_review_decision 写这张表 → 手动/pipeline/方案文章恒为 None。
+    # 仅内容列表卡片展示用，不做查询过滤。
+    auto_review_score: int | None = None
     created_at: datetime
     updated_at: datetime
 

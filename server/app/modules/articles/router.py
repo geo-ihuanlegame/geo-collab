@@ -82,6 +82,7 @@ from server.app.modules.articles.uploader import (
     get_upload_manager,
 )
 from server.app.modules.audit.service import add_audit_entry
+from server.app.modules.auto_review.models import AutoReviewDecision
 from server.app.modules.system.models import User
 from server.app.modules.tasks.models import PublishRecord
 from server.app.shared.errors import ClientError, ConflictError, ValidationError
@@ -174,6 +175,16 @@ def read_articles(
         .group_by(PublishRecord.article_id)
     ).all()
     count_map = {row.article_id: row.cnt for row in rows}
+    # MCP 自评分：只有 loop/goal 经 submit_review_decision 写 auto_review_decisions，
+    # 故此分数天然只对 MCP 生成的文章出现（pipeline/方案不写 → 无分）。取每篇最新一条 score_total。
+    score_rows = db.execute(
+        select(AutoReviewDecision.article_id, AutoReviewDecision.score_total)
+        .where(AutoReviewDecision.article_id.in_(article_ids))
+        .order_by(AutoReviewDecision.id.desc())
+    ).all()
+    score_map: dict[int, int | None] = {}
+    for aid, score in score_rows:
+        score_map.setdefault(aid, score)  # id desc + setdefault → 每篇保留最新一条决策的分
     return [
         ArticleListRead(
             id=a.id,
@@ -187,6 +198,7 @@ def read_articles(
             published_count=count_map.get(a.id, 0),
             source_agent_name=a.source_agent_name,
             source_template_name=a.source_template_name,
+            auto_review_score=score_map.get(a.id),
             created_at=a.created_at,
             updated_at=a.updated_at,
         )
