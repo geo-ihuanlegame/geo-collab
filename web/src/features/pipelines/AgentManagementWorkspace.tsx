@@ -135,6 +135,13 @@ export function AgentManagementWorkspace() {
             <div className="agentCardTop">
               <div className="agentCardTitle">
                 <span className="agentName">{p.name}</span>
+                <span
+                  className="badge"
+                  style={{ flexShrink: 0, marginLeft: "2em", fontFamily: "var(--mono, monospace)", color: "var(--text-muted, #888)" }}
+                  title="数据库 ID"
+                >
+                  ID {p.id}
+                </span>
                 {p.has_draft && <span className="agentDraftDot" title="有未发布草稿">●</span>}
               </div>
               {p.is_running ? (
