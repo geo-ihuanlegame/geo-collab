@@ -98,6 +98,9 @@ async def save_article(
             paragraph).
         markdown_content: Full article body in Markdown. Use ## / ### for sub-headings,
             standard MD for lists / bold / etc. Converted to Tiptap JSON + HTML on save.
+            This is natural article text, not JSON source: do not escape body quotes as
+            `\"`. For Chinese copy, prefer `“”` / `「」`; if ASCII quotes are needed,
+            pass them as plain `"`.
         model_label: Optional identifier of the writer (e.g. "claude-opus-4-7"). Stored
             in article.metrics['writer_model'] for later analytics.
         prompt_template_name: Optional display-only label, e.g. "游戏情绪清单". When passed,

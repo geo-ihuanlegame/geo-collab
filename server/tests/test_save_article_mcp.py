@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 pytestmark = pytest.mark.mysql
@@ -42,6 +44,25 @@ def _seed_question_and_template(test_app):
         db.refresh(item)
         db.refresh(tpl)
         return item.id, tpl.id
+
+
+def _collect_text_nodes(node: Any) -> list[str]:
+    if isinstance(node, dict):
+        texts: list[str] = []
+        text = node.get("text")
+        if isinstance(text, str):
+            texts.append(text)
+        content = node.get("content")
+        if isinstance(content, list):
+            for child in content:
+                texts.extend(_collect_text_nodes(child))
+        return texts
+    if isinstance(node, list):
+        texts = []
+        for child in node:
+            texts.extend(_collect_text_nodes(child))
+        return texts
+    return []
 
 
 def test_save_from_mcp_requires_token(monkeypatch):
@@ -325,6 +346,55 @@ def test_save_from_mcp_persists_article_with_review_pending(monkeypatch):
             assert article.content_html
             # metrics 落写作者标签
             assert (article.metrics or {}).get("writer_model") == "claude-opus-4-7"
+    finally:
+        test_app.cleanup()
+
+
+def test_save_from_mcp_normalizes_json_escaped_quotes(monkeypatch):
+    """writer 把正文直引号写成字面 `\"` 时，保存边界要还原成普通引号。"""
+    from server.app.modules.articles.models import Article
+    from server.app.modules.articles.parser import loads_content_json
+    from server.tests.utils import build_test_app
+
+    test_app = build_test_app(monkeypatch)
+    try:
+        monkeypatch.setenv("GEO_MCP_TOKEN", "secret")
+        from server.app.core import config
+
+        config.get_settings.cache_clear()
+
+        qid, tpl_id = _seed_question_and_template(test_app)
+
+        markdown = (
+            r"但\"平板好玩\"不等于\"手机好玩\"。"
+            "\n\n## 综合测评\n"
+            r"它比\"开店\"更长线。"
+        )
+        r = test_app.client.post(
+            "/api/articles/save-from-mcp",
+            json={
+                "question_item_id": qid,
+                "prompt_template_id": tpl_id,
+                "user_id": test_app.admin_id,
+                "title": "平板游戏推荐",
+                "markdown_content": markdown,
+            },
+            headers={"X-MCP-Token": "secret"},
+        )
+        assert r.status_code == 200, r.text
+
+        with test_app.session_factory() as db:
+            article = db.query(Article).filter(Article.id == r.json()["article_id"]).first()
+            assert article is not None
+            assert '\\"' not in article.plain_text
+            assert '\\"' not in article.content_html
+            assert '"平板好玩"' in article.plain_text
+            assert '"开店"' in article.content_html
+
+            content_json = loads_content_json(article.content_json)
+            texts = "".join(_collect_text_nodes(content_json))
+            assert '\\"' not in texts
+            assert '"手机好玩"' in texts
     finally:
         test_app.cleanup()
 

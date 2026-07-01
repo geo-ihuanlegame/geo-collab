@@ -178,6 +178,7 @@ def generate_article_from_prompt(
     import litellm
 
     from server.app.modules.ai_generation.converter import markdown_to_html, markdown_to_tiptap
+    from server.app.modules.ai_generation.markdown_sanitizer import normalize_markdown_content
     from server.app.modules.ai_generation.model_capabilities import completion_with_capabilities
     from server.app.modules.ai_models.service import resolve_writing_engine
     from server.app.modules.articles.schemas import ArticleCreate
@@ -225,6 +226,7 @@ def generate_article_from_prompt(
     game_list = [{"game": g} for g in game_names] or None
 
     title, body_md = extract_title_and_body(article_body)
+    body_md = normalize_markdown_content(body_md)
 
     article_payload = ArticleCreate(
         title=title,

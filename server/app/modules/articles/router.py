@@ -1182,6 +1182,7 @@ def save_article_from_mcp(
     import uuid
 
     from server.app.modules.ai_generation.converter import markdown_to_html, markdown_to_tiptap
+    from server.app.modules.ai_generation.markdown_sanitizer import normalize_markdown_content
     from server.app.modules.ai_generation.models import QuestionItem
     from server.app.modules.articles.schemas import ArticleCreate
     from server.app.modules.articles.service import create_article as _create_article
@@ -1208,12 +1209,14 @@ def save_article_from_mcp(
             detail=f"prompt_template disabled: id={payload.prompt_template_id}",
         )
 
+    markdown_content = normalize_markdown_content(payload.markdown_content)
+
     article_payload = ArticleCreate(
         title=payload.title,
-        content_json=markdown_to_tiptap(payload.markdown_content),
-        content_html=markdown_to_html(payload.markdown_content),
-        plain_text=payload.markdown_content,
-        word_count=len(payload.markdown_content),
+        content_json=markdown_to_tiptap(markdown_content),
+        content_html=markdown_to_html(markdown_content),
+        plain_text=markdown_content,
+        word_count=len(markdown_content),
         client_request_id=str(uuid.uuid4()),
     )
 
