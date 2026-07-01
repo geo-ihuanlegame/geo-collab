@@ -85,6 +85,45 @@ def get_visible_prompt_template(
     )
 
 
+def _is_admin(db: Session, user_id: int | None) -> bool:
+    """运行主体是否 admin。用于运行期模板解析的跨属主旁路（见 get_runtime_prompt_template）。"""
+    if user_id is None:
+        return False
+    from server.app.modules.system.models import User  # 函数内导入，避免模块级循环依赖
+
+    user = db.get(User, user_id)  # 同 session 内同 id 命中 identity map，循环调用不重复查库
+    return user is not None and user.role == "admin"
+
+
+def get_runtime_prompt_template(
+    db: Session,
+    template_id: int,
+    *,
+    user_id: int | None,
+    scope: str | None = None,
+) -> PromptTemplate | None:
+    """自动化运行/校验期按 id 解析模板：admin 可跨属主取任意模板；非 admin 仍限本人私有或系统模板。
+
+    与 get_visible_prompt_template 唯一差别在 admin 分支——去掉归属过滤（只认 未软删 + scope），
+    与列表接口对 admin 的全量可见（prompt_templates/router.py）对齐；非 admin 行为与 get_visible
+    完全一致。is_enabled 不在此过滤（沿用现状，由调用方复核）。判定按**运行主体 user_id** 而非配置者：
+    admin 把他人私有模板配进非 admin 的 workflow 后，非 admin 主体（owner / 定时）运行仍被隔离。
+    编辑器浏览 / preset 选择路径继续走 get_visible_prompt_template，不受影响。
+    """
+    _validate_scope(scope)
+    query = db.query(PromptTemplate).filter(
+        PromptTemplate.is_deleted == False,  # noqa: E712
+        PromptTemplate.id == template_id,
+    )
+    if scope is not None:
+        query = query.filter(PromptTemplate.scope == scope)
+    if not _is_admin(db, user_id):
+        query = query.filter(
+            or_(PromptTemplate.user_id == user_id, PromptTemplate.is_system == True)  # noqa: E712
+        )
+    return query.first()
+
+
 def get_active_template_content(
     db: Session, *, scope: str, user_id: int | None, default: str
 ) -> str:

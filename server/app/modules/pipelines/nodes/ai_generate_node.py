@@ -13,7 +13,7 @@ from server.app.core.logging import submit_in_context
 from server.app.modules.ai_generation.article_writer import generate_article_from_prompt
 from server.app.modules.pipelines.nodes.base import NodeResult, NodeRunContext, register
 from server.app.modules.pipelines.nodes.daily_group_stream import make_group_streamer
-from server.app.modules.prompt_templates.service import get_visible_prompt_template
+from server.app.modules.prompt_templates.service import get_runtime_prompt_template
 from server.app.shared.errors import ValidationError
 
 logger = logging.getLogger(__name__)
@@ -157,7 +157,7 @@ def run_ai_generate(ctx: NodeRunContext) -> NodeResult:
 
     db = ctx.session_factory()
     try:
-        tpl = get_visible_prompt_template(db, template_id, user_id=ctx.user_id, scope="generation")
+        tpl = get_runtime_prompt_template(db, template_id, user_id=ctx.user_id, scope="generation")
         if tpl is None or not tpl.is_enabled:
             raise ValidationError("提示词模板无效（不存在/无权访问/停用/删除/非 generation）")
         template_content = tpl.content

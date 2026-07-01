@@ -31,7 +31,7 @@ from server.app.modules.articles.ai_format import (
     run_ai_format,
     run_ai_format_from_game_list,
 )
-from server.app.modules.prompt_templates.service import get_visible_prompt_template
+from server.app.modules.prompt_templates.service import get_runtime_prompt_template
 from server.app.shared.concurrency import ObservableGate, register_gate
 from server.app.shared.errors import ConflictError
 
@@ -128,7 +128,7 @@ def _pick_valid_template(
     """从允许列表里筛出运行时有效的模板（可见/未删/启用/scope=generation），随机返回一个；全无效返回 None。"""
     valid = []
     for tid in dict.fromkeys(allowed_ids or []):
-        tpl = get_visible_prompt_template(db, tid, user_id=user_id, scope="generation")
+        tpl = get_runtime_prompt_template(db, tid, user_id=user_id, scope="generation")
         if tpl is not None and tpl.is_enabled:
             valid.append(tpl)
     if not valid:

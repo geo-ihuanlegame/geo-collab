@@ -19,7 +19,7 @@ from server.app.modules.ai_generation.models import (
     QuestionItem,
 )
 from server.app.modules.ai_generation.schemas import SchemeCreate, SchemeLineInput, SchemeUpdate
-from server.app.modules.prompt_templates.service import get_visible_prompt_template
+from server.app.modules.prompt_templates.service import get_runtime_prompt_template
 from server.app.shared.errors import ValidationError
 
 # ── 读 ───────────────────────────────────────────────────────────────────────
@@ -97,7 +97,7 @@ def _validate_template_ids(db: Session, *, template_ids: list[int], user_id: int
     if not template_ids:
         raise ValidationError("每个问题类型至少要选一个提示词模板")
     for tid in dict.fromkeys(template_ids):
-        tpl = get_visible_prompt_template(db, tid, user_id=user_id, scope="generation")
+        tpl = get_runtime_prompt_template(db, tid, user_id=user_id, scope="generation")
         if tpl is None:
             raise ValidationError(
                 f"提示词模板不可用（不存在/已删除/不可见/非 generation 范围，id={tid}）"
