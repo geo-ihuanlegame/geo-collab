@@ -436,6 +436,7 @@ def test_save_from_mcp_stamps_loop_agent_and_template_name(monkeypatch):
             assert article is not None
             assert article.source_agent_name == "loop"
             assert article.source_template_name == "test-tpl"
+            assert article.source_template_id == tpl_id
     finally:
         test_app.cleanup()
 

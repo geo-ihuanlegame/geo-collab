@@ -95,6 +95,7 @@ def _run_units(
                 raise ValidationError("该单元允许模板在运行时全部无效或未配置")
             template_content = tpl.content
             template_name = tpl.name
+            source_template_id = tpl.id
         finally:
             db.close()
         aid = generate_article_from_prompt(
@@ -105,6 +106,7 @@ def _run_units(
             model=model,
             source_agent_name=ctx.pipeline_name,
             source_template_name=template_name,
+            source_template_id=source_template_id,
             web_search=web_search,
             deep_thinking=deep_thinking,
         )
@@ -177,6 +179,7 @@ def run_ai_compose(ctx: NodeRunContext) -> NodeResult:
                 raise ValidationError("允许的提示词模板在运行时全部无效")
             template_content = tpl.content
             template_name = tpl.name
+            source_template_id = tpl.id
         finally:
             db.close()
         aid = generate_article_from_prompt(
@@ -187,6 +190,7 @@ def run_ai_compose(ctx: NodeRunContext) -> NodeResult:
             model=model,
             source_agent_name=ctx.pipeline_name,
             source_template_name=template_name,
+            source_template_id=source_template_id,
             web_search=web_search,
             deep_thinking=deep_thinking,
         )

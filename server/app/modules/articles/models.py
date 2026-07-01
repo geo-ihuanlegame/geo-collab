@@ -125,6 +125,7 @@ class Article(Base):
     # 由哪个「智能体」（pipeline）与哪个提示词「模板」生成。手动/历史文章为 NULL，前端显示「—」。
     source_agent_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     source_template_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    source_template_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     stock_category_id: Mapped[int | None] = mapped_column(
         ForeignKey("stock_categories.id"), nullable=True
     )

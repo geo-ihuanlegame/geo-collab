@@ -215,6 +215,7 @@ export type ArticleSummary = {
   source_agent_name: string | null;
   /** 生成此文的提示词「模板」名；手动/历史文章为 null */
   source_template_name: string | null;
+  source_template_id: number | null;
   /** MCP loop/goal 生文的自评分（0-100）；手动/pipeline/方案文章为 null */
   auto_review_score: number | null;
   created_at: string;

@@ -198,6 +198,7 @@ def read_articles(
             published_count=count_map.get(a.id, 0),
             source_agent_name=a.source_agent_name,
             source_template_name=a.source_template_name,
+            source_template_id=a.source_template_id,
             auto_review_score=score_map.get(a.id),
             created_at=a.created_at,
             updated_at=a.updated_at,
@@ -1228,6 +1229,7 @@ def save_article_from_mcp(
         # （服务端从 prompt_template_id 查得的 tpl.name，不信任客户端传参）。
         article.source_agent_name = "loop"
         article.source_template_name = tpl.name
+        article.source_template_id = tpl.id
         if payload.model_label:
             existing = dict(article.metrics or {})
             existing["writer_model"] = payload.model_label

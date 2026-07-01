@@ -184,6 +184,7 @@ def _execute_task(
             return None
         template_content = tpl.content
         template_name = tpl.name
+        template_id = tpl.id
         task = db.get(GenerationSchemeRunTask, task_id)
         task.actual_prompt_template_id = tpl.id
         db.commit()
@@ -200,6 +201,7 @@ def _execute_task(
             model=model_override,
             source_agent_name=agent_name,
             source_template_name=template_name,
+            source_template_id=template_id,
         )
     except Exception as exc:  # noqa: BLE001 — 单 task 失败隔离
         logger.exception("scheme run task %s generation failed", task_id)

@@ -35,7 +35,7 @@ import type { Account, Article, ArticleCreatePayload, ArticleGroup, ArticleGroup
 import { formatDateTime } from "../../utils/dateFormat";
 import { EditorToolbar } from "../../components/editor/EditorToolbar";
 import { ImageSaveDialog } from "../../components/editor/ImageSaveDialog";
-import { ArticleListItem, ReviewBadge } from "../../components/ArticleListItem";
+import { ArticleListItem, ReviewBadge, formatArticleTemplateSource } from "../../components/ArticleListItem";
 import { Modal } from "../../components/Modal";
 import { Pagination } from "../../components/Pagination";
 import { DistributeModal, type DistributeTarget } from "./DistributeModal";
@@ -1219,7 +1219,7 @@ export function ContentWorkspace({
                             </span>
                             <span className="articleSourceLine">智能体：{article.source_agent_name || "—"}</span>
                             <span className="articleSourceRow">
-                              <span className="articleSourceLine">模板：{article.source_template_name || "—"}</span>
+                              <span className="articleSourceLine">模板：{formatArticleTemplateSource(article)}</span>
                               <small>
                                 {formatDateTime(article.updated_at)}
                                 {article.published_count > 0 ? <span style={{ color: "#16a34a", marginLeft: 6 }}>· 已发布 {article.published_count} 次</span> : null}

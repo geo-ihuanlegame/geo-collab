@@ -84,6 +84,7 @@ def _run_units(ctx: NodeRunContext, cfg: dict, units, model, max_count) -> NodeR
                 raise ValidationError("该单元允许模板在运行时全部无效或未配置")
             template_content = tpl.content
             template_name = tpl.name
+            source_template_id = tpl.id
         finally:
             db.close()
         aid = generate_article_from_prompt(
@@ -94,6 +95,7 @@ def _run_units(ctx: NodeRunContext, cfg: dict, units, model, max_count) -> NodeR
             model=model,
             source_agent_name=ctx.pipeline_name,
             source_template_name=template_name,
+            source_template_id=source_template_id,
         )
         stream(aid)
         return aid
@@ -162,6 +164,7 @@ def run_ai_generate(ctx: NodeRunContext) -> NodeResult:
             raise ValidationError("提示词模板无效（不存在/无权访问/停用/删除/非 generation）")
         template_content = tpl.content
         template_name = tpl.name
+        source_template_id = tpl.id
     finally:
         db.close()
 
@@ -178,6 +181,7 @@ def run_ai_generate(ctx: NodeRunContext) -> NodeResult:
             model=model,
             source_agent_name=ctx.pipeline_name,
             source_template_name=template_name,
+            source_template_id=source_template_id,
         )
         stream(aid)
         return aid

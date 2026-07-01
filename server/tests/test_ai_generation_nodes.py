@@ -279,6 +279,7 @@ def test_ai_compose_forwards_provenance_to_writer(monkeypatch):
         model=None,
         source_agent_name=None,
         source_template_name=None,
+        source_template_id=None,
         **_,
     ):
         import uuid
@@ -288,6 +289,7 @@ def test_ai_compose_forwards_provenance_to_writer(monkeypatch):
 
         captured["agent"] = source_agent_name
         captured["template"] = source_template_name
+        captured["template_id"] = source_template_id
         db = session_factory()
         try:
             art = create_article(
@@ -343,6 +345,7 @@ def test_ai_compose_forwards_provenance_to_writer(monkeypatch):
         assert len(res.output["article_ids"]) == 1
         assert captured["agent"] == "生文自动", "智能体名(pipeline_name)应透传给生文函数"
         assert captured["template"] == tpl_name == "游戏榜单清单", "实际所选模板名应透传"
+        assert captured["template_id"] == tpl_id, "实际所选模板 ID 应透传"
     finally:
         app.cleanup()
 

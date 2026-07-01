@@ -164,6 +164,7 @@ def generate_article_from_prompt(
     model: str | None = None,
     source_agent_name: str | None = None,
     source_template_name: str | None = None,
+    source_template_id: int | None = None,
     web_search: bool = False,
     deep_thinking: bool = False,
 ) -> int:
@@ -245,6 +246,7 @@ def generate_article_from_prompt(
         # 生文溯源：去规范化存名字，供未审核库 / 列表卡片直接展示
         article.source_agent_name = source_agent_name
         article.source_template_name = source_template_name
+        article.source_template_id = source_template_id
         # 显式游戏清单：盘点 / 推荐文写完顺手吐的 game_list 盖进 metrics，供配图侧走确定性落图
         # （散文 / 无块 → game_list None → 不盖 → 消费侧回退现有 run_ai_format，零回归）
         if game_list:
