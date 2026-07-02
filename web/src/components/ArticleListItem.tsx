@@ -4,9 +4,9 @@ import type { ArticleSummary, ReviewStatus } from "../types";
 export function formatArticleTemplateSource(article: Pick<ArticleSummary, "source_template_id" | "source_template_name">): string {
   const name = article.source_template_name;
   if (article.source_template_id != null) {
-    return name ? `ID ${article.source_template_id}：${name}` : `ID ${article.source_template_id}`;
+    return `ID：${article.source_template_id}  模板：${name || "—"}`;
   }
-  return name || "—";
+  return `模板：${name || "—"}`;
 }
 
 export function ReviewBadge({ status }: { status: ReviewStatus }) {
@@ -71,7 +71,7 @@ export const ArticleListItem = React.memo(function ArticleListItem({
         ) : null}
         <span className="articleSourceLine">智能体：{article.source_agent_name || "—"}</span>
         <span className="articleSourceRow">
-          <span className="articleSourceLine">模板：{formatArticleTemplateSource(article)}</span>
+          <span className="articleSourceLine">{formatArticleTemplateSource(article)}</span>
           <small>
             {new Date(article.updated_at).toLocaleString()}
             {article.published_count > 0 ? <span style={{ color: "var(--green)", marginLeft: 6 }}>· 已发布 {article.published_count} 次</span> : null}

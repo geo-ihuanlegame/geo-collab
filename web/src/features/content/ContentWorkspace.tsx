@@ -1219,7 +1219,7 @@ export function ContentWorkspace({
                             </span>
                             <span className="articleSourceLine">智能体：{article.source_agent_name || "—"}</span>
                             <span className="articleSourceRow">
-                              <span className="articleSourceLine">模板：{formatArticleTemplateSource(article)}</span>
+                              <span className="articleSourceLine">{formatArticleTemplateSource(article)}</span>
                               <small>
                                 {formatDateTime(article.updated_at)}
                                 {article.published_count > 0 ? <span style={{ color: "#16a34a", marginLeft: 6 }}>· 已发布 {article.published_count} 次</span> : null}
