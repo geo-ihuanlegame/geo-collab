@@ -6,7 +6,7 @@ fail + 提示开发者：把新 sha 加进 KNOWN_BUNDLE_SHAS 并 bump
 LOOP_SKILL_BUNDLE_VERSION，强制「改模板必同步 bump 版本」纪律。
 """
 
-LOOP_SKILL_BUNDLE_VERSION = "2026-06-29-v9"
+LOOP_SKILL_BUNDLE_VERSION = "2026-07-01-v10"
 
 KNOWN_BUNDLE_SHAS: frozenset[str] = frozenset(
     {
@@ -71,5 +71,12 @@ KNOWN_BUNDLE_SHAS: frozenset[str] = frozenset(
         # 早前误标「CI canonical」；b360c408 对不上任何标准组合（来源存疑/stale）。只增不删保留。
         "f40f9c28625e8e430fd4ebaa538d83a44d32b804d5c7e6cb5fc5662731218001",  # Windows序+LF (autocrlf=false Windows)
         "b360c4086ec0aca8db7ffdbd961172bd5c9be15951180236ec71944353045f61",  # 来源存疑(对不上标准组合), 保留不删
+        # v10 (2026-07-01, 引号转义指引): writer SKILL「保存到 GEO」段加两行 —— markdown_content
+        # 是正文自然文本不是 JSON 源码、正文引号不要写成 `\"`；中文优先用 “”/「」，需 ASCII 引号
+        # 时直接写 `"`。修 loop 生文正文里混入反斜杠转义引号的问题（提交 a13ad91 改了模板忘了
+        # 同步 bump 版本 → GitLab pipeline #419 test_bundle_sha_is_known 全红）。下面两值均为真
+        # 环境实测：CI canonical 直接取自 pipeline #419 的 Linux runner 输出。
+        "20ed5901f0e51ea21d1e889c692f26566a412b879b1adee784a4a389541ea42d",  # Linux序+LF (CI canonical, blob，实测 pipeline #419)
+        "a4c3c4bb2a51a8f2ee7c84eeaf08530274790cc2a20ef723294fdd1633977501",  # Windows序+CRLF (autocrlf=true 本地工作区, 实测 build_bundle)
     }
 )

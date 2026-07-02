@@ -82,6 +82,7 @@ from server.app.modules.articles.uploader import (
     get_upload_manager,
 )
 from server.app.modules.audit.service import add_audit_entry
+from server.app.modules.auto_review.models import AutoReviewDecision
 from server.app.modules.system.models import User
 from server.app.modules.tasks.models import PublishRecord
 from server.app.shared.errors import ClientError, ConflictError, ValidationError
@@ -174,6 +175,16 @@ def read_articles(
         .group_by(PublishRecord.article_id)
     ).all()
     count_map = {row.article_id: row.cnt for row in rows}
+    # MCP 自评分：只有 loop/goal 经 submit_review_decision 写 auto_review_decisions，
+    # 故此分数天然只对 MCP 生成的文章出现（pipeline/方案不写 → 无分）。取每篇最新一条 score_total。
+    score_rows = db.execute(
+        select(AutoReviewDecision.article_id, AutoReviewDecision.score_total)
+        .where(AutoReviewDecision.article_id.in_(article_ids))
+        .order_by(AutoReviewDecision.id.desc())
+    ).all()
+    score_map: dict[int, int | None] = {}
+    for aid, score in score_rows:
+        score_map.setdefault(aid, score)  # id desc + setdefault → 每篇保留最新一条决策的分
     return [
         ArticleListRead(
             id=a.id,
@@ -187,6 +198,8 @@ def read_articles(
             published_count=count_map.get(a.id, 0),
             source_agent_name=a.source_agent_name,
             source_template_name=a.source_template_name,
+            source_template_id=a.source_template_id,
+            auto_review_score=score_map.get(a.id),
             created_at=a.created_at,
             updated_at=a.updated_at,
         )
@@ -1170,10 +1183,11 @@ def save_article_from_mcp(
     import uuid
 
     from server.app.modules.ai_generation.converter import markdown_to_html, markdown_to_tiptap
+    from server.app.modules.ai_generation.markdown_sanitizer import normalize_markdown_content
     from server.app.modules.ai_generation.models import QuestionItem
     from server.app.modules.articles.schemas import ArticleCreate
     from server.app.modules.articles.service import create_article as _create_article
-    from server.app.modules.prompt_templates.models import PromptTemplate
+    from server.app.modules.prompt_templates.service import get_prompt_template
 
     item = db.query(QuestionItem).filter(QuestionItem.id == payload.question_item_id).first()
     if item is None:
@@ -1181,25 +1195,41 @@ def save_article_from_mcp(
             status_code=404,
             detail=f"question_item not found: id={payload.question_item_id}",
         )
-    tpl = db.query(PromptTemplate).filter(PromptTemplate.id == payload.prompt_template_id).first()
+    # get_prompt_template 已过滤软删（is_deleted）→ 软删模板视同不存在（404）。
+    tpl = get_prompt_template(db, payload.prompt_template_id)
     if tpl is None:
         raise HTTPException(
             status_code=404,
             detail=f"prompt_template not found: id={payload.prompt_template_id}",
         )
+    # 写入层兜底：被运营关闭（is_enabled=False）的模板不该再用于生文。
+    # 与查询层（mcp catalog enabled_only=True）双保险，防 Loop 传陈旧/写死的关闭 id。
+    if not tpl.is_enabled:
+        raise HTTPException(
+            status_code=400,
+            detail=f"prompt_template disabled: id={payload.prompt_template_id}",
+        )
+
+    markdown_content = normalize_markdown_content(payload.markdown_content)
 
     article_payload = ArticleCreate(
         title=payload.title,
-        content_json=markdown_to_tiptap(payload.markdown_content),
-        content_html=markdown_to_html(payload.markdown_content),
-        plain_text=payload.markdown_content,
-        word_count=len(payload.markdown_content),
+        content_json=markdown_to_tiptap(markdown_content),
+        content_html=markdown_to_html(markdown_content),
+        plain_text=markdown_content,
+        word_count=len(markdown_content),
         client_request_id=str(uuid.uuid4()),
     )
 
     try:
         article = _create_article(db, payload.user_id, article_payload)
         article.review_status = "pending"
+        # 生文溯源（与 pipeline 生文路径对齐，供内容列表 / 卡片展示「智能体 / 模板」）：
+        # MCP loop 路径的「智能体」固定字样 "loop"；「模板」取所用提示词模板的权威名称
+        # （服务端从 prompt_template_id 查得的 tpl.name，不信任客户端传参）。
+        article.source_agent_name = "loop"
+        article.source_template_name = tpl.name
+        article.source_template_id = tpl.id
         if payload.model_label:
             existing = dict(article.metrics or {})
             existing["writer_model"] = payload.model_label

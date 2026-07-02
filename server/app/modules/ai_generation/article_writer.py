@@ -164,6 +164,7 @@ def generate_article_from_prompt(
     model: str | None = None,
     source_agent_name: str | None = None,
     source_template_name: str | None = None,
+    source_template_id: int | None = None,
     web_search: bool = False,
     deep_thinking: bool = False,
 ) -> int:
@@ -178,6 +179,7 @@ def generate_article_from_prompt(
     import litellm
 
     from server.app.modules.ai_generation.converter import markdown_to_html, markdown_to_tiptap
+    from server.app.modules.ai_generation.markdown_sanitizer import normalize_markdown_content
     from server.app.modules.ai_generation.model_capabilities import completion_with_capabilities
     from server.app.modules.ai_models.service import resolve_writing_engine
     from server.app.modules.articles.schemas import ArticleCreate
@@ -225,6 +227,7 @@ def generate_article_from_prompt(
     game_list = [{"game": g} for g in game_names] or None
 
     title, body_md = extract_title_and_body(article_body)
+    body_md = normalize_markdown_content(body_md)
 
     article_payload = ArticleCreate(
         title=title,
@@ -243,6 +246,7 @@ def generate_article_from_prompt(
         # 生文溯源：去规范化存名字，供未审核库 / 列表卡片直接展示
         article.source_agent_name = source_agent_name
         article.source_template_name = source_template_name
+        article.source_template_id = source_template_id
         # 显式游戏清单：盘点 / 推荐文写完顺手吐的 game_list 盖进 metrics，供配图侧走确定性落图
         # （散文 / 无块 → game_list None → 不盖 → 消费侧回退现有 run_ai_format，零回归）
         if game_list:

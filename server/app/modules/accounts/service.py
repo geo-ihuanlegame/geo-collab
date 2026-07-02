@@ -11,6 +11,7 @@ import hashlib
 import re
 import time
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +41,10 @@ from server.app.shared.errors import ClientError, ConflictError, ValidationError
 
 _API_PLATFORM_LABELS = {"wechat_mp": "微信公众号"}
 _API_PLATFORM_CODES = set(_API_PLATFORM_LABELS)
+
+
+def mark_account_operated(account: Account, when: datetime | None = None) -> None:
+    account.last_operated_at = when or utcnow()
 
 
 def normalize_account_key(account_key: str | None) -> str:
@@ -174,7 +179,7 @@ def list_accounts(
             Account.merged_into.is_(None),
         )
         .options(selectinload(Account.platform))
-        .order_by(Account.updated_at.desc())
+        .order_by(Account.last_operated_at.desc(), Account.updated_at.desc(), Account.id.desc())
     )
     keyword = (q or "").strip()
     if keyword:
@@ -255,6 +260,7 @@ def create_api_account(db: Session, user_id: int, payload: ApiAccountCreate) -> 
     if duplicate is not None:
         raise ConflictError(f"该 AppID 已被登记（全平台唯一）: {app_id}")
 
+    now = utcnow()
     account = Account(
         user_id=user_id,
         platform=platform,
@@ -270,6 +276,7 @@ def create_api_account(db: Session, user_id: int, payload: ApiAccountCreate) -> 
         note=payload.note,
         avatar_asset_id=payload.avatar_asset_id,
         distribution_enabled=payload.distribution_enabled,
+        last_operated_at=now,
     )
     db.add(account)
     try:
@@ -317,7 +324,9 @@ def update_account_fields(db: Session, account: Account, payload: AccountUpdateR
         account.api_token_cache = None
         account.status = "unknown"
         account.last_checked_at = None
-    account.updated_at = utcnow()
+    now = utcnow()
+    account.last_operated_at = now
+    account.updated_at = now
     db.flush()
     return get_account(db, account.id) or account
 
@@ -335,7 +344,9 @@ def set_taptap_forum(db: Session, account: Account, payload: TaptapForumIn) -> A
     if payload.x_ua is not None:
         creds["x_ua"] = payload.x_ua
     account.api_credentials = creds
-    account.updated_at = utcnow()
+    now = utcnow()
+    account.last_operated_at = now
+    account.updated_at = now
     db.flush()
     return get_account(db, account.id) or account
 

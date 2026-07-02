@@ -80,14 +80,14 @@ export function AccountRow({
               <Phone size={11} className="accountRowPhoneIcon" />
               {phone}
             </span>
-            {account.owner_name && (
-              <span className="accountRowOwner">归属：{account.owner_name}</span>
-            )}
           </div>
         </div>
       </div>
       <div className="accountRowCell accountRowCellPlatform">
         <span>{account.platform_name}</span>
+      </div>
+      <div className="accountRowCell accountRowCellOwner">
+        <span className="accountRowOwner">{account.owner_name || "—"}</span>
       </div>
       <div className="accountRowCell accountRowCellRemark">
         <span className="accountRowRemark">{account.note || "—"}</span>
@@ -127,6 +127,7 @@ export function AccountRowHeader() {
       <div className="accountRowCell accountRowCellStatus">状态</div>
       <div className="accountRowCell accountRowCellAccount">账号</div>
       <div className="accountRowCell accountRowCellPlatform">平台</div>
+      <div className="accountRowCell accountRowCellOwner">归属</div>
       <div className="accountRowCell accountRowCellRemark">备注</div>
       <div className="accountRowCell accountRowCellActions">操作</div>
     </div>

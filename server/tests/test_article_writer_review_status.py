@@ -82,6 +82,7 @@ def test_generated_article_records_source_provenance(monkeypatch):
             model=None,
             source_agent_name="生文自动",
             source_template_name="游戏榜单清单",
+            source_template_id=36,
         )
         # 不带溯源（手动/旧路径） → 两列保持 None
         bare_id = generate_article_from_prompt(
@@ -96,8 +97,10 @@ def test_generated_article_records_source_provenance(monkeypatch):
             stamped = db.get(Article, stamped_id)
             assert stamped.source_agent_name == "生文自动"
             assert stamped.source_template_name == "游戏榜单清单"
+            assert stamped.source_template_id == 36
             bare = db.get(Article, bare_id)
             assert bare.source_agent_name is None
             assert bare.source_template_name is None
+            assert bare.source_template_id is None
     finally:
         app.cleanup()

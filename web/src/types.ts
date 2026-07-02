@@ -1,7 +1,7 @@
 import { Bot, FileText, Flame, Images, MessagesSquare, MonitorCog, Plug, RadioTower, Send, Sparkles } from "lucide-react";
 import type { ComponentType } from "react";
 
-export type NavKey = "agents" | "ai" | "content" | "prompts" | "image-library" | "media" | "tasks" | "system" | "hot-lists" | "mcp" | "admin" | "audit-logs" | "ai-models";
+export type NavKey = "agents" | "ai" | "content" | "prompts" | "image-library" | "media" | "tasks" | "system" | "hot-lists" | "mcp-connect" | "admin" | "audit-logs" | "ai-models";
 
 export type PromptScope = "generation" | "ai_format" | "image_search" | "image_companion";
 
@@ -215,6 +215,9 @@ export type ArticleSummary = {
   source_agent_name: string | null;
   /** 生成此文的提示词「模板」名；手动/历史文章为 null */
   source_template_name: string | null;
+  source_template_id: number | null;
+  /** MCP loop/goal 生文的自评分（0-100）；手动/pipeline/方案文章为 null */
+  auto_review_score: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -589,7 +592,7 @@ export const navItems: {
   { key: "tasks", label: "分发引擎", icon: Send },
   { key: "system", label: "系统状态", icon: MonitorCog },
   { key: "hot-lists", label: "热榜", icon: Flame },
-  { key: "mcp", label: "MCP 接入", icon: Plug },
+  { key: "mcp-connect", label: "MCP 接入", icon: Plug },
 ];
 
 export const TERMINAL_STATUSES = new Set(["succeeded", "partial_failed", "failed", "cancelled"]);

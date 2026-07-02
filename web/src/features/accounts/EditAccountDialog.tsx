@@ -107,7 +107,6 @@ export function EditAccountDialog({
         <div className="addAuthStep">{account.platform_name} · 修改账号信息</div>
         <div className="addAuthBody">
           <div className="addAuthField">
-            <div className="addAuthLabel">账号名称 *</div>
             <div className="addAuthNameRow">
               <div
                 className="addAuthAvatarUpload"
@@ -137,12 +136,15 @@ export function EditAccountDialog({
                 style={{ display: "none" }}
                 onChange={(e) => void handleAvatarChange(e)}
               />
-              <input
-                className="addAuthInput"
-                placeholder="例如：纪缘"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-              />
+              <div className="addAuthNameCol">
+                <div className="addAuthLabel">账号名称 *</div>
+                <input
+                  className="addAuthInput"
+                  placeholder="例如：纪缘"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                />
+              </div>
             </div>
           </div>
 

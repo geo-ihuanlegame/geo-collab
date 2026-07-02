@@ -57,6 +57,8 @@ description: Use when spawned as a writer subagent by /goal, or when manually
 
 - `title` 是单字段，<= 300 字符，**不要**在 `markdown_content` 顶部再写 `# 标题`
 - `markdown_content` 从正文第一段开始；用 `## / ###` 做次级标题；列表 / 加粗按需
+- `markdown_content` 是正文自然文本，不是 JSON 字符串源码；**不要**把正文引号写成 `\"`
+- 中文文章优先用 `“”` / `「」`；确实需要 ASCII 引号时直接写 `"`，不要转义
 - 后端 `save_article` 会把 markdown 转 Tiptap + HTML，重复标题会进段落里污染显示
 
 # 通用写作约束

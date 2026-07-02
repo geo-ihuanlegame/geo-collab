@@ -34,7 +34,7 @@ export function MobileMorePage({
       title: "系统",
       rows: [
         { key: "system", label: "系统状态", icon: MonitorCog },
-        { key: "mcp", label: "MCP 接入", icon: Plug },
+        { key: "mcp-connect", label: "MCP 接入", icon: Plug },
       ],
     },
     ...(isAdmin

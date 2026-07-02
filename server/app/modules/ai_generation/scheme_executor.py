@@ -31,7 +31,7 @@ from server.app.modules.articles.ai_format import (
     run_ai_format,
     run_ai_format_from_game_list,
 )
-from server.app.modules.prompt_templates.service import get_visible_prompt_template
+from server.app.modules.prompt_templates.service import get_runtime_prompt_template
 from server.app.shared.concurrency import ObservableGate, register_gate
 from server.app.shared.errors import ConflictError
 
@@ -128,7 +128,7 @@ def _pick_valid_template(
     """从允许列表里筛出运行时有效的模板（可见/未删/启用/scope=generation），随机返回一个；全无效返回 None。"""
     valid = []
     for tid in dict.fromkeys(allowed_ids or []):
-        tpl = get_visible_prompt_template(db, tid, user_id=user_id, scope="generation")
+        tpl = get_runtime_prompt_template(db, tid, user_id=user_id, scope="generation")
         if tpl is not None and tpl.is_enabled:
             valid.append(tpl)
     if not valid:
@@ -184,6 +184,7 @@ def _execute_task(
             return None
         template_content = tpl.content
         template_name = tpl.name
+        template_id = tpl.id
         task = db.get(GenerationSchemeRunTask, task_id)
         task.actual_prompt_template_id = tpl.id
         db.commit()
@@ -200,6 +201,7 @@ def _execute_task(
             model=model_override,
             source_agent_name=agent_name,
             source_template_name=template_name,
+            source_template_id=template_id,
         )
     except Exception as exc:  # noqa: BLE001 — 单 task 失败隔离
         logger.exception("scheme run task %s generation failed", task_id)

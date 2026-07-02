@@ -1,9 +1,17 @@
 import { api } from "./core";
 
+export type McpToolInfo = {
+  name: string;
+  group: string; // catalog / action / meta
+  summary: string; // 工具 docstring 首行（英文）
+  summary_zh: string; // 中文「用处」：后端算好（手写覆盖 → 机翻 → 英文兜底）
+};
+
 export type McpStatus = {
   configured: boolean;
   suggested_base_url: string;
-  tools_count: number;
+  tools_count: number; // = tools.length，实时
+  tools: McpToolInfo[];
 };
 
 export type McpHealthResult =
